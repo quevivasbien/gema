@@ -1,0 +1,378 @@
+// Bun Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`parse addition 1`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Binary {
+        "left": Binary {
+          "left": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.22",
+          },
+          "operator": "+",
+          "parent": null,
+          "right": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.23",
+          },
+          "type": null,
+        },
+        "operator": "+",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "8",
+        },
+        "type": null,
+      },
+      "operator": "+",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 1,
+        "value": "3.13",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`parse subtraction 1`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Binary {
+        "left": Binary {
+          "left": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.22",
+          },
+          "operator": "-",
+          "parent": null,
+          "right": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.23",
+          },
+          "type": null,
+        },
+        "operator": "-",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "8",
+        },
+        "type": null,
+      },
+      "operator": "-",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 1,
+        "value": "3.13",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`parse multiplication 1`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Binary {
+        "left": Binary {
+          "left": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.22",
+          },
+          "operator": "*",
+          "parent": null,
+          "right": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.23",
+          },
+          "type": null,
+        },
+        "operator": "*",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "8",
+        },
+        "type": null,
+      },
+      "operator": "*",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 1,
+        "value": "3.13",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`parse division 1`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Binary {
+        "left": Binary {
+          "left": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.22",
+          },
+          "operator": "/",
+          "parent": null,
+          "right": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.23",
+          },
+          "type": null,
+        },
+        "operator": "/",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "8",
+        },
+        "type": null,
+      },
+      "operator": "/",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 1,
+        "value": "3.13",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`parse order of operations 1`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 1,
+        "value": "1.22",
+      },
+      "operator": "+",
+      "parent": null,
+      "right": Binary {
+        "left": Binary {
+          "left": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.23",
+          },
+          "operator": "*",
+          "parent": null,
+          "right": Literal {
+            "parent": null,
+            "type": 0,
+            "value": "8",
+          },
+          "type": null,
+        },
+        "operator": "/",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 1,
+          "value": "3.13",
+        },
+        "type": null,
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`parse parens 1`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Binary {
+        "left": Binary {
+          "left": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.22",
+          },
+          "operator": "+",
+          "parent": null,
+          "right": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "1.23",
+          },
+          "type": null,
+        },
+        "operator": "*",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "8",
+        },
+        "type": null,
+      },
+      "operator": "/",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 1,
+        "value": "3.13",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`parse block 1`] = `
+Block {
+  "expressions": [
+    Block {
+      "expressions": [
+        Binary {
+          "left": Binary {
+            "left": Literal {
+              "parent": null,
+              "type": 1,
+              "value": "1.22",
+            },
+            "operator": "+",
+            "parent": null,
+            "right": Binary {
+              "left": Literal {
+                "parent": null,
+                "type": 1,
+                "value": "1.23",
+              },
+              "operator": "*",
+              "parent": null,
+              "right": Block {
+                "expressions": [
+                  Binary {
+                    "left": Literal {
+                      "parent": null,
+                      "type": 0,
+                      "value": "8",
+                    },
+                    "operator": "/",
+                    "parent": null,
+                    "right": Literal {
+                      "parent": null,
+                      "type": 1,
+                      "value": "3.13",
+                    },
+                    "type": null,
+                  },
+                ],
+                "parent": null,
+                "type": null,
+              },
+              "type": null,
+            },
+            "type": null,
+          },
+          "operator": "+",
+          "parent": null,
+          "right": Literal {
+            "parent": null,
+            "type": 1,
+            "value": "2.",
+          },
+          "type": null,
+        },
+      ],
+      "parent": null,
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`parse block 2`] = `
+Block {
+  "expressions": [
+    DropValue {
+      "child": Binary {
+        "left": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "1",
+        },
+        "operator": "+",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "1",
+        },
+        "type": null,
+      },
+      "parent": null,
+      "type": 4,
+    },
+    DropValue {
+      "child": Unary {
+        "child": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "2",
+        },
+        "operator": "-",
+        "parent": null,
+        "type": null,
+      },
+      "parent": null,
+      "type": 4,
+    },
+    Literal {
+      "parent": null,
+      "type": 0,
+      "value": "3",
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
