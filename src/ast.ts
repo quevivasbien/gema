@@ -2,31 +2,17 @@ import type { JSWriter } from "./write-js";
 import { TokenType } from "./tokens";
 
 export enum Type {
-    Integer,    
-    Float,
-    String,
-    Boolean,
-    Null,
+    Integer = "Int",    
+    Float = "Float",
+    String = "Str",
+    Boolean = "Bool",
+    Null = "Null",
 }
 
 export abstract class Expression {
-    parent: Expression | null = null;
     type: Type | null = null;
 
-    setType(): void {
-        throw new Error(`\`setType\` not implemented for ${this.constructor.name}.`);
-    }
-
-    getType(): Type {
-        if (this.type !== null) {
-            return this.type;
-        }
-        this.setType();
-        if (this.type === null) {
-            throw new Error(`Failed to set type for ${this.constructor.name} expression`);
-        }
-        return this.type;
-    }
+    abstract cascadeLineage(ancestors: Expression[]): void;
 
     toJS(writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`)
@@ -38,12 +24,21 @@ export class ErrorExpression extends Expression {
     constructor(public message: string) {
         super();
     }
+
+    cascadeLineage(ancestors: Expression[]): void {
+        // noop
+    }
 }
 
 export class DropValue extends Expression {
     constructor(public child: Expression) {
         super();
         this.type = Type.Null;
+    }
+    
+    cascadeLineage(ancestors: Expression[]): void {
+        // Type is already resolved as null, so just pass to children
+        this.child.cascadeLineage([...ancestors, this]);
     }
 
     toJS(writer: JSWriter): void {
@@ -57,6 +52,14 @@ export class Block extends Expression {
             throw new Error("found empty block expression.");
         }
         super();
+    }
+
+    cascadeLineage(ancestors: Expression[]): void {
+        for (const expression of this.expressions) {
+            expression.cascadeLineage([...ancestors, this]);
+        }
+        // Resolve type based on last child
+        this.type = this.expressions[this.expressions.length - 1].type;
     }
 
     toJS(writer: JSWriter): void {
@@ -91,6 +94,9 @@ export class Literal extends Expression {
         this.type = type;
     }
 
+    cascadeLineage(ancestors: Expression[]): void {
+        // Type is already resolved; no need to do anything
+    }
 
     toJS(compiler: JSWriter): void {
         // TODO: Check types
@@ -115,15 +121,36 @@ export class Unary extends Expression {
         super();
     }
 
-    toJS(writer: JSWriter): void {
-        // TODO: Check types
-        if (this.operator === TokenType.Minus) {
-            writer.write("(-");
-            this.child.toJS(writer);
-            writer.write(")");
-            return;
+    cascadeLineage(ancestors: Expression[]): void {
+        this.child.cascadeLineage([...ancestors, this]);
+
+        switch (this.child.type) {
+            case Type.Integer:
+                if (this.operator === TokenType.Minus) {
+                    this.type = Type.Integer;
+                    return;
+                }
+                break;
+            case Type.Float:
+                if (this.operator === TokenType.Minus) {
+                    this.type = Type.Float;
+                    return;
+                }
+                break;
+            case Type.Boolean:
+                if (this.operator === TokenType.Bang) {
+                    this.type = Type.Boolean;
+                    return;
+                }
+                break;
         }
-        throw new Error(`tried to use token ${this.operator} as unary operator`);
+        throw new Error(`cannot use token ${this.operator} on expression of type ${this.child.type}.`);
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write(`(${this.operator}`);
+        this.child.toJS(writer);
+        writer.write(")");
     }
 }
 
@@ -145,6 +172,96 @@ const OPERATOR_TRANSLATIONS: Record<string, string> = {
 export class Binary extends Expression {
     constructor(public left: Expression, public right: Expression, public operator: TokenType) {
         super();
+    }
+
+    cascadeLineage(ancestors: Expression[]): void {
+        this.left.cascadeLineage([...ancestors, this]);
+        this.right.cascadeLineage([...ancestors, this]);
+
+        const [ltype, rtype] = [this.left.type, this.right.type];
+
+        const NUMERIC_OPS = [
+            TokenType.Plus,
+            TokenType.Minus,
+            TokenType.Star,
+            TokenType.Slash,
+            TokenType.Percent,
+        ];
+        const COMPARISON_OPS = [
+            TokenType.Greater,
+            TokenType.GreaterEqual,
+            TokenType.Less,
+            TokenType.LessEqual,
+            TokenType.EqualEqual,
+            TokenType.BangEqual,
+        ];
+        const BOOLEAN_OPS = [
+            TokenType.And,
+            TokenType.Or,
+            TokenType.EqualEqual,
+            TokenType.BangEqual,
+        ];
+
+        switch (ltype) {
+            case Type.Integer:
+                if (
+                    rtype === Type.Integer ||
+                    rtype === Type.Float
+                ) {
+                    if (NUMERIC_OPS.includes(this.operator)) {
+                        this.type = rtype;
+                        return;
+                    }
+                    if (COMPARISON_OPS.includes(this.operator)) {
+                        this.type = Type.Boolean;
+                        return;
+                    }
+                }
+                break;
+
+            case Type.Float:
+                if (
+                    rtype === Type.Integer ||
+                    rtype === Type.Float
+                ) {
+                    if (NUMERIC_OPS.includes(this.operator)) {
+                        this.type = Type.Float;
+                        return;
+                    }
+                    if (COMPARISON_OPS.includes(this.operator)) {
+                        this.type = Type.Boolean;
+                        return;
+                    }
+                }
+                break;
+
+            case Type.String:
+                if (
+                    rtype === Type.String &&
+                    this.operator === TokenType.Plus
+                ) {
+                    this.type = Type.String;
+                    return;
+                } else if (
+                    rtype === Type.String &&
+                    COMPARISON_OPS.includes(this.operator)
+                ) {
+                    this.type = Type.Boolean;
+                    return;
+                }
+                break;
+
+            case Type.Boolean:
+                if (
+                    rtype === Type.Boolean &&
+                    BOOLEAN_OPS.includes(this.operator)
+                ) {
+                    this.type = Type.Boolean;
+                    return;
+                }
+                break;
+        }
+        throw new Error(`cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
     }
 
     toJS(writer: JSWriter): void {
@@ -184,16 +301,71 @@ export class Variable extends Expression {
     constructor(public name: string) {
         super();
     }
+
+    resolveAssignment(e: Expression): Type | null {
+        if (e instanceof Assignment && (e as Assignment).name === this.name) {
+            return (e as Assignment).value.type;
+        }
+        return null;
+    }
+
+    cascadeLineage(ancestors: Expression[]): void {
+        let lastAncestor: Expression = this;
+        for (let i = 0; i < ancestors.length; i++) {
+            const ancestor = ancestors[ancestors.length - i - 1];
+            let olderSiblings: Expression[] = [];
+            if (ancestor instanceof Block) {
+                olderSiblings = ancestor.expressions.slice(0, olderSiblings.indexOf(lastAncestor));
+            }
+            for (let j = 0; j < olderSiblings.length; j++) {
+                const olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                const type = this.resolveAssignment(olderSibling);
+                if (type !== null) {
+                    this.type = type;
+                    return;
+                }
+            }
+            lastAncestor = ancestor;
+        }
+        throw new Error(`unable to resolve type of variable ${this.name}`);
+     }
+
+    toJS(writer: JSWriter): void {
+        writer.write(this.name);
+    }
 }
 
 export class Assignment extends Expression {
-    constructor(public name: string, public value: Expression) {
+    constructor(public name: string, public value: Expression, public isDropped: boolean) {
         super();
+    }
+
+    cascadeLineage(ancestors: Expression[]): void {
+        // Don't include self in children's lineage, to avoid problems with recursive definitions
+        this.value.cascadeLineage([...ancestors]);
+
+        this.type = this.isDropped ? Type.Null : this.value.type;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.declareVariable(this.name);
+        if (this.isDropped) {
+            writer.write(`${this.name} = `);
+            this.value.toJS(writer);
+        } else {
+            writer.write(`(() => { ${this.name} = `);
+            this.value.toJS(writer);
+            writer.write(`; return ${this.name}; })()`);
+        }
     }
 }
 
 export class If extends Expression {
-    constructor(public condition: Expression, public thenBranch: Expression, public elseBranch: Expression) {
+    constructor(public condition: Expression, public thenBranch: Expression, public elseBranch: Expression | null) {
         super();
+    }
+
+    cascadeLineage(ancestors: Expression[]): void {
+        // TODO
     }
 }

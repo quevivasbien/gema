@@ -3,7 +3,7 @@ import { writeJS } from "../src/write-js";
 import { testParse } from "./parse.test";
 
 function testCompile(text: string, expectEqual?: any) {
-    const ast = testParse(text);
+    const ast = testParse(text, false);
     const sourceOut = writeJS(ast);
     expect(sourceOut).toMatchSnapshot();
     if (expectEqual) {
@@ -45,5 +45,24 @@ test("compile block", () => {
             (-32 / 4) % { 1 + 2 } 
         `,
         1n
+    );
+});
+
+test("compile variables", () => {
+    testCompile(
+        `
+            x = 1.2;
+            y = { 2.3 };
+            x + y
+        `,
+        3.5
+    );
+    testCompile(
+        `
+            x = 1.2;
+            y = { 2.3 }
+            x = x + y
+        `,
+        3.5
     );
 });

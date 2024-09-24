@@ -252,9 +252,8 @@ function parseVariable(parser: Parser): AST.Expression {
             throw e;
         }
     }
-    // This is a variable definition
-    parser.advance();
-    return parser.assignment(text);
+    parser.error("Variable assignments are not allowed within expressions.");
+    return new AST.ErrorExpression("Variable assignments are not allowed within expressions.");
 }
 
 class Parser {
@@ -276,13 +275,17 @@ class Parser {
         return this.tokens[this.previousIndex];
     }
 
+    peek(offset: number = 1): Token | undefined {
+        return this.tokens[this.index + offset];
+    }
+
     atEnd(): boolean {
         return this.index >= this.tokens.length;
     }
 
-    advance() {
-        this.previousIndex = this.index;
-        this.index += 1;
+    advance(offset: number = 1) {
+        this.index += offset;
+        this.previousIndex = this.index - 1;
     }
     
     error(message: string): AST.ErrorExpression {
@@ -292,7 +295,7 @@ class Parser {
         }
         this.panicMode = true;
         const token = this.previous();
-        this.errors.push(`On line ${token.line}, column ${token.col}, ${message}`);
+        this.errors.push(`On line ${token.line + 1}, column ${token.col + 1}, ${message}`);
         return errorExpr;
     }
 
@@ -319,12 +322,22 @@ class Parser {
         return expr;
     }
 
-    assignment(name: string): AST.Expression {
+    assignment(): AST.Expression | null {
+        if (this.current().type !== TokenType.Identifier || this.peek()?.type !== TokenType.Equal) {
+            return null;
+        }
+        const varName = this.current().text;
+        this.advance(2);
         const value = this.parseWithPrecedence(Precedence.Assignment);
         if (!value) {
             return this.error("Expected expression after =");
         }
-        return new AST.Assignment(name, value);
+        let isDropped = false;
+        if (!this.atEnd() && this.current().type === TokenType.Semicolon) {
+            this.advance();
+            isDropped = true;
+        }
+        return new AST.Assignment(varName, value, isDropped);
     }
 
     expression(): AST.Expression | null {
@@ -342,13 +355,19 @@ class Parser {
 
         const expressions: AST.Expression[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
+            const assignment = this.assignment();
+            if (assignment !== null) {
+                expressions.push(assignment);
+                continue;
+            }
             const expr = this.expression();
             if (expr !== null) {
                 expressions.push(expr);
             }
         }
         if (!this.atEnd()) {
-            this.index += 1;
+            // Consume the closing brace
+            this.advance();
         }
         try {
             return new AST.Block(expressions);
@@ -365,5 +384,8 @@ class Parser {
 export function parse(tokens: Token[]): { ast: AST.Expression, errors: string[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
+    if (parser.errors.length === 0) {
+        block.cascadeLineage([]);
+    }
     return { ast: block, errors: parser.errors };
 }

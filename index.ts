@@ -30,12 +30,12 @@ zeroIfOdd = if (x % 2 == 0) {
 const tokens = scan(text);
 console.log(tokens);
 const { ast, errors } = parse(tokens);
+console.log(ast);
 if (errors.length > 0) {
-    console.log("Got errors:");
-    errors.forEach(e => console.log(e));
+    console.log("Encountered error(s) in parsing:");
+    errors.forEach((e) => console.log(e));
 } else {
     const source = writeJS(ast);
     console.log(source);
-    
     console.log(eval(source));
 }
