@@ -5,7 +5,7 @@ A simple programming language that transpiles to JavaScript.
 
 ## Setup
 
-This project uses the [Bun](https://bun.sh) JavaScript runtime and package manager, though you should also be able to use Node + NPM (or similar) as drop-in replacements.
+This project uses the [Bun](https://bun.sh) JavaScript runtime and package manager, though you should also be able to use Node + NPM (or similar) with some minor tweaks.
 
 To install dependencies:
 
@@ -23,40 +23,43 @@ bun run index.ts
 
 ### Assign variables
 ```
-x = 1
-y = 2.17828
+x = 1;
+y = 2.17828;
 
-z = x + y
-# z = 3.17828
+z = x + y;
+# z == 3.17828
 ```
 
 ### Conditional expressions
 ```
-x = 2
+x = 2;
 
 zeroIfOdd = if (x % 2 == 0) {
     x
 } else {
     0
-}
+};
 
-# zeroIfOdd = 2
+# zeroIfOdd == 2
 
 
-x = 3
+x = 3;
 
 zeroIfOdd = if (x % 2 == 0) {
     x
 } else {
     0
-}
+};
 
-# zeroIfOdd = 0
+# zeroIfOdd == 0
 ```
 
 ### Functions
 ```
 func isOdd(x: Int): Bool {
-    x % 2 == 0
+    x % 2 != 0
 }
+
+isOdd(11)  # true
+isOdd(12)  # false
 ```

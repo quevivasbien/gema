@@ -44,6 +44,11 @@ PARSE_RULES[TokenType.If] = {
     infix: null,
     precedence: Precedence.None
 };
+PARSE_RULES[TokenType.Func] = {
+    prefix: parseFunction,
+    infix: null,
+    precedence: Precedence.None
+};
 
 // AST.Literals
 PARSE_RULES[TokenType.Integer] = {
@@ -196,24 +201,75 @@ function parseIfStatement(parser: Parser): AST.Expression {
     return parser.tryCreateASTExpression(() => new AST.If(rootToken, condition, thenBranch, elseBranch));
 }
 
+function parseFunction(parser: Parser): AST.Expression {
+    const rootToken = parser.previous();  // should be 'func'
+    if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+        return parser.error("Expected function name.");
+    }
+    const name = parser.current().text;
+    parser.advance();
+    if (parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after function name.");
+    }
+    parser.advance();
+    const params: { name: string, type: AST.Type }[] = [];
+    while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+        if (parser.current().type !== TokenType.Identifier) {
+            return parser.error("Expected parameter name.");
+        }
+        const paramName = parser.current().text;
+        parser.advance();
+        if (parser.current().type !== TokenType.Colon) {
+            return parser.error("Expected ':' after parameter name.");
+        }
+        parser.advance();
+        const typeName = parser.getTypeName();  
+        if (!typeName) {
+            return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
+        }
+        params.push({ name: paramName, type: typeName });
+    }
+
+    if (parser.atEnd()) {
+        return parser.error("Unterminated function definition.");
+    }
+    parser.advance();
+
+    if (parser.current().type !== TokenType.Colon) {
+        return parser.error("Expected ':' after function parameters.");
+    }
+    parser.advance();
+    const returnType = parser.getTypeName();
+    if (!returnType) {
+        return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
+    }
+
+    if (parser.current().type !== TokenType.LBrace) {
+        return parser.error("Expected '{' after function parameters.");
+    }
+    parser.advance();
+
+    return parser.tryCreateASTExpression(() => new AST.Function(rootToken, name, params, returnType, parser.block()));
+}
+
 function parseInt(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new AST.Literal(token, AST.Type.Integer);
+    return new AST.Literal(token, "Int");
 }
 
 function parseFloat(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new AST.Literal(token, AST.Type.Float);
+    return new AST.Literal(token, "Float");
 }
 
 function parseString(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new AST.Literal(token, AST.Type.String);
+    return new AST.Literal(token, "Str");
 }
 
 function parseBoolean(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new AST.Literal(token, AST.Type.Boolean);
+    return new AST.Literal(token, "Bool");
 }
 
 function parseUnary(parser: Parser): AST.Expression {
@@ -298,6 +354,52 @@ class Parser {
         } catch (e) {
             if (e instanceof Error) {
                 return this.error(e.message);
+            }
+            throw e;
+        }
+    }
+
+    getTemplateTypes(): AST.Type[] {
+        if (this.current().type !== TokenType.Less) {
+            return [];
+        }
+        this.advance();
+        const templateTypes: AST.Type[] = [];
+        while (!this.atEnd() && this.current().type !== TokenType.Greater) {
+            if (this.current().type !== TokenType.Identifier) {
+                throw this.error("Expected type identifier.");
+            }
+            const typeName = this.current().text;
+            this.advance();
+            let nestedTemplateTypes = this.getTemplateTypes();
+            templateTypes.push(AST.getType(typeName, nestedTemplateTypes));
+            if (this.current().type === TokenType.Comma) {
+                this.advance();
+            }
+        }
+        if (this.atEnd()) {
+            throw this.error("Unterminated type template.");
+        }
+        this.advance();
+        return templateTypes;
+    }
+
+    getTypeName(): AST.Type | null {
+        if (this.current().type !== TokenType.Identifier) {
+            return null;
+        }
+        const paramType = this.current().text;
+        this.advance();
+        let templateTypes: AST.Type[] = this.getTemplateTypes();
+        if (this.current().type === TokenType.Comma) {
+            this.advance();
+        }
+        try {
+            return AST.getType(paramType, templateTypes);
+        } catch (e) {
+            if (e instanceof Error) {
+                this.error(e.message);
+                return null;
             }
             throw e;
         }

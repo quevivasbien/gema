@@ -955,3 +955,208 @@ exports[`parse if 3`] = `
   },
 ]
 `;
+
+exports[`parse function 1`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Function {
+      "body": Block {
+        "col": 30,
+        "expressions": [
+          Binary {
+            "col": 34,
+            "left": Variable {
+              "col": 32,
+              "line": 0,
+              "name": "a",
+              "type": "Int",
+            },
+            "line": 0,
+            "operator": "+",
+            "right": Variable {
+              "col": 36,
+              "line": 0,
+              "name": "b",
+              "type": "Int",
+            },
+            "type": "Int",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "col": 0,
+      "line": 0,
+      "name": "add",
+      "params": [
+        {
+          "name": "a",
+          "type": "Int",
+        },
+        {
+          "name": "b",
+          "type": "Int",
+        },
+      ],
+      "returnType": "Int",
+      "type": FuncType {
+        "paramTypes": [
+          "Int",
+          "Int",
+        ],
+        "returnType": "Int",
+      },
+    },
+  ],
+  "line": 0,
+  "type": FuncType {
+    "paramTypes": [
+      "Int",
+      "Int",
+    ],
+    "returnType": "Int",
+  },
+}
+`;
+
+exports[`parse function 2`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    Function {
+      "body": Block {
+        "col": 91,
+        "expressions": [
+          Variable {
+            "col": 12,
+            "line": 2,
+            "name": "a",
+            "type": FuncType {
+              "paramTypes": [
+                "Int",
+              ],
+              "returnType": FuncType {
+                "paramTypes": [
+                  "Int",
+                ],
+                "returnType": "Int",
+              },
+            },
+          },
+        ],
+        "line": 1,
+        "type": FuncType {
+          "paramTypes": [
+            "Int",
+          ],
+          "returnType": FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": "Int",
+          },
+        },
+      },
+      "col": 8,
+      "line": 1,
+      "name": "myFunc",
+      "params": [
+        {
+          "name": "a",
+          "type": FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": FuncType {
+              "paramTypes": [
+                "Int",
+              ],
+              "returnType": "Int",
+            },
+          },
+        },
+        {
+          "name": "b",
+          "type": FuncType {
+            "paramTypes": [],
+            "returnType": "Int",
+          },
+        },
+      ],
+      "returnType": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": FuncType {
+          "paramTypes": [
+            "Int",
+          ],
+          "returnType": "Int",
+        },
+      },
+      "type": FuncType {
+        "paramTypes": [
+          FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": FuncType {
+              "paramTypes": [
+                "Int",
+              ],
+              "returnType": "Int",
+            },
+          },
+          FuncType {
+            "paramTypes": [],
+            "returnType": "Int",
+          },
+        ],
+        "returnType": FuncType {
+          "paramTypes": [
+            "Int",
+          ],
+          "returnType": FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": "Int",
+          },
+        },
+      },
+    },
+  ],
+  "line": 1,
+  "type": FuncType {
+    "paramTypes": [
+      FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": FuncType {
+          "paramTypes": [
+            "Int",
+          ],
+          "returnType": "Int",
+        },
+      },
+      FuncType {
+        "paramTypes": [],
+        "returnType": "Int",
+      },
+    ],
+    "returnType": FuncType {
+      "paramTypes": [
+        "Int",
+      ],
+      "returnType": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": "Int",
+      },
+    },
+  },
+}
+`;

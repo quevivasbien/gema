@@ -78,3 +78,12 @@ test("parse if", () => {
    testParseExpectError(`if (1) { 1 } else { 2 }`);
    testParseExpectError(`if (true) { 1 }`)
 });
+
+test("parse function", () => {
+    testParse(`func add(a: Int, b: Int): Int { a + b }`);
+    testParse(`
+        func myFunc(a: Func<Int, Func<Int, Int>>, b: Func<Int>): Func<Int, Func<Int, Int>> {
+            a
+        }
+    `);
+});

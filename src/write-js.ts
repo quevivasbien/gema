@@ -4,9 +4,17 @@ import { BUILTINS } from "./builtins";
 class Scope {
     parent: Scope | null;
     variableNames: Set<string> = new Set();
+    functionNames: Set<string> = new Set();
 
     constructor(parent: Scope | null = null) {
         this.parent = parent;
+    }
+
+    addFunctionName(name: string) {
+        if (this.functionNames.has(name)) {
+            throw new Error(`Duplicate function definition`);
+        }
+        this.functionNames.add(name);
     }
 
     getDeclarations(): string[] {
@@ -49,6 +57,18 @@ export class JSWriter {
 
     useBuiltin(name: string) {
         this.builtins.add(name);
+    }
+
+    beginFunction(name: string) {
+        this.scope.addFunctionName(name);
+        this.scope = new Scope(this.scope);
+    }
+
+    endFunction() {
+        if (this.scope.parent === null) {
+            throw new Error("Tried to exit top-level scope");
+        }
+        this.scope = this.scope.parent;
     }
 
     compile(): string {

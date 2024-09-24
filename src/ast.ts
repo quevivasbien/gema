@@ -1,16 +1,52 @@
 import type { JSWriter } from "./write-js";
 import { TokenType, type Token } from "./tokens";
+import { deepEquals } from "bun";  // If using Node.js, replace this with isDeepStrictEqual from "util" library
 
 export class ASTError {
     constructor(public line: number, public col: number, public message: string) {}
 }
 
-export enum Type {
-    Integer = "Int",    
-    Float = "Float",
-    String = "Str",
-    Boolean = "Bool",
-    Null = "Null",
+class FuncType {
+    constructor(
+        public paramTypes : Type[],
+        public returnType: Type
+    ) {}
+
+    toString(): string {
+        return `Func<${this.paramTypes.join(", ")}, ${this.returnType}>`;
+    }
+}
+
+export type Type =
+    "Int" |
+    "Float" |
+    "Str" |
+    "Bool" |
+    "Null" |
+    FuncType
+;
+
+export function getType(typeName: string, templateTypes: Type[]): Type {
+    if ([
+        "Int",
+        "Float",
+        "Str",
+        "Bool",
+        "Null",
+    ].includes(typeName)) {
+        if (templateTypes.length > 0) {
+            throw new Error(`${typeName} cannot have template types`);
+        }
+        return typeName as Type;
+    }
+    if (typeName === "Func") {
+        if (templateTypes.length === 0) {
+            throw new Error(`Func type requires at least one template type (for the return type)`);
+        }
+        return new FuncType(templateTypes.slice(0, -1), templateTypes[templateTypes.length - 1]);
+    }
+
+    throw new Error(`Unknown type: ${typeName}`);
 }
 
 export abstract class Expression {
@@ -43,7 +79,7 @@ export class ErrorExpression extends Expression {
 export class DropValue extends Expression {
     constructor(public child: Expression) {
         super(child.line, child.col);
-        this.type = Type.Null;
+        this.type = "Null";
     }
     
     cascadeLineage(ancestors: Expression[]): void {
@@ -112,19 +148,21 @@ export class Literal extends Expression {
     }
 
     toJS(compiler: JSWriter): void {
-        // TODO: Check types
         switch (this.type) {
-            case Type.Integer:
+            case "Int":
                 compiler.write(`BigInt(${this.value})`);
                 break;
-            case Type.Float:
+            case "Float":
                 compiler.write(this.value);
                 break;
-            case Type.String:
+            case "Str":
                 compiler.write(this.value);
                 break;
-            case Type.Boolean:
+            case "Bool":
                 compiler.write(this.value);
+                break;
+            default:
+                throw this.error(`cannot use token ${this.value} as literal type`);
         }
     }
 }
@@ -141,21 +179,21 @@ export class Unary extends Expression {
         this.child.cascadeLineage([...ancestors, this]);
 
         switch (this.child.type) {
-            case Type.Integer:
+            case "Int":
                 if (this.operator === TokenType.Minus) {
-                    this.type = Type.Integer;
+                    this.type = "Int";
                     return;
                 }
                 break;
-            case Type.Float:
+            case "Float":
                 if (this.operator === TokenType.Minus) {
-                    this.type = Type.Float;
+                    this.type = "Float";
                     return;
                 }
                 break;
-            case Type.Boolean:
+            case "Bool":
                 if (this.operator === TokenType.Bang) {
-                    this.type = Type.Boolean;
+                    this.type = "Bool";
                     return;
                 }
                 break;
@@ -222,60 +260,60 @@ export class Binary extends Expression {
         ];
 
         switch (ltype) {
-            case Type.Integer:
+            case "Int":
                 if (
-                    rtype === Type.Integer ||
-                    rtype === Type.Float
+                    rtype === "Int" ||
+                    rtype === "Float"
                 ) {
                     if (NUMERIC_OPS.includes(this.operator)) {
                         this.type = rtype;
                         return;
                     }
                     if (COMPARISON_OPS.includes(this.operator)) {
-                        this.type = Type.Boolean;
+                        this.type = "Bool";
                         return;
                     }
                 }
                 break;
 
-            case Type.Float:
+            case "Float":
                 if (
-                    rtype === Type.Integer ||
-                    rtype === Type.Float
+                    rtype === "Int" ||
+                    rtype === "Float"
                 ) {
                     if (NUMERIC_OPS.includes(this.operator)) {
-                        this.type = Type.Float;
+                        this.type = "Float";
                         return;
                     }
                     if (COMPARISON_OPS.includes(this.operator)) {
-                        this.type = Type.Boolean;
+                        this.type = "Bool";
                         return;
                     }
                 }
                 break;
 
-            case Type.String:
+            case "Str":
                 if (
-                    rtype === Type.String &&
+                    rtype === "Str" &&
                     this.operator === TokenType.Plus
                 ) {
-                    this.type = Type.String;
+                    this.type = "Str";
                     return;
                 } else if (
-                    rtype === Type.String &&
+                    rtype === "Str" &&
                     COMPARISON_OPS.includes(this.operator)
                 ) {
-                    this.type = Type.Boolean;
+                    this.type = "Bool";
                     return;
                 }
                 break;
 
-            case Type.Boolean:
+            case "Bool":
                 if (
-                    rtype === Type.Boolean &&
+                    rtype === "Bool" &&
                     BOOLEAN_OPS.includes(this.operator)
                 ) {
-                    this.type = Type.Boolean;
+                    this.type = "Bool";
                     return;
                 }
                 break;
@@ -284,7 +322,6 @@ export class Binary extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        // TODO: Check types
         if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
             writer.write("(");
             this.left.toJS(writer);
@@ -326,16 +363,22 @@ export class Variable extends Expression {
         let lastAncestor: Expression = this;
         for (let i = 0; i < ancestors.length; i++) {
             const ancestor = ancestors[ancestors.length - i - 1];
-            let olderSiblings: Expression[] = [];
             if (ancestor instanceof Block) {
-                olderSiblings = ancestor.expressions.slice(0, olderSiblings.indexOf(lastAncestor));
-            }
-            for (let j = 0; j < olderSiblings.length; j++) {
-                const olderSibling = olderSiblings[olderSiblings.length - j - 1];
-                const type = this.resolveAssignment(olderSibling);
-                if (type !== null) {
-                    this.type = type;
-                    return;
+                const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
+                for (let j = 0; j < olderSiblings.length; j++) {
+                    const olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                    const type = this.resolveAssignment(olderSibling);
+                    if (type !== null) {
+                        this.type = type;
+                        return;
+                    }
+                }
+            } else if (ancestor instanceof Function) {
+                for (const arg of (ancestor as Function).params) {
+                    if (arg.name === this.name) {
+                        this.type = arg.type;
+                        return;
+                    }
                 }
             }
             lastAncestor = ancestor;
@@ -360,7 +403,7 @@ export class Assignment extends Expression {
         // Don't include self in children's lineage, to avoid problems with recursive definitions
         this.value.cascadeLineage([...ancestors]);
 
-        this.type = this.isDropped ? Type.Null : this.value.type;
+        this.type = this.isDropped ? "Null" : this.value.type;
     }
 
     toJS(writer: JSWriter): void {
@@ -399,7 +442,7 @@ export class If extends Expression {
         // Don't include self in children's lineage, since they shouldn't look for variable definitions within their siblings
         this.condition.cascadeLineage(ancestors);
 
-        if (this.condition.type !== Type.Boolean) {
+        if (this.condition.type !== "Bool") {
             throw this.error(`if condition must be boolean, but found ${this.condition.type}`);
         }
 
@@ -407,13 +450,13 @@ export class If extends Expression {
         this.elseBranch?.cascadeLineage(ancestors);
 
         if (this.elseBranch === null) {
-            if (this.thenBranch.type !== Type.Null) {
+            if (this.thenBranch.type !== "Null") {
                 throw this.error(`the block of an if statement with no else branch must have type Null, but got type ${this.thenBranch.type}. Hint: try adding a semicolon to the last expression in the block.`);
             }
-            this.type = Type.Null;
+            this.type = "Null";
             return;
         }
-        if (this.elseBranch.type !== this.thenBranch.type) {
+        if (!deepEquals(this.elseBranch.type, this.thenBranch.type)) {
             throw this.error(`then and else branches must have the same type, but found ${this.thenBranch.type} and ${this.elseBranch.type}`);
         }
         this.type = this.elseBranch.type;
@@ -477,5 +520,76 @@ export class If extends Expression {
         writer.indentOut();
         writer.newLine();
         writer.write("})()");
+    }
+}
+
+export class Function extends Expression {
+    name: string;
+    params: { name: string, type: Type }[];
+    returnType: Type;
+    body: Block;
+
+    constructor(rootToken: Token, name: string, params: { name: string, type: Type }[], returnType: Type, body: Expression) {
+        if (!(body instanceof Block)) {
+            throw new Error("function body must be a Block expression");
+        }
+        super(rootToken.line, rootToken.col);
+        this.name = name;
+        this.params = params;
+        this.returnType = returnType;
+        this.body = body;
+
+        this.type = new FuncType(
+            params.map(arg => arg.type),
+            returnType
+        );
+    }
+
+    cascadeLineage(ancestors: Expression[]): void {
+        this.body.cascadeLineage([...ancestors, this]);
+
+        if (!deepEquals(this.body.type, this.returnType)) {
+            throw this.error(`function body should return ${this.returnType}, but found ${this.body.type}`);
+        }
+    }
+
+    toJS(writer: JSWriter): void {
+        const fullName = this.fullName();
+        try {
+            writer.beginFunction(fullName);
+        } catch (e) {
+            if (e instanceof Error) {
+                throw this.error(e.message);
+            }
+            throw e;
+        }
+        writer.write(`function ${fullName}(`);
+        writer.write(this.params.map(p => p.name).join(", "));
+        writer.write(") {");
+        writer.indentIn();
+        this.body.expressions.slice(0, -1).forEach(expr => {
+            writer.newLine();
+            expr.toJS(writer);
+        });
+        const lastExpr = this.body.expressions[this.body.expressions.length - 1];
+        writer.newLine();
+        if (lastExpr instanceof DropValue) {
+            lastExpr.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+            writer.write("return null;");
+        } else {
+            writer.write("return ");
+            lastExpr.toJS(writer);
+            writer.write(";");
+        }
+        writer.indentOut();
+        writer.newLine();
+        writer.write("}");
+        writer.endFunction();
+    }
+
+    fullName(): string {
+        return `${this.name}$${this.params.map(arg => arg.type).join("$")}`.replaceAll(" ", "").replaceAll(/[^0-9a-zA-Z_$]/g, "_");
     }
 }
