@@ -1,17 +1,17 @@
 import { parse } from "./src/parse";
 import { scan } from "./src/scan";
+import { writeJS } from "./src/write-js";
 
-const document = `
-1.22  + 1.23  + 8 + 3.13
-"hello"
+export { parse, scan, writeJS };
+
+const text = `
+1 >= 2
 `;
 
-const tokens = scan(document);
-
+const tokens = scan(text);
 console.log(tokens);
-
 const { ast, errors } = parse(tokens);
-if (errors.length > 0) {
-    console.log(errors);
-}
-console.log(ast);
+const source = writeJS(ast);
+console.log(source);
+
+console.log(eval(source));

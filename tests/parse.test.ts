@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { scan } from "../src/scan";
 import { parse } from "../src/parse";
 
-function testParse(text: string) {
+export function testParse(text: string) {
     const tokens = scan(text);
     const { ast, errors } = parse(tokens);
     if (errors.length > 0) {
@@ -39,5 +39,5 @@ test("parse parens", () => {
 
 test("parse block", () => {
     testParse(`{ 1.22  + 1.23  * { 8 / 3.13 } + 2. }`);
-    testParse(`1 + 1; -2; 3`)
+    testParse(`1 + 1; x = -2; -x`)
 });

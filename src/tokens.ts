@@ -31,7 +31,7 @@ export enum TokenType {
     Greater = ">",
     GreaterEqual = ">=",
     Less = "<",
-    LessEqual = ">=",
+    LessEqual = "<=",
     // Other keywords
     For = "for",
     Func = "func",

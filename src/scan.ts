@@ -51,6 +51,7 @@ class Scanner {
 
     disambiguateTokens(char: string, nextChar: string, secondCharTarget: string): Token {
         if (nextChar === secondCharTarget) {
+            this.index += 1;
             return this.makeToken(char + secondCharTarget);
         } else {
             return this.makeToken(char);

@@ -1,4 +1,4 @@
-import { Binary, Block, DropValue, ErrorExpression, Literal, Type, Unary, type Expression } from "./ast";
+import * as AST from "./ast";
 import { TokenType, type Token } from "./tokens";
 
 enum Precedence {
@@ -15,8 +15,8 @@ enum Precedence {
 }
 
 interface ParseRule {
-    prefix: ((parser: Parser) => Expression) | null,
-    infix: ((parser: Parser, leftExpr: Expression) => Expression) | null,
+    prefix: ((parser: Parser) => AST.Expression) | null,
+    infix: ((parser: Parser, leftExpr: AST.Expression) => AST.Expression) | null,
     precedence: Precedence
 }
 
@@ -32,7 +32,7 @@ PARSE_RULES[TokenType.LBrace] = {
     precedence: Precedence.None
 }
 
-// Literals
+// AST.Literals
 PARSE_RULES[TokenType.Integer] = {
     prefix: parseInt,
     infix: null,
@@ -90,7 +90,7 @@ PARSE_RULES[TokenType.Or] = {
     infix: parseBinary,
     precedence: Precedence.Or
 };
-PARSE_RULES[TokenType.Equal] = {
+PARSE_RULES[TokenType.EqualEqual] = {
     prefix: null,
     infix: parseBinary,
     precedence: Precedence.Equality
@@ -120,6 +120,11 @@ PARSE_RULES[TokenType.GreaterEqual] = {
     infix: parseBinary,
     precedence: Precedence.Comparison
 };
+PARSE_RULES[TokenType.Identifier] = {
+    prefix: parseVariable,
+    infix: null,
+    precedence: Precedence.None
+};
 
 // Define default rules
 Object.values(TokenType).forEach(tokenType => {
@@ -132,7 +137,7 @@ Object.values(TokenType).forEach(tokenType => {
     }
 });
 
-function parseGrouping(parser: Parser): Expression {
+function parseGrouping(parser: Parser): AST.Expression {
     const expr = parser.expression();
     parser.advance();
     if (parser.previous().type !== TokenType.RParen) {
@@ -140,67 +145,87 @@ function parseGrouping(parser: Parser): Expression {
     }
     if (expr === null) {
         parser.error("expected expression in parentheses.");
-        return new ErrorExpression("expected expression in parentheses.");
+        return new AST.ErrorExpression("expected expression in parentheses.");
     }
     return expr;
 }
 
-function parseInt(parser: Parser): Expression {
+function parseInt(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new Literal(Type.Integer, token.text);
+    return new AST.Literal(AST.Type.Integer, token.text);
 }
 
-function parseFloat(parser: Parser): Expression {
+function parseFloat(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new Literal(Type.Float, token.text);
+    return new AST.Literal(AST.Type.Float, token.text);
 }
 
-function parseString(parser: Parser): Expression {
+function parseString(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new Literal(Type.String, token.text.slice(1, -1));
+    return new AST.Literal(AST.Type.String, token.text.slice(1, -1));
 }
 
-function parseBoolean(parser: Parser): Expression {
+function parseBoolean(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new Literal(Type.Boolean, token.text);
+    return new AST.Literal(AST.Type.Boolean, token.text);
 }
 
-function parseUnary(parser: Parser): Expression {
+function parseUnary(parser: Parser): AST.Expression {
     const token = parser.previous();
     const rightExpr = parser.parseWithPrecedence(Precedence.Unary);
     if (rightExpr === null) {
         parser.error(`Expected expression after ${token.text}.`);
-        return new ErrorExpression(`Expected expression after ${token.text}.`);
+        return new AST.ErrorExpression(`Expected expression after ${token.text}.`);
     }
     try {
-        return new Unary(rightExpr, token.type);
+        return new AST.Unary(rightExpr, token.type);
     } catch (e) {
         if (e instanceof Error) {
             parser.error(e.message);
-            return new ErrorExpression(e.message);
+            return new AST.ErrorExpression(e.message);
         }
         throw e;
     }
 }
 
-function parseBinary(parser: Parser, leftExpr: Expression): Expression {
+function parseBinary(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     const token = parser.previous();
     const rule = PARSE_RULES[token.type];
     const precedence = rule.precedence + 1;
     const rightExpr = parser.parseWithPrecedence(precedence);
     if (rightExpr === null) {
         parser.error(`Expected expression after ${token.text}.`);
-        return new ErrorExpression(`Expected expression after ${token.text}.`);
+        return new AST.ErrorExpression(`Expected expression after ${token.text}.`);
     }
     try {
-        return new Binary(leftExpr, rightExpr, token.type);
+        return new AST.Binary(leftExpr, rightExpr, token.type);
     } catch (e) {
         if (e instanceof Error) {
             parser.error(e.message);
-            return new ErrorExpression(e.message);
+            return new AST.ErrorExpression(e.message);
         }
         throw e;
     }
+}
+
+function parseVariable(parser: Parser): AST.Expression {
+    const text = parser.previous().text;
+    if (parser.atEnd() || parser.current().type !== TokenType.Equal) {
+        // Assume variable is already defined
+        try {
+            return new AST.Variable(text);
+        }
+        catch (e) {
+            if (e instanceof Error) {
+                parser.error(e.message);
+                return new AST.ErrorExpression(e.message);
+            }
+            throw e;
+        }
+    }
+    // This is a variable definition
+    parser.advance();
+    return parser.assignment(text);
 }
 
 class Parser {
@@ -240,7 +265,7 @@ class Parser {
         this.errors.push(`On line ${token.line}, column ${token.col}, ${message}`);
     }
 
-    parseWithPrecedence(precedence: Precedence): Expression | null {
+    parseWithPrecedence(precedence: Precedence): AST.Expression | null {
         if (this.atEnd()) {
             return null;
         }
@@ -265,20 +290,29 @@ class Parser {
         return expr;
     }
 
-    expression(): Expression | null {
+    assignment(name: string): AST.Expression {
+        const value = this.parseWithPrecedence(Precedence.Assignment);
+        if (!value) {
+            this.error("Expected expression after =");
+            return new AST.ErrorExpression("Expected expression after =");
+        }
+        return new AST.Assignment(name, value);
+    }
+
+    expression(): AST.Expression | null {
         const expr = this.parseWithPrecedence(Precedence.None + 1);
         if (expr !== null && !this.atEnd() && this.current().type === TokenType.Semicolon) {
             this.advance();
-            return new DropValue(expr);
+            return new AST.DropValue(expr);
         }
         return expr;
     }
 
-    block(): Expression {
+    block(): AST.Expression {
         // We've started a new block context, so we can start reporting errors again
         this.panicMode = false;
 
-        const expressions: Expression[] = [];
+        const expressions: AST.Expression[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
             const expr = this.expression();
             if (expr !== null) {
@@ -289,18 +323,18 @@ class Parser {
             this.index += 1;
         }
         try {
-            return new Block(expressions);
+            return new AST.Block(expressions);
         } catch (e) {
             if (e instanceof Error) {
                 this.error(e.message);
-                return new ErrorExpression(e.message);
+                return new AST.ErrorExpression(e.message);
             }
             throw e;
         }
     }
 }
 
-export function parse(tokens: Token[]): { ast: Expression, errors: string[] } {
+export function parse(tokens: Token[]): { ast: AST.Expression, errors: string[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
     return { ast: block, errors: parser.errors };

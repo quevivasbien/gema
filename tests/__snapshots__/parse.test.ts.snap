@@ -353,23 +353,33 @@ Block {
       "type": 4,
     },
     DropValue {
-      "child": Unary {
-        "child": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "2",
-        },
-        "operator": "-",
+      "child": Assignment {
+        "name": "x",
         "parent": null,
         "type": null,
+        "value": Unary {
+          "child": Literal {
+            "parent": null,
+            "type": 0,
+            "value": "2",
+          },
+          "operator": "-",
+          "parent": null,
+          "type": null,
+        },
       },
       "parent": null,
       "type": 4,
     },
-    Literal {
+    Unary {
+      "child": Variable {
+        "name": "x",
+        "parent": null,
+        "type": null,
+      },
+      "operator": "-",
       "parent": null,
-      "type": 0,
-      "value": "3",
+      "type": null,
     },
   ],
   "parent": null,

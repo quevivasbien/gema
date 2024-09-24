@@ -1,0 +1,590 @@
+// Bun Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`compile literals 1`] = `
+Block {
+  "expressions": [
+    Literal {
+      "parent": null,
+      "type": 0,
+      "value": "1",
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile literals 2`] = `
+"(() => {
+    return BigInt(1);
+})()"
+`;
+
+exports[`compile literals 3`] = `
+Block {
+  "expressions": [
+    Literal {
+      "parent": null,
+      "type": 1,
+      "value": "1.23",
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile literals 4`] = `
+"(() => {
+    return 1.23;
+})()"
+`;
+
+exports[`compile literals 5`] = `
+Block {
+  "expressions": [
+    Literal {
+      "parent": null,
+      "type": 3,
+      "value": "true",
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile literals 6`] = `
+"(() => {
+    return true;
+})()"
+`;
+
+exports[`compile literals 7`] = `
+Block {
+  "expressions": [
+    Literal {
+      "parent": null,
+      "type": 3,
+      "value": "false",
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile literals 8`] = `
+"(() => {
+    return false;
+})()"
+`;
+
+exports[`compile literals 9`] = `
+Block {
+  "expressions": [
+    Literal {
+      "parent": null,
+      "type": 2,
+      "value": "hello",
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile literals 10`] = `
+"(() => {
+    return "hello";
+})()"
+`;
+
+exports[`compile binary expressions 1`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "operator": "+",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "2",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 2`] = `
+"(() => {
+    return (BigInt(1) + BigInt(2));
+})()"
+`;
+
+exports[`compile binary expressions 3`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "operator": "-",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "2",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 4`] = `
+"(() => {
+    return (BigInt(1) - BigInt(2));
+})()"
+`;
+
+exports[`compile binary expressions 5`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "operator": "*",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "2",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 6`] = `
+"(() => {
+    return (BigInt(1) * BigInt(2));
+})()"
+`;
+
+exports[`compile binary expressions 7`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "operator": "/",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "2",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 8`] = `
+"(() => {
+    return (BigInt(1) / BigInt(2));
+})()"
+`;
+
+exports[`compile binary expressions 9`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Binary {
+        "left": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "3",
+        },
+        "operator": "*",
+        "parent": null,
+        "right": Binary {
+          "left": Literal {
+            "parent": null,
+            "type": 0,
+            "value": "1",
+          },
+          "operator": "+",
+          "parent": null,
+          "right": Literal {
+            "parent": null,
+            "type": 0,
+            "value": "3",
+          },
+          "type": null,
+        },
+        "type": null,
+      },
+      "operator": "/",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "2",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 10`] = `
+"(() => {
+    return ((BigInt(3) * (BigInt(1) + BigInt(3))) / BigInt(2));
+})()"
+`;
+
+exports[`compile binary expressions 11`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 3,
+        "value": "true",
+      },
+      "operator": "and",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 3,
+        "value": "false",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 12`] = `
+"(() => {
+    return (true && false);
+})()"
+`;
+
+exports[`compile binary expressions 13`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 3,
+        "value": "true",
+      },
+      "operator": "or",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 3,
+        "value": "false",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 14`] = `
+"(() => {
+    return (true || false);
+})()"
+`;
+
+exports[`compile binary expressions 15`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "operator": "==",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 16`] = `
+"(() => {
+    return (BigInt(1) === BigInt(1));
+})()"
+`;
+
+exports[`compile binary expressions 17`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "operator": "!=",
+      "parent": null,
+      "right": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 18`] = `
+"(() => {
+    return (BigInt(1) !== BigInt(1));
+})()"
+`;
+
+exports[`compile binary expressions 19`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Binary {
+        "left": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "1",
+        },
+        "operator": ">",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "2",
+        },
+        "type": null,
+      },
+      "operator": "and",
+      "parent": null,
+      "right": Binary {
+        "left": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "3",
+        },
+        "operator": "<",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "4",
+        },
+        "type": null,
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 20`] = `
+"(() => {
+    return ((BigInt(1) > BigInt(2)) && (BigInt(3) < BigInt(4)));
+})()"
+`;
+
+exports[`compile binary expressions 21`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Binary {
+        "left": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "1",
+        },
+        "operator": ">",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "2",
+        },
+        "type": null,
+      },
+      "operator": "or",
+      "parent": null,
+      "right": Binary {
+        "left": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "3",
+        },
+        "operator": "<",
+        "parent": null,
+        "right": Literal {
+          "parent": null,
+          "type": 0,
+          "value": "4",
+        },
+        "type": null,
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile binary expressions 22`] = `
+"(() => {
+    return ((BigInt(1) > BigInt(2)) || (BigInt(3) < BigInt(4)));
+})()"
+`;
+
+exports[`compile block 1`] = `
+Block {
+  "expressions": [
+    Block {
+      "expressions": [
+        Literal {
+          "parent": null,
+          "type": 0,
+          "value": "1",
+        },
+      ],
+      "parent": null,
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile block 2`] = `
+"(() => {
+    return (() => {
+        return BigInt(1);
+    })();
+})()"
+`;
+
+exports[`compile block 3`] = `
+Block {
+  "expressions": [
+    Binary {
+      "left": Literal {
+        "parent": null,
+        "type": 0,
+        "value": "1",
+      },
+      "operator": "+",
+      "parent": null,
+      "right": Block {
+        "expressions": [
+          Literal {
+            "parent": null,
+            "type": 0,
+            "value": "1",
+          },
+        ],
+        "parent": null,
+        "type": null,
+      },
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile block 4`] = `
+"(() => {
+    return (BigInt(1) + (() => {
+        return BigInt(1);
+    })());
+})()"
+`;
+
+exports[`compile block 5`] = `
+Block {
+  "expressions": [
+    Block {
+      "expressions": [
+        DropValue {
+          "child": Literal {
+            "parent": null,
+            "type": 0,
+            "value": "1",
+          },
+          "parent": null,
+          "type": 4,
+        },
+      ],
+      "parent": null,
+      "type": null,
+    },
+  ],
+  "parent": null,
+  "type": null,
+}
+`;
+
+exports[`compile block 6`] = `
+"(() => {
+    return (() => {
+        BigInt(1);
+        return null;
+    })();
+})()"
+`;
