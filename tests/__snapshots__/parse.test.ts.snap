@@ -2,387 +2,956 @@
 
 exports[`parse addition 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 18,
       "left": Binary {
+        "col": 14,
         "left": Binary {
+          "col": 6,
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 0,
+            "line": 0,
+            "type": "Float",
             "value": "1.22",
           },
+          "line": 0,
           "operator": "+",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 8,
+            "line": 0,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
+        "line": 0,
         "operator": "+",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "col": 16,
+          "line": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
+      "line": 0,
       "operator": "+",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "col": 20,
+        "line": 0,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Float",
 }
+`;
+
+exports[`parse addition 2`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Binary {
+      "col": 8,
+      "left": Literal {
+        "col": 0,
+        "line": 0,
+        "type": "Str",
+        "value": ""hello"",
+      },
+      "line": 0,
+      "operator": "+",
+      "right": Literal {
+        "col": 10,
+        "line": 0,
+        "type": "Str",
+        "value": ""hello"",
+      },
+      "type": "Str",
+    },
+  ],
+  "line": 0,
+  "type": "Str",
+}
+`;
+
+exports[`parse addition 3`] = `
+[
+  {
+    "col": 5,
+    "line": 0,
+    "message": "(During type resolution) cannot use operator + with left operand of type Float and right operand of type Bool.",
+  },
+]
 `;
 
 exports[`parse subtraction 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 18,
       "left": Binary {
+        "col": 14,
         "left": Binary {
+          "col": 6,
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 0,
+            "line": 0,
+            "type": "Float",
             "value": "1.22",
           },
+          "line": 0,
           "operator": "-",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 8,
+            "line": 0,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
+        "line": 0,
         "operator": "-",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "col": 16,
+          "line": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
+      "line": 0,
       "operator": "-",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "col": 20,
+        "line": 0,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Float",
 }
+`;
+
+exports[`parse subtraction 2`] = `
+[
+  {
+    "col": 5,
+    "line": 0,
+    "message": "(During type resolution) cannot use operator - with left operand of type Float and right operand of type Bool.",
+  },
+]
 `;
 
 exports[`parse multiplication 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 18,
       "left": Binary {
+        "col": 14,
         "left": Binary {
+          "col": 6,
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 0,
+            "line": 0,
+            "type": "Float",
             "value": "1.22",
           },
+          "line": 0,
           "operator": "*",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 8,
+            "line": 0,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
+        "line": 0,
         "operator": "*",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "col": 16,
+          "line": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
+      "line": 0,
       "operator": "*",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "col": 20,
+        "line": 0,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Float",
 }
+`;
+
+exports[`parse multiplication 2`] = `
+[
+  {
+    "col": 5,
+    "line": 0,
+    "message": "(During type resolution) cannot use operator * with left operand of type Float and right operand of type Bool.",
+  },
+]
 `;
 
 exports[`parse division 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 18,
       "left": Binary {
+        "col": 14,
         "left": Binary {
+          "col": 6,
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 0,
+            "line": 0,
+            "type": "Float",
             "value": "1.22",
           },
+          "line": 0,
           "operator": "/",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 8,
+            "line": 0,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
+        "line": 0,
         "operator": "/",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "col": 16,
+          "line": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
+      "line": 0,
       "operator": "/",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "col": 20,
+        "line": 0,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Float",
 }
+`;
+
+exports[`parse division 2`] = `
+[
+  {
+    "col": 5,
+    "line": 0,
+    "message": "(During type resolution) cannot use operator / with left operand of type Float and right operand of type Bool.",
+  },
+]
+`;
+
+exports[`parse modulo 1`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Binary {
+      "col": 18,
+      "left": Binary {
+        "col": 14,
+        "left": Binary {
+          "col": 6,
+          "left": Literal {
+            "col": 0,
+            "line": 0,
+            "type": "Float",
+            "value": "1.22",
+          },
+          "line": 0,
+          "operator": "%",
+          "right": Literal {
+            "col": 8,
+            "line": 0,
+            "type": "Float",
+            "value": "1.23",
+          },
+          "type": "Float",
+        },
+        "line": 0,
+        "operator": "%",
+        "right": Literal {
+          "col": 16,
+          "line": 0,
+          "type": "Int",
+          "value": "8",
+        },
+        "type": "Float",
+      },
+      "line": 0,
+      "operator": "%",
+      "right": Literal {
+        "col": 20,
+        "line": 0,
+        "type": "Float",
+        "value": "3.13",
+      },
+      "type": "Float",
+    },
+  ],
+  "line": 0,
+  "type": "Float",
+}
+`;
+
+exports[`parse modulo 2`] = `
+[
+  {
+    "col": 5,
+    "line": 0,
+    "message": "(During type resolution) cannot use operator % with left operand of type Float and right operand of type Bool.",
+  },
+]
 `;
 
 exports[`parse order of operations 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 6,
       "left": Literal {
-        "parent": null,
-        "type": 1,
+        "col": 0,
+        "line": 0,
+        "type": "Float",
         "value": "1.22",
       },
+      "line": 0,
       "operator": "+",
-      "parent": null,
       "right": Binary {
+        "col": 18,
         "left": Binary {
+          "col": 14,
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 8,
+            "line": 0,
+            "type": "Float",
             "value": "1.23",
           },
+          "line": 0,
           "operator": "*",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 0,
+            "col": 16,
+            "line": 0,
+            "type": "Int",
             "value": "8",
           },
-          "type": null,
+          "type": "Float",
         },
+        "line": 0,
         "operator": "/",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 1,
+          "col": 20,
+          "line": 0,
+          "type": "Float",
           "value": "3.13",
         },
-        "type": null,
+        "type": "Float",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Float",
+}
+`;
+
+exports[`parse order of operations 2`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Binary {
+      "col": 22,
+      "left": Binary {
+        "col": 16,
+        "left": Binary {
+          "col": 10,
+          "left": Binary {
+            "col": 4,
+            "left": Literal {
+              "col": 0,
+              "line": 0,
+              "type": "Int",
+              "value": "123",
+            },
+            "line": 0,
+            "operator": "*",
+            "right": Literal {
+              "col": 6,
+              "line": 0,
+              "type": "Int",
+              "value": "123",
+            },
+            "type": "Int",
+          },
+          "line": 0,
+          "operator": "/",
+          "right": Literal {
+            "col": 12,
+            "line": 0,
+            "type": "Int",
+            "value": "123",
+          },
+          "type": "Int",
+        },
+        "line": 0,
+        "operator": "%",
+        "right": Literal {
+          "col": 18,
+          "line": 0,
+          "type": "Int",
+          "value": "123",
+        },
+        "type": "Int",
+      },
+      "line": 0,
+      "operator": "*",
+      "right": Literal {
+        "col": 24,
+        "line": 0,
+        "type": "Int",
+        "value": "123",
+      },
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
+`;
+
+exports[`parse order of operations 3`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Binary {
+      "col": 10,
+      "left": Binary {
+        "col": 4,
+        "left": Literal {
+          "col": 0,
+          "line": 0,
+          "type": "Int",
+          "value": "123",
+        },
+        "line": 0,
+        "operator": "+",
+        "right": Literal {
+          "col": 6,
+          "line": 0,
+          "type": "Int",
+          "value": "456",
+        },
+        "type": "Int",
+      },
+      "line": 0,
+      "operator": "==",
+      "right": Binary {
+        "col": 17,
+        "left": Literal {
+          "col": 13,
+          "line": 0,
+          "type": "Int",
+          "value": "123",
+        },
+        "line": 0,
+        "operator": "+",
+        "right": Literal {
+          "col": 19,
+          "line": 0,
+          "type": "Int",
+          "value": "456",
+        },
+        "type": "Int",
+      },
+      "type": "Bool",
+    },
+  ],
+  "line": 0,
+  "type": "Bool",
+}
+`;
+
+exports[`parse order of operations 4`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Binary {
+      "col": 23,
+      "left": Binary {
+        "col": 10,
+        "left": Binary {
+          "col": 4,
+          "left": Literal {
+            "col": 0,
+            "line": 0,
+            "type": "Int",
+            "value": "123",
+          },
+          "line": 0,
+          "operator": "+",
+          "right": Literal {
+            "col": 6,
+            "line": 0,
+            "type": "Int",
+            "value": "456",
+          },
+          "type": "Int",
+        },
+        "line": 0,
+        "operator": "!=",
+        "right": Binary {
+          "col": 17,
+          "left": Literal {
+            "col": 13,
+            "line": 0,
+            "type": "Int",
+            "value": "123",
+          },
+          "line": 0,
+          "operator": "+",
+          "right": Literal {
+            "col": 19,
+            "line": 0,
+            "type": "Int",
+            "value": "456",
+          },
+          "type": "Int",
+        },
+        "type": "Bool",
+      },
+      "line": 0,
+      "operator": "or",
+      "right": Binary {
+        "col": 36,
+        "left": Binary {
+          "col": 30,
+          "left": Literal {
+            "col": 26,
+            "line": 0,
+            "type": "Int",
+            "value": "123",
+          },
+          "line": 0,
+          "operator": "+",
+          "right": Literal {
+            "col": 32,
+            "line": 0,
+            "type": "Int",
+            "value": "456",
+          },
+          "type": "Int",
+        },
+        "line": 0,
+        "operator": "==",
+        "right": Binary {
+          "col": 43,
+          "left": Literal {
+            "col": 39,
+            "line": 0,
+            "type": "Int",
+            "value": "123",
+          },
+          "line": 0,
+          "operator": "+",
+          "right": Literal {
+            "col": 45,
+            "line": 0,
+            "type": "Int",
+            "value": "456",
+          },
+          "type": "Int",
+        },
+        "type": "Bool",
+      },
+      "type": "Bool",
+    },
+  ],
+  "line": 0,
+  "type": "Bool",
 }
 `;
 
 exports[`parse parens 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 20,
       "left": Binary {
+        "col": 16,
         "left": Binary {
+          "col": 7,
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 1,
+            "line": 0,
+            "type": "Float",
             "value": "1.22",
           },
+          "line": 0,
           "operator": "+",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 9,
+            "line": 0,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
+        "line": 0,
         "operator": "*",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "col": 18,
+          "line": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
+      "line": 0,
       "operator": "/",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "col": 22,
+        "line": 0,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Float",
 }
 `;
 
 exports[`parse block 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Block {
+      "col": 0,
       "expressions": [
         Binary {
+          "col": 31,
           "left": Binary {
+            "col": 8,
             "left": Literal {
-              "parent": null,
-              "type": 1,
+              "col": 2,
+              "line": 0,
+              "type": "Float",
               "value": "1.22",
             },
+            "line": 0,
             "operator": "+",
-            "parent": null,
             "right": Binary {
+              "col": 16,
               "left": Literal {
-                "parent": null,
-                "type": 1,
+                "col": 10,
+                "line": 0,
+                "type": "Float",
                 "value": "1.23",
               },
+              "line": 0,
               "operator": "*",
-              "parent": null,
               "right": Block {
+                "col": 18,
                 "expressions": [
                   Binary {
+                    "col": 22,
                     "left": Literal {
-                      "parent": null,
-                      "type": 0,
+                      "col": 20,
+                      "line": 0,
+                      "type": "Int",
                       "value": "8",
                     },
+                    "line": 0,
                     "operator": "/",
-                    "parent": null,
                     "right": Literal {
-                      "parent": null,
-                      "type": 1,
+                      "col": 24,
+                      "line": 0,
+                      "type": "Float",
                       "value": "3.13",
                     },
-                    "type": null,
+                    "type": "Float",
                   },
                 ],
-                "parent": null,
-                "type": null,
+                "line": 0,
+                "type": "Float",
               },
-              "type": null,
+              "type": "Float",
             },
-            "type": null,
+            "type": "Float",
           },
+          "line": 0,
           "operator": "+",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "col": 33,
+            "line": 0,
+            "type": "Float",
             "value": "2.",
           },
-          "type": null,
+          "type": "Float",
         },
       ],
-      "parent": null,
-      "type": null,
+      "line": 0,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Float",
 }
 `;
 
 exports[`parse block 2`] = `
 Block {
+  "col": 0,
   "expressions": [
     DropValue {
       "child": Binary {
+        "col": 2,
         "left": Literal {
-          "parent": null,
-          "type": 0,
+          "col": 0,
+          "line": 0,
+          "type": "Int",
           "value": "1",
         },
+        "line": 0,
         "operator": "+",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "col": 4,
+          "line": 0,
+          "type": "Int",
           "value": "1",
         },
-        "type": null,
+        "type": "Int",
       },
-      "parent": null,
-      "type": 4,
+      "col": 2,
+      "line": 0,
+      "type": "Null",
     },
-    DropValue {
-      "child": Assignment {
-        "name": "x",
-        "parent": null,
-        "type": null,
-        "value": Unary {
-          "child": Literal {
-            "parent": null,
-            "type": 0,
-            "value": "2",
-          },
-          "operator": "-",
-          "parent": null,
-          "type": null,
+    Assignment {
+      "col": 7,
+      "isDropped": true,
+      "line": 0,
+      "name": "x",
+      "type": "Null",
+      "value": Unary {
+        "child": Literal {
+          "col": 12,
+          "line": 0,
+          "type": "Int",
+          "value": "2",
         },
+        "col": 11,
+        "line": 0,
+        "operator": "-",
+        "type": "Int",
       },
-      "parent": null,
-      "type": 4,
     },
     Unary {
       "child": Variable {
+        "col": 16,
+        "line": 0,
         "name": "x",
-        "parent": null,
-        "type": null,
+        "type": "Int",
       },
+      "col": 15,
+      "line": 0,
       "operator": "-",
-      "parent": null,
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
+`;
+
+exports[`parse variable assignment 1`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    Assignment {
+      "col": 8,
+      "isDropped": false,
+      "line": 1,
+      "name": "x",
+      "type": "Float",
+      "value": Literal {
+        "col": 12,
+        "line": 1,
+        "type": "Float",
+        "value": "1.22",
+      },
+    },
+    Assignment {
+      "col": 8,
+      "isDropped": false,
+      "line": 2,
+      "name": "y",
+      "type": "Float",
+      "value": Block {
+        "col": 12,
+        "expressions": [
+          Literal {
+            "col": 14,
+            "line": 2,
+            "type": "Float",
+            "value": "1.23",
+          },
+        ],
+        "line": 2,
+        "type": "Float",
+      },
+    },
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 3,
+      "name": "z",
+      "type": "Null",
+      "value": Literal {
+        "col": 12,
+        "line": 3,
+        "type": "Float",
+        "value": "3.13",
+      },
+    },
+    Assignment {
+      "col": 8,
+      "isDropped": false,
+      "line": 4,
+      "name": "x",
+      "type": "Int",
+      "value": Literal {
+        "col": 12,
+        "line": 4,
+        "type": "Int",
+        "value": "3",
+      },
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`parse variable assignment 2`] = `
+[
+  {
+    "col": 4,
+    "line": 0,
+    "message": "variable assignments are not allowed within expressions.",
+  },
+]
+`;
+
+exports[`parse variable assignment 3`] = `
+[
+  {
+    "col": 4,
+    "line": 0,
+    "message": "variable assignments are not allowed within expressions.",
+  },
+]
+`;
+
+exports[`parse if 1`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    If {
+      "col": 0,
+      "condition": Literal {
+        "col": 4,
+        "line": 0,
+        "type": "Bool",
+        "value": "true",
+      },
+      "elseBranch": Block {
+        "col": 21,
+        "expressions": [
+          Literal {
+            "col": 23,
+            "line": 0,
+            "type": "Int",
+            "value": "2",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "line": 0,
+      "thenBranch": Block {
+        "col": 10,
+        "expressions": [
+          Literal {
+            "col": 12,
+            "line": 0,
+            "type": "Int",
+            "value": "1",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
+`;
+
+exports[`parse if 2`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "(During type resolution) if condition must be boolean, but found Int",
+  },
+]
+`;
+
+exports[`parse if 3`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "(During type resolution) the block of an if statement with no else branch must have type Null, but got type Int. Hint: try adding a semicolon to the last expression in the block.",
+  },
+]
 `;

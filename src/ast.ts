@@ -1,5 +1,9 @@
 import type { JSWriter } from "./write-js";
-import { TokenType } from "./tokens";
+import { TokenType, type Token } from "./tokens";
+
+export class ASTError {
+    constructor(public line: number, public col: number, public message: string) {}
+}
 
 export enum Type {
     Integer = "Int",    
@@ -12,6 +16,12 @@ export enum Type {
 export abstract class Expression {
     type: Type | null = null;
 
+    constructor(public line: number, public col: number) {}
+
+    error(message: string): ASTError {
+        return new ASTError(this.line, this.col, message);
+    }
+
     abstract cascadeLineage(ancestors: Expression[]): void;
 
     toJS(writer: JSWriter): void {
@@ -21,8 +31,8 @@ export abstract class Expression {
 
 export class ErrorExpression extends Expression {
 
-    constructor(public message: string) {
-        super();
+    constructor(token: Token, public message: string) {
+        super(token.line, token.col);
     }
 
     cascadeLineage(ancestors: Expression[]): void {
@@ -32,7 +42,7 @@ export class ErrorExpression extends Expression {
 
 export class DropValue extends Expression {
     constructor(public child: Expression) {
-        super();
+        super(child.line, child.col);
         this.type = Type.Null;
     }
     
@@ -47,11 +57,11 @@ export class DropValue extends Expression {
 }
 
 export class Block extends Expression {
-    constructor(public expressions: Expression[]) {
+    constructor(rootToken: Token, public expressions: Expression[]) {
         if (expressions.length === 0) {
-            throw new Error("found empty block expression.");
+            throw new Error("block expression must not be empty.");
         }
-        super();
+        super(rootToken.line, rootToken.col);
     }
 
     cascadeLineage(ancestors: Expression[]): void {
@@ -89,8 +99,11 @@ export class Block extends Expression {
 }
 
 export class Literal extends Expression {
-    constructor(type: Type, public value: string) {
-        super();
+    value: string;
+
+    constructor(token: Token, type: Type) {
+        super(token.line, token.col);
+        this.value = token.text;
         this.type = type;
     }
 
@@ -105,10 +118,10 @@ export class Literal extends Expression {
                 compiler.write(`BigInt(${this.value})`);
                 break;
             case Type.Float:
-                compiler.write(`${this.value}`);
+                compiler.write(this.value);
                 break;
             case Type.String:
-                compiler.write(`"${this.value}"`);
+                compiler.write(this.value);
                 break;
             case Type.Boolean:
                 compiler.write(this.value);
@@ -117,8 +130,11 @@ export class Literal extends Expression {
 }
 
 export class Unary extends Expression {
-    constructor(public child: Expression, public operator: TokenType) {
-        super();
+    operator: TokenType;
+
+    constructor(operatorToken: Token, public child: Expression) {
+        super(operatorToken.line, operatorToken.col);
+        this.operator = operatorToken.type;
     }
 
     cascadeLineage(ancestors: Expression[]): void {
@@ -144,7 +160,7 @@ export class Unary extends Expression {
                 }
                 break;
         }
-        throw new Error(`cannot use token ${this.operator} on expression of type ${this.child.type}.`);
+        throw this.error(`cannot use token ${this.operator} on expression of type ${this.child.type}.`);
     }
 
     toJS(writer: JSWriter): void {
@@ -170,8 +186,11 @@ const OPERATOR_TRANSLATIONS: Record<string, string> = {
 };
 
 export class Binary extends Expression {
-    constructor(public left: Expression, public right: Expression, public operator: TokenType) {
-        super();
+    operator: TokenType;
+
+    constructor(operatorToken: Token, public left: Expression, public right: Expression) {
+        super(operatorToken.line, operatorToken.col);
+        this.operator = operatorToken.type;
     }
 
     cascadeLineage(ancestors: Expression[]): void {
@@ -261,7 +280,7 @@ export class Binary extends Expression {
                 }
                 break;
         }
-        throw new Error(`cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
+        throw this.error(`cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
     }
 
     toJS(writer: JSWriter): void {
@@ -276,30 +295,24 @@ export class Binary extends Expression {
         } else if (this.operator === TokenType.Percent) {
             // Don't use JS's default modulo operator behavior
             // Treat % as euclidean remainder (i.e., it will always give a positive result)
-            writer.write("(() => {");
-            writer.indentIn();
-            writer.newLine();
-            writer.write("const __left = ");
+            writer.useBuiltin("__MOD__");
+            writer.write("__MOD__(");
             this.left.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-            writer.write("const __right = ");
+            writer.write(", ");
             this.right.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-            writer.write("return ((__left % __right) + __right) % __right;");
-            writer.indentOut();
-            writer.newLine();
-            writer.write("})()");
+            writer.write(")");
             return;
         }
-        throw new Error(`tried to use token ${this.operator} as binary operator`);
+        throw this.error(`tried to use token ${this.operator} as binary operator`);
     }
 }
 
 export class Variable extends Expression {
-    constructor(public name: string) {
-        super();
+    name: string;
+
+    constructor(token: Token) {
+        super(token.line, token.col);
+        this.name = token.text;
     }
 
     resolveAssignment(e: Expression): Type | null {
@@ -327,7 +340,7 @@ export class Variable extends Expression {
             }
             lastAncestor = ancestor;
         }
-        throw new Error(`unable to resolve type of variable ${this.name}`);
+        throw this.error(`unable to resolve type of variable ${this.name}`);
      }
 
     toJS(writer: JSWriter): void {
@@ -336,8 +349,11 @@ export class Variable extends Expression {
 }
 
 export class Assignment extends Expression {
-    constructor(public name: string, public value: Expression, public isDropped: boolean) {
-        super();
+    name: string;
+
+    constructor(variableToken: Token, public value: Expression, public isDropped: boolean) {
+        super(variableToken.line, variableToken.col);
+        this.name = variableToken.text;
     }
 
     cascadeLineage(ancestors: Expression[]): void {
@@ -361,11 +377,105 @@ export class Assignment extends Expression {
 }
 
 export class If extends Expression {
-    constructor(public condition: Expression, public thenBranch: Expression, public elseBranch: Expression | null) {
-        super();
+    condition: Expression;
+    thenBranch: Block;
+    elseBranch: Block | null;
+
+    constructor(rootToken: Token, condition: Expression, thenBranch: Expression, elseBranch: Expression | null) {
+        super(rootToken.line, rootToken.col);
+        if (!(thenBranch instanceof Block)) {
+            throw new Error("then branch of if statement must be a block");
+        }
+        if (elseBranch !== null && !(elseBranch instanceof Block)) {
+            throw new Error("else branch of if statement must be a block");
+        }
+
+        this.condition = condition;
+        this.thenBranch = thenBranch;
+        this.elseBranch = elseBranch === null ? null : elseBranch;
     }
 
     cascadeLineage(ancestors: Expression[]): void {
-        // TODO
+        // Don't include self in children's lineage, since they shouldn't look for variable definitions within their siblings
+        this.condition.cascadeLineage(ancestors);
+
+        if (this.condition.type !== Type.Boolean) {
+            throw this.error(`if condition must be boolean, but found ${this.condition.type}`);
+        }
+
+        this.thenBranch.cascadeLineage(ancestors);
+        this.elseBranch?.cascadeLineage(ancestors);
+
+        if (this.elseBranch === null) {
+            if (this.thenBranch.type !== Type.Null) {
+                throw this.error(`the block of an if statement with no else branch must have type Null, but got type ${this.thenBranch.type}. Hint: try adding a semicolon to the last expression in the block.`);
+            }
+            this.type = Type.Null;
+            return;
+        }
+        if (this.elseBranch.type !== this.thenBranch.type) {
+            throw this.error(`then and else branches must have the same type, but found ${this.thenBranch.type} and ${this.elseBranch.type}`);
+        }
+        this.type = this.elseBranch.type;
+        return;
+    }
+
+    toJS(writer: JSWriter): void {
+        if (this.elseBranch === null) {
+            writer.write("(() => {");
+            writer.indentIn();
+            writer.newLine();
+            writer.write("if (");
+            this.condition.toJS(writer);
+            writer.write(") {");
+            writer.indentIn();
+            this.thenBranch.expressions.forEach(expr => {
+                writer.newLine();
+                expr.toJS(writer); 
+            });
+            writer.indentOut();
+            writer.newLine();
+            writer.write("}");
+            writer.newLine();
+            writer.write("return null;");
+            writer.indentOut();
+            writer.newLine();
+            writer.write("})()");
+            return;
+        }
+
+        writer.write("(() => {");
+        writer.indentIn();
+        writer.newLine();
+        writer.write("if (");
+        this.condition.toJS(writer);
+        writer.write(") {");
+        writer.indentIn();
+        this.thenBranch.expressions.forEach((expr, i) => {
+            writer.newLine();
+            if (i === this.thenBranch.expressions.length - 1) {
+                writer.write("return ");
+            }
+            expr.toJS(writer);
+            writer.write(";");
+        });
+        writer.indentOut();
+        writer.newLine();
+        writer.write("} else {");
+        writer.indentIn();
+        this.elseBranch.expressions.forEach((expr, i) => {
+            writer.newLine();
+            if (i === this.elseBranch!.expressions.length - 1) {
+                writer.write("return ");
+            }
+            expr.toJS(writer);
+            writer.write(";");
+        });
+        writer.indentOut();
+        writer.newLine();
+        writer.write("}");
+        writer.indentOut();
+        writer.newLine();
+        writer.write("})()");
     }
 }

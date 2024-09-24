@@ -1,5 +1,9 @@
 # Based on https://raw.githubusercontent.com/github/gitignore/main/Node.gitignore
 
+# Scratch files
+scratch.js
+scratch.ts
+
 # Logs
 
 logs

@@ -2,516 +2,688 @@
 
 exports[`compile literals 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 0,
+      "col": 0,
+      "line": 0,
+      "type": "Int",
       "value": "1",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile literals 2`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return BigInt(1);
 })()"
 `;
 
 exports[`compile literals 3`] = `
 Block {
+  "col": 0,
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 1,
+      "col": 0,
+      "line": 0,
+      "type": "Float",
       "value": "1.23",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Float",
 }
 `;
 
 exports[`compile literals 4`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return 1.23;
 })()"
 `;
 
 exports[`compile literals 5`] = `
 Block {
+  "col": 0,
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 3,
+      "col": 0,
+      "line": 0,
+      "type": "Bool",
       "value": "true",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Bool",
 }
 `;
 
 exports[`compile literals 6`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return true;
 })()"
 `;
 
 exports[`compile literals 7`] = `
 Block {
+  "col": 0,
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 3,
+      "col": 0,
+      "line": 0,
+      "type": "Bool",
       "value": "false",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Bool",
 }
 `;
 
 exports[`compile literals 8`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return false;
 })()"
 `;
 
 exports[`compile literals 9`] = `
 Block {
+  "col": 0,
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 2,
-      "value": "hello",
+      "col": 0,
+      "line": 0,
+      "type": "Str",
+      "value": ""hello"",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Str",
 }
 `;
 
 exports[`compile literals 10`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return "hello";
 })()"
 `;
 
 exports[`compile binary expressions 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 2,
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 0,
+        "line": 0,
+        "type": "Int",
         "value": "1",
       },
+      "line": 0,
       "operator": "+",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 4,
+        "line": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 2`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return (BigInt(1) + BigInt(2));
 })()"
 `;
 
 exports[`compile binary expressions 3`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 2,
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 0,
+        "line": 0,
+        "type": "Int",
         "value": "1",
       },
+      "line": 0,
       "operator": "-",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 4,
+        "line": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 4`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return (BigInt(1) - BigInt(2));
 })()"
 `;
 
 exports[`compile binary expressions 5`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 2,
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 0,
+        "line": 0,
+        "type": "Int",
         "value": "1",
       },
+      "line": 0,
       "operator": "*",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 4,
+        "line": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 6`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return (BigInt(1) * BigInt(2));
 })()"
 `;
 
 exports[`compile binary expressions 7`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 2,
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 0,
+        "line": 0,
+        "type": "Int",
         "value": "1",
       },
+      "line": 0,
       "operator": "/",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 4,
+        "line": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 8`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return (BigInt(1) / BigInt(2));
 })()"
 `;
 
 exports[`compile binary expressions 9`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 12,
       "left": Binary {
+        "col": 2,
         "left": Literal {
-          "parent": null,
-          "type": 0,
+          "col": 0,
+          "line": 0,
+          "type": "Int",
           "value": "3",
         },
+        "line": 0,
         "operator": "*",
-        "parent": null,
         "right": Binary {
+          "col": 7,
           "left": Literal {
-            "parent": null,
-            "type": 0,
+            "col": 5,
+            "line": 0,
+            "type": "Int",
             "value": "1",
           },
+          "line": 0,
           "operator": "+",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 0,
+            "col": 9,
+            "line": 0,
+            "type": "Int",
             "value": "3",
           },
-          "type": null,
+          "type": "Int",
         },
-        "type": null,
+        "type": "Int",
       },
+      "line": 0,
       "operator": "/",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 14,
+        "line": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 10`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return ((BigInt(3) * (BigInt(1) + BigInt(3))) / BigInt(2));
 })()"
 `;
 
 exports[`compile binary expressions 11`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 2,
       "left": Literal {
-        "parent": null,
-        "type": 3,
-        "value": "true",
+        "col": 0,
+        "line": 0,
+        "type": "Int",
+        "value": "5",
       },
-      "operator": "and",
-      "parent": null,
+      "line": 0,
+      "operator": "%",
       "right": Literal {
-        "parent": null,
-        "type": 3,
-        "value": "false",
+        "col": 4,
+        "line": 0,
+        "type": "Int",
+        "value": "3",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 12`] = `
-"(() => {
-    return (true && false);
+"// BUILTIN FUNCTIONS //
+function __MOD__(a, b) {
+    return ((a % b) + b) % b;
+}
+
+// PROGRAM //
+(() => {
+    return __MOD__(BigInt(5), BigInt(3));
 })()"
 `;
 
 exports[`compile binary expressions 13`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
-      "left": Literal {
-        "parent": null,
-        "type": 3,
-        "value": "true",
+      "col": 3,
+      "left": Unary {
+        "child": Literal {
+          "col": 1,
+          "line": 0,
+          "type": "Int",
+          "value": "5",
+        },
+        "col": 0,
+        "line": 0,
+        "operator": "-",
+        "type": "Int",
       },
-      "operator": "or",
-      "parent": null,
+      "line": 0,
+      "operator": "%",
       "right": Literal {
-        "parent": null,
-        "type": 3,
-        "value": "false",
+        "col": 5,
+        "line": 0,
+        "type": "Int",
+        "value": "3",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 14`] = `
-"(() => {
-    return (true || false);
+"// BUILTIN FUNCTIONS //
+function __MOD__(a, b) {
+    return ((a % b) + b) % b;
+}
+
+// PROGRAM //
+(() => {
+    return __MOD__((-BigInt(5)), BigInt(3));
 })()"
 `;
 
 exports[`compile binary expressions 15`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 5,
       "left": Literal {
-        "parent": null,
-        "type": 0,
-        "value": "1",
+        "col": 0,
+        "line": 0,
+        "type": "Bool",
+        "value": "true",
       },
-      "operator": "==",
-      "parent": null,
+      "line": 0,
+      "operator": "and",
       "right": Literal {
-        "parent": null,
-        "type": 0,
-        "value": "1",
+        "col": 9,
+        "line": 0,
+        "type": "Bool",
+        "value": "false",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 16`] = `
-"(() => {
-    return (BigInt(1) === BigInt(1));
+"// PROGRAM //
+(() => {
+    return (true && false);
 })()"
 `;
 
 exports[`compile binary expressions 17`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 5,
       "left": Literal {
-        "parent": null,
-        "type": 0,
-        "value": "1",
+        "col": 0,
+        "line": 0,
+        "type": "Bool",
+        "value": "true",
       },
-      "operator": "!=",
-      "parent": null,
+      "line": 0,
+      "operator": "or",
       "right": Literal {
-        "parent": null,
-        "type": 0,
-        "value": "1",
+        "col": 8,
+        "line": 0,
+        "type": "Bool",
+        "value": "false",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 18`] = `
-"(() => {
-    return (BigInt(1) !== BigInt(1));
+"// PROGRAM //
+(() => {
+    return (true || false);
 })()"
 `;
 
 exports[`compile binary expressions 19`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
-      "left": Binary {
-        "left": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "1",
-        },
-        "operator": ">",
-        "parent": null,
-        "right": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "2",
-        },
-        "type": null,
+      "col": 2,
+      "left": Literal {
+        "col": 0,
+        "line": 0,
+        "type": "Int",
+        "value": "1",
       },
-      "operator": "and",
-      "parent": null,
-      "right": Binary {
-        "left": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "3",
-        },
-        "operator": "<",
-        "parent": null,
-        "right": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "4",
-        },
-        "type": null,
+      "line": 0,
+      "operator": "==",
+      "right": Literal {
+        "col": 5,
+        "line": 0,
+        "type": "Int",
+        "value": "1",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 20`] = `
-"(() => {
-    return ((BigInt(1) > BigInt(2)) && (BigInt(3) < BigInt(4)));
+"// PROGRAM //
+(() => {
+    return (BigInt(1) === BigInt(1));
 })()"
 `;
 
 exports[`compile binary expressions 21`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
-      "left": Binary {
-        "left": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "1",
-        },
-        "operator": ">",
-        "parent": null,
-        "right": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "2",
-        },
-        "type": null,
+      "col": 2,
+      "left": Literal {
+        "col": 0,
+        "line": 0,
+        "type": "Int",
+        "value": "1",
       },
-      "operator": "or",
-      "parent": null,
-      "right": Binary {
-        "left": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "3",
-        },
-        "operator": "<",
-        "parent": null,
-        "right": Literal {
-          "parent": null,
-          "type": 0,
-          "value": "4",
-        },
-        "type": null,
+      "line": 0,
+      "operator": "!=",
+      "right": Literal {
+        "col": 5,
+        "line": 0,
+        "type": "Int",
+        "value": "1",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 22`] = `
-"(() => {
+"// PROGRAM //
+(() => {
+    return (BigInt(1) !== BigInt(1));
+})()"
+`;
+
+exports[`compile binary expressions 23`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Binary {
+      "col": 8,
+      "left": Binary {
+        "col": 3,
+        "left": Literal {
+          "col": 1,
+          "line": 0,
+          "type": "Int",
+          "value": "1",
+        },
+        "line": 0,
+        "operator": ">",
+        "right": Literal {
+          "col": 5,
+          "line": 0,
+          "type": "Int",
+          "value": "2",
+        },
+        "type": "Bool",
+      },
+      "line": 0,
+      "operator": "and",
+      "right": Binary {
+        "col": 15,
+        "left": Literal {
+          "col": 13,
+          "line": 0,
+          "type": "Int",
+          "value": "3",
+        },
+        "line": 0,
+        "operator": "<",
+        "right": Literal {
+          "col": 17,
+          "line": 0,
+          "type": "Int",
+          "value": "4",
+        },
+        "type": "Bool",
+      },
+      "type": "Bool",
+    },
+  ],
+  "line": 0,
+  "type": "Bool",
+}
+`;
+
+exports[`compile binary expressions 24`] = `
+"// PROGRAM //
+(() => {
+    return ((BigInt(1) > BigInt(2)) && (BigInt(3) < BigInt(4)));
+})()"
+`;
+
+exports[`compile binary expressions 25`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Binary {
+      "col": 8,
+      "left": Binary {
+        "col": 3,
+        "left": Literal {
+          "col": 1,
+          "line": 0,
+          "type": "Int",
+          "value": "1",
+        },
+        "line": 0,
+        "operator": ">",
+        "right": Literal {
+          "col": 5,
+          "line": 0,
+          "type": "Int",
+          "value": "2",
+        },
+        "type": "Bool",
+      },
+      "line": 0,
+      "operator": "or",
+      "right": Binary {
+        "col": 14,
+        "left": Literal {
+          "col": 12,
+          "line": 0,
+          "type": "Int",
+          "value": "3",
+        },
+        "line": 0,
+        "operator": "<",
+        "right": Literal {
+          "col": 16,
+          "line": 0,
+          "type": "Int",
+          "value": "4",
+        },
+        "type": "Bool",
+      },
+      "type": "Bool",
+    },
+  ],
+  "line": 0,
+  "type": "Bool",
+}
+`;
+
+exports[`compile binary expressions 26`] = `
+"// PROGRAM //
+(() => {
     return ((BigInt(1) > BigInt(2)) || (BigInt(3) < BigInt(4)));
 })()"
 `;
 
 exports[`compile block 1`] = `
 Block {
+  "col": 0,
   "expressions": [
     Block {
+      "col": 0,
       "expressions": [
         Literal {
-          "parent": null,
-          "type": 0,
+          "col": 2,
+          "line": 0,
+          "type": "Int",
           "value": "1",
         },
       ],
-      "parent": null,
-      "type": null,
+      "line": 0,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile block 2`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return (() => {
         return BigInt(1);
     })();
@@ -520,36 +692,42 @@ exports[`compile block 2`] = `
 
 exports[`compile block 3`] = `
 Block {
+  "col": 0,
   "expressions": [
     Binary {
+      "col": 2,
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "col": 0,
+        "line": 0,
+        "type": "Int",
         "value": "1",
       },
+      "line": 0,
       "operator": "+",
-      "parent": null,
       "right": Block {
+        "col": 4,
         "expressions": [
           Literal {
-            "parent": null,
-            "type": 0,
+            "col": 6,
+            "line": 0,
+            "type": "Int",
             "value": "1",
           },
         ],
-        "parent": null,
-        "type": null,
+        "line": 0,
+        "type": "Int",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Int",
 }
 `;
 
 exports[`compile block 4`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return (BigInt(1) + (() => {
         return BigInt(1);
     })());
@@ -558,33 +736,670 @@ exports[`compile block 4`] = `
 
 exports[`compile block 5`] = `
 Block {
+  "col": 0,
   "expressions": [
     Block {
+      "col": 0,
       "expressions": [
         DropValue {
           "child": Literal {
-            "parent": null,
-            "type": 0,
+            "col": 2,
+            "line": 0,
+            "type": "Int",
             "value": "1",
           },
-          "parent": null,
-          "type": 4,
+          "col": 2,
+          "line": 0,
+          "type": "Null",
         },
       ],
-      "parent": null,
-      "type": null,
+      "line": 0,
+      "type": "Null",
     },
   ],
-  "parent": null,
-  "type": null,
+  "line": 0,
+  "type": "Null",
 }
 `;
 
 exports[`compile block 6`] = `
-"(() => {
+"// PROGRAM //
+(() => {
     return (() => {
         BigInt(1);
         return null;
     })();
+})()"
+`;
+
+exports[`compile block 7`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Binary {
+      "col": 22,
+      "left": Binary {
+        "col": 17,
+        "left": Unary {
+          "child": Literal {
+            "col": 14,
+            "line": 1,
+            "type": "Int",
+            "value": "32",
+          },
+          "col": 13,
+          "line": 1,
+          "operator": "-",
+          "type": "Int",
+        },
+        "line": 1,
+        "operator": "/",
+        "right": Literal {
+          "col": 19,
+          "line": 1,
+          "type": "Int",
+          "value": "4",
+        },
+        "type": "Int",
+      },
+      "line": 1,
+      "operator": "%",
+      "right": Block {
+        "col": 24,
+        "expressions": [
+          Binary {
+            "col": 28,
+            "left": Literal {
+              "col": 26,
+              "line": 1,
+              "type": "Int",
+              "value": "1",
+            },
+            "line": 1,
+            "operator": "+",
+            "right": Literal {
+              "col": 30,
+              "line": 1,
+              "type": "Int",
+              "value": "2",
+            },
+            "type": "Int",
+          },
+        ],
+        "line": 1,
+        "type": "Int",
+      },
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile block 8`] = `
+"// BUILTIN FUNCTIONS //
+function __MOD__(a, b) {
+    return ((a % b) + b) % b;
+}
+
+// PROGRAM //
+(() => {
+    return __MOD__(((-BigInt(32)) / BigInt(4)), (() => {
+        return (BigInt(1) + BigInt(2));
+    })());
+})()"
+`;
+
+exports[`compile variables 1`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Assignment {
+      "col": 12,
+      "isDropped": true,
+      "line": 1,
+      "name": "x",
+      "type": "Null",
+      "value": Literal {
+        "col": 16,
+        "line": 1,
+        "type": "Float",
+        "value": "1.2",
+      },
+    },
+    Assignment {
+      "col": 12,
+      "isDropped": true,
+      "line": 2,
+      "name": "y",
+      "type": "Null",
+      "value": Block {
+        "col": 16,
+        "expressions": [
+          Literal {
+            "col": 18,
+            "line": 2,
+            "type": "Float",
+            "value": "2.3",
+          },
+        ],
+        "line": 2,
+        "type": "Float",
+      },
+    },
+    Binary {
+      "col": 14,
+      "left": Variable {
+        "col": 12,
+        "line": 3,
+        "name": "x",
+        "type": "Float",
+      },
+      "line": 3,
+      "operator": "+",
+      "right": Variable {
+        "col": 16,
+        "line": 3,
+        "name": "y",
+        "type": "Float",
+      },
+      "type": "Float",
+    },
+  ],
+  "line": 1,
+  "type": "Float",
+}
+`;
+
+exports[`compile variables 2`] = `
+"// GLOBAL VARIABLES //
+var x;
+var y;
+
+// PROGRAM //
+(() => {
+    x = 1.2;
+    y = (() => {
+        return 2.3;
+    })();
+    return (x + y);
+})()"
+`;
+
+exports[`compile variables 3`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Assignment {
+      "col": 12,
+      "isDropped": true,
+      "line": 1,
+      "name": "x",
+      "type": "Null",
+      "value": Literal {
+        "col": 16,
+        "line": 1,
+        "type": "Float",
+        "value": "1.2",
+      },
+    },
+    Assignment {
+      "col": 12,
+      "isDropped": false,
+      "line": 2,
+      "name": "y",
+      "type": "Float",
+      "value": Block {
+        "col": 16,
+        "expressions": [
+          Literal {
+            "col": 18,
+            "line": 2,
+            "type": "Float",
+            "value": "2.3",
+          },
+        ],
+        "line": 2,
+        "type": "Float",
+      },
+    },
+    Assignment {
+      "col": 12,
+      "isDropped": false,
+      "line": 3,
+      "name": "x",
+      "type": "Float",
+      "value": Binary {
+        "col": 18,
+        "left": Variable {
+          "col": 16,
+          "line": 3,
+          "name": "x",
+          "type": "Float",
+        },
+        "line": 3,
+        "operator": "+",
+        "right": Variable {
+          "col": 20,
+          "line": 3,
+          "name": "y",
+          "type": "Float",
+        },
+        "type": "Float",
+      },
+    },
+  ],
+  "line": 1,
+  "type": "Float",
+}
+`;
+
+exports[`compile variables 4`] = `
+"// GLOBAL VARIABLES //
+var x;
+var y;
+
+// PROGRAM //
+(() => {
+    x = 1.2;
+    (() => { y = (() => {
+        return 2.3;
+    })(); return y; })();
+    return (() => { x = (x + y); return x; })();
+})()"
+`;
+
+exports[`compile if expressions 1`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    If {
+      "col": 0,
+      "condition": Literal {
+        "col": 4,
+        "line": 0,
+        "type": "Bool",
+        "value": "true",
+      },
+      "elseBranch": Block {
+        "col": 21,
+        "expressions": [
+          Literal {
+            "col": 23,
+            "line": 0,
+            "type": "Int",
+            "value": "2",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "line": 0,
+      "thenBranch": Block {
+        "col": 10,
+        "expressions": [
+          Literal {
+            "col": 12,
+            "line": 0,
+            "type": "Int",
+            "value": "1",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
+`;
+
+exports[`compile if expressions 2`] = `
+"// PROGRAM //
+(() => {
+    return (() => {
+        if (true) {
+            return BigInt(1);
+        } else {
+            return BigInt(2);
+        }
+    })();
+})()"
+`;
+
+exports[`compile if expressions 3`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    If {
+      "col": 0,
+      "condition": Literal {
+        "col": 4,
+        "line": 0,
+        "type": "Bool",
+        "value": "false",
+      },
+      "elseBranch": Block {
+        "col": 22,
+        "expressions": [
+          Literal {
+            "col": 24,
+            "line": 0,
+            "type": "Int",
+            "value": "2",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "line": 0,
+      "thenBranch": Block {
+        "col": 11,
+        "expressions": [
+          Literal {
+            "col": 13,
+            "line": 0,
+            "type": "Int",
+            "value": "1",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
+`;
+
+exports[`compile if expressions 4`] = `
+"// PROGRAM //
+(() => {
+    return (() => {
+        if (false) {
+            return BigInt(1);
+        } else {
+            return BigInt(2);
+        }
+    })();
+})()"
+`;
+
+exports[`compile if expressions 5`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    If {
+      "col": 0,
+      "condition": Binary {
+        "col": 6,
+        "left": Literal {
+          "col": 4,
+          "line": 0,
+          "type": "Int",
+          "value": "1",
+        },
+        "line": 0,
+        "operator": "==",
+        "right": Literal {
+          "col": 9,
+          "line": 0,
+          "type": "Int",
+          "value": "1",
+        },
+        "type": "Bool",
+      },
+      "elseBranch": Block {
+        "col": 23,
+        "expressions": [
+          Literal {
+            "col": 25,
+            "line": 0,
+            "type": "Int",
+            "value": "2",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "line": 0,
+      "thenBranch": Block {
+        "col": 12,
+        "expressions": [
+          Literal {
+            "col": 14,
+            "line": 0,
+            "type": "Int",
+            "value": "1",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
+`;
+
+exports[`compile if expressions 6`] = `
+"// PROGRAM //
+(() => {
+    return (() => {
+        if ((BigInt(1) === BigInt(1))) {
+            return BigInt(1);
+        } else {
+            return BigInt(2);
+        }
+    })();
+})()"
+`;
+
+exports[`compile if expressions 7`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    If {
+      "col": 0,
+      "condition": Binary {
+        "col": 6,
+        "left": Literal {
+          "col": 4,
+          "line": 0,
+          "type": "Int",
+          "value": "1",
+        },
+        "line": 0,
+        "operator": "==",
+        "right": Literal {
+          "col": 9,
+          "line": 0,
+          "type": "Int",
+          "value": "2",
+        },
+        "type": "Bool",
+      },
+      "elseBranch": Block {
+        "col": 23,
+        "expressions": [
+          Literal {
+            "col": 25,
+            "line": 0,
+            "type": "Int",
+            "value": "2",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "line": 0,
+      "thenBranch": Block {
+        "col": 12,
+        "expressions": [
+          Literal {
+            "col": 14,
+            "line": 0,
+            "type": "Int",
+            "value": "1",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
+`;
+
+exports[`compile if expressions 8`] = `
+"// PROGRAM //
+(() => {
+    return (() => {
+        if ((BigInt(1) === BigInt(2))) {
+            return BigInt(1);
+        } else {
+            return BigInt(2);
+        }
+    })();
+})()"
+`;
+
+exports[`compile if expressions 9`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    If {
+      "col": 0,
+      "condition": Literal {
+        "col": 4,
+        "line": 0,
+        "type": "Bool",
+        "value": "true",
+      },
+      "elseBranch": null,
+      "line": 0,
+      "thenBranch": Block {
+        "col": 10,
+        "expressions": [
+          DropValue {
+            "child": Literal {
+              "col": 12,
+              "line": 0,
+              "type": "Int",
+              "value": "1",
+            },
+            "col": 12,
+            "line": 0,
+            "type": "Null",
+          },
+        ],
+        "line": 0,
+        "type": "Null",
+      },
+      "type": "Null",
+    },
+  ],
+  "line": 0,
+  "type": "Null",
+}
+`;
+
+exports[`compile if expressions 10`] = `
+"// PROGRAM //
+(() => {
+    return (() => {
+        if (true) {
+            BigInt(1)
+        }
+        return null;
+    })();
+})()"
+`;
+
+exports[`compile if expressions 11`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 1,
+      "name": "x",
+      "type": "Null",
+      "value": Literal {
+        "col": 12,
+        "line": 1,
+        "type": "Int",
+        "value": "1",
+      },
+    },
+    If {
+      "col": 8,
+      "condition": Literal {
+        "col": 12,
+        "line": 2,
+        "type": "Bool",
+        "value": "true",
+      },
+      "elseBranch": null,
+      "line": 2,
+      "thenBranch": Block {
+        "col": 18,
+        "expressions": [
+          Assignment {
+            "col": 12,
+            "isDropped": true,
+            "line": 3,
+            "name": "x",
+            "type": "Null",
+            "value": Literal {
+              "col": 16,
+              "line": 3,
+              "type": "Int",
+              "value": "2",
+            },
+          },
+        ],
+        "line": 2,
+        "type": "Null",
+      },
+      "type": "Null",
+    },
+    Variable {
+      "col": 8,
+      "line": 5,
+      "name": "x",
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile if expressions 12`] = `
+"// GLOBAL VARIABLES //
+var x;
+
+// PROGRAM //
+(() => {
+    x = BigInt(1);
+    (() => {
+        if (true) {
+            x = BigInt(2)
+        }
+        return null;
+    })();
+    return x;
 })()"
 `;

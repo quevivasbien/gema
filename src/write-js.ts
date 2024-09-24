@@ -1,4 +1,5 @@
 import * as AST from "./ast";
+import { BUILTINS } from "./builtins";
 
 class Scope {
     parent: Scope | null;
@@ -19,6 +20,7 @@ export class JSWriter {
     currentLine: string = "";
     indentLevel: number = 0;
     scope: Scope = new Scope();
+    builtins: Set<string> = new Set();
 
     constructor(ast: AST.Expression) {
         this.ast = ast;
@@ -45,13 +47,33 @@ export class JSWriter {
         this.scope.variableNames.add(name);
     }
 
+    useBuiltin(name: string) {
+        this.builtins.add(name);
+    }
+
     compile(): string {
         this.ast.toJS(this);
         this.newLine();
 
+        const builtinFuncs = this.builtins.size === 0 ? "" : (
+            "// BUILTIN FUNCTIONS //\n" +
+            Array.from(this.builtins).map(
+                (name) => BUILTINS[name]
+            ).join("\n") +
+            "\n\n"
+        );
+
+        const globals = this.scope.getDeclarations();
+        const globalVarDeclarations = globals.length === 0 ? "" : (
+            "// GLOBAL VARIABLES //\n" +
+            globals.join("\n") +
+            "\n\n"
+        );
+
         return (
-            this.scope.getDeclarations().join("\n") +
-            "\n" +
+            builtinFuncs +
+            globalVarDeclarations +
+            "// PROGRAM //\n" +
             this.outputLines.join("\n")
         );
     }

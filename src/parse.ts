@@ -1,6 +1,12 @@
 import * as AST from "./ast";
 import { TokenType, type Token } from "./tokens";
 
+interface ParseError {
+    line: number,
+    col: number,
+    message: string,
+}
+
 enum Precedence {
     None,
     Assignment,
@@ -162,43 +168,52 @@ function parseGrouping(parser: Parser): AST.Expression {
 }
 
 function parseIfStatement(parser: Parser): AST.Expression {
+    const rootToken = parser.previous(); // should be 'if'
     const condition = parser.expression();
     if (condition === null) {
         return parser.error("Expected expression after if.");
     }
-    const thenBranch = parser.expression();
+    if (parser.current().type !== TokenType.LBrace) {
+        return parser.error("Expected '{' after if condition.");
+    }
+    parser.advance();
+    const thenBranch = parser.block();
     if (thenBranch === null) {
         return parser.error("Expected expression after if.");
     }
-    if (parser.current().type !== TokenType.Else) {
-        return new AST.If(condition, thenBranch, null);
+    if (parser.atEnd() || parser.current().type !== TokenType.Else) {
+        return parser.tryCreateASTExpression(() => new AST.If(rootToken, condition, thenBranch, null));
     }
     parser.advance();
-    const elseBranch = parser.expression();
+    if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
+        return parser.error("Expected '{' after else.");
+    }
+    parser.advance();
+    const elseBranch = parser.block();
     if (elseBranch === null) {
         return parser.error("Expected expression after else.");
     }
-    return new AST.If(condition, thenBranch, elseBranch);
+    return parser.tryCreateASTExpression(() => new AST.If(rootToken, condition, thenBranch, elseBranch));
 }
 
 function parseInt(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new AST.Literal(AST.Type.Integer, token.text);
+    return new AST.Literal(token, AST.Type.Integer);
 }
 
 function parseFloat(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new AST.Literal(AST.Type.Float, token.text);
+    return new AST.Literal(token, AST.Type.Float);
 }
 
 function parseString(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new AST.Literal(AST.Type.String, token.text.slice(1, -1));
+    return new AST.Literal(token, AST.Type.String);
 }
 
 function parseBoolean(parser: Parser): AST.Expression {
     const token = parser.previous();
-    return new AST.Literal(AST.Type.Boolean, token.text);
+    return new AST.Literal(token, AST.Type.Boolean);
 }
 
 function parseUnary(parser: Parser): AST.Expression {
@@ -207,15 +222,7 @@ function parseUnary(parser: Parser): AST.Expression {
     if (rightExpr === null) {
         return parser.error(`Expected expression after ${token.text}.`);
     }
-    try {
-        return new AST.Unary(rightExpr, token.type);
-    } catch (e) {
-        if (e instanceof Error) {
-            parser.error(e.message);
-            return new AST.ErrorExpression(e.message);
-        }
-        throw e;
-    }
+    return parser.tryCreateASTExpression(() => new AST.Unary(token, rightExpr));
 }
 
 function parseBinary(parser: Parser, leftExpr: AST.Expression): AST.Expression {
@@ -226,34 +233,16 @@ function parseBinary(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     if (rightExpr === null) {
         return parser.error(`Expected expression after ${token.text}.`);
     }
-    try {
-        return new AST.Binary(leftExpr, rightExpr, token.type);
-    } catch (e) {
-        if (e instanceof Error) {
-            parser.error(e.message);
-            return new AST.ErrorExpression(e.message);
-        }
-        throw e;
-    }
+    return parser.tryCreateASTExpression(() => new AST.Binary(token, leftExpr, rightExpr));
 }
 
 function parseVariable(parser: Parser): AST.Expression {
-    const text = parser.previous().text;
+    const variableToken = parser.previous();
     if (parser.atEnd() || parser.current().type !== TokenType.Equal) {
         // Assume variable is already defined
-        try {
-            return new AST.Variable(text);
-        }
-        catch (e) {
-            if (e instanceof Error) {
-                parser.error(e.message);
-                return new AST.ErrorExpression(e.message);
-            }
-            throw e;
-        }
+        return parser.tryCreateASTExpression(() => new AST.Variable(variableToken));
     }
-    parser.error("Variable assignments are not allowed within expressions.");
-    return new AST.ErrorExpression("Variable assignments are not allowed within expressions.");
+    return parser.error("variable assignments are not allowed within expressions.");
 }
 
 class Parser {
@@ -261,7 +250,7 @@ class Parser {
     index: number = 0;
     previousIndex: number = 0;
     panicMode: boolean = false;
-    errors: string[] = [];
+    errors: ParseError[] = [];
 
     constructor(tokens: Token[]) {
         this.tokens = tokens;
@@ -287,16 +276,31 @@ class Parser {
         this.index += offset;
         this.previousIndex = this.index - 1;
     }
-    
+
     error(message: string): AST.ErrorExpression {
-        const errorExpr = new AST.ErrorExpression(message);
+        const token = this.previous();
+        const errorExpr = new AST.ErrorExpression(token, message);
         if (this.panicMode) {
             return errorExpr;
         }
         this.panicMode = true;
-        const token = this.previous();
-        this.errors.push(`On line ${token.line + 1}, column ${token.col + 1}, ${message}`);
+        this.errors.push({
+            line: token.line,
+            col: token.col,
+            message,
+        });
         return errorExpr;
+    }
+
+    tryCreateASTExpression(cFunc: () => AST.Expression): AST.Expression {
+        try {
+            return cFunc();
+        } catch (e) {
+            if (e instanceof Error) {
+                return this.error(e.message);
+            }
+            throw e;
+        }
     }
 
     parseWithPrecedence(precedence: Precedence): AST.Expression | null {
@@ -326,7 +330,7 @@ class Parser {
         if (this.current().type !== TokenType.Identifier || this.peek()?.type !== TokenType.Equal) {
             return null;
         }
-        const varName = this.current().text;
+        const variableToken = this.current();
         this.advance(2);
         const value = this.parseWithPrecedence(Precedence.Assignment);
         if (!value) {
@@ -337,7 +341,7 @@ class Parser {
             this.advance();
             isDropped = true;
         }
-        return new AST.Assignment(varName, value, isDropped);
+        return new AST.Assignment(variableToken, value, isDropped);
     }
 
     expression(): AST.Expression | null {
@@ -353,6 +357,7 @@ class Parser {
         // We've started a new block context, so we can start reporting errors again
         this.panicMode = false;
 
+        const rootToken = this.previous();  // Should be LBrace
         const expressions: AST.Expression[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
             const assignment = this.assignment();
@@ -370,22 +375,31 @@ class Parser {
             this.advance();
         }
         try {
-            return new AST.Block(expressions);
+            return new AST.Block(rootToken, expressions);
         } catch (e) {
             if (e instanceof Error) {
-                this.error(e.message);
-                return new AST.ErrorExpression(e.message);
+                return this.error(e.message);
             }
             throw e;
         }
     }
 }
 
-export function parse(tokens: Token[]): { ast: AST.Expression, errors: string[] } {
+export function parse(tokens: Token[]): { ast: AST.Expression, errors: ParseError[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
     if (parser.errors.length === 0) {
-        block.cascadeLineage([]);
+        try {
+            block.cascadeLineage([]);
+        } catch (e) {
+            if (e instanceof AST.ASTError) {
+                parser.errors.push({
+                    line: e.line,
+                    col: e.col,
+                    message: "(During type resolution) " + e.message
+                });
+            }
+        }
     }
     return { ast: block, errors: parser.errors };
 }

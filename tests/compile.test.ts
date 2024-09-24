@@ -66,3 +66,20 @@ test("compile variables", () => {
         3.5
     );
 });
+
+test("compile if expressions", () => {
+    testCompile(`if (true) { 1 } else { 2 }`, 1n);
+    testCompile(`if (false) { 1 } else { 2 }`, 2n);
+    testCompile(`if (1 == 1) { 1 } else { 2 }`, 1n);
+    testCompile(`if (1 == 2) { 1 } else { 2 }`, 2n);
+    testCompile(`if (true) { 1; }`, null);
+    testCompile(`
+        x = 1;
+        if (true) {
+            x = 2;
+        }
+        x
+        `,
+        2n
+    );
+});

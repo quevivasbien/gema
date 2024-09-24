@@ -88,7 +88,7 @@ class Scanner {
     }
 
     readIdentifierOrKeyword(): Token {
-        while (/^[A-Za-z\d]$/.test(this.text[this.index])) {
+        while (/^[A-Za-z_\d]$/.test(this.text[this.index])) {
             this.index += 1;
         }
         const text = this.text.slice(this.tokenStartIndex, this.index);
