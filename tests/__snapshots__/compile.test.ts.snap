@@ -4,18 +4,17 @@ exports[`compile literals 1`] = `
 Block {
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 0,
+      "type": "Int",
       "value": "1",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
 `;
 
 exports[`compile literals 2`] = `
-"(() => {
+"
+(() => {
     return BigInt(1);
 })()"
 `;
@@ -24,18 +23,17 @@ exports[`compile literals 3`] = `
 Block {
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 1,
+      "type": "Float",
       "value": "1.23",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Float",
 }
 `;
 
 exports[`compile literals 4`] = `
-"(() => {
+"
+(() => {
     return 1.23;
 })()"
 `;
@@ -44,18 +42,17 @@ exports[`compile literals 5`] = `
 Block {
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 3,
+      "type": "Bool",
       "value": "true",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Bool",
 }
 `;
 
 exports[`compile literals 6`] = `
-"(() => {
+"
+(() => {
     return true;
 })()"
 `;
@@ -64,18 +61,17 @@ exports[`compile literals 7`] = `
 Block {
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 3,
+      "type": "Bool",
       "value": "false",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Bool",
 }
 `;
 
 exports[`compile literals 8`] = `
-"(() => {
+"
+(() => {
     return false;
 })()"
 `;
@@ -84,18 +80,17 @@ exports[`compile literals 9`] = `
 Block {
   "expressions": [
     Literal {
-      "parent": null,
-      "type": 2,
+      "type": "Str",
       "value": "hello",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Str",
 }
 `;
 
 exports[`compile literals 10`] = `
-"(() => {
+"
+(() => {
     return "hello";
 })()"
 `;
@@ -105,27 +100,24 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
       "operator": "+",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 2`] = `
-"(() => {
+"
+(() => {
     return (BigInt(1) + BigInt(2));
 })()"
 `;
@@ -135,27 +127,24 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
       "operator": "-",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 4`] = `
-"(() => {
+"
+(() => {
     return (BigInt(1) - BigInt(2));
 })()"
 `;
@@ -165,27 +154,24 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
       "operator": "*",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 6`] = `
-"(() => {
+"
+(() => {
     return (BigInt(1) * BigInt(2));
 })()"
 `;
@@ -195,27 +181,24 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
       "operator": "/",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 8`] = `
-"(() => {
+"
+(() => {
     return (BigInt(1) / BigInt(2));
 })()"
 `;
@@ -226,46 +209,39 @@ Block {
     Binary {
       "left": Binary {
         "left": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "3",
         },
         "operator": "*",
-        "parent": null,
         "right": Binary {
           "left": Literal {
-            "parent": null,
-            "type": 0,
+            "type": "Int",
             "value": "1",
           },
           "operator": "+",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 0,
+            "type": "Int",
             "value": "3",
           },
-          "type": null,
+          "type": "Int",
         },
-        "type": null,
+        "type": "Int",
       },
       "operator": "/",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "2",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
 `;
 
 exports[`compile binary expressions 10`] = `
-"(() => {
+"
+(() => {
     return ((BigInt(3) * (BigInt(1) + BigInt(3))) / BigInt(2));
 })()"
 `;
@@ -275,27 +251,24 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 3,
+        "type": "Bool",
         "value": "true",
       },
       "operator": "and",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 3,
+        "type": "Bool",
         "value": "false",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 12`] = `
-"(() => {
+"
+(() => {
     return (true && false);
 })()"
 `;
@@ -305,27 +278,24 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 3,
+        "type": "Bool",
         "value": "true",
       },
       "operator": "or",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 3,
+        "type": "Bool",
         "value": "false",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 14`] = `
-"(() => {
+"
+(() => {
     return (true || false);
 })()"
 `;
@@ -335,27 +305,24 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
       "operator": "==",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 16`] = `
-"(() => {
+"
+(() => {
     return (BigInt(1) === BigInt(1));
 })()"
 `;
@@ -365,27 +332,24 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
       "operator": "!=",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 18`] = `
-"(() => {
+"
+(() => {
     return (BigInt(1) !== BigInt(1));
 })()"
 `;
@@ -396,46 +360,39 @@ Block {
     Binary {
       "left": Binary {
         "left": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "1",
         },
         "operator": ">",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "2",
         },
-        "type": null,
+        "type": "Bool",
       },
       "operator": "and",
-      "parent": null,
       "right": Binary {
         "left": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "3",
         },
         "operator": "<",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "4",
         },
-        "type": null,
+        "type": "Bool",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 20`] = `
-"(() => {
+"
+(() => {
     return ((BigInt(1) > BigInt(2)) && (BigInt(3) < BigInt(4)));
 })()"
 `;
@@ -446,46 +403,39 @@ Block {
     Binary {
       "left": Binary {
         "left": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "1",
         },
         "operator": ">",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "2",
         },
-        "type": null,
+        "type": "Bool",
       },
       "operator": "or",
-      "parent": null,
       "right": Binary {
         "left": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "3",
         },
         "operator": "<",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "4",
         },
-        "type": null,
+        "type": "Bool",
       },
-      "type": null,
+      "type": "Bool",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Bool",
 }
 `;
 
 exports[`compile binary expressions 22`] = `
-"(() => {
+"
+(() => {
     return ((BigInt(1) > BigInt(2)) || (BigInt(3) < BigInt(4)));
 })()"
 `;
@@ -496,22 +446,20 @@ Block {
     Block {
       "expressions": [
         Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "1",
         },
       ],
-      "parent": null,
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
 `;
 
 exports[`compile block 2`] = `
-"(() => {
+"
+(() => {
     return (() => {
         return BigInt(1);
     })();
@@ -523,33 +471,29 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 0,
+        "type": "Int",
         "value": "1",
       },
       "operator": "+",
-      "parent": null,
       "right": Block {
         "expressions": [
           Literal {
-            "parent": null,
-            "type": 0,
+            "type": "Int",
             "value": "1",
           },
         ],
-        "parent": null,
-        "type": null,
+        "type": "Int",
       },
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
 `;
 
 exports[`compile block 4`] = `
-"(() => {
+"
+(() => {
     return (BigInt(1) + (() => {
         return BigInt(1);
     })());
@@ -563,28 +507,140 @@ Block {
       "expressions": [
         DropValue {
           "child": Literal {
-            "parent": null,
-            "type": 0,
+            "type": "Int",
             "value": "1",
           },
-          "parent": null,
-          "type": 4,
+          "type": "Null",
         },
       ],
-      "parent": null,
-      "type": null,
+      "type": "Null",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Null",
 }
 `;
 
 exports[`compile block 6`] = `
-"(() => {
+"
+(() => {
     return (() => {
         BigInt(1);
         return null;
     })();
+})()"
+`;
+
+exports[`compile variables 1`] = `
+Block {
+  "expressions": [
+    Assignment {
+      "isDropped": true,
+      "name": "x",
+      "type": "Null",
+      "value": Literal {
+        "type": "Float",
+        "value": "1.2",
+      },
+    },
+    Assignment {
+      "isDropped": true,
+      "name": "y",
+      "type": "Null",
+      "value": Block {
+        "expressions": [
+          Literal {
+            "type": "Float",
+            "value": "2.3",
+          },
+        ],
+        "type": "Float",
+      },
+    },
+    Binary {
+      "left": Variable {
+        "name": "x",
+        "type": "Float",
+      },
+      "operator": "+",
+      "right": Variable {
+        "name": "y",
+        "type": "Float",
+      },
+      "type": "Float",
+    },
+  ],
+  "type": "Float",
+}
+`;
+
+exports[`compile variables 2`] = `
+"var x;
+var y;
+(() => {
+    x = 1.2;
+    y = (() => {
+        return 2.3;
+    })();
+    return (x + y);
+})()"
+`;
+
+exports[`compile variables 3`] = `
+Block {
+  "expressions": [
+    Assignment {
+      "isDropped": true,
+      "name": "x",
+      "type": "Null",
+      "value": Literal {
+        "type": "Float",
+        "value": "1.2",
+      },
+    },
+    Assignment {
+      "isDropped": false,
+      "name": "y",
+      "type": "Float",
+      "value": Block {
+        "expressions": [
+          Literal {
+            "type": "Float",
+            "value": "2.3",
+          },
+        ],
+        "type": "Float",
+      },
+    },
+    Assignment {
+      "isDropped": false,
+      "name": "x",
+      "type": "Float",
+      "value": Binary {
+        "left": Variable {
+          "name": "x",
+          "type": "Float",
+        },
+        "operator": "+",
+        "right": Variable {
+          "name": "y",
+          "type": "Float",
+        },
+        "type": "Float",
+      },
+    },
+  ],
+  "type": "Float",
+}
+`;
+
+exports[`compile variables 4`] = `
+"var x;
+var y;
+(() => {
+    x = 1.2;
+    (() => { y = (() => {
+        return 2.3;
+    })(); return y; })();
+    return (() => { x = (x + y); return x; })();
 })()"
 `;

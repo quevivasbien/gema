@@ -12,7 +12,7 @@ export enum Type {
 export abstract class Expression {
     type: Type | null = null;
     
-    abstract cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void;
+    abstract cascadeLineage(ancestors: Expression[]): void;
 
     toJS(writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`)
@@ -25,7 +25,7 @@ export class ErrorExpression extends Expression {
         super();
     }
 
-    cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void {
+    cascadeLineage(ancestors: Expression[]): void {
         // noop
     }
 }
@@ -36,7 +36,7 @@ export class DropValue extends Expression {
         this.type = Type.Null;
     }
 
-    cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void {
+    cascadeLineage(ancestors: Expression[]): void {
         // Type is already resolved as null, so just pass to children
         this.child.cascadeLineage([...ancestors, this]);
     }
@@ -54,11 +54,9 @@ export class Block extends Expression {
         super();
     }
 
-    cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void {
-        const siblings: Expression[] = [];
+    cascadeLineage(ancestors: Expression[]): void {
         for (const expression of this.expressions) {
-            expression.cascadeLineage([...ancestors, this], siblings);
-            siblings.push(expression);
+            expression.cascadeLineage([...ancestors, this]);
         }
         // Resolve type based on last child
         this.type = this.expressions[this.expressions.length - 1].type;
@@ -96,7 +94,7 @@ export class Literal extends Expression {
         this.type = type;
     }
 
-    cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void {
+    cascadeLineage(ancestors: Expression[]): void {
         // Type is already resolved; no need to do anything
     }
 
@@ -123,7 +121,7 @@ export class Unary extends Expression {
         super();
     }
 
-    cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void {
+    cascadeLineage(ancestors: Expression[]): void {
         this.child.cascadeLineage([...ancestors, this]);
 
         switch (this.child.type) {
@@ -176,9 +174,9 @@ export class Binary extends Expression {
         super();
     }
 
-    cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void {
+    cascadeLineage(ancestors: Expression[]): void {
         this.left.cascadeLineage([...ancestors, this]);
-        this.right.cascadeLineage([...ancestors, this], [this.left]);
+        this.right.cascadeLineage([...ancestors, this]);
 
         const [ltype, rtype] = [this.left.type, this.right.type];
 
@@ -297,9 +295,33 @@ export class Variable extends Expression {
         super();
     }
 
-    cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void {
-        // TODO: Resolve type
+    resolveAssignment(e: Expression): Type | null {
+        if (e instanceof Assignment && (e as Assignment).name === this.name) {
+            return (e as Assignment).value.type;
+        }
+        return null;
     }
+
+    cascadeLineage(ancestors: Expression[]): void {
+        let lastAncestor: Expression = this;
+        for (let i = 0; i < ancestors.length; i++) {
+            const ancestor = ancestors[ancestors.length - i - 1];
+            let olderSiblings: Expression[] = [];
+            if (ancestor instanceof Block) {
+                olderSiblings = ancestor.expressions.slice(0, olderSiblings.indexOf(lastAncestor));
+            }
+            for (let j = 0; j < olderSiblings.length; j++) {
+                const olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                const type = this.resolveAssignment(olderSibling);
+                if (type !== null) {
+                    this.type = type;
+                    return;
+                }
+            }
+            lastAncestor = ancestor;
+        }
+        throw new Error(`unable to resolve type of variable ${this.name}`);
+     }
 
     toJS(writer: JSWriter): void {
         writer.write(this.name);
@@ -307,17 +329,11 @@ export class Variable extends Expression {
 }
 
 export class Assignment extends Expression {
-    isDropped = false;
-
-    constructor(public name: string, public value: Expression) {
+    constructor(public name: string, public value: Expression, public isDropped: boolean) {
         super();
     }
 
-    cascadeLineage(ancestors: Expression[], olderSiblings?: Expression[]): void {
-        const parent = ancestors[ancestors.length - 1];
-        if (parent instanceof DropValue) {
-            this.isDropped = true;
-        }
+    cascadeLineage(ancestors: Expression[]): void {
         // Don't include self in children's lineage, to avoid problems with recursive definitions
         this.value.cascadeLineage([...ancestors]);
 

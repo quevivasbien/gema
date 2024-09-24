@@ -7,40 +7,32 @@ Block {
       "left": Binary {
         "left": Binary {
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.22",
           },
           "operator": "+",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
         "operator": "+",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
       "operator": "+",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Float",
 }
 `;
 
@@ -51,40 +43,32 @@ Block {
       "left": Binary {
         "left": Binary {
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.22",
           },
           "operator": "-",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
         "operator": "-",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
       "operator": "-",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Float",
 }
 `;
 
@@ -95,40 +79,32 @@ Block {
       "left": Binary {
         "left": Binary {
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.22",
           },
           "operator": "*",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
         "operator": "*",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
       "operator": "*",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Float",
 }
 `;
 
@@ -139,40 +115,32 @@ Block {
       "left": Binary {
         "left": Binary {
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.22",
           },
           "operator": "/",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
         "operator": "/",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
       "operator": "/",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Float",
 }
 `;
 
@@ -181,42 +149,34 @@ Block {
   "expressions": [
     Binary {
       "left": Literal {
-        "parent": null,
-        "type": 1,
+        "type": "Float",
         "value": "1.22",
       },
       "operator": "+",
-      "parent": null,
       "right": Binary {
         "left": Binary {
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.23",
           },
           "operator": "*",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 0,
+            "type": "Int",
             "value": "8",
           },
-          "type": null,
+          "type": "Float",
         },
         "operator": "/",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 1,
+          "type": "Float",
           "value": "3.13",
         },
-        "type": null,
+        "type": "Float",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Float",
 }
 `;
 
@@ -227,40 +187,32 @@ Block {
       "left": Binary {
         "left": Binary {
           "left": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.22",
           },
           "operator": "+",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "1.23",
           },
-          "type": null,
+          "type": "Float",
         },
         "operator": "*",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "8",
         },
-        "type": null,
+        "type": "Float",
       },
       "operator": "/",
-      "parent": null,
       "right": Literal {
-        "parent": null,
-        "type": 1,
+        "type": "Float",
         "value": "3.13",
       },
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Float",
 }
 `;
 
@@ -272,61 +224,49 @@ Block {
         Binary {
           "left": Binary {
             "left": Literal {
-              "parent": null,
-              "type": 1,
+              "type": "Float",
               "value": "1.22",
             },
             "operator": "+",
-            "parent": null,
             "right": Binary {
               "left": Literal {
-                "parent": null,
-                "type": 1,
+                "type": "Float",
                 "value": "1.23",
               },
               "operator": "*",
-              "parent": null,
               "right": Block {
                 "expressions": [
                   Binary {
                     "left": Literal {
-                      "parent": null,
-                      "type": 0,
+                      "type": "Int",
                       "value": "8",
                     },
                     "operator": "/",
-                    "parent": null,
                     "right": Literal {
-                      "parent": null,
-                      "type": 1,
+                      "type": "Float",
                       "value": "3.13",
                     },
-                    "type": null,
+                    "type": "Float",
                   },
                 ],
-                "parent": null,
-                "type": null,
+                "type": "Float",
               },
-              "type": null,
+              "type": "Float",
             },
-            "type": null,
+            "type": "Float",
           },
           "operator": "+",
-          "parent": null,
           "right": Literal {
-            "parent": null,
-            "type": 1,
+            "type": "Float",
             "value": "2.",
           },
-          "type": null,
+          "type": "Float",
         },
       ],
-      "parent": null,
-      "type": null,
+      "type": "Float",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Float",
 }
 `;
 
@@ -336,53 +276,101 @@ Block {
     DropValue {
       "child": Binary {
         "left": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "1",
         },
         "operator": "+",
-        "parent": null,
         "right": Literal {
-          "parent": null,
-          "type": 0,
+          "type": "Int",
           "value": "1",
         },
-        "type": null,
+        "type": "Int",
       },
-      "parent": null,
-      "type": 4,
+      "type": "Null",
     },
-    DropValue {
-      "child": Assignment {
-        "name": "x",
-        "parent": null,
-        "type": null,
-        "value": Unary {
-          "child": Literal {
-            "parent": null,
-            "type": 0,
-            "value": "2",
-          },
-          "operator": "-",
-          "parent": null,
-          "type": null,
+    Assignment {
+      "isDropped": true,
+      "name": "x",
+      "type": "Null",
+      "value": Unary {
+        "child": Literal {
+          "type": "Int",
+          "value": "2",
         },
+        "operator": "-",
+        "type": "Int",
       },
-      "parent": null,
-      "type": 4,
     },
     Unary {
       "child": Variable {
         "name": "x",
-        "parent": null,
-        "type": null,
+        "type": "Int",
       },
       "operator": "-",
-      "parent": null,
-      "type": null,
+      "type": "Int",
     },
   ],
-  "parent": null,
-  "type": null,
+  "type": "Int",
 }
+`;
+
+exports[`parse variable assignment 1`] = `
+Block {
+  "expressions": [
+    Assignment {
+      "isDropped": false,
+      "name": "x",
+      "type": "Float",
+      "value": Literal {
+        "type": "Float",
+        "value": "1.22",
+      },
+    },
+    Assignment {
+      "isDropped": false,
+      "name": "y",
+      "type": "Float",
+      "value": Block {
+        "expressions": [
+          Literal {
+            "type": "Float",
+            "value": "1.23",
+          },
+        ],
+        "type": "Float",
+      },
+    },
+    Assignment {
+      "isDropped": true,
+      "name": "z",
+      "type": "Null",
+      "value": Literal {
+        "type": "Float",
+        "value": "3.13",
+      },
+    },
+    Assignment {
+      "isDropped": false,
+      "name": "x",
+      "type": "Int",
+      "value": Literal {
+        "type": "Int",
+        "value": "3",
+      },
+    },
+  ],
+  "type": "Int",
+}
+`;
+
+exports[`parse variable assignment 2`] = `
+[
+  "On line 1, column 5, Variable assignments are not allowed within expressions.",
+]
+`;
+
+exports[`parse variable assignment 3`] = `
+[
+  "On line 1, column 5, Variable assignments are not allowed within expressions.",
+]
 `;
