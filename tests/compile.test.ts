@@ -26,6 +26,8 @@ test("compile binary expressions", () => {
    testCompile(`1 * 2`, 2n);
    testCompile(`1 / 2`, 0n);
    testCompile(`3 * (1 + 3) / 2`, 6n);
+   testCompile(`5 % 3`, 2n);
+   testCompile(`-5 % 3`, 1n);
    testCompile(`true and false`, false);
    testCompile(`true or false`, true);
    testCompile(`1 == 1`, true);
@@ -38,4 +40,10 @@ test("compile block", () => {
     testCompile(`{ 1 }`, 1n);
     testCompile(`1 + { 1 }`, 2n);
     testCompile(`{ 1; }`, null);
+    testCompile(
+        `
+            (-32 / 4) % { 1 + 2 } 
+        `,
+        1n
+    );
 });

@@ -149,25 +149,31 @@ export class Binary extends Expression {
 
     toJS(writer: JSWriter): void {
         // TODO: Check types
-        if ([
-            TokenType.Plus,
-            TokenType.Minus,
-            TokenType.Star,
-            TokenType.Slash,
-            TokenType.Greater,
-            TokenType.GreaterEqual,
-            TokenType.Less,
-            TokenType.LessEqual,
-            TokenType.EqualEqual,
-            TokenType.BangEqual,
-            TokenType.And,
-            TokenType.Or,
-        ].includes(this.operator)) {
+        if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
             writer.write("(");
             this.left.toJS(writer);
             writer.write(` ${OPERATOR_TRANSLATIONS[this.operator]} `);
             this.right.toJS(writer);
             writer.write(")");
+            return;
+        } else if (this.operator === TokenType.Percent) {
+            // Don't use JS's default modulo operator behavior
+            // Treat % as euclidean remainder (i.e., it will always give a positive result)
+            writer.write("(() => {");
+            writer.indentIn();
+            writer.newLine();
+            writer.write("const __left = ");
+            this.left.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+            writer.write("const __right = ");
+            this.right.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+            writer.write("return ((__left % __right) + __right) % __right;");
+            writer.indentOut();
+            writer.newLine();
+            writer.write("})()");
             return;
         }
         throw new Error(`tried to use token ${this.operator} as binary operator`);
@@ -182,6 +188,12 @@ export class Variable extends Expression {
 
 export class Assignment extends Expression {
     constructor(public name: string, public value: Expression) {
+        super();
+    }
+}
+
+export class If extends Expression {
+    constructor(public condition: Expression, public thenBranch: Expression, public elseBranch: Expression) {
         super();
     }
 }

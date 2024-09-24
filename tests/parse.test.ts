@@ -29,8 +29,13 @@ test("parse division", () => {
     testParse(`1.22  / 1.23  / 8 / 3.13`);
 });
 
+test("parse modulo", () => {
+    testParse(`1.22  % 1.23  % 8 % 3.13`);
+});
+
 test("parse order of operations", () => {
     testParse(`1.22  + 1.23  * 8 / 3.13`);
+    testParse(`123 * 123 / 123 % 123 * 123`);
 }); 
 
 test("parse parens", () => {

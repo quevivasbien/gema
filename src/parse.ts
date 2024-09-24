@@ -21,6 +21,8 @@ interface ParseRule {
 }
 
 const PARSE_RULES: Record<string, ParseRule> = {};
+
+// Groupings and control flow
 PARSE_RULES[TokenType.LParen] = {
     prefix: parseGrouping,
     infix: null,
@@ -30,7 +32,12 @@ PARSE_RULES[TokenType.LBrace] = {
     prefix: (parser: Parser) => parser.block(),
     infix: null,
     precedence: Precedence.None
-}
+};
+PARSE_RULES[TokenType.If] = {
+    prefix: parseIfStatement,
+    infix: null,
+    precedence: Precedence.None
+};
 
 // AST.Literals
 PARSE_RULES[TokenType.Integer] = {
@@ -76,6 +83,11 @@ PARSE_RULES[TokenType.Star] = {
     precedence: Precedence.Factor
 };
 PARSE_RULES[TokenType.Slash] = {
+    prefix: null,
+    infix: parseBinary,
+    precedence: Precedence.Factor
+};
+PARSE_RULES[TokenType.Percent] = {
     prefix: null,
     infix: parseBinary,
     precedence: Precedence.Factor
@@ -144,10 +156,29 @@ function parseGrouping(parser: Parser): AST.Expression {
         parser.error("missing closing parenthesis after expression.");
     }
     if (expr === null) {
-        parser.error("expected expression in parentheses.");
-        return new AST.ErrorExpression("expected expression in parentheses.");
+        return parser.error("expected expression in parentheses.");
     }
     return expr;
+}
+
+function parseIfStatement(parser: Parser): AST.Expression {
+    const condition = parser.expression();
+    if (condition === null) {
+        return parser.error("Expected expression after if.");
+    }
+    const thenBranch = parser.expression();
+    if (thenBranch === null) {
+        return parser.error("Expected expression after if.");
+    }
+    if (parser.current().type !== TokenType.Else) {
+        return new AST.If(condition, thenBranch, null);
+    }
+    parser.advance();
+    const elseBranch = parser.expression();
+    if (elseBranch === null) {
+        return parser.error("Expected expression after else.");
+    }
+    return new AST.If(condition, thenBranch, elseBranch);
 }
 
 function parseInt(parser: Parser): AST.Expression {
@@ -174,8 +205,7 @@ function parseUnary(parser: Parser): AST.Expression {
     const token = parser.previous();
     const rightExpr = parser.parseWithPrecedence(Precedence.Unary);
     if (rightExpr === null) {
-        parser.error(`Expected expression after ${token.text}.`);
-        return new AST.ErrorExpression(`Expected expression after ${token.text}.`);
+        return parser.error(`Expected expression after ${token.text}.`);
     }
     try {
         return new AST.Unary(rightExpr, token.type);
@@ -194,8 +224,7 @@ function parseBinary(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     const precedence = rule.precedence + 1;
     const rightExpr = parser.parseWithPrecedence(precedence);
     if (rightExpr === null) {
-        parser.error(`Expected expression after ${token.text}.`);
-        return new AST.ErrorExpression(`Expected expression after ${token.text}.`);
+        return parser.error(`Expected expression after ${token.text}.`);
     }
     try {
         return new AST.Binary(leftExpr, rightExpr, token.type);
@@ -256,13 +285,15 @@ class Parser {
         this.index += 1;
     }
     
-    error(message: string) {
+    error(message: string): AST.ErrorExpression {
+        const errorExpr = new AST.ErrorExpression(message);
         if (this.panicMode) {
-            return;
+            return errorExpr;
         }
         this.panicMode = true;
         const token = this.previous();
         this.errors.push(`On line ${token.line}, column ${token.col}, ${message}`);
+        return errorExpr;
     }
 
     parseWithPrecedence(precedence: Precedence): AST.Expression | null {
@@ -272,8 +303,7 @@ class Parser {
         this.advance();
         const prefixRule = PARSE_RULES[this.previous().type].prefix;
         if (!prefixRule) {
-            this.error(`expected start of expression, but got ${this.current().text}`);
-            return null;
+            return this.error(`expected start of expression, but got ${this.current().text}`);
         }
         let expr = prefixRule(this);
 
@@ -281,8 +311,7 @@ class Parser {
             this.advance();
             const infixRule = PARSE_RULES[this.previous().type].infix;
             if (!infixRule) {
-                this.error(`expected infix operator, but got ${this.previous().text}`);
-                return null;
+                return this.error(`expected infix operator, but got ${this.previous().text}`);
             }
             expr = infixRule(this, expr);
         }
@@ -293,8 +322,7 @@ class Parser {
     assignment(name: string): AST.Expression {
         const value = this.parseWithPrecedence(Precedence.Assignment);
         if (!value) {
-            this.error("Expected expression after =");
-            return new AST.ErrorExpression("Expected expression after =");
+            return this.error("Expected expression after =");
         }
         return new AST.Assignment(name, value);
     }

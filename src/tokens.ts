@@ -25,6 +25,7 @@ export enum TokenType {
     Minus = "-",
     Star = "*",
     Slash = "/",
+    Percent = "%",
     BangEqual = "!=",
     Equal = "=",
     EqualEqual = "==",
