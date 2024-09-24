@@ -337,5 +337,6 @@ class Parser {
 export function parse(tokens: Token[]): { ast: AST.Expression, errors: string[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
+    block.cascadeLineage([]);
     return { ast: block, errors: parser.errors };
 }

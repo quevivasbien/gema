@@ -39,3 +39,14 @@ test("compile block", () => {
     testCompile(`1 + { 1 }`, 2n);
     testCompile(`{ 1; }`, null);
 });
+
+test("compile variables", () => {
+    testCompile(
+        `
+            x = 1.2;
+            y = 2.3;
+            x + y
+        `,
+        3.5
+    );   
+});

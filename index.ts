@@ -5,7 +5,9 @@ import { writeJS } from "./src/write-js";
 export { parse, scan, writeJS };
 
 const text = `
-1 >= 2
+x = 1.2;
+y = 2.3;
+x = 3
 `;
 
 const tokens = scan(text);
