@@ -1120,6 +1120,7 @@ Block {
         "type": "Int",
       },
       "col": 0,
+      "fullName": "add$Int$Int",
       "line": 0,
       "name": "add",
       "params": [
@@ -1192,6 +1193,7 @@ Block {
         },
       },
       "col": 8,
+      "fullName": "myFunc$Func_Int_Func_Int_Int__$Func__Int_",
       "line": 1,
       "name": "myFunc",
       "params": [
@@ -1292,4 +1294,77 @@ Block {
     },
   },
 }
+`;
+
+exports[`parse function 3`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    DropValue {
+      "child": Function {
+        "body": Block {
+          "col": 25,
+          "expressions": [
+            Variable {
+              "col": 27,
+              "line": 0,
+              "name": "a",
+              "type": "Int",
+            },
+          ],
+          "line": 0,
+          "type": "Int",
+        },
+        "col": 0,
+        "fullName": "myFunc$Int",
+        "line": 0,
+        "name": "myFunc",
+        "params": [
+          {
+            "name": "a",
+            "type": "Int",
+          },
+        ],
+        "returnType": "Int",
+        "type": FuncType {
+          "paramTypes": [
+            "Int",
+          ],
+          "returnType": "Int",
+        },
+      },
+      "col": 0,
+      "line": 0,
+      "type": "Null",
+    },
+    FunctionCall {
+      "args": [
+        Literal {
+          "col": 39,
+          "line": 0,
+          "type": "Int",
+          "value": "1",
+        },
+      ],
+      "col": 32,
+      "fullName": "myFunc$Int",
+      "line": 0,
+      "name": "myFunc",
+      "referToByName": "full",
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
+`;
+
+exports[`parse function 4`] = `
+[
+  {
+    "col": 32,
+    "line": 0,
+    "message": "(During type resolution) function myFunc<Float, unknown> not found",
+  },
+]
 `;

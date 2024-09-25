@@ -402,6 +402,8 @@ export class Assignment extends Expression {
 
         this.type = this.isDropped ? "Null" : this.value.type;
 
+        // TODO: Disallow assignment to non-anonymous function declaration
+
         // Check if this variable has been defined before in the same block, get type of previous definition if so to make sure it matches
         const previousType = (() => {
             for (let i = 0; i < ancestors.length; i++) {
@@ -526,10 +528,14 @@ export class Function extends Expression {
     params: { name: string, type: Type }[];
     returnType: Type;
     body: Block;
+    fullName?: string;
 
     constructor(rootToken: Token, name: string, params: { name: string, type: Type }[], returnType: Type, body: Expression) {
         if (!(body instanceof Block)) {
             throw new Error("function body must be a Block expression");
+        }
+        if (params.reduce((acc, p) => acc || p.name === name, false)) {
+            throw new Error("function name cannot be the same as a parameter name");
         }
         super(rootToken.line, rootToken.col);
         this.name = name;
@@ -549,16 +555,20 @@ export class Function extends Expression {
         if (!deepEquals(this.body.type, this.returnType)) {
             throw this.error(`function body should return ${this.returnType}, but found ${this.body.type}`);
         }
+
+        this.fullName = functionNameWithParamTypes(this.name, this.params.map(arg => arg.type));
     }
 
     toJS(writer: JSWriter): void {
-        const fullName = functionNameWithParamTypes(this.name, this.params.map(arg => arg.type));
-        writer.write(`function ${fullName}(`);
+        if (this.fullName === undefined) {
+            throw new Error("function name not resolved");
+        }
+        writer.write(`function ${this.fullName}(`);
         writer.write(this.params.map(p => p.name).join(", "));
         writer.write(") {");
         writer.indentIn();
         try {
-            writer.beginFunction(fullName);
+            writer.beginFunction(this.fullName);
         } catch (e) {
             if (e instanceof Error) {
                 throw this.error(e.message);
@@ -593,6 +603,8 @@ export class FunctionCall extends Expression {
     args: Expression[];
     fullName?: string;
 
+    referToByName?: "abbr" | "full";
+
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
             throw new Error("function call name must be an identifier");
@@ -614,12 +626,87 @@ export class FunctionCall extends Expression {
 
         this.fullName = functionNameWithParamTypes(this.name, argTypes);
 
-        // search for definition
-        const func = this.findFunction(ancestors);
+        // search for the most recent function definition with matching type, get name we should refer to it by
+        // also set type of this to return type of found function
+        this.findFunction(ancestors);
     }
 
-    findFunction(ancestors: Expression[]): Function | null {
-        // TODO
-        return null;
+    findFunction(ancestors: Expression[]) {
+        if (this.fullName === undefined) {
+            throw this.error("function name not resolved");
+        }
+        // The goal here is to figure out whether we should refer to this function by its name or fullName.
+        // We want to find either function definitions with matching type signatures (matching fullName),
+        // or variables with just matching names.
+        // If we find a variable, we need to check that it's assigned to an appropriate function.
+        let lastAncestor: Expression = this;
+        for (let i = 0; i < ancestors.length; i++) {
+            const ancestor = ancestors[ancestors.length - i - 1];
+            if (ancestor instanceof Block) {
+                const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
+                for (let j = 0; j < olderSiblings.length; j++) {
+                    let olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                    while (olderSibling instanceof DropValue) {
+                        olderSibling = olderSibling.child;
+                    }
+                    if (olderSibling instanceof Function && olderSibling.fullName === this.fullName) {
+                        this.referToByName = "full";
+                        this.type = olderSibling.returnType;
+                        return;
+                    } else if (olderSibling instanceof Assignment && olderSibling.name === this.name) {
+                        const varType = olderSibling.value.type;
+                        if (!(varType instanceof FuncType)) {
+                            throw this.error(`most recent definition of variable ${this.name} is not a function.`);
+                        }
+                        const indirectFuncName = functionNameWithParamTypes(olderSibling.name, varType.paramTypes);
+                        if (indirectFuncName !== this.fullName) {
+                            throw this.error(`most recent definition of variable ${this.name} has an incompatible type signature for this function call.`);
+                        }
+                        this.referToByName = "abbr";
+                        this.type = varType.returnType;
+                        return;
+                    }
+                }
+            } else if (ancestor instanceof Function) {
+                // Check both the function params and the function itself (in the case of recursive functions)
+                for (const param of ancestor.params) {
+                    if (param.name === this.name) {
+                        if (!(param.type instanceof FuncType)) {
+                            throw this.error(`variable ${this.name} (parameter of function ${ancestor.name}) is not a function.`);
+                        }
+                        const indirectFuncName = functionNameWithParamTypes(param.name, param.type.paramTypes);
+                        if (indirectFuncName !== this.fullName) {
+                            throw this.error(`variable ${this.name} (parameter of function ${ancestor.name}) has an incompatible type signature for this function call.`);
+                        }
+                        this.referToByName = "abbr";
+                        this.type = param.type.returnType;
+                        return;
+                    }
+                }
+                if (ancestor.fullName === this.fullName) {
+                    this.referToByName = "full";
+                    this.type = ancestor.returnType;
+                    return;
+                }
+            }
+            lastAncestor = ancestor;
+        }
+        throw this.error(`function ${this.name}<${this.args.map(arg => arg.type?.toString()).join(", ")}, unknown> not found`);
+    }
+
+    toJS(writer: JSWriter): void {
+        if (this.fullName === undefined || this.referToByName === undefined) {
+            throw new Error("function name not resolved");
+        }
+        const name = this.referToByName === "full" ? this.fullName : this.name;
+        writer.write(name);
+        writer.write("(");
+        this.args.forEach((arg, i) => {
+            if (i > 0) {
+                writer.write(", ");
+            }
+            arg.toJS(writer);
+        });
+        writer.write(")");
     }
 }

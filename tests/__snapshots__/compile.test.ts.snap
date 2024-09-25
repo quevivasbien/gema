@@ -1486,3 +1486,101 @@ exports[`compile if expressions 12`] = `
     })();
 })()"
 `;
+
+exports[`compile functions 1`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    DropValue {
+      "child": Function {
+        "body": Block {
+          "col": 33,
+          "expressions": [
+            Binary {
+              "col": 37,
+              "left": Variable {
+                "col": 35,
+                "line": 0,
+                "name": "a",
+                "type": "Int",
+              },
+              "line": 0,
+              "operator": "+",
+              "right": Variable {
+                "col": 39,
+                "line": 0,
+                "name": "b",
+                "type": "Int",
+              },
+              "type": "Int",
+            },
+          ],
+          "line": 0,
+          "type": "Int",
+        },
+        "col": 0,
+        "fullName": "myFunc$Int$Int",
+        "line": 0,
+        "name": "myFunc",
+        "params": [
+          {
+            "name": "a",
+            "type": "Int",
+          },
+          {
+            "name": "b",
+            "type": "Int",
+          },
+        ],
+        "returnType": "Int",
+        "type": FuncType {
+          "paramTypes": [
+            "Int",
+            "Int",
+          ],
+          "returnType": "Int",
+        },
+      },
+      "col": 0,
+      "line": 0,
+      "type": "Null",
+    },
+    FunctionCall {
+      "args": [
+        Literal {
+          "col": 51,
+          "line": 0,
+          "type": "Int",
+          "value": "1",
+        },
+        Literal {
+          "col": 54,
+          "line": 0,
+          "type": "Int",
+          "value": "2",
+        },
+      ],
+      "col": 44,
+      "fullName": "myFunc$Int$Int",
+      "line": 0,
+      "name": "myFunc",
+      "referToByName": "full",
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
+`;
+
+exports[`compile functions 2`] = `
+"// PROGRAM //
+(() => {
+    function myFunc$Int$Int(a, b) {{
+            
+            return (a + b);
+        }
+    };
+    return myFunc$Int$Int(BigInt(1), BigInt(2));
+})()"
+`;

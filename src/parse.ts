@@ -307,7 +307,7 @@ function parseBinary(parser: Parser, leftExpr: AST.Expression): AST.Expression {
 function parseVariable(parser: Parser): AST.Expression {
     if (!parser.atEnd() && parser.current().type === TokenType.LParen) {
         // This is a function call
-        parseFunctionCall(parser);
+        return parseFunctionCall(parser);
     }
     if (parser.atEnd() || parser.current().type !== TokenType.Equal) {
         // Assume variable is already defined
@@ -541,6 +541,8 @@ export function parse(tokens: Token[]): { ast: AST.Expression, errors: ParseErro
                     col: e.col,
                     message: "(During type resolution) " + e.message
                 });
+            } else {
+                throw e;
             }
         }
     }

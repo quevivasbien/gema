@@ -89,4 +89,6 @@ test("parse function", () => {
             a
         }
     `);
+    testParse(`func myFunc(a: Int): Int { a }; myFunc(1)`);
+    testParseExpectError(`func myFunc(a: Int): Int { a }; myFunc(1.0)`);
 });

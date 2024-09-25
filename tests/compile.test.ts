@@ -97,3 +97,7 @@ test("compile if expressions", () => {
         1n
     );
 });
+
+test("compile functions", () => {
+    testCompile(`func myFunc(a: Int, b: Int): Int { a + b }; myFunc(1, 2)`, 3n);
+});
