@@ -58,7 +58,7 @@ export abstract class Expression {
         return new ASTError(this.line, this.col, message);
     }
 
-    abstract cascadeLineage(ancestors: Expression[]): void;
+    abstract cascadeTypes(ancestors: Expression[]): void;
 
     toJS(writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`)
@@ -71,7 +71,7 @@ export class ErrorExpression extends Expression {
         super(token.line, token.col);
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[]): void {
         // noop
     }
 }
@@ -82,9 +82,9 @@ export class DropValue extends Expression {
         this.type = "Null";
     }
     
-    cascadeLineage(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[]): void {
         // Type is already resolved as null, so just pass to children
-        this.child.cascadeLineage([...ancestors, this]);
+        this.child.cascadeTypes([...ancestors, this]);
     }
 
     toJS(writer: JSWriter): void {
@@ -100,9 +100,9 @@ export class Block extends Expression {
         super(rootToken.line, rootToken.col);
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[]): void {
         for (const expression of this.expressions) {
-            expression.cascadeLineage([...ancestors, this]);
+            expression.cascadeTypes([...ancestors, this]);
         }
         // Resolve type based on last child
         this.type = this.expressions[this.expressions.length - 1].type;
@@ -143,7 +143,7 @@ export class Literal extends Expression {
         this.type = type;
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[]): void {
         // Type is already resolved; no need to do anything
     }
 
@@ -175,8 +175,8 @@ export class Unary extends Expression {
         this.operator = operatorToken.type;
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
-        this.child.cascadeLineage([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[]): void {
+        this.child.cascadeTypes([...ancestors, this]);
 
         switch (this.child.type) {
             case "Int":
@@ -231,9 +231,9 @@ export class Binary extends Expression {
         this.operator = operatorToken.type;
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
-        this.left.cascadeLineage([...ancestors, this]);
-        this.right.cascadeLineage([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[]): void {
+        this.left.cascadeTypes([...ancestors, this]);
+        this.right.cascadeTypes([...ancestors, this]);
 
         const [ltype, rtype] = [this.left.type, this.right.type];
 
@@ -359,7 +359,7 @@ export class Variable extends Expression {
         return null;
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[]): void {
         let lastAncestor: Expression = this;
         for (let i = 0; i < ancestors.length; i++) {
             const ancestor = ancestors[ancestors.length - i - 1];
@@ -399,11 +399,38 @@ export class Assignment extends Expression {
         this.name = variableToken.text;
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
-        // Don't include self in children's lineage, to avoid problems with recursive definitions
-        this.value.cascadeLineage([...ancestors]);
+    cascadeTypes(ancestors: Expression[]): void {
+        this.value.cascadeTypes([...ancestors, this]);
 
         this.type = this.isDropped ? "Null" : this.value.type;
+
+        // Check if this variable has been defined before in the same block, get type of previous definition if so to make sure it matches
+        const previousType = (() => {
+            for (let i = 0; i < ancestors.length; i++) {
+                const ancestor = ancestors[ancestors.length - i - 1];
+                if (ancestor instanceof Block) {
+                    const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(this));
+                    for (let j = 0; j < olderSiblings.length; j++) {
+                        const olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                        if (olderSibling instanceof Assignment && olderSibling.name === this.name) {
+                            return olderSibling.value.type;
+                        }
+                    }
+                    return null;
+                } else if (ancestor instanceof Function) {
+                    for (const arg of ancestor.params) {
+                        if (arg.name === this.name) {
+                            return arg.type;
+                        }
+                    }
+                }
+            }
+            return null;
+        })();
+
+        if (previousType !== null && !deepEquals(previousType, this.type)) {
+            throw this.error(`tried to reassign variable ${this.name} with type ${this.type} but it was previously defined in the same scope with type ${previousType}`);
+        }
     }
 
     toJS(writer: JSWriter): void {
@@ -438,16 +465,16 @@ export class If extends Expression {
         this.elseBranch = elseBranch === null ? null : elseBranch;
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[]): void {
         // Don't include self in children's lineage, since they shouldn't look for variable definitions within their siblings
-        this.condition.cascadeLineage(ancestors);
+        this.condition.cascadeTypes(ancestors);
 
         if (this.condition.type !== "Bool") {
             throw this.error(`if condition must be boolean, but found ${this.condition.type}`);
         }
 
-        this.thenBranch.cascadeLineage(ancestors);
-        this.elseBranch?.cascadeLineage(ancestors);
+        this.thenBranch.cascadeTypes([...ancestors, this]);
+        this.elseBranch?.cascadeTypes([...ancestors, this]);
 
         if (this.elseBranch === null) {
             if (this.thenBranch.type !== "Null") {
@@ -472,10 +499,12 @@ export class If extends Expression {
             this.condition.toJS(writer);
             writer.write(") {");
             writer.indentIn();
+            writer.beginScope();
             this.thenBranch.expressions.forEach(expr => {
                 writer.newLine();
                 expr.toJS(writer); 
             });
+            writer.endScope();
             writer.indentOut();
             writer.newLine();
             writer.write("}");
@@ -494,6 +523,7 @@ export class If extends Expression {
         this.condition.toJS(writer);
         writer.write(") {");
         writer.indentIn();
+        writer.beginScope();
         this.thenBranch.expressions.forEach((expr, i) => {
             writer.newLine();
             if (i === this.thenBranch.expressions.length - 1) {
@@ -502,10 +532,12 @@ export class If extends Expression {
             expr.toJS(writer);
             writer.write(";");
         });
+        writer.endScope();
         writer.indentOut();
         writer.newLine();
         writer.write("} else {");
         writer.indentIn();
+        writer.beginScope();
         this.elseBranch.expressions.forEach((expr, i) => {
             writer.newLine();
             if (i === this.elseBranch!.expressions.length - 1) {
@@ -514,6 +546,7 @@ export class If extends Expression {
             expr.toJS(writer);
             writer.write(";");
         });
+        writer.endScope();
         writer.indentOut();
         writer.newLine();
         writer.write("}");
@@ -521,6 +554,10 @@ export class If extends Expression {
         writer.newLine();
         writer.write("})()");
     }
+}
+
+function functionNameWithParamTypes(name: string, paramTypes: Type[]): string {
+    return `${name}$${paramTypes.join("$")}`.replaceAll(" ", "").replaceAll(/[^0-9a-zA-Z_$]/g, "_");
 }
 
 export class Function extends Expression {
@@ -545,8 +582,8 @@ export class Function extends Expression {
         );
     }
 
-    cascadeLineage(ancestors: Expression[]): void {
-        this.body.cascadeLineage([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[]): void {
+        this.body.cascadeTypes([...ancestors, this]);
 
         if (!deepEquals(this.body.type, this.returnType)) {
             throw this.error(`function body should return ${this.returnType}, but found ${this.body.type}`);
@@ -554,7 +591,11 @@ export class Function extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        const fullName = this.fullName();
+        const fullName = functionNameWithParamTypes(this.name, this.params.map(arg => arg.type));
+        writer.write(`function ${fullName}(`);
+        writer.write(this.params.map(p => p.name).join(", "));
+        writer.write(") {");
+        writer.indentIn();
         try {
             writer.beginFunction(fullName);
         } catch (e) {
@@ -563,10 +604,6 @@ export class Function extends Expression {
             }
             throw e;
         }
-        writer.write(`function ${fullName}(`);
-        writer.write(this.params.map(p => p.name).join(", "));
-        writer.write(") {");
-        writer.indentIn();
         this.body.expressions.slice(0, -1).forEach(expr => {
             writer.newLine();
             expr.toJS(writer);
@@ -583,13 +620,45 @@ export class Function extends Expression {
             lastExpr.toJS(writer);
             writer.write(";");
         }
+        writer.endFunction();
         writer.indentOut();
         writer.newLine();
         writer.write("}");
-        writer.endFunction();
+    }
+}
+
+export class FunctionCall extends Expression {
+    name: string;
+    args: Expression[];
+    fullName?: string;
+
+    constructor(nameToken: Token, args: Expression[]) {
+        if (nameToken.type !== TokenType.Identifier) {
+            throw new Error("function call name must be an identifier");
+        }
+        super(nameToken.line, nameToken.col);
+        this.name = nameToken.text;
+        this.args = args;
     }
 
-    fullName(): string {
-        return `${this.name}$${this.params.map(arg => arg.type).join("$")}`.replaceAll(" ", "").replaceAll(/[^0-9a-zA-Z_$]/g, "_");
+    cascadeTypes(ancestors: Expression[]): void {
+        const argTypes: Type[] = [];
+        this.args.forEach((arg, i) => {
+            arg.cascadeTypes([...ancestors, this]);
+            if (arg.type === null) {
+                throw this.error(`unable to resolve type of argument ${i+1} in function call`);
+            }
+            argTypes.push(arg.type);
+        });
+        
+        this.fullName = functionNameWithParamTypes(this.name, argTypes);
+
+        // search for definition
+        const func = this.findFunction(ancestors);
+    }
+
+    findFunction(ancestors: Expression[]): Function | null {
+        // TODO
+        return null;
     }
 }

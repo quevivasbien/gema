@@ -293,12 +293,41 @@ function parseBinary(parser: Parser, leftExpr: AST.Expression): AST.Expression {
 }
 
 function parseVariable(parser: Parser): AST.Expression {
-    const variableToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type === TokenType.LParen) {
+        // This is a function call
+        parseFunctionCall(parser);
+    }
     if (parser.atEnd() || parser.current().type !== TokenType.Equal) {
         // Assume variable is already defined
+        const variableToken = parser.previous();
         return parser.tryCreateASTExpression(() => new AST.Variable(variableToken));
     }
     return parser.error("variable assignments are not allowed within expressions.");
+}
+
+function parseFunctionCall(parser: Parser): AST.Expression {
+    const nameToken = parser.previous();
+    if (parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after function name.");
+    }
+    parser.advance();
+    const args: AST.Expression[] = [];
+    while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+        const arg = parser.parseWithPrecedence(Precedence.None + 1);
+        if (arg === null) {
+            return parser.error("Unterminated function call.");
+        }
+        args.push(arg);
+        if (parser.current().type === TokenType.Comma) {
+            parser.advance();
+        }
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated function call.");
+    }
+    parser.advance();
+
+    return parser.tryCreateASTExpression(() => new AST.FunctionCall(nameToken, args));
 }
 
 class Parser {
@@ -492,7 +521,7 @@ export function parse(tokens: Token[]): { ast: AST.Expression, errors: ParseErro
     const block = parser.block();
     if (parser.errors.length === 0) {
         try {
-            block.cascadeLineage([]);
+            block.cascadeTypes([]);
         } catch (e) {
             if (e instanceof AST.ASTError) {
                 parser.errors.push({

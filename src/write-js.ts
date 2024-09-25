@@ -6,7 +6,9 @@ class Scope {
     variableNames: Set<string> = new Set();
     functionNames: Set<string> = new Set();
 
-    constructor(parent: Scope | null = null) {
+    lines: string[] = [];
+
+    constructor(parent: Scope | null = null, public baseIndentLevel = 0) {
         this.parent = parent;
     }
 
@@ -18,7 +20,7 @@ class Scope {
     }
 
     getDeclarations(): string[] {
-        return Array.from(this.variableNames).map((name) => `var ${name};`);
+        return Array.from(this.variableNames).map((name) => "    ".repeat(this.baseIndentLevel) + `let ${name};`);
     }
 }
 
@@ -35,7 +37,7 @@ export class JSWriter {
     }
 
     newLine() {
-        this.outputLines.push(this.currentLine);
+        this.scope.lines.push(this.currentLine);
         this.currentLine = "    ".repeat(this.indentLevel);
     }
 
@@ -59,16 +61,26 @@ export class JSWriter {
         this.builtins.add(name);
     }
 
-    beginFunction(name: string) {
-        this.scope.addFunctionName(name);
-        this.scope = new Scope(this.scope);
+    beginScope() {
+        this.scope = new Scope(this.scope, this.indentLevel);
     }
 
-    endFunction() {
+    endScope() {
         if (this.scope.parent === null) {
             throw new Error("Tried to exit top-level scope");
         }
+        const varDeclarations = this.scope.getDeclarations();
+        this.outputLines.push(...varDeclarations, ...this.scope.lines);
         this.scope = this.scope.parent;
+    }
+
+    beginFunction(name: string) {
+        this.scope.addFunctionName(name);
+        this.beginScope();
+    }
+
+    endFunction() {
+        this.endScope();
     }
 
     compile(): string {
