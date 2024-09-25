@@ -1,16 +1,16 @@
 import type { JSWriter } from "./write-js";
 import { TokenType, type Token } from "./tokens";
-import { deepEquals } from "bun";  // If using Node.js, replace this with isDeepStrictEqual from "util" library
+import { deepEquals, write } from "bun";  // If using Node.js, replace this with isDeepStrictEqual from "util" library
 
 export class ASTError {
-    constructor(public line: number, public col: number, public message: string) {}
+    constructor(public line: number, public col: number, public message: string) { }
 }
 
 class FuncType {
     constructor(
-        public paramTypes : Type[],
+        public paramTypes: Type[],
         public returnType: Type
-    ) {}
+    ) { }
 
     toString(): string {
         return `Func<${this.paramTypes.join(", ")}, ${this.returnType}>`;
@@ -24,7 +24,7 @@ export type Type =
     "Bool" |
     "Null" |
     FuncType
-;
+    ;
 
 export function getType(typeName: string, templateTypes: Type[]): Type {
     if ([
@@ -52,7 +52,7 @@ export function getType(typeName: string, templateTypes: Type[]): Type {
 export abstract class Expression {
     type: Type | null = null;
 
-    constructor(public line: number, public col: number) {}
+    constructor(public line: number, public col: number) { }
 
     error(message: string): ASTError {
         return new ASTError(this.line, this.col, message);
@@ -81,7 +81,7 @@ export class DropValue extends Expression {
         super(child.line, child.col);
         this.type = "Null";
     }
-    
+
     cascadeTypes(ancestors: Expression[]): void {
         // Type is already resolved as null, so just pass to children
         this.child.cascadeTypes([...ancestors, this]);
@@ -109,9 +109,8 @@ export class Block extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.write("(() => {");
-        writer.indentIn();
-        writer.newLine();
+        writer.write("(() => ");
+        writer.beginScope();
         for (const expression of this.expressions.slice(0, -1)) {
             expression.toJS(writer);
             writer.write(";");
@@ -128,9 +127,8 @@ export class Block extends Expression {
             lastExpr.toJS(writer);
             writer.write(";");
         }
-        writer.indentOut();
-        writer.newLine();
-        writer.write("})()");
+        writer.endScope();
+        writer.write(")()");
     }
 }
 
@@ -217,8 +215,8 @@ const OPERATOR_TRANSLATIONS: Record<string, string> = {
     [TokenType.GreaterEqual]: ">=",
     [TokenType.Less]: "<",
     [TokenType.LessEqual]: "<=",
-    [TokenType.EqualEqual]: "===",
-    [TokenType.BangEqual]: "!==",
+    [TokenType.EqualEqual]: "==",  // Non-strict equality is fine here since we are stricter about what types can be compared
+    [TokenType.BangEqual]: "!=",
     [TokenType.And]: "&&",
     [TokenType.Or]: "||",
 };
@@ -384,7 +382,7 @@ export class Variable extends Expression {
             lastAncestor = ancestor;
         }
         throw this.error(`unable to resolve type of variable ${this.name}`);
-     }
+    }
 
     toJS(writer: JSWriter): void {
         writer.write(this.name);
@@ -447,109 +445,72 @@ export class Assignment extends Expression {
 }
 
 export class If extends Expression {
-    condition: Expression;
-    thenBranch: Block;
-    elseBranch: Block | null;
+    conditionalBranches: { condition: Expression, branch: Block }[];
+    elseBranch: Block;
 
-    constructor(rootToken: Token, condition: Expression, thenBranch: Expression, elseBranch: Expression | null) {
+    constructor(rootToken: Token, conditionalBranches: { condition: Expression, branch: Expression }[], elseBranch: Expression) {
         super(rootToken.line, rootToken.col);
-        if (!(thenBranch instanceof Block)) {
-            throw new Error("then branch of if statement must be a block");
-        }
-        if (elseBranch !== null && !(elseBranch instanceof Block)) {
+
+        conditionalBranches.forEach(({ branch }) => {
+            if (!(branch instanceof Block)) {
+                throw new Error("branch of if statement must be a block (enclosed by '{' and '}')");
+            }
+        });
+        if (!(elseBranch instanceof Block)) {
             throw new Error("else branch of if statement must be a block");
         }
 
-        this.condition = condition;
-        this.thenBranch = thenBranch;
-        this.elseBranch = elseBranch === null ? null : elseBranch;
+        this.conditionalBranches = conditionalBranches as { condition: Expression, branch: Block }[];
+        this.elseBranch = elseBranch;
     }
 
     cascadeTypes(ancestors: Expression[]): void {
-        // Don't include self in children's lineage, since they shouldn't look for variable definitions within their siblings
-        this.condition.cascadeTypes(ancestors);
+        this.elseBranch.cascadeTypes([...ancestors, this]);
 
-        if (this.condition.type !== "Bool") {
-            throw this.error(`if condition must be boolean, but found ${this.condition.type}`);
-        }
-
-        this.thenBranch.cascadeTypes([...ancestors, this]);
-        this.elseBranch?.cascadeTypes([...ancestors, this]);
-
-        if (this.elseBranch === null) {
-            if (this.thenBranch.type !== "Null") {
-                throw this.error(`the block of an if statement with no else branch must have type Null, but got type ${this.thenBranch.type}. Hint: try adding a semicolon to the last expression in the block.`);
+        this.conditionalBranches.forEach(({ condition, branch }) => {
+            condition.cascadeTypes([...ancestors, this]);
+            if (condition.type !== "Bool") {
+                throw this.error(`condition must be boolean, but found ${condition.type}`);
             }
-            this.type = "Null";
-            return;
-        }
-        if (!deepEquals(this.elseBranch.type, this.thenBranch.type)) {
-            throw this.error(`then and else branches must have the same type, but found ${this.thenBranch.type} and ${this.elseBranch.type}`);
-        }
+            branch.cascadeTypes([...ancestors, this]);
+            if (!deepEquals(this.elseBranch.type, branch.type)) {
+                throw this.error(`all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`);
+            }
+        });
+
         this.type = this.elseBranch.type;
-        return;
     }
 
     toJS(writer: JSWriter): void {
-        if (this.elseBranch === null) {
-            writer.write("(() => {");
-            writer.indentIn();
-            writer.newLine();
-            writer.write("if (");
-            this.condition.toJS(writer);
-            writer.write(") {");
-            writer.indentIn();
-            writer.beginScope();
-            this.thenBranch.expressions.forEach(expr => {
-                writer.newLine();
-                expr.toJS(writer); 
-            });
-            writer.endScope();
-            writer.indentOut();
-            writer.newLine();
-            writer.write("}");
-            writer.newLine();
-            writer.write("return null;");
-            writer.indentOut();
-            writer.newLine();
-            writer.write("})()");
-            return;
-        }
-
         writer.write("(() => {");
         writer.indentIn();
         writer.newLine();
-        writer.write("if (");
-        this.condition.toJS(writer);
-        writer.write(") {");
-        writer.indentIn();
-        writer.beginScope();
-        this.thenBranch.expressions.forEach((expr, i) => {
-            writer.newLine();
-            if (i === this.thenBranch.expressions.length - 1) {
-                writer.write("return ");
-            }
-            expr.toJS(writer);
-            writer.write(";");
+        this.conditionalBranches.forEach(({ condition, branch }) => {
+            writer.write("if (");
+            condition.toJS(writer);
+            writer.write(") ");
+            writer.beginScope();
+            branch.expressions.forEach((expr, i) => {
+                if (i === branch.expressions.length - 1) {
+                    writer.write("return ");
+                }
+                expr.toJS(writer);
+                writer.write(";");
+                writer.newLine();
+            });
+            writer.endScope();
+            writer.write(" else ");
         });
-        writer.endScope();
-        writer.indentOut();
-        writer.newLine();
-        writer.write("} else {");
-        writer.indentIn();
         writer.beginScope();
         this.elseBranch.expressions.forEach((expr, i) => {
-            writer.newLine();
             if (i === this.elseBranch!.expressions.length - 1) {
                 writer.write("return ");
             }
             expr.toJS(writer);
             writer.write(";");
+            writer.newLine();
         });
         writer.endScope();
-        writer.indentOut();
-        writer.newLine();
-        writer.write("}");
         writer.indentOut();
         writer.newLine();
         writer.write("})()");
@@ -646,11 +607,11 @@ export class FunctionCall extends Expression {
         this.args.forEach((arg, i) => {
             arg.cascadeTypes([...ancestors, this]);
             if (arg.type === null) {
-                throw this.error(`unable to resolve type of argument ${i+1} in function call`);
+                throw this.error(`unable to resolve type of argument ${i + 1} in function call`);
             }
             argTypes.push(arg.type);
         });
-        
+
         this.fullName = functionNameWithParamTypes(this.name, argTypes);
 
         // search for definition

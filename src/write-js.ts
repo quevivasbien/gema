@@ -1,6 +1,8 @@
 import * as AST from "./ast";
 import { BUILTINS } from "./builtins";
 
+const INDENT = "    ";
+
 class Scope {
     parent: Scope | null;
     variableNames: Set<string> = new Set();
@@ -13,14 +15,11 @@ class Scope {
     }
 
     addFunctionName(name: string) {
-        if (this.functionNames.has(name)) {
-            throw new Error(`Duplicate function definition`);
-        }
         this.functionNames.add(name);
     }
 
     getDeclarations(): string[] {
-        return Array.from(this.variableNames).map((name) => "    ".repeat(this.baseIndentLevel) + `let ${name};`);
+        return Array.from(this.variableNames).map((name) => INDENT.repeat(this.baseIndentLevel) + `let ${name};`);
     }
 }
 
@@ -38,7 +37,7 @@ export class JSWriter {
 
     newLine() {
         this.scope.lines.push(this.currentLine);
-        this.currentLine = "    ".repeat(this.indentLevel);
+        this.currentLine = INDENT.repeat(this.indentLevel);
     }
 
     write(text: string) {
@@ -62,6 +61,9 @@ export class JSWriter {
     }
 
     beginScope() {
+        this.write("{");
+        this.indentIn();
+        this.newLine();
         this.scope = new Scope(this.scope, this.indentLevel);
     }
 
@@ -70,8 +72,16 @@ export class JSWriter {
             throw new Error("Tried to exit top-level scope");
         }
         const varDeclarations = this.scope.getDeclarations();
-        this.outputLines.push(...varDeclarations, ...this.scope.lines);
+        const scopeLines  = this.scope.lines;
         this.scope = this.scope.parent;
+        this.scope.lines.push(...varDeclarations, ...scopeLines);
+        this.indentOut();
+        if (/^\s*$/.test(this.currentLine)) {
+            this.currentLine = INDENT.repeat(this.indentLevel);
+        } else {
+            this.newLine();
+        }
+        this.write("}");
     }
 
     beginFunction(name: string) {
@@ -106,7 +116,8 @@ export class JSWriter {
             builtinFuncs +
             globalVarDeclarations +
             "// PROGRAM //\n" +
-            this.outputLines.join("\n")
+            this.outputLines.join("\n") +
+            this.scope.lines.join("\n")
         );
     }
 }

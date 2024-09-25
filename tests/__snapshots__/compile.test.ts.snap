@@ -501,7 +501,7 @@ Block {
 exports[`compile binary expressions 20`] = `
 "// PROGRAM //
 (() => {
-    return (BigInt(1) === BigInt(1));
+    return (BigInt(1) == BigInt(1));
 })()"
 `;
 
@@ -536,7 +536,7 @@ Block {
 exports[`compile binary expressions 22`] = `
 "// PROGRAM //
 (() => {
-    return (BigInt(1) !== BigInt(1));
+    return (BigInt(1) != BigInt(1));
 })()"
 `;
 
@@ -913,12 +913,10 @@ Block {
 `;
 
 exports[`compile variables 2`] = `
-"// GLOBAL VARIABLES //
-var x;
-var y;
-
-// PROGRAM //
+"// PROGRAM //
 (() => {
+    let x;
+    let y;
     x = 1.2;
     y = (() => {
         return 2.3;
@@ -996,12 +994,10 @@ Block {
 `;
 
 exports[`compile variables 4`] = `
-"// GLOBAL VARIABLES //
-var x;
-var y;
-
-// PROGRAM //
+"// PROGRAM //
 (() => {
+    let x;
+    let y;
     x = 1.2;
     (() => { y = (() => {
         return 2.3;
@@ -1016,17 +1012,34 @@ Block {
   "expressions": [
     If {
       "col": 0,
-      "condition": Literal {
-        "col": 4,
-        "line": 0,
-        "type": "Bool",
-        "value": "true",
-      },
+      "conditionalBranches": [
+        {
+          "branch": Block {
+            "col": 8,
+            "expressions": [
+              Literal {
+                "col": 10,
+                "line": 0,
+                "type": "Int",
+                "value": "1",
+              },
+            ],
+            "line": 0,
+            "type": "Int",
+          },
+          "condition": Literal {
+            "col": 3,
+            "line": 0,
+            "type": "Bool",
+            "value": "true",
+          },
+        },
+      ],
       "elseBranch": Block {
-        "col": 21,
+        "col": 19,
         "expressions": [
           Literal {
-            "col": 23,
+            "col": 21,
             "line": 0,
             "type": "Int",
             "value": "2",
@@ -1036,19 +1049,6 @@ Block {
         "type": "Int",
       },
       "line": 0,
-      "thenBranch": Block {
-        "col": 10,
-        "expressions": [
-          Literal {
-            "col": 12,
-            "line": 0,
-            "type": "Int",
-            "value": "1",
-          },
-        ],
-        "line": 0,
-        "type": "Int",
-      },
       "type": "Int",
     },
   ],
@@ -1076,17 +1076,34 @@ Block {
   "expressions": [
     If {
       "col": 0,
-      "condition": Literal {
-        "col": 4,
-        "line": 0,
-        "type": "Bool",
-        "value": "false",
-      },
+      "conditionalBranches": [
+        {
+          "branch": Block {
+            "col": 9,
+            "expressions": [
+              Literal {
+                "col": 11,
+                "line": 0,
+                "type": "Int",
+                "value": "1",
+              },
+            ],
+            "line": 0,
+            "type": "Int",
+          },
+          "condition": Literal {
+            "col": 3,
+            "line": 0,
+            "type": "Bool",
+            "value": "false",
+          },
+        },
+      ],
       "elseBranch": Block {
-        "col": 22,
+        "col": 20,
         "expressions": [
           Literal {
-            "col": 24,
+            "col": 22,
             "line": 0,
             "type": "Int",
             "value": "2",
@@ -1096,19 +1113,6 @@ Block {
         "type": "Int",
       },
       "line": 0,
-      "thenBranch": Block {
-        "col": 11,
-        "expressions": [
-          Literal {
-            "col": 13,
-            "line": 0,
-            "type": "Int",
-            "value": "1",
-          },
-        ],
-        "line": 0,
-        "type": "Int",
-      },
       "type": "Int",
     },
   ],
@@ -1136,29 +1140,46 @@ Block {
   "expressions": [
     If {
       "col": 0,
-      "condition": Binary {
-        "col": 6,
-        "left": Literal {
-          "col": 4,
-          "line": 0,
-          "type": "Int",
-          "value": "1",
+      "conditionalBranches": [
+        {
+          "branch": Block {
+            "col": 10,
+            "expressions": [
+              Literal {
+                "col": 12,
+                "line": 0,
+                "type": "Int",
+                "value": "1",
+              },
+            ],
+            "line": 0,
+            "type": "Int",
+          },
+          "condition": Binary {
+            "col": 5,
+            "left": Literal {
+              "col": 3,
+              "line": 0,
+              "type": "Int",
+              "value": "1",
+            },
+            "line": 0,
+            "operator": "==",
+            "right": Literal {
+              "col": 8,
+              "line": 0,
+              "type": "Int",
+              "value": "1",
+            },
+            "type": "Bool",
+          },
         },
-        "line": 0,
-        "operator": "==",
-        "right": Literal {
-          "col": 9,
-          "line": 0,
-          "type": "Int",
-          "value": "1",
-        },
-        "type": "Bool",
-      },
+      ],
       "elseBranch": Block {
-        "col": 23,
+        "col": 21,
         "expressions": [
           Literal {
-            "col": 25,
+            "col": 23,
             "line": 0,
             "type": "Int",
             "value": "2",
@@ -1168,19 +1189,6 @@ Block {
         "type": "Int",
       },
       "line": 0,
-      "thenBranch": Block {
-        "col": 12,
-        "expressions": [
-          Literal {
-            "col": 14,
-            "line": 0,
-            "type": "Int",
-            "value": "1",
-          },
-        ],
-        "line": 0,
-        "type": "Int",
-      },
       "type": "Int",
     },
   ],
@@ -1193,7 +1201,7 @@ exports[`compile if expressions 6`] = `
 "// PROGRAM //
 (() => {
     return (() => {
-        if ((BigInt(1) === BigInt(1))) {
+        if ((BigInt(1) == BigInt(1))) {
             return BigInt(1);
         } else {
             return BigInt(2);
@@ -1208,29 +1216,46 @@ Block {
   "expressions": [
     If {
       "col": 0,
-      "condition": Binary {
-        "col": 6,
-        "left": Literal {
-          "col": 4,
-          "line": 0,
-          "type": "Int",
-          "value": "1",
+      "conditionalBranches": [
+        {
+          "branch": Block {
+            "col": 10,
+            "expressions": [
+              Literal {
+                "col": 12,
+                "line": 0,
+                "type": "Int",
+                "value": "1",
+              },
+            ],
+            "line": 0,
+            "type": "Int",
+          },
+          "condition": Binary {
+            "col": 5,
+            "left": Literal {
+              "col": 3,
+              "line": 0,
+              "type": "Int",
+              "value": "1",
+            },
+            "line": 0,
+            "operator": "==",
+            "right": Literal {
+              "col": 8,
+              "line": 0,
+              "type": "Int",
+              "value": "2",
+            },
+            "type": "Bool",
+          },
         },
-        "line": 0,
-        "operator": "==",
-        "right": Literal {
-          "col": 9,
-          "line": 0,
-          "type": "Int",
-          "value": "2",
-        },
-        "type": "Bool",
-      },
+      ],
       "elseBranch": Block {
-        "col": 23,
+        "col": 21,
         "expressions": [
           Literal {
-            "col": 25,
+            "col": 23,
             "line": 0,
             "type": "Int",
             "value": "2",
@@ -1240,19 +1265,6 @@ Block {
         "type": "Int",
       },
       "line": 0,
-      "thenBranch": Block {
-        "col": 12,
-        "expressions": [
-          Literal {
-            "col": 14,
-            "line": 0,
-            "type": "Int",
-            "value": "1",
-          },
-        ],
-        "line": 0,
-        "type": "Int",
-      },
       "type": "Int",
     },
   ],
@@ -1265,7 +1277,7 @@ exports[`compile if expressions 8`] = `
 "// PROGRAM //
 (() => {
     return (() => {
-        if ((BigInt(1) === BigInt(2))) {
+        if ((BigInt(1) == BigInt(2))) {
             return BigInt(1);
         } else {
             return BigInt(2);
@@ -1275,58 +1287,6 @@ exports[`compile if expressions 8`] = `
 `;
 
 exports[`compile if expressions 9`] = `
-Block {
-  "col": 0,
-  "expressions": [
-    If {
-      "col": 0,
-      "condition": Literal {
-        "col": 4,
-        "line": 0,
-        "type": "Bool",
-        "value": "true",
-      },
-      "elseBranch": null,
-      "line": 0,
-      "thenBranch": Block {
-        "col": 10,
-        "expressions": [
-          DropValue {
-            "child": Literal {
-              "col": 12,
-              "line": 0,
-              "type": "Int",
-              "value": "1",
-            },
-            "col": 12,
-            "line": 0,
-            "type": "Null",
-          },
-        ],
-        "line": 0,
-        "type": "Null",
-      },
-      "type": "Null",
-    },
-  ],
-  "line": 0,
-  "type": "Null",
-}
-`;
-
-exports[`compile if expressions 10`] = `
-"// PROGRAM //
-(() => {
-    return (() => {
-        if (true) {
-            BigInt(1)
-        }
-        return null;
-    })();
-})()"
-`;
-
-exports[`compile if expressions 11`] = `
 Block {
   "col": 8,
   "expressions": [
@@ -1345,39 +1305,62 @@ Block {
     },
     If {
       "col": 8,
-      "condition": Literal {
-        "col": 12,
-        "line": 2,
-        "type": "Bool",
-        "value": "true",
-      },
-      "elseBranch": null,
-      "line": 2,
-      "thenBranch": Block {
-        "col": 18,
+      "conditionalBranches": [
+        {
+          "branch": Block {
+            "col": 16,
+            "expressions": [
+              Assignment {
+                "col": 12,
+                "isDropped": true,
+                "line": 3,
+                "name": "x",
+                "type": "Null",
+                "value": Literal {
+                  "col": 16,
+                  "line": 3,
+                  "type": "Int",
+                  "value": "2",
+                },
+              },
+            ],
+            "line": 2,
+            "type": "Null",
+          },
+          "condition": Literal {
+            "col": 11,
+            "line": 2,
+            "type": "Bool",
+            "value": "true",
+          },
+        },
+      ],
+      "elseBranch": Block {
+        "col": 15,
         "expressions": [
           Assignment {
             "col": 12,
             "isDropped": true,
-            "line": 3,
+            "line": 5,
             "name": "x",
             "type": "Null",
             "value": Literal {
               "col": 16,
-              "line": 3,
+              "line": 5,
               "type": "Int",
-              "value": "2",
+              "value": "3",
             },
           },
         ],
-        "line": 2,
+        "line": 4,
         "type": "Null",
       },
+      "line": 2,
       "type": "Null",
     },
     Variable {
       "col": 8,
-      "line": 5,
+      "line": 7,
       "name": "x",
       "type": "Int",
     },
@@ -1387,19 +1370,119 @@ Block {
 }
 `;
 
-exports[`compile if expressions 12`] = `
-"// GLOBAL VARIABLES //
-var x;
-
-// PROGRAM //
+exports[`compile if expressions 10`] = `
+"// PROGRAM //
 (() => {
+    let x;
     x = BigInt(1);
     (() => {
         if (true) {
-            x = BigInt(2)
+            let x;
+            return x = BigInt(2);
+        } else {
+            let x;
+            return x = BigInt(3);
         }
-        return null;
     })();
     return x;
+})()"
+`;
+
+exports[`compile if expressions 11`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    If {
+      "col": 8,
+      "conditionalBranches": [
+        {
+          "branch": Block {
+            "col": 17,
+            "expressions": [
+              Literal {
+                "col": 12,
+                "line": 2,
+                "type": "Int",
+                "value": "0",
+              },
+            ],
+            "line": 1,
+            "type": "Int",
+          },
+          "condition": Literal {
+            "col": 11,
+            "line": 1,
+            "type": "Bool",
+            "value": "false",
+          },
+        },
+        {
+          "branch": Block {
+            "col": 22,
+            "expressions": [
+              Literal {
+                "col": 12,
+                "line": 5,
+                "type": "Int",
+                "value": "1",
+              },
+            ],
+            "line": 4,
+            "type": "Int",
+          },
+          "condition": Binary {
+            "col": 18,
+            "left": Literal {
+              "col": 16,
+              "line": 4,
+              "type": "Int",
+              "value": "1",
+            },
+            "line": 4,
+            "operator": ">",
+            "right": Literal {
+              "col": 20,
+              "line": 4,
+              "type": "Int",
+              "value": "0",
+            },
+            "type": "Bool",
+          },
+        },
+      ],
+      "elseBranch": Block {
+        "col": 13,
+        "expressions": [
+          Literal {
+            "col": 12,
+            "line": 8,
+            "type": "Int",
+            "value": "2",
+          },
+        ],
+        "line": 7,
+        "type": "Int",
+      },
+      "line": 1,
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile if expressions 12`] = `
+"// PROGRAM //
+(() => {
+    return (() => {
+        if (false) {
+            return BigInt(0);
+        } else if ((BigInt(1) > BigInt(0))) {
+            return BigInt(1);
+        } else {
+            return BigInt(2);
+        }
+    })();
 })()"
 `;

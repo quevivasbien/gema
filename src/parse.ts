@@ -176,29 +176,41 @@ function parseIfStatement(parser: Parser): AST.Expression {
     const rootToken = parser.previous(); // should be 'if'
     const condition = parser.expression();
     if (condition === null) {
-        return parser.error("Expected expression after if.");
+        return parser.error("Expected expression after 'if'");
     }
     if (parser.current().type !== TokenType.LBrace) {
         return parser.error("Expected '{' after if condition.");
     }
     parser.advance();
-    const thenBranch = parser.block();
-    if (thenBranch === null) {
-        return parser.error("Expected expression after if.");
+    const branch = parser.block();
+    const conditionalBranches = [{ condition, branch }];
+    while (true) {
+        if (parser.current()?.type !== TokenType.Else) {
+            return parser.error("Expected 'else' or 'else if'");
+        }
+        parser.advance();
+        if (parser.current()?.type === TokenType.If) {
+            parser.advance();
+        } else {
+            break;
+        }
+        const condition = parser.expression();
+        if (condition === null) {
+            return parser.error("Expected expression after 'else if'")
+        }
+        if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
+            return parser.error("Expected '{' after condition");
+        }
+        parser.advance();
+        const branch = parser.block();
+        conditionalBranches.push({ condition, branch })
     }
-    if (parser.atEnd() || parser.current().type !== TokenType.Else) {
-        return parser.tryCreateASTExpression(() => new AST.If(rootToken, condition, thenBranch, null));
-    }
-    parser.advance();
-    if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
-        return parser.error("Expected '{' after else.");
+    if (parser.current()?.type !== TokenType.LBrace) {
+        return parser.error("Expected '{' after 'else'");
     }
     parser.advance();
     const elseBranch = parser.block();
-    if (elseBranch === null) {
-        return parser.error("Expected expression after else.");
-    }
-    return parser.tryCreateASTExpression(() => new AST.If(rootToken, condition, thenBranch, elseBranch));
+    return parser.tryCreateASTExpression(() => new AST.If(rootToken, conditionalBranches, elseBranch));
 }
 
 function parseFunction(parser: Parser): AST.Expression {
@@ -349,7 +361,7 @@ class Parser {
         return this.tokens[this.previousIndex];
     }
 
-    peek(offset: number = 1): Token | undefined {
+    peek(offset: number = 1): Token {
         return this.tokens[this.index + offset];
     }
 
@@ -362,8 +374,8 @@ class Parser {
         this.previousIndex = this.index - 1;
     }
 
-    error(message: string): AST.ErrorExpression {
-        const token = this.previous();
+    error(message: string, tokenOffset: number = -1): AST.ErrorExpression {
+        const token = this.peek(tokenOffset);
         const errorExpr = new AST.ErrorExpression(token, message);
         if (this.panicMode) {
             return errorExpr;
@@ -441,7 +453,7 @@ class Parser {
         this.advance();
         const prefixRule = PARSE_RULES[this.previous().type].prefix;
         if (!prefixRule) {
-            return this.error(`expected start of expression, but got ${this.current().text}`);
+            return this.error(`expected start of expression, but got ${this.previous().text}`);
         }
         let expr = prefixRule(this);
 

@@ -855,21 +855,31 @@ Block {
       "isDropped": false,
       "line": 4,
       "name": "x",
-      "type": "Int",
+      "type": "Float",
       "value": Literal {
         "col": 12,
         "line": 4,
-        "type": "Int",
-        "value": "3",
+        "type": "Float",
+        "value": "3.",
       },
     },
   ],
   "line": 1,
-  "type": "Int",
+  "type": "Float",
 }
 `;
 
 exports[`parse variable assignment 2`] = `
+[
+  {
+    "col": 9,
+    "line": 0,
+    "message": "(During type resolution) tried to reassign variable x with type Null but it was previously defined in the same scope with type Float",
+  },
+]
+`;
+
+exports[`parse variable assignment 3`] = `
 [
   {
     "col": 4,
@@ -879,7 +889,7 @@ exports[`parse variable assignment 2`] = `
 ]
 `;
 
-exports[`parse variable assignment 3`] = `
+exports[`parse variable assignment 4`] = `
 [
   {
     "col": 4,
@@ -895,17 +905,34 @@ Block {
   "expressions": [
     If {
       "col": 0,
-      "condition": Literal {
-        "col": 4,
-        "line": 0,
-        "type": "Bool",
-        "value": "true",
-      },
+      "conditionalBranches": [
+        {
+          "branch": Block {
+            "col": 8,
+            "expressions": [
+              Literal {
+                "col": 10,
+                "line": 0,
+                "type": "Int",
+                "value": "1",
+              },
+            ],
+            "line": 0,
+            "type": "Int",
+          },
+          "condition": Literal {
+            "col": 3,
+            "line": 0,
+            "type": "Bool",
+            "value": "true",
+          },
+        },
+      ],
       "elseBranch": Block {
-        "col": 21,
+        "col": 19,
         "expressions": [
           Literal {
-            "col": 23,
+            "col": 21,
             "line": 0,
             "type": "Int",
             "value": "2",
@@ -915,19 +942,6 @@ Block {
         "type": "Int",
       },
       "line": 0,
-      "thenBranch": Block {
-        "col": 10,
-        "expressions": [
-          Literal {
-            "col": 12,
-            "line": 0,
-            "type": "Int",
-            "value": "1",
-          },
-        ],
-        "line": 0,
-        "type": "Int",
-      },
       "type": "Int",
     },
   ],
@@ -941,7 +955,7 @@ exports[`parse if 2`] = `
   {
     "col": 0,
     "line": 0,
-    "message": "(During type resolution) if condition must be boolean, but found Int",
+    "message": "(During type resolution) condition must be boolean, but found Int",
   },
 ]
 `;
@@ -949,11 +963,130 @@ exports[`parse if 2`] = `
 exports[`parse if 3`] = `
 [
   {
-    "col": 0,
+    "col": 12,
     "line": 0,
-    "message": "(During type resolution) the block of an if statement with no else branch must have type Null, but got type Int. Hint: try adding a semicolon to the last expression in the block.",
+    "message": "Expected 'else' or 'else if'",
   },
 ]
+`;
+
+exports[`parse if 4`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "(During type resolution) all branches of if expression must have the same type, but found branches of types Int and Float",
+  },
+]
+`;
+
+exports[`parse if 5`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Assignment {
+      "col": 0,
+      "isDropped": true,
+      "line": 0,
+      "name": "x",
+      "type": "Null",
+      "value": Literal {
+        "col": 4,
+        "line": 0,
+        "type": "Int",
+        "value": "10",
+      },
+    },
+    If {
+      "col": 8,
+      "conditionalBranches": [
+        {
+          "branch": Block {
+            "col": 17,
+            "expressions": [
+              Literal {
+                "col": 19,
+                "line": 0,
+                "type": "Int",
+                "value": "1",
+              },
+            ],
+            "line": 0,
+            "type": "Int",
+          },
+          "condition": Binary {
+            "col": 13,
+            "left": Variable {
+              "col": 11,
+              "line": 0,
+              "name": "x",
+              "type": "Int",
+            },
+            "line": 0,
+            "operator": "<",
+            "right": Literal {
+              "col": 15,
+              "line": 0,
+              "type": "Int",
+              "value": "0",
+            },
+            "type": "Bool",
+          },
+        },
+        {
+          "branch": Block {
+            "col": 38,
+            "expressions": [
+              Literal {
+                "col": 40,
+                "line": 0,
+                "type": "Int",
+                "value": "2",
+              },
+            ],
+            "line": 0,
+            "type": "Int",
+          },
+          "condition": Binary {
+            "col": 33,
+            "left": Variable {
+              "col": 31,
+              "line": 0,
+              "name": "x",
+              "type": "Int",
+            },
+            "line": 0,
+            "operator": ">",
+            "right": Literal {
+              "col": 35,
+              "line": 0,
+              "type": "Int",
+              "value": "10",
+            },
+            "type": "Bool",
+          },
+        },
+      ],
+      "elseBranch": Block {
+        "col": 49,
+        "expressions": [
+          Literal {
+            "col": 51,
+            "line": 0,
+            "type": "Int",
+            "value": "3",
+          },
+        ],
+        "line": 0,
+        "type": "Int",
+      },
+      "line": 0,
+      "type": "Int",
+    },
+  ],
+  "line": 0,
+  "type": "Int",
+}
 `;
 
 exports[`parse function 1`] = `

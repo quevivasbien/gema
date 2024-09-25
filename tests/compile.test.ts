@@ -68,18 +68,32 @@ test("compile variables", () => {
 });
 
 test("compile if expressions", () => {
-    testCompile(`if (true) { 1 } else { 2 }`, 1n);
-    testCompile(`if (false) { 1 } else { 2 }`, 2n);
-    testCompile(`if (1 == 1) { 1 } else { 2 }`, 1n);
-    testCompile(`if (1 == 2) { 1 } else { 2 }`, 2n);
-    testCompile(`if (true) { 1; }`, null);
+    testCompile(`if true { 1 } else { 2 }`, 1n);
+    testCompile(`if false { 1 } else { 2 }`, 2n);
+    testCompile(`if 1 == 1 { 1 } else { 2 }`, 1n);
+    testCompile(`if 1 == 2 { 1 } else { 2 }`, 2n);
     testCompile(`
         x = 1;
-        if (true) {
+        if true {
             x = 2;
+        } else {
+            x = 3;
         }
         x
         `,
-        2n
+        1n
+    );
+    testCompile(`
+        if false {
+            0
+        }
+        else if 1 > 0 {
+            1
+        } 
+        else {
+            2
+        }
+        `,
+        1n
     );
 });

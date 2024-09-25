@@ -67,16 +67,19 @@ test("parse variable assignment", () => {
         x = 1.22
         y = { 1.23 }
         z = 3.13;
-        x = 3
+        x = 3.
     `);
+    testParseExpectError(`x = 1.0; x = 1;`)
     testParseExpectError(`x = y = 2`)
     testParseExpectError(`x = y = 2;`)
 });
 
 test("parse if", () => {
-   testParse(`if (true) { 1 } else { 2 }`);
-   testParseExpectError(`if (1) { 1 } else { 2 }`);
-   testParseExpectError(`if (true) { 1 }`)
+    testParse(`if true { 1 } else { 2 }`);
+    testParseExpectError(`if 1 { 1 } else { 2 }`);
+    testParseExpectError(`if true { 1 }`);
+    testParseExpectError(`if true { 1 } else { 2.0 }`);
+    testParse(`x = 10; if x < 0 { 1 } else if x > 10 { 2 } else { 3 }`);
 });
 
 test("parse function", () => {
