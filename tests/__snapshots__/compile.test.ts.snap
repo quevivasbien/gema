@@ -892,16 +892,20 @@ Block {
       "col": 14,
       "left": Variable {
         "col": 12,
+        "fullName": "x",
         "line": 3,
         "name": "x",
+        "templateTypes": [],
         "type": "Float",
       },
       "line": 3,
       "operator": "+",
       "right": Variable {
         "col": 16,
+        "fullName": "y",
         "line": 3,
         "name": "y",
+        "templateTypes": [],
         "type": "Float",
       },
       "type": "Float",
@@ -972,16 +976,20 @@ Block {
         "col": 18,
         "left": Variable {
           "col": 16,
+          "fullName": "x",
           "line": 3,
           "name": "x",
+          "templateTypes": [],
           "type": "Float",
         },
         "line": 3,
         "operator": "+",
         "right": Variable {
           "col": 20,
+          "fullName": "y",
           "line": 3,
           "name": "y",
+          "templateTypes": [],
           "type": "Float",
         },
         "type": "Float",
@@ -1360,8 +1368,10 @@ Block {
     },
     Variable {
       "col": 8,
+      "fullName": "x",
       "line": 7,
       "name": "x",
+      "templateTypes": [],
       "type": "Int",
     },
   ],
@@ -1500,16 +1510,20 @@ Block {
               "col": 37,
               "left": Variable {
                 "col": 35,
+                "fullName": "a",
                 "line": 0,
                 "name": "a",
+                "templateTypes": [],
                 "type": "Int",
               },
               "line": 0,
               "operator": "+",
               "right": Variable {
                 "col": 39,
+                "fullName": "b",
                 "line": 0,
                 "name": "b",
+                "templateTypes": [],
                 "type": "Int",
               },
               "type": "Int",
@@ -1576,11 +1590,532 @@ Block {
 exports[`compile functions 2`] = `
 "// PROGRAM //
 (() => {
-    function myFunc$Int$Int(a, b) {{
-            
-            return (a + b);
-        }
+    function myFunc$Int$Int(a, b) {
+        return (a + b);
     };
     return myFunc$Int$Int(BigInt(1), BigInt(2));
+})()"
+`;
+
+exports[`compile recursive functions 1`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    Function {
+      "body": Block {
+        "col": 36,
+        "expressions": [
+          If {
+            "col": 12,
+            "conditionalBranches": [
+              {
+                "branch": Block {
+                  "col": 22,
+                  "expressions": [
+                    Literal {
+                      "col": 16,
+                      "line": 3,
+                      "type": "Int",
+                      "value": "1",
+                    },
+                  ],
+                  "line": 2,
+                  "type": "Int",
+                },
+                "condition": Binary {
+                  "col": 17,
+                  "left": Variable {
+                    "col": 15,
+                    "fullName": "n",
+                    "line": 2,
+                    "name": "n",
+                    "templateTypes": [],
+                    "type": "Int",
+                  },
+                  "line": 2,
+                  "operator": "<=",
+                  "right": Literal {
+                    "col": 20,
+                    "line": 2,
+                    "type": "Int",
+                    "value": "1",
+                  },
+                  "type": "Bool",
+                },
+              },
+            ],
+            "elseBranch": Block {
+              "col": 19,
+              "expressions": [
+                Binary {
+                  "col": 18,
+                  "left": Variable {
+                    "col": 16,
+                    "fullName": "n",
+                    "line": 5,
+                    "name": "n",
+                    "templateTypes": [],
+                    "type": "Int",
+                  },
+                  "line": 5,
+                  "operator": "*",
+                  "right": FunctionCall {
+                    "args": [
+                      Binary {
+                        "col": 32,
+                        "left": Variable {
+                          "col": 30,
+                          "fullName": "n",
+                          "line": 5,
+                          "name": "n",
+                          "templateTypes": [],
+                          "type": "Int",
+                        },
+                        "line": 5,
+                        "operator": "-",
+                        "right": Literal {
+                          "col": 34,
+                          "line": 5,
+                          "type": "Int",
+                          "value": "1",
+                        },
+                        "type": "Int",
+                      },
+                    ],
+                    "col": 20,
+                    "fullName": "factorial$Int",
+                    "line": 5,
+                    "name": "factorial",
+                    "referToByName": "full",
+                    "type": "Int",
+                  },
+                  "type": "Int",
+                },
+              ],
+              "line": 4,
+              "type": "Int",
+            },
+            "line": 2,
+            "type": "Int",
+          },
+        ],
+        "line": 1,
+        "type": "Int",
+      },
+      "col": 8,
+      "fullName": "factorial$Int",
+      "line": 1,
+      "name": "factorial",
+      "params": [
+        {
+          "name": "n",
+          "type": "Int",
+        },
+      ],
+      "returnType": "Int",
+      "type": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": "Int",
+      },
+    },
+    FunctionCall {
+      "args": [
+        Literal {
+          "col": 18,
+          "line": 9,
+          "type": "Int",
+          "value": "4",
+        },
+      ],
+      "col": 8,
+      "fullName": "factorial$Int",
+      "line": 9,
+      "name": "factorial",
+      "referToByName": "full",
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile recursive functions 2`] = `
+"// PROGRAM //
+(() => {
+    function factorial$Int(n) {
+        return (() => {
+            if ((n <= BigInt(1))) {
+                return BigInt(1);
+            } else {
+                return (n * factorial$Int((n - BigInt(1))));
+            }
+        })();
+    };
+    return factorial$Int(BigInt(4));
+})()"
+`;
+
+exports[`compile functions as variables 1`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    Function {
+      "body": Block {
+        "col": 24,
+        "expressions": [
+          Literal {
+            "col": 12,
+            "line": 2,
+            "type": "Int",
+            "value": "1",
+          },
+        ],
+        "line": 1,
+        "type": "Int",
+      },
+      "col": 8,
+      "fullName": "foo$",
+      "line": 1,
+      "name": "foo",
+      "params": [],
+      "returnType": "Int",
+      "type": FuncType {
+        "paramTypes": [],
+        "returnType": "Int",
+      },
+    },
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 4,
+      "name": "x",
+      "type": "Null",
+      "value": Variable {
+        "col": 12,
+        "fullName": "foo$",
+        "line": 4,
+        "name": "foo",
+        "templateTypes": [],
+        "type": FuncType {
+          "paramTypes": [],
+          "returnType": "Int",
+        },
+      },
+    },
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 5,
+      "name": "y",
+      "type": "Null",
+      "value": Variable {
+        "col": 12,
+        "fullName": "foo$",
+        "line": 5,
+        "name": "foo",
+        "templateTypes": [],
+        "type": FuncType {
+          "paramTypes": [],
+          "returnType": "Int",
+        },
+      },
+    },
+    Binary {
+      "col": 12,
+      "left": FunctionCall {
+        "args": [],
+        "col": 8,
+        "fullName": "x$",
+        "line": 7,
+        "name": "x",
+        "referToByName": "abbr",
+        "type": "Int",
+      },
+      "line": 7,
+      "operator": "+",
+      "right": FunctionCall {
+        "args": [],
+        "col": 14,
+        "fullName": "y$",
+        "line": 7,
+        "name": "y",
+        "referToByName": "abbr",
+        "type": "Int",
+      },
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile functions as variables 2`] = `
+"// PROGRAM //
+(() => {
+    let x;
+    let y;
+    function foo$() {
+        return BigInt(1);
+    };
+    x = foo$;
+    y = foo$;
+    return (x() + y());
+})()"
+`;
+
+exports[`compile functions as variables 3`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    Function {
+      "body": Block {
+        "col": 30,
+        "expressions": [
+          Variable {
+            "col": 12,
+            "fullName": "a",
+            "line": 2,
+            "name": "a",
+            "templateTypes": [],
+            "type": "Int",
+          },
+        ],
+        "line": 1,
+        "type": "Int",
+      },
+      "col": 8,
+      "fullName": "foo$Int",
+      "line": 1,
+      "name": "foo",
+      "params": [
+        {
+          "name": "a",
+          "type": "Int",
+        },
+      ],
+      "returnType": "Int",
+      "type": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": "Int",
+      },
+    },
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 4,
+      "name": "x",
+      "type": "Null",
+      "value": Variable {
+        "col": 12,
+        "fullName": "foo$Int",
+        "line": 4,
+        "name": "foo",
+        "templateTypes": [
+          "Int",
+        ],
+        "type": FuncType {
+          "paramTypes": [
+            "Int",
+          ],
+          "returnType": "Int",
+        },
+      },
+    },
+    FunctionCall {
+      "args": [
+        Literal {
+          "col": 10,
+          "line": 5,
+          "type": "Int",
+          "value": "1",
+        },
+      ],
+      "col": 8,
+      "fullName": "x$Int",
+      "line": 5,
+      "name": "x",
+      "referToByName": "abbr",
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile functions as variables 4`] = `
+"// PROGRAM //
+(() => {
+    let x;
+    function foo$Int(a) {
+        return a;
+    };
+    x = foo$Int;
+    return x(BigInt(1));
+})()"
+`;
+
+exports[`compile functions as variables 5`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Function {
+      "body": Block {
+        "col": 54,
+        "expressions": [
+          FunctionCall {
+            "args": [
+              Variable {
+                "col": 18,
+                "fullName": "x",
+                "line": 2,
+                "name": "x",
+                "templateTypes": [],
+                "type": "Int",
+              },
+            ],
+            "col": 16,
+            "fullName": "f$Int",
+            "line": 2,
+            "name": "f",
+            "referToByName": "abbr",
+            "type": "Int",
+          },
+        ],
+        "line": 1,
+        "type": "Int",
+      },
+      "col": 12,
+      "fullName": "call$Func_Int_Int_$Int",
+      "line": 1,
+      "name": "call",
+      "params": [
+        {
+          "name": "f",
+          "type": FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": "Int",
+          },
+        },
+        {
+          "name": "x",
+          "type": "Int",
+        },
+      ],
+      "returnType": "Int",
+      "type": FuncType {
+        "paramTypes": [
+          FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": "Int",
+          },
+          "Int",
+        ],
+        "returnType": "Int",
+      },
+    },
+    Function {
+      "body": Block {
+        "col": 35,
+        "expressions": [
+          Binary {
+            "col": 18,
+            "left": Variable {
+              "col": 16,
+              "fullName": "x",
+              "line": 6,
+              "name": "x",
+              "templateTypes": [],
+              "type": "Int",
+            },
+            "line": 6,
+            "operator": "+",
+            "right": Literal {
+              "col": 20,
+              "line": 6,
+              "type": "Int",
+              "value": "1",
+            },
+            "type": "Int",
+          },
+        ],
+        "line": 5,
+        "type": "Int",
+      },
+      "col": 12,
+      "fullName": "add1$Int",
+      "line": 5,
+      "name": "add1",
+      "params": [
+        {
+          "name": "x",
+          "type": "Int",
+        },
+      ],
+      "returnType": "Int",
+      "type": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": "Int",
+      },
+    },
+    FunctionCall {
+      "args": [
+        Variable {
+          "col": 17,
+          "fullName": "add1$Int",
+          "line": 9,
+          "name": "add1",
+          "templateTypes": [
+            "Int",
+          ],
+          "type": FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": "Int",
+          },
+        },
+        Literal {
+          "col": 28,
+          "line": 9,
+          "type": "Int",
+          "value": "1",
+        },
+      ],
+      "col": 12,
+      "fullName": "call$Func_Int_Int_$Int",
+      "line": 9,
+      "name": "call",
+      "referToByName": "full",
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile functions as variables 6`] = `
+"// PROGRAM //
+(() => {
+    function call$Func_Int_Int_$Int(f, x) {
+        return f(x);
+    };
+    function add1$Int(x) {
+        return (x + BigInt(1));
+    };
+    return call$Func_Int_Int_$Int(add1$Int, BigInt(1));
 })()"
 `;

@@ -344,10 +344,42 @@ export class Binary extends Expression {
 
 export class Variable extends Expression {
     name: string;
+    templateTypes: Type[];
 
-    constructor(token: Token) {
+    fullName?: string;
+
+    constructor(token: Token, templateTypes: Type[] = []) {
         super(token.line, token.col);
         this.name = token.text;
+        this.templateTypes = templateTypes;
+    }
+
+    toString(): string {
+        if (this.templateTypes.length > 0) {
+            return `${this.name}<${this.templateTypes.join(", ")}>`;
+        }
+        return this.name;
+    }
+
+    setTypeWithTemplateTypes(ancestors: Expression[]): void {
+        this.fullName = functionNameWithParamTypes(this.name, this.templateTypes);
+        let lastAncestor: Expression = this;
+        for (let i = 0; i < ancestors.length; i++) {
+            const ancestor = ancestors[ancestors.length - i - 1];
+            if (!(ancestor instanceof Block)) {
+                continue;
+            }
+            const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
+            for (let j = 0; j < olderSiblings.length; j++) {
+                const olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                if (olderSibling instanceof Function && olderSibling.fullName === this.fullName) {
+                    this.type = olderSibling.type;
+                    return;
+                }
+            }
+            lastAncestor = ancestor;
+        }
+        throw this.error(`cannot resolve type of variable ${this}`);
     }
 
     resolveAssignment(e: Expression): Type | null {
@@ -358,6 +390,10 @@ export class Variable extends Expression {
     }
 
     cascadeTypes(ancestors: Expression[]): void {
+        if (this.templateTypes.length > 0) {
+            this.setTypeWithTemplateTypes(ancestors);
+            return;
+        }
         let lastAncestor: Expression = this;
         for (let i = 0; i < ancestors.length; i++) {
             const ancestor = ancestors[ancestors.length - i - 1];
@@ -368,6 +404,13 @@ export class Variable extends Expression {
                     const type = this.resolveAssignment(olderSibling);
                     if (type !== null) {
                         this.type = type;
+                        this.fullName = this.name;
+                        return;
+                    }
+                    // This could also refer to a function if the function has no params
+                    if (olderSibling instanceof Function && olderSibling.name === this.name && olderSibling.params.length === 0) {
+                        this.type = olderSibling.type;
+                        this.fullName = olderSibling.fullName;
                         return;
                     }
                 }
@@ -375,17 +418,27 @@ export class Variable extends Expression {
                 for (const arg of (ancestor as Function).params) {
                     if (arg.name === this.name) {
                         this.type = arg.type;
+                        this.fullName = this.name;
                         return;
                     }
+                }
+                // This could also refer to the function itself if the function has no params
+                if (ancestor.name === this.name && ancestor.params.length === 0) {
+                    this.type = ancestor.type;
+                    this.fullName = ancestor.fullName;
+                    return;
                 }
             }
             lastAncestor = ancestor;
         }
-        throw this.error(`unable to resolve type of variable ${this.name}`);
+        throw this.error(`unable to resolve type of variable ${this}`);
     }
 
     toJS(writer: JSWriter): void {
-        writer.write(this.name);
+        if (this.fullName === undefined) {
+            throw this.error(`type of variable ${this} not resolved`);
+        }
+        writer.write(this.fullName);
     }
 }
 
@@ -400,9 +453,12 @@ export class Assignment extends Expression {
     cascadeTypes(ancestors: Expression[]): void {
         this.value.cascadeTypes([...ancestors, this]);
 
-        this.type = this.isDropped ? "Null" : this.value.type;
+        // // Disallow assignment to non-anonymous function declaration
+        // if (this.value.type instanceof FuncType) {
+        //     throw this.error("cannot assign a non-anonymous function to a variable");
+        // }
 
-        // TODO: Disallow assignment to non-anonymous function declaration
+        this.type = this.isDropped ? "Null" : this.value.type;
 
         // Check if this variable has been defined before in the same block, get type of previous definition if so to make sure it matches
         const previousType = (() => {
@@ -431,6 +487,7 @@ export class Assignment extends Expression {
         if (previousType !== null && !deepEquals(previousType, this.type)) {
             throw this.error(`tried to reassign variable ${this.name} with type ${this.type} but it was previously defined in the same scope with type ${previousType}`);
         }
+
     }
 
     toJS(writer: JSWriter): void {
@@ -528,7 +585,7 @@ export class Function extends Expression {
     params: { name: string, type: Type }[];
     returnType: Type;
     body: Block;
-    fullName?: string;
+    fullName: string;
 
     constructor(rootToken: Token, name: string, params: { name: string, type: Type }[], returnType: Type, body: Expression) {
         if (!(body instanceof Block)) {
@@ -542,6 +599,7 @@ export class Function extends Expression {
         this.params = params;
         this.returnType = returnType;
         this.body = body;
+        this.fullName = functionNameWithParamTypes(name, params.map(p => p.type));
 
         this.type = new FuncType(
             params.map(arg => arg.type),
@@ -555,8 +613,6 @@ export class Function extends Expression {
         if (!deepEquals(this.body.type, this.returnType)) {
             throw this.error(`function body should return ${this.returnType}, but found ${this.body.type}`);
         }
-
-        this.fullName = functionNameWithParamTypes(this.name, this.params.map(arg => arg.type));
     }
 
     toJS(writer: JSWriter): void {
@@ -565,8 +621,7 @@ export class Function extends Expression {
         }
         writer.write(`function ${this.fullName}(`);
         writer.write(this.params.map(p => p.name).join(", "));
-        writer.write(") {");
-        writer.indentIn();
+        writer.write(") ");
         try {
             writer.beginFunction(this.fullName);
         } catch (e) {
@@ -576,11 +631,10 @@ export class Function extends Expression {
             throw e;
         }
         this.body.expressions.slice(0, -1).forEach(expr => {
-            writer.newLine();
             expr.toJS(writer);
+            writer.newLine();
         });
         const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-        writer.newLine();
         if (lastExpr instanceof DropValue) {
             lastExpr.toJS(writer);
             writer.write(";");
@@ -592,9 +646,6 @@ export class Function extends Expression {
             writer.write(";");
         }
         writer.endFunction();
-        writer.indentOut();
-        writer.newLine();
-        writer.write("}");
     }
 }
 

@@ -69,9 +69,10 @@ test("parse variable assignment", () => {
         z = 3.13;
         x = 3.
     `);
-    testParseExpectError(`x = 1.0; x = 1;`)
-    testParseExpectError(`x = y = 2`)
-    testParseExpectError(`x = y = 2;`)
+    testParseExpectError(`x = 1.0; x = 1;`);
+    testParseExpectError(`x = y = 2`);
+    testParseExpectError(`x = y = 2;`);
+    // testParseExpectError(`f = func foo(a: Int): Int { a };`);
 });
 
 test("parse if", () => {
@@ -85,10 +86,18 @@ test("parse if", () => {
 test("parse function", () => {
     testParse(`func add(a: Int, b: Int): Int { a + b }`);
     testParse(`
-        func myFunc(a: Func<Int, Func<Int, Int>>, b: Func<Int>): Func<Int, Func<Int, Int>> {
+        func myFunc(a: Func[Int, Func[Int, Int]], b: Func[Int]): Func[Int, Func[Int, Int]] {
             a
         }
     `);
     testParse(`func myFunc(a: Int): Int { a }; myFunc(1)`);
     testParseExpectError(`func myFunc(a: Int): Int { a }; myFunc(1.0)`);
+    testParseExpectError(
+        `
+        func foo(a: Int): Int {
+            a
+        }
+        x = foo;
+        `
+    );
 });

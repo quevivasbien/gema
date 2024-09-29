@@ -216,6 +216,7 @@ function parseIfStatement(parser: Parser): AST.Expression {
 function parseFunction(parser: Parser): AST.Expression {
     const rootToken = parser.previous();  // should be 'func'
     if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+        // TODO: Allow anonymous functions
         return parser.error("Expected function name.");
     }
     const name = parser.current().text;
@@ -312,7 +313,9 @@ function parseVariable(parser: Parser): AST.Expression {
     if (parser.atEnd() || parser.current().type !== TokenType.Equal) {
         // Assume variable is already defined
         const variableToken = parser.previous();
-        return parser.tryCreateASTExpression(() => new AST.Variable(variableToken));
+        // Get template types if there are any attached
+        const templateTypes = parser.getTemplateTypes();
+        return parser.tryCreateASTExpression(() => new AST.Variable(variableToken, templateTypes));
     }
     return parser.error("variable assignments are not allowed within expressions.");
 }
@@ -401,12 +404,12 @@ class Parser {
     }
 
     getTemplateTypes(): AST.Type[] {
-        if (this.current().type !== TokenType.Less) {
+        if (this.atEnd() || this.current().type !== TokenType.LBracket) {
             return [];
         }
         this.advance();
         const templateTypes: AST.Type[] = [];
-        while (!this.atEnd() && this.current().type !== TokenType.Greater) {
+        while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
             if (this.current().type !== TokenType.Identifier) {
                 throw this.error("Expected type identifier.");
             }

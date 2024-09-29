@@ -21,19 +21,19 @@ test("compile literals", () => {
 });
 
 test("compile binary expressions", () => {
-   testCompile(`1 + 2`, 3n);
-   testCompile(`1 - 2`, -1n);
-   testCompile(`1 * 2`, 2n);
-   testCompile(`1 / 2`, 0n);
-   testCompile(`3 * (1 + 3) / 2`, 6n);
-   testCompile(`5 % 3`, 2n);
-   testCompile(`-5 % 3`, 1n);
-   testCompile(`true and false`, false);
-   testCompile(`true or false`, true);
-   testCompile(`1 == 1`, true);
-   testCompile(`1 != 1`, false);
-   testCompile(`(1 > 2) and (3 < 4)`, false);
-   testCompile(`(1 > 2) or (3 < 4)`, true);
+    testCompile(`1 + 2`, 3n);
+    testCompile(`1 - 2`, -1n);
+    testCompile(`1 * 2`, 2n);
+    testCompile(`1 / 2`, 0n);
+    testCompile(`3 * (1 + 3) / 2`, 6n);
+    testCompile(`5 % 3`, 2n);
+    testCompile(`-5 % 3`, 1n);
+    testCompile(`true and false`, false);
+    testCompile(`true or false`, true);
+    testCompile(`1 == 1`, true);
+    testCompile(`1 != 1`, false);
+    testCompile(`(1 > 2) and (3 < 4)`, false);
+    testCompile(`(1 > 2) or (3 < 4)`, true);
 });
 
 test("compile block", () => {
@@ -100,4 +100,60 @@ test("compile if expressions", () => {
 
 test("compile functions", () => {
     testCompile(`func myFunc(a: Int, b: Int): Int { a + b }; myFunc(1, 2)`, 3n);
+});
+
+test("compile recursive functions", () => {
+    testCompile(
+        `
+        func factorial(n: Int): Int {
+            if n <= 1 {
+                1
+            } else {
+                n * factorial(n - 1)
+            }
+        }
+
+        factorial(4)
+        `,
+        24n
+    );
+});
+
+test("compile functions as variables", () => {
+    testCompile(
+        `
+        func foo(): Int {
+            1
+        }
+        x = foo;
+        y = foo[];
+    
+        x() + y()
+        `,
+        2n
+    );
+    testCompile(
+        `
+        func foo(a: Int): Int {
+            a
+        }
+        x = foo[Int];
+        x(1)
+        `,
+        1n
+    );
+    testCompile(
+        `
+            func call(f: Func[Int, Int], x: Int): Int {
+                f(x)
+            }
+            
+            func add1(x: Int): Int {
+                x + 1
+            }
+            
+            call(add1[Int], 1)
+        `,
+        2n
+    );
 });

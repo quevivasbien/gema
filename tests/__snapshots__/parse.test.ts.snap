@@ -785,8 +785,10 @@ Block {
     Unary {
       "child": Variable {
         "col": 16,
+        "fullName": "x",
         "line": 0,
         "name": "x",
+        "templateTypes": [],
         "type": "Int",
       },
       "col": 15,
@@ -1018,8 +1020,10 @@ Block {
             "col": 13,
             "left": Variable {
               "col": 11,
+              "fullName": "x",
               "line": 0,
               "name": "x",
+              "templateTypes": [],
               "type": "Int",
             },
             "line": 0,
@@ -1051,8 +1055,10 @@ Block {
             "col": 33,
             "left": Variable {
               "col": 31,
+              "fullName": "x",
               "line": 0,
               "name": "x",
+              "templateTypes": [],
               "type": "Int",
             },
             "line": 0,
@@ -1101,16 +1107,20 @@ Block {
             "col": 34,
             "left": Variable {
               "col": 32,
+              "fullName": "a",
               "line": 0,
               "name": "a",
+              "templateTypes": [],
               "type": "Int",
             },
             "line": 0,
             "operator": "+",
             "right": Variable {
               "col": 36,
+              "fullName": "b",
               "line": 0,
               "name": "b",
+              "templateTypes": [],
               "type": "Int",
             },
             "type": "Int",
@@ -1164,8 +1174,10 @@ Block {
         "expressions": [
           Variable {
             "col": 12,
+            "fullName": "a",
             "line": 2,
             "name": "a",
+            "templateTypes": [],
             "type": FuncType {
               "paramTypes": [
                 "Int",
@@ -1307,8 +1319,10 @@ Block {
           "expressions": [
             Variable {
               "col": 27,
+              "fullName": "a",
               "line": 0,
               "name": "a",
+              "templateTypes": [],
               "type": "Int",
             },
           ],
@@ -1365,6 +1379,16 @@ exports[`parse function 4`] = `
     "col": 32,
     "line": 0,
     "message": "(During type resolution) function myFunc<Float, unknown> not found",
+  },
+]
+`;
+
+exports[`parse function 5`] = `
+[
+  {
+    "col": 12,
+    "line": 4,
+    "message": "(During type resolution) unable to resolve type of variable foo",
   },
 ]
 `;
