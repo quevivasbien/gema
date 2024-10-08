@@ -215,14 +215,21 @@ function parseIfStatement(parser: Parser): AST.Expression {
 
 function parseFunction(parser: Parser): AST.Expression {
     const rootToken = parser.previous();  // should be 'func'
-    if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+    if (parser.atEnd()) {
         // TODO: Allow anonymous functions
         return parser.error("Expected function name.");
     }
-    const name = parser.current().text;
-    parser.advance();
-    if (parser.current().type !== TokenType.LParen) {
-        return parser.error("Expected '(' after function name.");
+    let name: string | null = null;
+    if (parser.current().type === TokenType.Identifier) {
+        name = parser.current().text;
+        parser.advance();
+        if (parser.current().type !== TokenType.LParen) {
+            return parser.error("Expected '(' after function name.");
+        }
+    } else {
+        if (parser.current().type !== TokenType.LParen) {
+            return parser.error("Expected function name or anonymous function arguments.");
+        }
     }
     parser.advance();
     const params: { name: string, type: AST.Type }[] = [];
@@ -236,7 +243,7 @@ function parseFunction(parser: Parser): AST.Expression {
             return parser.error("Expected ':' after parameter name.");
         }
         parser.advance();
-        const typeName = parser.getTypeName();  
+        const typeName = parser.getTypeName();
         if (!typeName) {
             return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
         }

@@ -2119,3 +2119,106 @@ exports[`compile functions as variables 6`] = `
     return call$Func_Int_Int_$Int(add1$Int, BigInt(1));
 })()"
 `;
+
+exports[`anonymous functions 1`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Assignment {
+      "col": 12,
+      "isDropped": true,
+      "line": 1,
+      "name": "f",
+      "type": "Null",
+      "value": Function {
+        "body": Block {
+          "col": 42,
+          "expressions": [
+            Binary {
+              "col": 18,
+              "left": Variable {
+                "col": 16,
+                "fullName": "a",
+                "line": 2,
+                "name": "a",
+                "templateTypes": [],
+                "type": "Int",
+              },
+              "line": 2,
+              "operator": "+",
+              "right": Variable {
+                "col": 20,
+                "fullName": "b",
+                "line": 2,
+                "name": "b",
+                "templateTypes": [],
+                "type": "Int",
+              },
+              "type": "Int",
+            },
+          ],
+          "line": 1,
+          "type": "Int",
+        },
+        "col": 16,
+        "fullName": null,
+        "line": 1,
+        "name": null,
+        "params": [
+          {
+            "name": "a",
+            "type": "Int",
+          },
+          {
+            "name": "b",
+            "type": "Int",
+          },
+        ],
+        "returnType": "Int",
+        "type": FuncType {
+          "paramTypes": [
+            "Int",
+            "Int",
+          ],
+          "returnType": "Int",
+        },
+      },
+    },
+    FunctionCall {
+      "args": [
+        Literal {
+          "col": 14,
+          "line": 4,
+          "type": "Int",
+          "value": "1",
+        },
+        Literal {
+          "col": 17,
+          "line": 4,
+          "type": "Int",
+          "value": "2",
+        },
+      ],
+      "col": 12,
+      "fullName": "f$Int$Int",
+      "line": 4,
+      "name": "f",
+      "referToByName": "abbr",
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`anonymous functions 2`] = `
+"// PROGRAM //
+(() => {
+    let f;
+    f = (a, b) => {
+        return (a + b);
+    };
+    return f(BigInt(1), BigInt(2));
+})()"
+`;

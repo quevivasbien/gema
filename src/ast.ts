@@ -408,7 +408,7 @@ export class Variable extends Expression {
                         return;
                     }
                     // This could also refer to a function if the function has no params
-                    if (olderSibling instanceof Function && olderSibling.name === this.name && olderSibling.params.length === 0) {
+                    if (olderSibling instanceof Function && olderSibling.name === this.name && olderSibling.params.length === 0 && olderSibling.fullName !== null) {
                         this.type = olderSibling.type;
                         this.fullName = olderSibling.fullName;
                         return;
@@ -423,7 +423,7 @@ export class Variable extends Expression {
                     }
                 }
                 // This could also refer to the function itself if the function has no params
-                if (ancestor.name === this.name && ancestor.params.length === 0) {
+                if (ancestor.name === this.name && ancestor.params.length === 0 && ancestor.fullName !== null) {
                     this.type = ancestor.type;
                     this.fullName = ancestor.fullName;
                     return;
@@ -581,13 +581,13 @@ function functionNameWithParamTypes(name: string, paramTypes: Type[]): string {
 }
 
 export class Function extends Expression {
-    name: string;
+    name: string | null;
     params: { name: string, type: Type }[];
     returnType: Type;
     body: Block;
-    fullName: string;
+    fullName: string | null;
 
-    constructor(rootToken: Token, name: string, params: { name: string, type: Type }[], returnType: Type, body: Expression) {
+    constructor(rootToken: Token, name: string | null, params: { name: string, type: Type }[], returnType: Type, body: Expression) {
         if (!(body instanceof Block)) {
             throw new Error("function body must be a Block expression");
         }
@@ -599,7 +599,7 @@ export class Function extends Expression {
         this.params = params;
         this.returnType = returnType;
         this.body = body;
-        this.fullName = functionNameWithParamTypes(name, params.map(p => p.type));
+        this.fullName = this.name !== null ? functionNameWithParamTypes(name as string, params.map(p => p.type)) : null;
 
         this.type = new FuncType(
             params.map(arg => arg.type),
@@ -619,9 +619,17 @@ export class Function extends Expression {
         if (this.fullName === undefined) {
             throw new Error("function name not resolved");
         }
-        writer.write(`function ${this.fullName}(`);
+        if (this.name !== null) {
+            writer.write(`function ${this.fullName}(`);
+        } else {
+            writer.write(`(`);
+        }
         writer.write(this.params.map(p => p.name).join(", "));
-        writer.write(") ");
+        if (this.name !== null) {
+            writer.write(") ");
+        } else {
+            writer.write(") => ")
+        }
         try {
             writer.beginFunction(this.fullName);
         } catch (e) {

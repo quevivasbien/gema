@@ -157,3 +157,38 @@ test("compile functions as variables", () => {
         2n
     );
 });
+
+test("anonymous functions", () => {
+    testCompile(
+        `
+            f = func(a: Int, b: Int): Int {
+                a + b
+            };
+            f(1, 2)
+        `,
+        3n
+    );
+});
+
+test.todo("allow calling non-variable objects", () => {
+    testCompile(
+        `
+            (func(a: Int, b: Int): Int {
+                a + b
+            })(1, 2)
+        `,
+        3n
+    );
+    testCompile(
+        `
+            func foo(a: Int): Func[Int] {
+                func(): Int {
+                    a
+                }
+            }
+            
+            foo(1)()
+        `,
+        1n
+    );
+})
