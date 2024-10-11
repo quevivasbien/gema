@@ -260,5 +260,13 @@ test("compile map iterator", () => {
         @iter
         `,
         [3n, 4n, 5n]
-    )
+    );
+    testCompile(
+        `
+        arr = ["hello", "there"];
+        iter = map(arr, [1, 1, 0]);
+        @iter
+        `,
+        ["there", "there", "hello"]
+    );
 });

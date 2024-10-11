@@ -3383,3 +3383,168 @@ function __COLLECT__(iter) {
     return __COLLECT__(iter);
 })()"
 `;
+
+exports[`compile map iterator 5`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 1,
+      "name": "arr",
+      "type": "Null",
+      "value": Array {
+        "col": 14,
+        "expressions": [
+          Literal {
+            "col": 15,
+            "line": 1,
+            "type": "Str",
+            "value": ""hello"",
+          },
+          Literal {
+            "col": 24,
+            "line": 1,
+            "type": "Str",
+            "value": ""there"",
+          },
+        ],
+        "innerType": "Str",
+        "line": 1,
+        "type": ArrayType {
+          "innerType": "Str",
+        },
+      },
+    },
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 2,
+      "name": "iter",
+      "type": "Null",
+      "value": MapIter {
+        "col": 15,
+        "iterOver": Array {
+          "col": 24,
+          "expressions": [
+            Literal {
+              "col": 25,
+              "line": 2,
+              "type": "Int",
+              "value": "1",
+            },
+            Literal {
+              "col": 28,
+              "line": 2,
+              "type": "Int",
+              "value": "1",
+            },
+            Literal {
+              "col": 31,
+              "line": 2,
+              "type": "Int",
+              "value": "0",
+            },
+          ],
+          "innerType": "Int",
+          "line": 2,
+          "type": ArrayType {
+            "innerType": "Int",
+          },
+        },
+        "iterOverIsArray": true,
+        "line": 2,
+        "mapFn": Variable {
+          "col": 19,
+          "fullName": "arr",
+          "line": 2,
+          "name": "arr",
+          "templateTypes": [],
+          "type": ArrayType {
+            "innerType": "Str",
+          },
+        },
+        "type": IterType {
+          "innerType": "Str",
+        },
+      },
+    },
+    Unary {
+      "child": Variable {
+        "col": 9,
+        "fullName": "iter",
+        "line": 3,
+        "name": "iter",
+        "templateTypes": [],
+        "type": IterType {
+          "innerType": "Str",
+        },
+      },
+      "col": 8,
+      "line": 3,
+      "operator": "@",
+      "type": ArrayType {
+        "innerType": "Str",
+      },
+    },
+  ],
+  "line": 1,
+  "type": ArrayType {
+    "innerType": "Str",
+  },
+}
+`;
+
+exports[`compile map iterator 6`] = `
+"// BUILTINS //
+class _ARRAY_MAP_ITERATOR_ {
+    constructor(arr, innerIter) {
+        this.arr = arr;
+        this.innerIter = innerIter;
+    }
+
+    next() {
+        const value = this.innerIter.next();
+        if (value === undefined) {
+            return undefined;
+        }
+        return this.arr[value];
+    }
+}
+function __ARRAYMAPITER__(arr, innerIter) {
+    return new _ARRAY_MAP_ITERATOR_(arr, innerIter);
+}
+class _ARRAY_ITERATOR_ {
+    constructor(array) {
+        this.array = array;
+        this.index = 0;
+    }
+    next() {
+        return this.array[this.index++];
+    }
+}
+function __ARRAYITER__(array) {
+    return new _ARRAY_ITERATOR_(array);
+}
+function __COLLECT__(iter) {
+    const out = [];
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            break;
+        }
+        out.push(value);
+    }
+    return out;
+}
+
+// PROGRAM //
+(() => {
+    let arr;
+    let iter;
+    arr = ["hello", "there"];
+    iter = __ARRAYMAPITER__(arr, __ARRAYITER__([BigInt(1), BigInt(1), BigInt(0)]));
+    return __COLLECT__(iter);
+})()"
+`;

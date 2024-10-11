@@ -1042,8 +1042,13 @@ export class MapIter extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.useBuiltin("__MAPITER__");
-        writer.write("__MAPITER__(");
+        if (this.mapFn.type instanceof ArrayType) {
+            writer.useBuiltin("__ARRAYMAPITER__");
+            writer.write("__ARRAYMAPITER__(");
+        } else {
+            writer.useBuiltin("__MAPITER__");
+            writer.write("__MAPITER__(");
+        }
         this.mapFn.toJS(writer);
         writer.write(", ");
         if (this.iterOverIsArray) {

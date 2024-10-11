@@ -50,4 +50,23 @@ function __MAPITER__(mapfn, innerIter) {
     return new _MAP_ITERATOR_(mapfn, innerIter);
 }`
     ),
+    "__ARRAYMAPITER__": (
+`class _ARRAY_MAP_ITERATOR_ {
+    constructor(arr, innerIter) {
+        this.arr = arr;
+        this.innerIter = innerIter;
+    }
+
+    next() {
+        const value = this.innerIter.next();
+        if (value === undefined) {
+            return undefined;
+        }
+        return this.arr[value];
+    }
+}
+function __ARRAYMAPITER__(arr, innerIter) {
+    return new _ARRAY_MAP_ITERATOR_(arr, innerIter);
+}`
+    ),
 };
