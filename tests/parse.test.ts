@@ -109,3 +109,9 @@ test("parse function", () => {
         `
     );
 });
+
+test("parse array literal", () => {
+    testParseExpectError(`[]`);
+    testParseExpectError(`[1, 2]: Str`);
+    testParseExpectError(`[1, "2"]`); 
+});

@@ -7,7 +7,6 @@ class Scope {
     parent: Scope | null;
     variableNames: Set<string> = new Set();
     functionNames: Set<string> = new Set();
-    nAnonymous: number = 0;
 
     lines: string[] = [];
 
@@ -17,11 +16,6 @@ class Scope {
 
     addFunctionName(name: string) {
         this.functionNames.add(name);
-    }
-
-    getAnonymousName(): string {
-        this.nAnonymous += 1;
-        return `$anon${this.nAnonymous}`;
     }
 
     getDeclarations(): string[] {
@@ -95,10 +89,6 @@ export class JSWriter {
             this.scope.addFunctionName(name);
         }
         this.beginScope();
-    }
-
-    getAnonymousName(): string {
-        return this.scope.getAnonymousName();
     }
 
     endFunction() {

@@ -39,6 +39,11 @@ PARSE_RULES[TokenType.LBrace] = {
     infix: null,
     precedence: Precedence.None
 };
+PARSE_RULES[TokenType.LBracket] = {
+    prefix: parseArray,
+    infix: null,  // TODO: Use this for array indexing
+    precedence: Precedence.None
+};
 PARSE_RULES[TokenType.If] = {
     prefix: parseIfStatement,
     infix: null,
@@ -372,6 +377,35 @@ function parseDirectCall(parser: Parser, expr: AST.Expression): AST.Expression {
     return parser.tryCreateASTExpression(() => new AST.DirectFunctionCall(expr, args));
 }
 
+function parseArray(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    const expressions: AST.Expression[] = [];
+    while (!parser.atEnd() && parser.current().type !== TokenType.RBracket) {
+        const expression = parser.expression();
+        if (expression === null) {
+            return parser.error("unterminated array.");
+        }
+        expressions.push(expression);
+        if (parser.current().type === TokenType.Comma) {
+            parser.advance();
+        }
+    }
+    if (!parser.atEnd()) {
+        // consume closing bracket
+        parser.advance();
+    }
+    let innerTypeAnnotation: AST.Type | undefined = undefined;
+    if (!parser.atEnd() && parser.current().type === TokenType.Colon) {
+        parser.advance();
+        const typeName = parser.getTypeName();
+        if (typeName === null) {
+            return parser.error("expected type after ':'");
+        }
+        innerTypeAnnotation = typeName;
+    }
+    return parser.tryCreateASTExpression(() => new AST.Array(startToken, expressions, innerTypeAnnotation));
+}
+
 class Parser {
     tokens: Token[];
     index: number = 0;
@@ -462,7 +496,7 @@ class Parser {
         const paramType = this.current().text;
         this.advance();
         let templateTypes: AST.Type[] = this.getTemplateTypes();
-        if (this.current().type === TokenType.Comma) {
+        if (!this.atEnd() && this.current().type === TokenType.Comma) {
             this.advance();
         }
         try {

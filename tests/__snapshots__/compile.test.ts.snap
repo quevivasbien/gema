@@ -2422,3 +2422,185 @@ exports[`allow calling non-variable objects 4`] = `
     return (foo$Int(BigInt(1)))();
 })()"
 `;
+
+exports[`compile arrays 1`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Array {
+      "col": 12,
+      "expressions": [
+        Literal {
+          "col": 13,
+          "line": 1,
+          "type": "Int",
+          "value": "1",
+        },
+        Literal {
+          "col": 16,
+          "line": 1,
+          "type": "Int",
+          "value": "2",
+        },
+        Literal {
+          "col": 19,
+          "line": 1,
+          "type": "Int",
+          "value": "3",
+        },
+      ],
+      "innerType": "Int",
+      "line": 1,
+      "type": ArrayType {
+        "innerType": "Int",
+      },
+    },
+  ],
+  "line": 1,
+  "type": ArrayType {
+    "innerType": "Int",
+  },
+}
+`;
+
+exports[`compile arrays 2`] = `
+"// PROGRAM //
+(() => {
+    return [BigInt(1), BigInt(2), BigInt(3)];
+})()"
+`;
+
+exports[`compile arrays 3`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Array {
+      "col": 12,
+      "expressions": [
+        Literal {
+          "col": 13,
+          "line": 1,
+          "type": "Str",
+          "value": ""1"",
+        },
+        Literal {
+          "col": 18,
+          "line": 1,
+          "type": "Str",
+          "value": ""2"",
+        },
+        Literal {
+          "col": 23,
+          "line": 1,
+          "type": "Str",
+          "value": ""3"",
+        },
+      ],
+      "innerType": "Str",
+      "line": 1,
+      "type": ArrayType {
+        "innerType": "Str",
+      },
+    },
+  ],
+  "line": 1,
+  "type": ArrayType {
+    "innerType": "Str",
+  },
+}
+`;
+
+exports[`compile arrays 4`] = `
+"// PROGRAM //
+(() => {
+    return ["1", "2", "3"];
+})()"
+`;
+
+exports[`compile arrays 5`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Binary {
+      "col": 32,
+      "left": Binary {
+        "col": 20,
+        "left": Array {
+          "col": 12,
+          "expressions": [],
+          "innerType": "Int",
+          "line": 1,
+          "type": ArrayType {
+            "innerType": "Int",
+          },
+        },
+        "line": 1,
+        "operator": "+",
+        "right": Array {
+          "col": 22,
+          "expressions": [
+            Literal {
+              "col": 23,
+              "line": 1,
+              "type": "Int",
+              "value": "1",
+            },
+            Literal {
+              "col": 26,
+              "line": 1,
+              "type": "Int",
+              "value": "2",
+            },
+            Literal {
+              "col": 29,
+              "line": 1,
+              "type": "Int",
+              "value": "3",
+            },
+          ],
+          "innerType": "Int",
+          "line": 1,
+          "type": ArrayType {
+            "innerType": "Int",
+          },
+        },
+        "type": ArrayType {
+          "innerType": "Int",
+        },
+      },
+      "line": 1,
+      "operator": "+",
+      "right": Array {
+        "col": 34,
+        "expressions": [
+          Literal {
+            "col": 35,
+            "line": 1,
+            "type": "Int",
+            "value": "1",
+          },
+        ],
+        "innerType": "Int",
+        "line": 1,
+        "type": ArrayType {
+          "innerType": "Int",
+        },
+      },
+      "type": ArrayType {
+        "innerType": "Int",
+      },
+    },
+  ],
+  "line": 1,
+  "type": ArrayType {
+    "innerType": "Int",
+  },
+}
+`;
+
+exports[`compile arrays 6`] = `
+"// PROGRAM //
+(() => {
+    return [].concat([BigInt(1), BigInt(2), BigInt(3)]).concat([BigInt(1)]);
+})()"
+`;

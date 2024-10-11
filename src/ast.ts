@@ -13,7 +13,15 @@ class FuncType {
     ) { }
 
     toString(): string {
-        return `Func<${this.paramTypes.join(", ")}, ${this.returnType}>`;
+        return `Func[${this.paramTypes.join(", ")}, ${this.returnType}]`;
+    }
+}
+
+class ArrayType {
+    constructor(public innerType: Type) { }
+
+    toString(): string {
+        return `Array[${this.innerType}]`;
     }
 }
 
@@ -23,7 +31,8 @@ export type Type =
     "Str" |
     "Bool" |
     "Null" |
-    FuncType
+    FuncType |
+    ArrayType
     ;
 
 export function getType(typeName: string, templateTypes: Type[]): Type {
@@ -316,10 +325,24 @@ export class Binary extends Expression {
                 }
                 break;
         }
+        if (ltype instanceof ArrayType && rtype instanceof ArrayType) {
+            if (ltype.innerType === rtype.innerType && this.operator === TokenType.Plus) {
+                this.type = ltype;
+                return;
+            }
+        }
+
         throw this.error(`cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
     }
 
     toJS(writer: JSWriter): void {
+        if (this.left.type instanceof ArrayType) {
+            this.left.toJS(writer);
+            writer.write(".concat(");
+            this.right.toJS(writer);
+            writer.write(")");
+            return;
+        }
         if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
             writer.write("(");
             this.left.toJS(writer);
@@ -814,5 +837,47 @@ export class DirectFunctionCall extends Expression {
             arg.toJS(writer);
         });
         writer.write(")");
+    }
+}
+
+export class Array extends Expression {
+    expressions: Expression[];
+    innerType?: Type;
+
+    constructor(startToken: Token, expressions: Expression[], innerType?: Type) {
+        super(startToken.line, startToken.col);
+        this.expressions = expressions;
+        if (innerType !== undefined) {
+            this.innerType = innerType;
+        }
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.expressions.forEach((expr, i) => {
+            expr.cascadeTypes(ancestors);
+            if (expr.type === null) {
+                throw this.error(`unable to resolve type of array element ${i + 1}`);
+            }
+            if (this.innerType === undefined) {
+                this.innerType = expr.type;
+            } else if (this.innerType !== expr.type) {
+                throw this.error(`incompatible types in array: expected ${this.innerType}, got ${expr.type}`);
+            }
+        });
+        if (this.innerType === undefined) {
+            throw this.error(`empty array must be annotated with a type`);
+        }
+        this.type = new ArrayType(this.innerType);
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write("[");
+        this.expressions.forEach((expr, i) => {
+            if (i > 0) {
+                writer.write(", ");
+            }
+            expr.toJS(writer);
+        });
+        writer.write("]");
     }
 }

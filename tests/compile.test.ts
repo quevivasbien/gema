@@ -192,3 +192,26 @@ test("allow calling non-variable objects", () => {
         1n
     );
 })
+
+test("compile arrays", () => {
+    testCompile(
+        `
+            [1, 2, 3]
+        `,
+        [1n, 2n, 3n]
+    );
+
+    testCompile(
+        `
+            ["1", "2", "3"]
+        `,
+        ["1", "2", "3"]
+    );
+
+    testCompile(
+        `
+            []: Int + [1, 2, 3] + [1]
+        `,
+        [1n, 2n, 3n, 1n]
+    );
+});

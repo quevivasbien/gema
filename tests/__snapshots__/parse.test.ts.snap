@@ -1441,3 +1441,33 @@ exports[`parse function 5`] = `
   },
 ]
 `;
+
+exports[`parse array literal 1`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "empty array must be annotated with a type",
+  },
+]
+`;
+
+exports[`parse array literal 2`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "incompatible types in array: expected Str, got Int",
+  },
+]
+`;
+
+exports[`parse array literal 3`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "incompatible types in array: expected Int, got Str",
+  },
+]
+`;
