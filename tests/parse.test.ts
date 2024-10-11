@@ -113,5 +113,17 @@ test("parse function", () => {
 test("parse array literal", () => {
     testParseExpectError(`[]`);
     testParseExpectError(`[1, 2]: Str`);
-    testParseExpectError(`[1, "2"]`); 
+    testParseExpectError(`[1, "2"]`);
+    testParse(`[]: Arr[Int]`);
+    testParseExpectError(`[]: Arr`);
+    testParseExpectError(`[]: Arr[Int, Str]`);
+});
+
+test("parse array indexed access", () => {
+    testParseExpectError(`x = [1, 2, 3]; x()`);
+    testParseExpectError(`x = [1, 2, 3]; x("hello")`);
+    testParseExpectError(`x = [1, 2, 3]; x(0, 1)`);
+    testParseExpectError(`[1, 2, 3]()`);
+    testParseExpectError(`[1, 2, 3]("hello")`);
+    testParseExpectError(`[1, 2, 3](0, 1)`);
 });

@@ -215,3 +215,32 @@ test("compile arrays", () => {
         [1n, 2n, 3n, 1n]
     );
 });
+
+test("compile array indexed access", () => {
+    testCompile(
+        `
+            x = [1, 2, 3];
+            x(0)
+        `,
+        1n
+    );
+    testCompile(
+        `
+            x = [[1, 2], [3, 4]];
+            x(0, 1)
+        `,
+        2n
+    );
+    testCompile(
+        `
+            [1, 2, 3](0)
+        `,
+        1n
+    );
+    testCompile(
+        `
+            [[1, 2], [3, 4]](0, 1)
+        `,
+        2n
+    );
+});

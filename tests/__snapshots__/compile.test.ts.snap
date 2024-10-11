@@ -1559,7 +1559,7 @@ Block {
       "line": 0,
       "type": "Null",
     },
-    FunctionCall {
+    Call {
       "args": [
         Literal {
           "col": 51,
@@ -1574,6 +1574,13 @@ Block {
           "value": "2",
         },
       ],
+      "callerType": FuncType {
+        "paramTypes": [
+          "Int",
+          "Int",
+        ],
+        "returnType": "Int",
+      },
       "col": 44,
       "fullName": "myFunc$Int$Int",
       "line": 0,
@@ -1659,7 +1666,7 @@ Block {
                   },
                   "line": 5,
                   "operator": "*",
-                  "right": FunctionCall {
+                  "right": Call {
                     "args": [
                       Binary {
                         "col": 32,
@@ -1682,6 +1689,12 @@ Block {
                         "type": "Int",
                       },
                     ],
+                    "callerType": FuncType {
+                      "paramTypes": [
+                        "Int",
+                      ],
+                      "returnType": "Int",
+                    },
                     "col": 20,
                     "fullName": "factorial$Int",
                     "line": 5,
@@ -1720,7 +1733,7 @@ Block {
         "returnType": "Int",
       },
     },
-    FunctionCall {
+    Call {
       "args": [
         Literal {
           "col": 18,
@@ -1729,6 +1742,12 @@ Block {
           "value": "4",
         },
       ],
+      "callerType": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": "Int",
+      },
       "col": 8,
       "fullName": "factorial$Int",
       "line": 9,
@@ -1825,8 +1844,12 @@ Block {
     },
     Binary {
       "col": 12,
-      "left": FunctionCall {
+      "left": Call {
         "args": [],
+        "callerType": FuncType {
+          "paramTypes": [],
+          "returnType": "Int",
+        },
         "col": 8,
         "fullName": "x$",
         "line": 7,
@@ -1836,8 +1859,12 @@ Block {
       },
       "line": 7,
       "operator": "+",
-      "right": FunctionCall {
+      "right": Call {
         "args": [],
+        "callerType": FuncType {
+          "paramTypes": [],
+          "returnType": "Int",
+        },
         "col": 14,
         "fullName": "y$",
         "line": 7,
@@ -1927,7 +1954,7 @@ Block {
         },
       },
     },
-    FunctionCall {
+    Call {
       "args": [
         Literal {
           "col": 10,
@@ -1936,6 +1963,12 @@ Block {
           "value": "1",
         },
       ],
+      "callerType": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": "Int",
+      },
       "col": 8,
       "fullName": "x$Int",
       "line": 5,
@@ -1969,7 +2002,7 @@ Block {
       "body": Block {
         "col": 54,
         "expressions": [
-          FunctionCall {
+          Call {
             "args": [
               Variable {
                 "col": 18,
@@ -1980,6 +2013,12 @@ Block {
                 "type": "Int",
               },
             ],
+            "callerType": FuncType {
+              "paramTypes": [
+                "Int",
+              ],
+              "returnType": "Int",
+            },
             "col": 16,
             "fullName": "f$Int",
             "line": 2,
@@ -2070,7 +2109,7 @@ Block {
         "returnType": "Int",
       },
     },
-    FunctionCall {
+    Call {
       "args": [
         Variable {
           "col": 17,
@@ -2094,6 +2133,18 @@ Block {
           "value": "1",
         },
       ],
+      "callerType": FuncType {
+        "paramTypes": [
+          FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": "Int",
+          },
+          "Int",
+        ],
+        "returnType": "Int",
+      },
       "col": 12,
       "fullName": "call$Func_Int_Int_$Int",
       "line": 9,
@@ -2184,7 +2235,7 @@ Block {
         },
       },
     },
-    FunctionCall {
+    Call {
       "args": [
         Literal {
           "col": 14,
@@ -2199,6 +2250,13 @@ Block {
           "value": "2",
         },
       ],
+      "callerType": FuncType {
+        "paramTypes": [
+          "Int",
+          "Int",
+        ],
+        "returnType": "Int",
+      },
       "col": 12,
       "fullName": "f$Int$Int",
       "line": 4,
@@ -2227,7 +2285,7 @@ exports[`allow calling non-variable objects 1`] = `
 Block {
   "col": 12,
   "expressions": [
-    DirectFunctionCall {
+    DirectCall {
       "args": [
         Literal {
           "col": 15,
@@ -2380,9 +2438,9 @@ Block {
         },
       },
     },
-    DirectFunctionCall {
+    DirectCall {
       "args": [],
-      "caller": FunctionCall {
+      "caller": Call {
         "args": [
           Literal {
             "col": 16,
@@ -2391,6 +2449,15 @@ Block {
             "value": "1",
           },
         ],
+        "callerType": FuncType {
+          "paramTypes": [
+            "Int",
+          ],
+          "returnType": FuncType {
+            "paramTypes": [],
+            "returnType": "Int",
+          },
+        },
         "col": 12,
         "fullName": "foo$Int",
         "line": 7,
@@ -2602,5 +2669,349 @@ exports[`compile arrays 6`] = `
 "// PROGRAM //
 (() => {
     return [].concat([BigInt(1), BigInt(2), BigInt(3)]).concat([BigInt(1)]);
+})()"
+`;
+
+exports[`compile array indexed access 1`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Assignment {
+      "col": 12,
+      "isDropped": true,
+      "line": 1,
+      "name": "x",
+      "type": "Null",
+      "value": Array {
+        "col": 16,
+        "expressions": [
+          Literal {
+            "col": 17,
+            "line": 1,
+            "type": "Int",
+            "value": "1",
+          },
+          Literal {
+            "col": 20,
+            "line": 1,
+            "type": "Int",
+            "value": "2",
+          },
+          Literal {
+            "col": 23,
+            "line": 1,
+            "type": "Int",
+            "value": "3",
+          },
+        ],
+        "innerType": "Int",
+        "line": 1,
+        "type": ArrayType {
+          "innerType": "Int",
+        },
+      },
+    },
+    Call {
+      "args": [
+        Literal {
+          "col": 14,
+          "line": 2,
+          "type": "Int",
+          "value": "0",
+        },
+      ],
+      "callerType": ArrayType {
+        "innerType": "Int",
+      },
+      "col": 12,
+      "fullName": "x$Int",
+      "line": 2,
+      "name": "x",
+      "referToByName": "abbr",
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile array indexed access 2`] = `
+"// PROGRAM //
+(() => {
+    let x;
+    x = [BigInt(1), BigInt(2), BigInt(3)];
+    return x[BigInt(0)];
+})()"
+`;
+
+exports[`compile array indexed access 3`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Assignment {
+      "col": 12,
+      "isDropped": true,
+      "line": 1,
+      "name": "x",
+      "type": "Null",
+      "value": Array {
+        "col": 16,
+        "expressions": [
+          Array {
+            "col": 17,
+            "expressions": [
+              Literal {
+                "col": 18,
+                "line": 1,
+                "type": "Int",
+                "value": "1",
+              },
+              Literal {
+                "col": 21,
+                "line": 1,
+                "type": "Int",
+                "value": "2",
+              },
+            ],
+            "innerType": "Int",
+            "line": 1,
+            "type": ArrayType {
+              "innerType": "Int",
+            },
+          },
+          Array {
+            "col": 25,
+            "expressions": [
+              Literal {
+                "col": 26,
+                "line": 1,
+                "type": "Int",
+                "value": "3",
+              },
+              Literal {
+                "col": 29,
+                "line": 1,
+                "type": "Int",
+                "value": "4",
+              },
+            ],
+            "innerType": "Int",
+            "line": 1,
+            "type": ArrayType {
+              "innerType": "Int",
+            },
+          },
+        ],
+        "innerType": ArrayType {
+          "innerType": "Int",
+        },
+        "line": 1,
+        "type": ArrayType {
+          "innerType": ArrayType {
+            "innerType": "Int",
+          },
+        },
+      },
+    },
+    Call {
+      "args": [
+        Literal {
+          "col": 14,
+          "line": 2,
+          "type": "Int",
+          "value": "0",
+        },
+        Literal {
+          "col": 17,
+          "line": 2,
+          "type": "Int",
+          "value": "1",
+        },
+      ],
+      "callerType": ArrayType {
+        "innerType": ArrayType {
+          "innerType": "Int",
+        },
+      },
+      "col": 12,
+      "fullName": "x$Int$Int",
+      "line": 2,
+      "name": "x",
+      "referToByName": "abbr",
+      "type": ArrayType {
+        "innerType": "Int",
+      },
+    },
+  ],
+  "line": 1,
+  "type": ArrayType {
+    "innerType": "Int",
+  },
+}
+`;
+
+exports[`compile array indexed access 4`] = `
+"// PROGRAM //
+(() => {
+    let x;
+    x = [[BigInt(1), BigInt(2)], [BigInt(3), BigInt(4)]];
+    return x[BigInt(0)][BigInt(1)];
+})()"
+`;
+
+exports[`compile array indexed access 5`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    DirectCall {
+      "args": [
+        Literal {
+          "col": 22,
+          "line": 1,
+          "type": "Int",
+          "value": "0",
+        },
+      ],
+      "caller": Array {
+        "col": 12,
+        "expressions": [
+          Literal {
+            "col": 13,
+            "line": 1,
+            "type": "Int",
+            "value": "1",
+          },
+          Literal {
+            "col": 16,
+            "line": 1,
+            "type": "Int",
+            "value": "2",
+          },
+          Literal {
+            "col": 19,
+            "line": 1,
+            "type": "Int",
+            "value": "3",
+          },
+        ],
+        "innerType": "Int",
+        "line": 1,
+        "type": ArrayType {
+          "innerType": "Int",
+        },
+      },
+      "col": 12,
+      "line": 1,
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`compile array indexed access 6`] = `
+"// PROGRAM //
+(() => {
+    return ([BigInt(1), BigInt(2), BigInt(3)])[BigInt(0)];
+})()"
+`;
+
+exports[`compile array indexed access 7`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    DirectCall {
+      "args": [
+        Literal {
+          "col": 29,
+          "line": 1,
+          "type": "Int",
+          "value": "0",
+        },
+        Literal {
+          "col": 32,
+          "line": 1,
+          "type": "Int",
+          "value": "1",
+        },
+      ],
+      "caller": Array {
+        "col": 12,
+        "expressions": [
+          Array {
+            "col": 13,
+            "expressions": [
+              Literal {
+                "col": 14,
+                "line": 1,
+                "type": "Int",
+                "value": "1",
+              },
+              Literal {
+                "col": 17,
+                "line": 1,
+                "type": "Int",
+                "value": "2",
+              },
+            ],
+            "innerType": "Int",
+            "line": 1,
+            "type": ArrayType {
+              "innerType": "Int",
+            },
+          },
+          Array {
+            "col": 21,
+            "expressions": [
+              Literal {
+                "col": 22,
+                "line": 1,
+                "type": "Int",
+                "value": "3",
+              },
+              Literal {
+                "col": 25,
+                "line": 1,
+                "type": "Int",
+                "value": "4",
+              },
+            ],
+            "innerType": "Int",
+            "line": 1,
+            "type": ArrayType {
+              "innerType": "Int",
+            },
+          },
+        ],
+        "innerType": ArrayType {
+          "innerType": "Int",
+        },
+        "line": 1,
+        "type": ArrayType {
+          "innerType": ArrayType {
+            "innerType": "Int",
+          },
+        },
+      },
+      "col": 12,
+      "line": 1,
+      "type": ArrayType {
+        "innerType": "Int",
+      },
+    },
+  ],
+  "line": 1,
+  "type": ArrayType {
+    "innerType": "Int",
+  },
+}
+`;
+
+exports[`compile array indexed access 8`] = `
+"// PROGRAM //
+(() => {
+    return ([[BigInt(1), BigInt(2)], [BigInt(3), BigInt(4)]])[BigInt(0)][BigInt(1)];
 })()"
 `;

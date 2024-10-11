@@ -846,7 +846,7 @@ exports[`parse block 4`] = `
   {
     "col": 12,
     "line": 1,
-    "message": "cannot call non-function (expression of type Int)",
+    "message": "cannot call non-callable object (expression of type Int)",
   },
 ]
 `;
@@ -1400,7 +1400,7 @@ Block {
       "line": 0,
       "type": "Null",
     },
-    FunctionCall {
+    Call {
       "args": [
         Literal {
           "col": 39,
@@ -1409,6 +1409,12 @@ Block {
           "value": "1",
         },
       ],
+      "callerType": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": "Int",
+      },
       "col": 32,
       "fullName": "myFunc$Int",
       "line": 0,
@@ -1427,7 +1433,7 @@ exports[`parse function 4`] = `
   {
     "col": 32,
     "line": 0,
-    "message": "function myFunc<Float, unknown> not found",
+    "message": "function myFunc[Float, unknown] not found",
   },
 ]
 `;
@@ -1468,6 +1474,113 @@ exports[`parse array literal 3`] = `
     "col": 0,
     "line": 0,
     "message": "incompatible types in array: expected Int, got Str",
+  },
+]
+`;
+
+exports[`parse array literal 4`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Array {
+      "col": 0,
+      "expressions": [],
+      "innerType": ArrayType {
+        "innerType": "Int",
+      },
+      "line": 0,
+      "type": ArrayType {
+        "innerType": ArrayType {
+          "innerType": "Int",
+        },
+      },
+    },
+  ],
+  "line": 0,
+  "type": ArrayType {
+    "innerType": ArrayType {
+      "innerType": "Int",
+    },
+  },
+}
+`;
+
+exports[`parse array literal 5`] = `
+[
+  {
+    "col": 4,
+    "line": 0,
+    "message": "Array type requires at least one template type (for the inner type)",
+  },
+]
+`;
+
+exports[`parse array literal 6`] = `
+[
+  {
+    "col": 16,
+    "line": 0,
+    "message": "Too many template types for array type -- expected 1, got 2",
+  },
+]
+`;
+
+exports[`parse array indexed access 1`] = `
+[
+  {
+    "col": 15,
+    "line": 0,
+    "message": "incompatible number of array indices: expected 1, got 0",
+  },
+]
+`;
+
+exports[`parse array indexed access 2`] = `
+[
+  {
+    "col": 15,
+    "line": 0,
+    "message": "array indices are not of type Int",
+  },
+]
+`;
+
+exports[`parse array indexed access 3`] = `
+[
+  {
+    "col": 15,
+    "line": 0,
+    "message": "incompatible number of array indices: expected 1, got 2",
+  },
+]
+`;
+
+exports[`parse array indexed access 4`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "incompatible number of array indices: expected 1, got 0",
+  },
+]
+`;
+
+exports[`parse array indexed access 5`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "array indices are not of type Int",
+  },
+]
+`;
+
+exports[`parse array indexed access 6`] = `
+[
+  {
+    "col": 0,
+    "line": 0,
+    "message": "incompatible number of array indices: expected 1, got 2",
   },
 ]
 `;

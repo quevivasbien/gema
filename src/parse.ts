@@ -41,7 +41,7 @@ PARSE_RULES[TokenType.LBrace] = {
 };
 PARSE_RULES[TokenType.LBracket] = {
     prefix: parseArray,
-    infix: null,  // TODO: Use this for array indexing
+    infix: null,
     precedence: Precedence.None
 };
 PARSE_RULES[TokenType.If] = {
@@ -319,8 +319,8 @@ function parseBinary(parser: Parser, leftExpr: AST.Expression): AST.Expression {
 
 function parseVariable(parser: Parser): AST.Expression {
     if (!parser.atEnd() && parser.current().type === TokenType.LParen) {
-        // This is a function call
-        return parseFunctionCall(parser);
+        // This is a function (or similar) call
+        return parseCall(parser);
     }
     if (parser.atEnd() || parser.current().type !== TokenType.Equal) {
         // Assume variable is already defined
@@ -332,17 +332,17 @@ function parseVariable(parser: Parser): AST.Expression {
     return parser.error("variable assignments are not allowed within expressions.");
 }
 
-function parseFunctionCall(parser: Parser): AST.Expression {
+function parseCall(parser: Parser): AST.Expression {
     const nameToken = parser.previous();
     if (parser.current().type !== TokenType.LParen) {
-        return parser.error("Expected '(' after function name.");
+        return parser.error("Expected '(' after caller name.");
     }
     parser.advance();
     const args: AST.Expression[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
         const arg = parser.parseWithPrecedence(Precedence.None + 1);
         if (arg === null) {
-            return parser.error("Unterminated function call.");
+            return parser.error("Unterminated call.");
         }
         args.push(arg);
         if (parser.current().type === TokenType.Comma) {
@@ -350,19 +350,19 @@ function parseFunctionCall(parser: Parser): AST.Expression {
         }
     }
     if (parser.atEnd()) {
-        return parser.error("Unterminated function call.");
+        return parser.error("Unterminated call.");
     }
     parser.advance();
 
-    return parser.tryCreateASTExpression(() => new AST.FunctionCall(nameToken, args));
+    return parser.tryCreateASTExpression(() => new AST.Call(nameToken, args));
 }
 
-function parseDirectCall(parser: Parser, expr: AST.Expression): AST.Expression {
+function parseDirectCall(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     const args: AST.Expression[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
         const arg = parser.parseWithPrecedence(Precedence.None + 1);
         if (arg === null) {
-            return parser.error("Unterminated function call.");
+            return parser.error("Unterminated call.");
         }
         args.push(arg);
         if (parser.current().type === TokenType.Comma) {
@@ -370,11 +370,11 @@ function parseDirectCall(parser: Parser, expr: AST.Expression): AST.Expression {
         }
     }
     if (parser.atEnd()) {
-        return parser.error("Unterminated function call.");
+        return parser.error("Unterminated call.");
     }
     parser.advance();
 
-    return parser.tryCreateASTExpression(() => new AST.DirectFunctionCall(expr, args));
+    return parser.tryCreateASTExpression(() => new AST.DirectCall(leftExpr, args));
 }
 
 function parseArray(parser: Parser): AST.Expression {
