@@ -154,6 +154,18 @@ PARSE_RULES[TokenType.Identifier] = {
     precedence: Precedence.None
 };
 
+// Functional ops
+PARSE_RULES[TokenType.At] = {
+    prefix: parseUnary,
+    infix: null,
+    precedence: Precedence.Unary
+};
+PARSE_RULES[TokenType.Map] = {
+    prefix: parseMap,
+    infix: null,
+    precedence: Precedence.None
+};
+
 // Define default rules
 Object.values(TokenType).forEach(tokenType => {
     if (!PARSE_RULES[tokenType]) {
@@ -390,10 +402,12 @@ function parseArray(parser: Parser): AST.Expression {
             parser.advance();
         }
     }
-    if (!parser.atEnd()) {
-        // consume closing bracket
-        parser.advance();
+    if (parser.atEnd()) {
+        return parser.error("unterminated array.");
     }
+    // consume closing bracket
+    parser.advance();
+    // Process optional type annotation
     let innerTypeAnnotation: AST.Type | undefined = undefined;
     if (!parser.atEnd() && parser.current().type === TokenType.Colon) {
         parser.advance();
@@ -404,6 +418,32 @@ function parseArray(parser: Parser): AST.Expression {
         innerTypeAnnotation = typeName;
     }
     return parser.tryCreateASTExpression(() => new AST.Array(startToken, expressions, innerTypeAnnotation));
+}
+
+function parseMap(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after map.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const mapFn = parser.expression();
+    if (mapFn === null) {
+        return parser.error("Expected map function.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    const iterOver = parser.expression();
+    if (iterOver === null) {
+        return parser.error("Expected iterable expression.");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for map expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.MapIter(startToken, mapFn, iterOver));
 }
 
 class Parser {

@@ -1,6 +1,6 @@
 import type { JSWriter } from "./write-js";
 import { TokenType, type Token } from "./tokens";
-import { deepEquals, write } from "bun";  // If using Node.js, replace this with isDeepStrictEqual from "util" library
+import { deepEquals } from "bun";  // If using Node.js, replace this with isDeepStrictEqual from "util" library
 
 export class ASTError {
     constructor(public line: number, public col: number, public message: string) { }
@@ -43,6 +43,14 @@ class ArrayType {
     }
 }
 
+class IterType {
+    constructor(public innerType: Type) { }
+
+    toString(): string {
+        return `Iter[${this.innerType}]`;
+    }
+}
+
 export type Type =
     "Int" |
     "Float" |
@@ -50,7 +58,8 @@ export type Type =
     "Bool" |
     "Null" |
     FuncType |
-    ArrayType
+    ArrayType |
+    IterType
     ;
 
 export function getType(typeName: string, templateTypes: Type[]): Type {
@@ -232,10 +241,23 @@ export class Unary extends Expression {
                 }
                 break;
         }
+        if (this.child.type instanceof IterType) {
+            if (this.operator === TokenType.At) {
+                this.type = new ArrayType(this.child.type.innerType);
+                return;
+            }
+        }
         throw this.error(`cannot use token ${this.operator} on expression of type ${this.child.type}.`);
     }
 
     toJS(writer: JSWriter): void {
+        if (this.child.type instanceof IterType && this.operator === TokenType.At) {
+            writer.useBuiltin("__COLLECT__");
+            writer.write("__COLLECT__(");
+            this.child.toJS(writer);
+            writer.write(")");
+            return;
+        }
         writer.write(`(${this.operator}`);
         this.child.toJS(writer);
         writer.write(")");
@@ -406,7 +428,7 @@ export class Variable extends Expression {
 
     toString(): string {
         if (this.templateTypes.length > 0) {
-            return `${this.name}<${this.templateTypes.join(", ")}>`;
+            return `${this.name}[${this.templateTypes.join(", ")}]`;
         }
         return this.name;
     }
@@ -963,5 +985,76 @@ export class Array extends Expression {
             expr.toJS(writer);
         });
         writer.write("]");
+    }
+}
+
+export class MapIter extends Expression {
+    mapFn: Expression;
+    iterOver: Expression;
+
+    iterOverIsArray: boolean = false;
+
+    constructor(startToken: Token, mapFn: Expression, iterOver: Expression) {
+        super(startToken.line, startToken.col);
+        this.mapFn = mapFn;
+        this.iterOver = iterOver;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.mapFn.cascadeTypes(ancestors);
+        if (this.mapFn.type === null) {
+            throw this.error("unable to resolve type of map function");
+        }
+        let inputType: Type;
+        let outputType: Type;
+        if (this.mapFn.type instanceof FuncType) {
+            if (this.mapFn.type.paramTypes.length !== 1) {
+                throw this.error("map function must take exactly one argument");
+            }
+            inputType = this.mapFn.type.paramTypes[0];
+            outputType = this.mapFn.type.returnType;
+        } else if (this.mapFn.type instanceof ArrayType) {
+            inputType = "Int";
+            outputType = this.mapFn.type.innerType;
+        } else {
+            throw this.error(`cannot map with non-callable object (expression of type ${this.mapFn.type})`);
+        }
+
+        this.iterOver.cascadeTypes(ancestors);
+        if (this.iterOver.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let iterInnerType: Type;
+        if (this.iterOver.type instanceof ArrayType) {
+            iterInnerType = this.iterOver.type.innerType;
+            this.iterOverIsArray = true;
+        } else if (this.iterOver.type instanceof IterType) {
+            iterInnerType = this.iterOver.type.innerType;
+        } else {
+            throw this.error(`cannot map over non-iterable object (expression of type ${this.iterOver.type})`);
+        }
+
+        if (iterInnerType !== inputType) {
+            throw this.error(`incompatible types in map: expected ${inputType}, but iterable is over type ${iterInnerType}`);
+        }
+
+        this.type = new IterType(outputType);
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__MAPITER__");
+        writer.write("__MAPITER__(");
+        this.mapFn.toJS(writer);
+        writer.write(", ");
+        if (this.iterOverIsArray) {
+            // Convert to Array Iterator first
+            writer.useBuiltin("__ARRAYITER__");
+            writer.write("__ARRAYITER__(");
+            this.iterOver.toJS(writer);
+            writer.write(")");
+        } else {
+            this.iterOver.toJS(writer);
+        }
+        writer.write(")");
     }
 }

@@ -18,6 +18,7 @@ export enum TokenType {
     Semicolon = ";",
     // Unary operators
     Bang = "!",
+    At = "@",
     // Binary operators
     And = "and",
     Or = "or",
@@ -39,6 +40,7 @@ export enum TokenType {
     Struct = "struct",
     If = "if",
     Else = "else",
+    Map = "map",
     // Literals
     True = "true",
     False = "false",

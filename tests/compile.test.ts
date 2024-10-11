@@ -244,3 +244,21 @@ test("compile array indexed access", () => {
         2n
     );
 });
+
+test("compile map iterator", () => {
+    testCompile(`@map(func(x: Int): Int { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
+    testCompile(
+        `
+        add1 = func(x: Int): Int {
+            x + 1
+        };
+        iter = map(
+            add1,
+            map(add1, [1, 2, 3])
+        );
+
+        @iter
+        `,
+        [3n, 4n, 5n]
+    )
+});

@@ -92,6 +92,7 @@ test("parse if", () => {
 });
 
 test("parse function", () => {
+    testParseExpectError(`func foo() { 1 }`);
     testParse(`func add(a: Int, b: Int): Int { a + b }`);
     testParse(`
         func myFunc(a: Func[Int, Func[Int, Int]], b: Func[Int]): Func[Int, Func[Int, Int]] {
@@ -126,4 +127,34 @@ test("parse array indexed access", () => {
     testParseExpectError(`[1, 2, 3]()`);
     testParseExpectError(`[1, 2, 3]("hello")`);
     testParseExpectError(`[1, 2, 3](0, 1)`);
+});
+
+test.todo("improve handling of function template types", () => {
+    testParse(`
+        func foo(x: Int): Int {
+            x
+        }
+        
+        bar = foo[Int];
+
+        bar(1)
+    `);
+
+    testParse(`
+        func foo(x: Int): Int {
+            x
+        }
+        
+        bar = foo[Int];
+
+        bar[Int](1)
+    `);
+
+    testParse(`
+        func foo(x: Int): Int {
+            x
+        }
+        
+        @map(foo, [1, 2, 3])
+    `);
 });

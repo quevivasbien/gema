@@ -100,7 +100,7 @@ export class JSWriter {
         this.newLine();
 
         const builtinFuncs = this.builtins.size === 0 ? "" : (
-            "// BUILTIN FUNCTIONS //\n" +
+            "// BUILTINS //\n" +
             Array.from(this.builtins).map(
                 (name) => BUILTINS[name]
             ).join("\n") +

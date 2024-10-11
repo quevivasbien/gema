@@ -1145,6 +1145,16 @@ Block {
 `;
 
 exports[`parse function 1`] = `
+[
+  {
+    "col": 9,
+    "line": 0,
+    "message": "Expected ':' after function parameters.",
+  },
+]
+`;
+
+exports[`parse function 2`] = `
 Block {
   "col": 0,
   "expressions": [
@@ -1213,7 +1223,7 @@ Block {
 }
 `;
 
-exports[`parse function 2`] = `
+exports[`parse function 3`] = `
 Block {
   "col": 8,
   "expressions": [
@@ -1357,7 +1367,7 @@ Block {
 }
 `;
 
-exports[`parse function 3`] = `
+exports[`parse function 4`] = `
 Block {
   "col": 0,
   "expressions": [
@@ -1428,7 +1438,7 @@ Block {
 }
 `;
 
-exports[`parse function 4`] = `
+exports[`parse function 5`] = `
 [
   {
     "col": 32,
@@ -1438,7 +1448,7 @@ exports[`parse function 4`] = `
 ]
 `;
 
-exports[`parse function 5`] = `
+exports[`parse function 6`] = `
 [
   {
     "col": 12,

@@ -63,3 +63,17 @@ func isOdd(x: Int): Bool {
 isOdd(11)  # true
 isOdd(12)  # false
 ```
+
+
+### Iterators and functional programming
+```
+add1 = func(x: Int): Int {
+    x + 1
+};
+iter = map(
+    add1,
+    map(add1, [1, 2, 3])
+);
+
+@iter  # [3, 4, 5]
+```

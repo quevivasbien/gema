@@ -343,7 +343,7 @@ Block {
 `;
 
 exports[`compile binary expressions 12`] = `
-"// BUILTIN FUNCTIONS //
+"// BUILTINS //
 function __MOD__(a, b) {
     return ((a % b) + b) % b;
 }
@@ -389,7 +389,7 @@ Block {
 `;
 
 exports[`compile binary expressions 14`] = `
-"// BUILTIN FUNCTIONS //
+"// BUILTINS //
 function __MOD__(a, b) {
     return ((a % b) + b) % b;
 }
@@ -838,7 +838,7 @@ Block {
 `;
 
 exports[`compile block 8`] = `
-"// BUILTIN FUNCTIONS //
+"// BUILTINS //
 function __MOD__(a, b) {
     return ((a % b) + b) % b;
 }
@@ -3013,5 +3013,373 @@ exports[`compile array indexed access 8`] = `
 "// PROGRAM //
 (() => {
     return ([[BigInt(1), BigInt(2)], [BigInt(3), BigInt(4)]])[BigInt(0)][BigInt(1)];
+})()"
+`;
+
+exports[`compile map iterator 1`] = `
+Block {
+  "col": 0,
+  "expressions": [
+    Unary {
+      "child": MapIter {
+        "col": 1,
+        "iterOver": Array {
+          "col": 34,
+          "expressions": [
+            Literal {
+              "col": 35,
+              "line": 0,
+              "type": "Int",
+              "value": "1",
+            },
+            Literal {
+              "col": 38,
+              "line": 0,
+              "type": "Int",
+              "value": "2",
+            },
+            Literal {
+              "col": 41,
+              "line": 0,
+              "type": "Int",
+              "value": "3",
+            },
+          ],
+          "innerType": "Int",
+          "line": 0,
+          "type": ArrayType {
+            "innerType": "Int",
+          },
+        },
+        "iterOverIsArray": true,
+        "line": 0,
+        "mapFn": Function {
+          "body": Block {
+            "col": 23,
+            "expressions": [
+              Binary {
+                "col": 27,
+                "left": Variable {
+                  "col": 25,
+                  "fullName": "x",
+                  "line": 0,
+                  "name": "x",
+                  "templateTypes": [],
+                  "type": "Int",
+                },
+                "line": 0,
+                "operator": "+",
+                "right": Literal {
+                  "col": 29,
+                  "line": 0,
+                  "type": "Int",
+                  "value": "1",
+                },
+                "type": "Int",
+              },
+            ],
+            "line": 0,
+            "type": "Int",
+          },
+          "col": 5,
+          "fullName": null,
+          "line": 0,
+          "name": null,
+          "params": [
+            {
+              "name": "x",
+              "type": "Int",
+            },
+          ],
+          "returnType": "Int",
+          "type": FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": "Int",
+          },
+        },
+        "type": IterType {
+          "innerType": "Int",
+        },
+      },
+      "col": 0,
+      "line": 0,
+      "operator": "@",
+      "type": ArrayType {
+        "innerType": "Int",
+      },
+    },
+  ],
+  "line": 0,
+  "type": ArrayType {
+    "innerType": "Int",
+  },
+}
+`;
+
+exports[`compile map iterator 2`] = `
+"// BUILTINS //
+function __COLLECT__(iter) {
+    const out = [];
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            break;
+        }
+        out.push(value);
+    }
+    return out;
+}
+class _MAP_ITERATOR_ {
+    constructor(mapfn, innerIter) {
+        this.mapfn = mapfn;
+        this.innerIter = innerIter;
+    }
+
+    next() {
+        const value = this.innerIter.next();
+        if (value === undefined) {
+            return undefined;
+        }
+        return this.mapfn(value);
+    }
+}
+function __MAPITER__(mapfn, innerIter) {
+    return new _MAP_ITERATOR_(mapfn, innerIter);
+}
+class _ARRAY_ITERATOR_ {
+    constructor(array) {
+        this.array = array;
+        this.index = 0;
+    }
+    next() {
+        return this.array[this.index++];
+    }
+}
+function __ARRAYITER__(array) {
+    return new _ARRAY_ITERATOR_(array);
+}
+
+// PROGRAM //
+(() => {
+    return __COLLECT__(__MAPITER__((x) => {
+        return (x + BigInt(1));
+    }, __ARRAYITER__([BigInt(1), BigInt(2), BigInt(3)])));
+})()"
+`;
+
+exports[`compile map iterator 3`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 1,
+      "name": "add1",
+      "type": "Null",
+      "value": Function {
+        "body": Block {
+          "col": 33,
+          "expressions": [
+            Binary {
+              "col": 14,
+              "left": Variable {
+                "col": 12,
+                "fullName": "x",
+                "line": 2,
+                "name": "x",
+                "templateTypes": [],
+                "type": "Int",
+              },
+              "line": 2,
+              "operator": "+",
+              "right": Literal {
+                "col": 16,
+                "line": 2,
+                "type": "Int",
+                "value": "1",
+              },
+              "type": "Int",
+            },
+          ],
+          "line": 1,
+          "type": "Int",
+        },
+        "col": 15,
+        "fullName": null,
+        "line": 1,
+        "name": null,
+        "params": [
+          {
+            "name": "x",
+            "type": "Int",
+          },
+        ],
+        "returnType": "Int",
+        "type": FuncType {
+          "paramTypes": [
+            "Int",
+          ],
+          "returnType": "Int",
+        },
+      },
+    },
+    Assignment {
+      "col": 8,
+      "isDropped": true,
+      "line": 4,
+      "name": "iter",
+      "type": "Null",
+      "value": MapIter {
+        "col": 15,
+        "iterOver": MapIter {
+          "col": 12,
+          "iterOver": Array {
+            "col": 22,
+            "expressions": [
+              Literal {
+                "col": 23,
+                "line": 6,
+                "type": "Int",
+                "value": "1",
+              },
+              Literal {
+                "col": 26,
+                "line": 6,
+                "type": "Int",
+                "value": "2",
+              },
+              Literal {
+                "col": 29,
+                "line": 6,
+                "type": "Int",
+                "value": "3",
+              },
+            ],
+            "innerType": "Int",
+            "line": 6,
+            "type": ArrayType {
+              "innerType": "Int",
+            },
+          },
+          "iterOverIsArray": true,
+          "line": 6,
+          "mapFn": Variable {
+            "col": 16,
+            "fullName": "add1",
+            "line": 6,
+            "name": "add1",
+            "templateTypes": [],
+            "type": FuncType {
+              "paramTypes": [
+                "Int",
+              ],
+              "returnType": "Int",
+            },
+          },
+          "type": IterType {
+            "innerType": "Int",
+          },
+        },
+        "iterOverIsArray": false,
+        "line": 4,
+        "mapFn": Variable {
+          "col": 12,
+          "fullName": "add1",
+          "line": 5,
+          "name": "add1",
+          "templateTypes": [],
+          "type": FuncType {
+            "paramTypes": [
+              "Int",
+            ],
+            "returnType": "Int",
+          },
+        },
+        "type": IterType {
+          "innerType": "Int",
+        },
+      },
+    },
+    Unary {
+      "child": Variable {
+        "col": 9,
+        "fullName": "iter",
+        "line": 9,
+        "name": "iter",
+        "templateTypes": [],
+        "type": IterType {
+          "innerType": "Int",
+        },
+      },
+      "col": 8,
+      "line": 9,
+      "operator": "@",
+      "type": ArrayType {
+        "innerType": "Int",
+      },
+    },
+  ],
+  "line": 1,
+  "type": ArrayType {
+    "innerType": "Int",
+  },
+}
+`;
+
+exports[`compile map iterator 4`] = `
+"// BUILTINS //
+class _MAP_ITERATOR_ {
+    constructor(mapfn, innerIter) {
+        this.mapfn = mapfn;
+        this.innerIter = innerIter;
+    }
+
+    next() {
+        const value = this.innerIter.next();
+        if (value === undefined) {
+            return undefined;
+        }
+        return this.mapfn(value);
+    }
+}
+function __MAPITER__(mapfn, innerIter) {
+    return new _MAP_ITERATOR_(mapfn, innerIter);
+}
+class _ARRAY_ITERATOR_ {
+    constructor(array) {
+        this.array = array;
+        this.index = 0;
+    }
+    next() {
+        return this.array[this.index++];
+    }
+}
+function __ARRAYITER__(array) {
+    return new _ARRAY_ITERATOR_(array);
+}
+function __COLLECT__(iter) {
+    const out = [];
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            break;
+        }
+        out.push(value);
+    }
+    return out;
+}
+
+// PROGRAM //
+(() => {
+    let add1;
+    let iter;
+    add1 = (x) => {
+        return (x + BigInt(1));
+    };
+    iter = __MAPITER__(add1, __MAPITER__(add1, __ARRAYITER__([BigInt(1), BigInt(2), BigInt(3)])));
+    return __COLLECT__(iter);
 })()"
 `;

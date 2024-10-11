@@ -42,6 +42,7 @@ class Scanner {
                 while (!this.atEnd() && this.text[this.index] !== "\n") {
                     this.index += 1;
                 }
+                this.line += 1;
             } else if (!/\s/.test(this.text[this.index])) {
                 break;
             }
