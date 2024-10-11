@@ -85,7 +85,7 @@ exports[`parse addition 3`] = `
   {
     "col": 5,
     "line": 0,
-    "message": "(During type resolution) cannot use operator + with left operand of type Float and right operand of type Bool.",
+    "message": "cannot use operator + with left operand of type Float and right operand of type Bool.",
   },
 ]
 `;
@@ -147,7 +147,7 @@ exports[`parse subtraction 2`] = `
   {
     "col": 5,
     "line": 0,
-    "message": "(During type resolution) cannot use operator - with left operand of type Float and right operand of type Bool.",
+    "message": "cannot use operator - with left operand of type Float and right operand of type Bool.",
   },
 ]
 `;
@@ -209,7 +209,7 @@ exports[`parse multiplication 2`] = `
   {
     "col": 5,
     "line": 0,
-    "message": "(During type resolution) cannot use operator * with left operand of type Float and right operand of type Bool.",
+    "message": "cannot use operator * with left operand of type Float and right operand of type Bool.",
   },
 ]
 `;
@@ -271,7 +271,7 @@ exports[`parse division 2`] = `
   {
     "col": 5,
     "line": 0,
-    "message": "(During type resolution) cannot use operator / with left operand of type Float and right operand of type Bool.",
+    "message": "cannot use operator / with left operand of type Float and right operand of type Bool.",
   },
 ]
 `;
@@ -333,7 +333,7 @@ exports[`parse modulo 2`] = `
   {
     "col": 5,
     "line": 0,
-    "message": "(During type resolution) cannot use operator % with left operand of type Float and right operand of type Bool.",
+    "message": "cannot use operator % with left operand of type Float and right operand of type Bool.",
   },
 ]
 `;
@@ -802,6 +802,55 @@ Block {
 }
 `;
 
+exports[`parse block 3`] = `
+Block {
+  "col": 8,
+  "expressions": [
+    DropValue {
+      "child": Binary {
+        "col": 10,
+        "left": Literal {
+          "col": 8,
+          "line": 1,
+          "type": "Int",
+          "value": "1",
+        },
+        "line": 1,
+        "operator": "+",
+        "right": Literal {
+          "col": 12,
+          "line": 1,
+          "type": "Int",
+          "value": "1",
+        },
+        "type": "Int",
+      },
+      "col": 10,
+      "line": 1,
+      "type": "Null",
+    },
+    Literal {
+      "col": 9,
+      "line": 2,
+      "type": "Int",
+      "value": "2",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`parse block 4`] = `
+[
+  {
+    "col": 12,
+    "line": 1,
+    "message": "cannot call non-function (expression of type Int)",
+  },
+]
+`;
+
 exports[`parse variable assignment 1`] = `
 Block {
   "col": 8,
@@ -876,7 +925,7 @@ exports[`parse variable assignment 2`] = `
   {
     "col": 9,
     "line": 0,
-    "message": "(During type resolution) tried to reassign variable x with type Null but it was previously defined in the same scope with type Float",
+    "message": "tried to reassign variable x with type Null but it was previously defined in the same scope with type Float",
   },
 ]
 `;
@@ -957,7 +1006,7 @@ exports[`parse if 2`] = `
   {
     "col": 0,
     "line": 0,
-    "message": "(During type resolution) condition must be boolean, but found Int",
+    "message": "condition must be boolean, but found Int",
   },
 ]
 `;
@@ -977,7 +1026,7 @@ exports[`parse if 4`] = `
   {
     "col": 0,
     "line": 0,
-    "message": "(During type resolution) all branches of if expression must have the same type, but found branches of types Int and Float",
+    "message": "all branches of if expression must have the same type, but found branches of types Int and Float",
   },
 ]
 `;
@@ -1378,7 +1427,7 @@ exports[`parse function 4`] = `
   {
     "col": 32,
     "line": 0,
-    "message": "(During type resolution) function myFunc<Float, unknown> not found",
+    "message": "function myFunc<Float, unknown> not found",
   },
 ]
 `;
@@ -1388,7 +1437,7 @@ exports[`parse function 5`] = `
   {
     "col": 12,
     "line": 4,
-    "message": "(During type resolution) unable to resolve type of variable foo",
+    "message": "unable to resolve type of variable foo",
   },
 ]
 `;

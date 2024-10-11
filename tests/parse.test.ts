@@ -59,7 +59,15 @@ test("parse parens", () => {
 
 test("parse block", () => {
     testParse(`{ 1.22  + 1.23  * { 8 / 3.13 } + 2. }`);
-    testParse(`1 + 1; x = -2; -x`)
+    testParse(`1 + 1; x = -2; -x`);
+    testParse(`
+        1 + 1;
+        (2)
+    `);
+    testParseExpectError(`
+        1 + 1
+        (2)
+    `);
 });
 
 test("parse variable assignment", () => {

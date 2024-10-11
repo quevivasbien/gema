@@ -170,7 +170,7 @@ test("anonymous functions", () => {
     );
 });
 
-test.todo("allow calling non-variable objects", () => {
+test("allow calling non-variable objects", () => {
     testCompile(
         `
             (func(a: Int, b: Int): Int {

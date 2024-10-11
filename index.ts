@@ -12,14 +12,14 @@ export function compile(text: string): string {
         console.log("Encountered error(s) in parsing:");
         errors.forEach((e) => {
             console.log(`On line ${e.line + 1}, column ${e.col + 1}: ${e.message}`);
+            if (e.line > 1) {
+                console.log((e.line - 1) + " |  " + textLines[e.line - 2]);
+            }
             if (e.line > 0) {
                 console.log(e.line + " |  " + textLines[e.line - 1]);
             }
             console.log((e.line + 1) + " |  " + textLines[e.line]);
             console.log("    " + " ".repeat(e.col.toString().length) + " ".repeat(e.col) + "^");
-            if (e.line < textLines.length - 1) {
-                console.log((e.line + 2) + " |  " + textLines[e.line + 1]);
-            }
         });
         return "";
     }

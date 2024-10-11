@@ -31,7 +31,7 @@ const PARSE_RULES: Record<string, ParseRule> = {};
 // Groupings and control flow
 PARSE_RULES[TokenType.LParen] = {
     prefix: parseGrouping,
-    infix: null,
+    infix: parseDirectCall,
     precedence: Precedence.Call
 };
 PARSE_RULES[TokenType.LBrace] = {
@@ -352,6 +352,26 @@ function parseFunctionCall(parser: Parser): AST.Expression {
     return parser.tryCreateASTExpression(() => new AST.FunctionCall(nameToken, args));
 }
 
+function parseDirectCall(parser: Parser, expr: AST.Expression): AST.Expression {
+    const args: AST.Expression[] = [];
+    while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+        const arg = parser.parseWithPrecedence(Precedence.None + 1);
+        if (arg === null) {
+            return parser.error("Unterminated function call.");
+        }
+        args.push(arg);
+        if (parser.current().type === TokenType.Comma) {
+            parser.advance();
+        }
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated function call.");
+    }
+    parser.advance();
+
+    return parser.tryCreateASTExpression(() => new AST.DirectFunctionCall(expr, args));
+}
+
 class Parser {
     tokens: Token[];
     index: number = 0;
@@ -471,7 +491,7 @@ class Parser {
             this.advance();
             const infixRule = PARSE_RULES[this.previous().type].infix;
             if (!infixRule) {
-                return this.error(`expected infix operator, but got ${this.previous().text}`);
+                return this.error(`expected infix operator, but got ${this.previous().text}`, 0);
             }
             expr = infixRule(this, expr);
         }
@@ -499,7 +519,10 @@ class Parser {
 
     expression(): AST.Expression | null {
         const expr = this.parseWithPrecedence(Precedence.None + 1);
-        if (expr !== null && !this.atEnd() && this.current().type === TokenType.Semicolon) {
+        if (expr === null || this.atEnd()) {
+            return expr;
+        }
+        if (this.current().type === TokenType.Semicolon) {
             this.advance();
             return new AST.DropValue(expr);
         }
@@ -549,7 +572,7 @@ export function parse(tokens: Token[]): { ast: AST.Expression, errors: ParseErro
                 parser.errors.push({
                     line: e.line,
                     col: e.col,
-                    message: "(During type resolution) " + e.message
+                    message: e.message
                 });
             } else {
                 throw e;

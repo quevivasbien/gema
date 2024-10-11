@@ -2222,3 +2222,203 @@ exports[`anonymous functions 2`] = `
     return f(BigInt(1), BigInt(2));
 })()"
 `;
+
+exports[`allow calling non-variable objects 1`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    DirectFunctionCall {
+      "args": [
+        Literal {
+          "col": 15,
+          "line": 3,
+          "type": "Int",
+          "value": "1",
+        },
+        Literal {
+          "col": 18,
+          "line": 3,
+          "type": "Int",
+          "value": "2",
+        },
+      ],
+      "caller": Function {
+        "body": Block {
+          "col": 39,
+          "expressions": [
+            Binary {
+              "col": 18,
+              "left": Variable {
+                "col": 16,
+                "fullName": "a",
+                "line": 2,
+                "name": "a",
+                "templateTypes": [],
+                "type": "Int",
+              },
+              "line": 2,
+              "operator": "+",
+              "right": Variable {
+                "col": 20,
+                "fullName": "b",
+                "line": 2,
+                "name": "b",
+                "templateTypes": [],
+                "type": "Int",
+              },
+              "type": "Int",
+            },
+          ],
+          "line": 1,
+          "type": "Int",
+        },
+        "col": 13,
+        "fullName": null,
+        "line": 1,
+        "name": null,
+        "params": [
+          {
+            "name": "a",
+            "type": "Int",
+          },
+          {
+            "name": "b",
+            "type": "Int",
+          },
+        ],
+        "returnType": "Int",
+        "type": FuncType {
+          "paramTypes": [
+            "Int",
+            "Int",
+          ],
+          "returnType": "Int",
+        },
+      },
+      "col": 13,
+      "line": 1,
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`allow calling non-variable objects 2`] = `
+"// PROGRAM //
+(() => {
+    return ((a, b) => {
+        return (a + b);
+    })(BigInt(1), BigInt(2));
+})()"
+`;
+
+exports[`allow calling non-variable objects 3`] = `
+Block {
+  "col": 12,
+  "expressions": [
+    Function {
+      "body": Block {
+        "col": 40,
+        "expressions": [
+          Function {
+            "body": Block {
+              "col": 28,
+              "expressions": [
+                Variable {
+                  "col": 20,
+                  "fullName": "a",
+                  "line": 3,
+                  "name": "a",
+                  "templateTypes": [],
+                  "type": "Int",
+                },
+              ],
+              "line": 2,
+              "type": "Int",
+            },
+            "col": 16,
+            "fullName": null,
+            "line": 2,
+            "name": null,
+            "params": [],
+            "returnType": "Int",
+            "type": FuncType {
+              "paramTypes": [],
+              "returnType": "Int",
+            },
+          },
+        ],
+        "line": 1,
+        "type": FuncType {
+          "paramTypes": [],
+          "returnType": "Int",
+        },
+      },
+      "col": 12,
+      "fullName": "foo$Int",
+      "line": 1,
+      "name": "foo",
+      "params": [
+        {
+          "name": "a",
+          "type": "Int",
+        },
+      ],
+      "returnType": FuncType {
+        "paramTypes": [],
+        "returnType": "Int",
+      },
+      "type": FuncType {
+        "paramTypes": [
+          "Int",
+        ],
+        "returnType": FuncType {
+          "paramTypes": [],
+          "returnType": "Int",
+        },
+      },
+    },
+    DirectFunctionCall {
+      "args": [],
+      "caller": FunctionCall {
+        "args": [
+          Literal {
+            "col": 16,
+            "line": 7,
+            "type": "Int",
+            "value": "1",
+          },
+        ],
+        "col": 12,
+        "fullName": "foo$Int",
+        "line": 7,
+        "name": "foo",
+        "referToByName": "full",
+        "type": FuncType {
+          "paramTypes": [],
+          "returnType": "Int",
+        },
+      },
+      "col": 12,
+      "line": 7,
+      "type": "Int",
+    },
+  ],
+  "line": 1,
+  "type": "Int",
+}
+`;
+
+exports[`allow calling non-variable objects 4`] = `
+"// PROGRAM //
+(() => {
+    function foo$Int(a) {
+        return () => {
+            return a;
+        };
+    };
+    return (foo$Int(BigInt(1)))();
+})()"
+`;

@@ -674,13 +674,12 @@ export class FunctionCall extends Expression {
     }
 
     cascadeTypes(ancestors: Expression[]): void {
-        const argTypes: Type[] = [];
-        this.args.forEach((arg, i) => {
+        const argTypes = this.args.map((arg, i) => {
             arg.cascadeTypes([...ancestors, this]);
             if (arg.type === null) {
                 throw this.error(`unable to resolve type of argument ${i + 1} in function call`);
             }
-            argTypes.push(arg.type);
+            return arg.type;
         });
 
         this.fullName = functionNameWithParamTypes(this.name, argTypes);
@@ -760,6 +759,54 @@ export class FunctionCall extends Expression {
         const name = this.referToByName === "full" ? this.fullName : this.name;
         writer.write(name);
         writer.write("(");
+        this.args.forEach((arg, i) => {
+            if (i > 0) {
+                writer.write(", ");
+            }
+            arg.toJS(writer);
+        });
+        writer.write(")");
+    }
+}
+
+export class DirectFunctionCall extends Expression {
+    caller: Expression;
+    args: Expression[];
+
+    constructor(caller: Expression, args: Expression[]) {
+        super(caller.line, caller.col);
+        this.caller = caller;
+        this.args = args;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.caller.cascadeTypes(ancestors);
+        if (this.caller.type === null) {
+            throw this.error("unable to resolve type of function call");
+        }
+        if (!(this.caller.type instanceof FuncType)) {
+            throw this.error(`cannot call non-function (expression of type ${this.caller.type})`);
+        }
+        const argTypes = this.args.map((arg, i) => {
+            arg.cascadeTypes([...ancestors, this]);
+            if (arg.type === null) {
+                throw this.error(`unable to resolve type of argument ${i + 1} in function call`);
+            }
+            return arg.type;
+        });
+        if (this.caller.type.paramTypes.length !== argTypes.length) {
+            throw this.error(`expected ${this.caller.type.paramTypes.length} arguments, got ${argTypes.length}`);
+        }
+        if (this.caller.type.paramTypes.some((type, i) => type !== argTypes[i])) {
+            throw this.error(`incompatible argument types in function call: expected ${this.caller.type.paramTypes}, got ${argTypes}`);
+        }
+        this.type = this.caller.type.returnType;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write("(");
+        this.caller.toJS(writer);
+        writer.write(")(");
         this.args.forEach((arg, i) => {
             if (i > 0) {
                 writer.write(", ");
