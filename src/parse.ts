@@ -352,7 +352,7 @@ function parseCall(parser: Parser): AST.Expression {
     parser.advance();
     const args: AST.Expression[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-        const arg = parser.parseWithPrecedence(Precedence.None + 1);
+        const arg = parser.expression();
         if (arg === null) {
             return parser.error("Unterminated call.");
         }
@@ -372,7 +372,7 @@ function parseCall(parser: Parser): AST.Expression {
 function parseDirectCall(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     const args: AST.Expression[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-        const arg = parser.parseWithPrecedence(Precedence.None + 1);
+        const arg = parser.expression();
         if (arg === null) {
             return parser.error("Unterminated call.");
         }
@@ -562,11 +562,11 @@ class Parser {
         let expr = prefixRule(this);
 
         while (!this.atEnd() && precedence <= PARSE_RULES[this.current().type].precedence) {
-            this.advance();
-            const infixRule = PARSE_RULES[this.previous().type].infix;
+            const infixRule = PARSE_RULES[this.current().type].infix;
             if (!infixRule) {
-                return this.error(`expected infix operator, but got ${this.previous().text}`, 0);
+                return this.error(`expected infix operator, but got ${this.current().text} -- you may have forgotten a semicolon to terminate the previous expression.`, 0);
             }
+            this.advance();
             expr = infixRule(this, expr);
         }
 

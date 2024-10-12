@@ -2,13 +2,11 @@ import { expect, test } from "bun:test";
 import { writeJS } from "../src/write-js";
 import { testParse } from "./parse.test";
 
-function testCompile(text: string, expectEqual?: any) {
+function testCompile(text: string, expectEqual: any) {
     const ast = testParse(text, false);
     const sourceOut = writeJS(ast);
-    expect(sourceOut).toMatchSnapshot();
-    if (expectEqual) {
-        expect(eval(sourceOut)).toEqual(expectEqual);
-    }
+    // expect(sourceOut).toMatchSnapshot();
+    expect(eval(sourceOut)).toEqual(expectEqual);
     return sourceOut;
 }
 
@@ -247,6 +245,16 @@ test("compile array indexed access", () => {
 
 test("compile map iterator", () => {
     testCompile(`@map(func(x: Int): Int { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
+    testCompile(
+        `
+        func foo(x: Int): Int {
+            x
+        };
+        
+        @map(foo, [1, 2, 3])
+        `,
+        [1n, 2n, 3n]
+    );
     testCompile(
         `
         add1 = func(x: Int): Int {

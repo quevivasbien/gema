@@ -62,6 +62,8 @@ export type Type =
     IterType
     ;
 
+type CallableType = FuncType | ArrayType;
+
 export function getType(typeName: string, templateTypes: Type[]): Type {
     if ([
         "Int",
@@ -729,13 +731,129 @@ export class Function extends Expression {
     }
 }
 
+/**
+ * This function takes a root expression (the callable we're trying to resolve) and ancestors,
+ * and tries to find a callable with a matching name and type signature.
+ * If a matching callable is found, it returns an object with the name to refer to the function by,
+ * the type of the function, and the type of the root.
+ * If no matching callable is found, it returns an error string.
+ */
+function findCaller(root: Expression, ancestors: Expression[], name: string, argTypes: Type[]): { error: null, result: { referToByName: string, callerType: CallableType, rootType: Type } } | { error: string, result: null } {
+    const fullName = functionNameWithParamTypes(name, argTypes);
+    // The goal here is to figure out whether we should refer to this function by its name or fullName.
+    // We want to find either function definitions with matching type signatures (matching fullName),
+    // or variables with just matching names.
+    // If we find a variable, we need to check that it's assigned to an appropriate function.
+    let lastAncestor: Expression = root;
+    for (let i = 0; i < ancestors.length; i++) {
+        const ancestor = ancestors[ancestors.length - i - 1];
+        if (ancestor instanceof Block) {
+            const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
+            for (let j = 0; j < olderSiblings.length; j++) {
+                let olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                while (olderSibling instanceof DropValue) {
+                    olderSibling = olderSibling.child;
+                }
+                if (olderSibling instanceof Function && olderSibling.fullName === fullName) {
+                    return {
+                        error: null,
+                        result: {
+                            referToByName: fullName,
+                            callerType: olderSibling.type as FuncType,
+                            rootType: olderSibling.returnType
+                        }
+                    };
+                } else if (olderSibling instanceof Assignment && olderSibling.name === name) {
+                    const varType = olderSibling.value.type;
+                    if (varType instanceof FuncType) {
+                        const indirectFuncName = functionNameWithParamTypes(olderSibling.name, varType.paramTypes);
+                        if (indirectFuncName !== fullName) {
+                            return { error: `most recent definition of variable ${name} has an incompatible type signature for this function call.`, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                referToByName: name,
+                                callerType: varType,
+                                rootType: varType.returnType
+                            }
+                        };
+                    }
+                    if (varType instanceof ArrayType) {
+                        const incompatible = varType.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                referToByName: name,
+                                callerType: varType,
+                                rootType: varType.innerType
+                            }
+                        };
+                    }
+                    return { error: `most recent definition of variable ${name} is of type ${varType}, which is not a callable object.`, result: null };
+                }
+            }
+        } else if (ancestor instanceof Function) {
+            // Check both the function params and the function itself (in the case of recursive functions)
+            for (const param of ancestor.params) {
+                if (param.name === name) {
+                    if (param.type instanceof FuncType) {
+                        const indirectFuncName = functionNameWithParamTypes(param.name, param.type.paramTypes);
+                        if (indirectFuncName !== fullName) {
+                            return { error: `variable ${name} (parameter of function ${ancestor.name}) has an incompatible type signature for this function call.`, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: param.type.returnType
+                            }
+                        };
+                    }
+                    if (param.type instanceof ArrayType) {
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: param.type.innerType
+                            }
+                        };
+                    }
+                    return { error: `variable ${name} (parameter of function ${ancestor.name}) is not a function.`, result: null };
+                }
+            }
+            if (ancestor.fullName === fullName) {
+                // Recursive function
+                return {
+                    error: null,
+                    result: {
+                        referToByName: fullName,
+                        callerType: ancestor.type as FuncType,
+                        rootType: ancestor.returnType
+                    }
+                };
+            }
+        }
+        lastAncestor = ancestor;
+    }
+    return { error: `function ${name}[${argTypes.map(t => t.toString()).join(", ")}, unknown] not found`, result: null };
+}
+
 export class Call extends Expression {
     name: string;
     args: Expression[];
-    fullName?: string;
 
     callerType?: ArrayType | FuncType;
-    referToByName?: "abbr" | "full";
+    referToByName?: string;
 
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
@@ -755,108 +873,23 @@ export class Call extends Expression {
             return arg.type;
         });
 
-        this.fullName = functionNameWithParamTypes(this.name, argTypes);
-
         // search for the most recent caller definition with matching type, get name we should refer to it by
         // also set type of this to return type of found function
-        this.findCaller(ancestors);
-    }
-
-    findCaller(ancestors: Expression[]) {
-        if (this.fullName === undefined) {
-            throw this.error("caller name not resolved");
+        const { error, result } = findCaller(this, ancestors, this.name, argTypes);
+        if (error !== null) {
+            throw this.error(error);
         }
-        // The goal here is to figure out whether we should refer to this function by its name or fullName.
-        // We want to find either function definitions with matching type signatures (matching fullName),
-        // or variables with just matching names.
-        // If we find a variable, we need to check that it's assigned to an appropriate function.
-        let lastAncestor: Expression = this;
-        for (let i = 0; i < ancestors.length; i++) {
-            const ancestor = ancestors[ancestors.length - i - 1];
-            if (ancestor instanceof Block) {
-                const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
-                for (let j = 0; j < olderSiblings.length; j++) {
-                    let olderSibling = olderSiblings[olderSiblings.length - j - 1];
-                    while (olderSibling instanceof DropValue) {
-                        olderSibling = olderSibling.child;
-                    }
-                    if (olderSibling instanceof Function && olderSibling.fullName === this.fullName) {
-                        this.referToByName = "full";
-                        this.callerType = olderSibling.type as FuncType;
-                        this.type = olderSibling.returnType;
-                        return;
-                    } else if (olderSibling instanceof Assignment && olderSibling.name === this.name) {
-                        const varType = olderSibling.value.type;
-                        if (varType instanceof FuncType) {
-                            const indirectFuncName = functionNameWithParamTypes(olderSibling.name, varType.paramTypes);
-                            if (indirectFuncName !== this.fullName) {
-                                throw this.error(`most recent definition of variable ${this.name} has an incompatible type signature for this function call.`);
-                            }
-                            this.referToByName = "abbr";
-                            this.callerType = varType;
-                            this.type = varType.returnType;
-                            return;
-                        }
-                        if (varType instanceof ArrayType) {
-                            const incompatible = varType.checkIndicesCompatible(this.args.map(arg => arg.type as Type));
-                            if (incompatible !== null) {
-                                throw this.error(incompatible);
-                            }
-                            this.referToByName = "abbr";
-                            this.callerType = varType;
-                            this.type = varType.innerType;
-                            return;
-                        }
-                        throw this.error(`most recent definition of variable ${this.name} is of type ${varType}, which is not a callable object.`);
-                    }
-                }
-            } else if (ancestor instanceof Function) {
-                // Check both the function params and the function itself (in the case of recursive functions)
-                for (const param of ancestor.params) {
-                    if (param.name === this.name) {
-                        if (param.type instanceof FuncType) {
-                            const indirectFuncName = functionNameWithParamTypes(param.name, param.type.paramTypes);
-                            if (indirectFuncName !== this.fullName) {
-                                throw this.error(`variable ${this.name} (parameter of function ${ancestor.name}) has an incompatible type signature for this function call.`);
-                            }
-                            this.referToByName = "abbr";
-                            this.callerType = param.type;
-                            this.type = param.type.returnType;
-                            return;
-                        }
-                        if (param.type instanceof ArrayType) {
-                            const incompatible = param.type.checkIndicesCompatible(this.args.map(arg => arg.type as Type));
-                            if (incompatible !== null) {
-                                throw this.error(incompatible);
-                            }
-                            this.referToByName = "abbr";
-                            this.callerType = param.type;
-                            this.type = param.type.innerType;
-                            return;
-                        }
-                        throw this.error(`variable ${this.name} (parameter of function ${ancestor.name}) is not a function.`);
-                    }
-                }
-                if (ancestor.fullName === this.fullName) {
-                    // Recursive function
-                    this.referToByName = "full";
-                    this.callerType = ancestor.type as FuncType;
-                    this.type = ancestor.returnType;
-                    return;
-                }
-            }
-            lastAncestor = ancestor;
-        }
-        throw this.error(`function ${this.name}[${this.args.map(arg => arg.type?.toString()).join(", ")}, unknown] not found`);
+        this.referToByName = result.referToByName;
+        this.callerType = result.callerType;
+        this.type = result.rootType;
     }
 
     toJS(writer: JSWriter): void {
-        if (this.fullName === undefined || this.referToByName === undefined) {
+        if (this.referToByName === undefined) {
             throw new Error("caller name not resolved");
         }
-        const name = this.referToByName === "full" ? this.fullName : this.name;
         if (this.callerType instanceof FuncType) {
-            writer.write(name);
+            writer.write(this.referToByName);
             writer.write("(");
             this.args.forEach((arg, i) => {
                 if (i > 0) {
@@ -866,7 +899,7 @@ export class Call extends Expression {
             });
             writer.write(")");
         } else if (this.callerType instanceof ArrayType) {
-            writer.write(name);
+            writer.write(this.referToByName);
             this.args.forEach((arg, i) => {
                 writer.write("[");
                 arg.toJS(writer);
@@ -992,7 +1025,9 @@ export class MapIter extends Expression {
     mapFn: Expression;
     iterOver: Expression;
 
+    mapFnIsArray: boolean = false;
     iterOverIsArray: boolean = false;
+    referToMapFnByName: string | null = null;
 
     constructor(startToken: Token, mapFn: Expression, iterOver: Expression) {
         super(startToken.line, startToken.col);
@@ -1001,25 +1036,6 @@ export class MapIter extends Expression {
     }
 
     cascadeTypes(ancestors: Expression[]): void {
-        this.mapFn.cascadeTypes(ancestors);
-        if (this.mapFn.type === null) {
-            throw this.error("unable to resolve type of map function");
-        }
-        let inputType: Type;
-        let outputType: Type;
-        if (this.mapFn.type instanceof FuncType) {
-            if (this.mapFn.type.paramTypes.length !== 1) {
-                throw this.error("map function must take exactly one argument");
-            }
-            inputType = this.mapFn.type.paramTypes[0];
-            outputType = this.mapFn.type.returnType;
-        } else if (this.mapFn.type instanceof ArrayType) {
-            inputType = "Int";
-            outputType = this.mapFn.type.innerType;
-        } else {
-            throw this.error(`cannot map with non-callable object (expression of type ${this.mapFn.type})`);
-        }
-
         this.iterOver.cascadeTypes(ancestors);
         if (this.iterOver.type === null) {
             throw this.error("unable to resolve type of iterable expression");
@@ -1034,6 +1050,39 @@ export class MapIter extends Expression {
             throw this.error(`cannot map over non-iterable object (expression of type ${this.iterOver.type})`);
         }
 
+        // If mapFn is a Variable Expression, it may actually refer to a function, not to an extant variable
+        let mapFnType: Type;
+        if (this.mapFn instanceof Variable) {
+            const { result, error } = findCaller(this, ancestors, this.mapFn.name, [iterInnerType]);
+            if (error !== null) {
+                throw this.error(error);
+            }
+            this.referToMapFnByName = result.referToByName;
+            mapFnType = result.callerType;
+            console.log("mapFnType", mapFnType);
+        } else {
+            this.mapFn.cascadeTypes(ancestors);
+            if (this.mapFn.type === null) {
+                throw this.error("unable to resolve type of map function");
+            }
+            mapFnType = this.mapFn.type;
+        }
+        let inputType: Type;
+        let outputType: Type;
+        if (mapFnType instanceof FuncType) {
+            if (mapFnType.paramTypes.length !== 1) {
+                throw this.error("map function must take exactly one argument");
+            }
+            inputType = mapFnType.paramTypes[0];
+            outputType = mapFnType.returnType;
+        } else if (mapFnType instanceof ArrayType) {
+            this.mapFnIsArray = true;
+            inputType = "Int";
+            outputType = mapFnType.innerType;
+        } else {
+            throw this.error(`cannot map with non-callable object (expression of type ${mapFnType})`);
+        }
+
         if (iterInnerType !== inputType) {
             throw this.error(`incompatible types in map: expected ${inputType}, but iterable is over type ${iterInnerType}`);
         }
@@ -1042,14 +1091,18 @@ export class MapIter extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        if (this.mapFn.type instanceof ArrayType) {
+        if (this.mapFnIsArray) {
             writer.useBuiltin("__ARRAYMAPITER__");
             writer.write("__ARRAYMAPITER__(");
         } else {
             writer.useBuiltin("__MAPITER__");
             writer.write("__MAPITER__(");
         }
-        this.mapFn.toJS(writer);
+        if (this.referToMapFnByName !== null) {
+            writer.write(this.referToMapFnByName);
+        } else {
+            this.mapFn.toJS(writer);
+        }
         writer.write(", ");
         if (this.iterOverIsArray) {
             // Convert to Array Iterator first
