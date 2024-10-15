@@ -13,11 +13,13 @@ To install dependencies:
 bun install
 ```
 
-To run:
+To run, you can call functions exposed in `index.ts`, or use:
 
 ```bash
-bun run index.ts
+bun run server.ts
 ```
+
+This will serve a simple webpage on port 3000 that allows you to try writing and run Gema code.
 
 ## Language examples
 

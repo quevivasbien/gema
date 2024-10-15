@@ -445,7 +445,7 @@ export class Variable extends Expression {
     }
 
     toString(): string {
-        if (this.templateTypes !== null) {
+        if (!this.templateTypes.empty()) {
             return `${this.name}${this.templateTypes}`;
         }
         return this.name;
@@ -472,7 +472,7 @@ export class Variable extends Expression {
             }
             lastAncestor = ancestor;
         }
-        throw this.error(`cannot resolve type of variable ${this}`);
+        throw this.error(`cannot resolve type of variable '${this}'`);
     }
 
     resolveAssignment(e: Expression): Type | null {
