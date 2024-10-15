@@ -5,15 +5,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gema Compiler</title>
+    <link rel="stylesheet" href="/styles.css">
 </head>
 
 <body>
     <h1>Gema Compiler</h1>
-    <form id="runForm">
-        <textarea id="code" rows="10" cols="50"></textarea>
-        <br />
-        <button type="submit">Run</button>
-    </form>
+    <div id="code" class="code" contenteditable="true" spellcheck="false"></div>
+    <br />
+    <button id="button-run">Run</button>
     <pre id="output"></pre>
     <script src="/main.js"></script>
 </body>
