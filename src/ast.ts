@@ -445,7 +445,10 @@ export class Variable extends Expression {
             }
             const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
             for (let j = 0; j < olderSiblings.length; j++) {
-                const olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                let olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                if (olderSibling instanceof DropValue) {
+                    olderSibling = olderSibling.child;
+                }
                 if (olderSibling instanceof Function && olderSibling.fullName === this.fullName) {
                     this.type = olderSibling.type;
                     return;
@@ -474,7 +477,7 @@ export class Variable extends Expression {
             if (ancestor instanceof Block) {
                 const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
                 for (let j = 0; j < olderSiblings.length; j++) {
-                    const olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                    let olderSibling = olderSiblings[olderSiblings.length - j - 1];
                     const type = this.resolveAssignment(olderSibling);
                     if (type !== null) {
                         this.type = type;
@@ -482,6 +485,9 @@ export class Variable extends Expression {
                         return;
                     }
                     // This could also refer to a function if the function has no params
+                    if (olderSibling instanceof DropValue) {
+                        olderSibling = olderSibling.child;
+                    }
                     if (olderSibling instanceof Function && olderSibling.name === this.name && olderSibling.params.length === 0 && olderSibling.fullName !== null) {
                         this.type = olderSibling.type;
                         this.fullName = olderSibling.fullName;
@@ -1059,7 +1065,6 @@ export class MapIter extends Expression {
             }
             this.referToMapFnByName = result.referToByName;
             mapFnType = result.callerType;
-            console.log("mapFnType", mapFnType);
         } else {
             this.mapFn.cascadeTypes(ancestors);
             if (this.mapFn.type === null) {

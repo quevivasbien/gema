@@ -129,24 +129,14 @@ test("parse array indexed access", () => {
     testParseExpectError(`[1, 2, 3](0, 1)`);
 });
 
-test.todo("improve handling of function template types", () => {
+test("allow references to named functions", () => {
     testParse(`
         func foo(x: Int): Int {
             x
-        }
+        };
         
         bar = foo[Int];
 
         bar(1)
-    `);
-
-    testParse(`
-        func foo(x: Int): Int {
-            x
-        }
-        
-        bar = foo[Int];
-
-        bar[Int](1)
     `);
 });

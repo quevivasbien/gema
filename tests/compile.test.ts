@@ -109,7 +109,7 @@ test("compile recursive functions", () => {
             } else {
                 n * factorial(n - 1)
             }
-        }
+        };
 
         factorial(4)
         `,
@@ -122,7 +122,7 @@ test("compile functions as variables", () => {
         `
         func foo(): Int {
             1
-        }
+        };
         x = foo;
         y = foo[];
     
@@ -134,7 +134,7 @@ test("compile functions as variables", () => {
         `
         func foo(a: Int): Int {
             a
-        }
+        };
         x = foo[Int];
         x(1)
         `,
@@ -144,11 +144,11 @@ test("compile functions as variables", () => {
         `
             func call(f: Func[Int, Int], x: Int): Int {
                 f(x)
-            }
+            };
             
             func add1(x: Int): Int {
                 x + 1
-            }
+            };
             
             call(add1[Int], 1)
         `,
@@ -189,6 +189,20 @@ test("allow calling non-variable objects", () => {
         `,
         1n
     );
+    testCompile(
+        `
+        func foo(x: Int): Int {
+            x + 1
+        };
+
+        func bar(): Func[Int, Int] {
+            foo[Int]
+        };
+
+        bar()(1)
+        `,
+        2n
+    )
 })
 
 test("compile arrays", () => {
