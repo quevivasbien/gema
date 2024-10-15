@@ -4,16 +4,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gema Compiler</title>
+    <title>Gema Code Editor</title>
     <link rel="stylesheet" href="/styles.css">
 </head>
 
 <body>
-    <h1>Gema Compiler</h1>
-    <div id="code" class="code" contenteditable="true" spellcheck="false"></div>
-    <br />
-    <button id="button-run">Run</button>
-    <pre id="output"></pre>
+    <h1>Gema Code Editor</h1>
+    <textarea id="code" class="code" placeholder="Enter code here" spellcheck="false"></textarea>
+    <div class="flex-row">
+        <label>
+            Preset:
+            <select id="select-preset" name="select-preset" value="hello">
+                <option value="hello">Hello</option>
+                <option value="factorial">Factorial</option>
+            </select>
+        </label>
+        <button id="button-run">Run (ctrl+enter)</button>
+    </div>
+    <div id="output">--Run code to view output here--</div>
     <script src="/main.js"></script>
 </body>
 

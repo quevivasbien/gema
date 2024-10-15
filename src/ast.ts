@@ -867,7 +867,7 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
         }
         lastAncestor = ancestor;
     }
-    return { error: `function ${name}[${argTypes.map(t => t.toString()).join(", ")}, unknown] not found`, result: null };
+    return { error: `function ${name}[${argTypes.map(t => t.toString()).join(", ")}: unknown] not found`, result: null };
 }
 
 export class Call extends Expression {

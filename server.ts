@@ -2,10 +2,6 @@ import { serve } from "bun";
 import { join } from "path";
 import { compile } from ".";
 
-function format(code: string): string {
-    return code.replaceAll("func", `<span class="func">func</span>`);
-}
-
 function compileAndRun(code: string): string {
     const { errors, js } = compile(code);
     if (errors) {
@@ -28,11 +24,6 @@ serve({
         if (request.method === "POST" && url.pathname === "/run") {
             const body = await request.text();
             const result = compileAndRun(body);
-            return new Response(result, { headers: { "content-type": "text/plain" } });
-        }
-        if (request.method === "POST" && url.pathname === "/format") {
-            const body = await request.text();
-            const result = format(body);
             return new Response(result, { headers: { "content-type": "text/plain" } });
         }
 
