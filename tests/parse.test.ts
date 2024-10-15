@@ -95,7 +95,7 @@ test("parse function", () => {
     testParseExpectError(`func foo() { 1 }`);
     testParse(`func add(a: Int, b: Int): Int { a + b }`);
     testParse(`
-        func myFunc(a: Func[Int, Func[Int, Int]], b: Func[Int]): Func[Int, Func[Int, Int]] {
+        func myFunc(a: Func[Int: Func[Int: Int]], b: Func[:Int]): Func[Int: Func[Int: Int]] {
             a
         }
     `);

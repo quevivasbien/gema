@@ -504,13 +504,25 @@ class Parser {
         }
     }
 
-    getTemplateTypes(): AST.Type[] {
+    getTemplateTypes(): AST.TemplateTypes {
         if (this.atEnd() || this.current().type !== TokenType.LBracket) {
-            return [];
+            return new AST.TemplateTypes();
         }
         this.advance();
-        const templateTypes: AST.Type[] = [];
+        const templateTypes = new AST.TemplateTypes();
         while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
+            if (this.current().type === TokenType.Colon) {
+                // Separating return type for function
+                this.advance();
+                if (this.current().type !== TokenType.Identifier) {
+                    throw this.error("Expected type identifier for function return type.");
+                }
+                const returnTypeName = this.current().text;
+                this.advance();
+                const nestedTemplateTypes = this.getTemplateTypes();
+                templateTypes.returnType = AST.getType(returnTypeName, nestedTemplateTypes);
+                break;
+            }
             if (this.current().type !== TokenType.Identifier) {
                 throw this.error("Expected type identifier.");
             }
@@ -535,7 +547,7 @@ class Parser {
         }
         const paramType = this.current().text;
         this.advance();
-        let templateTypes: AST.Type[] = this.getTemplateTypes();
+        let templateTypes = this.getTemplateTypes();
         if (!this.atEnd() && this.current().type === TokenType.Comma) {
             this.advance();
         }

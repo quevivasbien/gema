@@ -64,7 +64,23 @@ export type Type =
 
 type CallableType = FuncType | ArrayType;
 
-export function getType(typeName: string, templateTypes: Type[]): Type {
+export class TemplateTypes {
+    constructor(public types: Type[] = [], public returnType: Type | null = null) {}
+
+    toString(): string {
+        return `[${this.types.join(", ")}${this.returnType === null ? "" : ": " + this.returnType}]`;
+    }
+
+    push(type: Type) {
+        this.types.push(type);
+    }
+
+    empty(): boolean {
+        return this.types.length === 0 && this.returnType === null;
+    }
+}
+
+export function getType(typeName: string, templateTypes: TemplateTypes): Type {
     if ([
         "Int",
         "Float",
@@ -72,25 +88,25 @@ export function getType(typeName: string, templateTypes: Type[]): Type {
         "Bool",
         "Null",
     ].includes(typeName)) {
-        if (templateTypes.length > 0) {
+        if (!templateTypes.empty()) {
             throw new Error(`${typeName} cannot have template types`);
         }
         return typeName as Type;
     }
     if (typeName === "Func") {
-        if (templateTypes.length === 0) {
-            throw new Error(`Func type requires at least one template type (for the return type)`);
+        if (templateTypes.returnType === null) {
+            throw new Error(`Func type requires a return type`);
         }
-        return new FuncType(templateTypes.slice(0, -1), templateTypes[templateTypes.length - 1]);
+        return new FuncType(templateTypes.types, templateTypes.returnType);
     }
     if (typeName === "Arr") {
-        if (templateTypes.length === 0) {
-            throw new Error(`Array type requires at least one template type (for the inner type)`);
+        if (templateTypes.types.length !== 1) {
+            throw new Error(`Array type requires a single template type (for the inner type)`);
         }
-        if (templateTypes.length > 1) {
-            throw new Error(`Too many template types for array type -- expected 1, got ${templateTypes.length}`);
+        if (templateTypes.returnType !== null) {
+            throw new Error(`Array type cannot have a return type`);
         }
-        return new ArrayType(templateTypes[0]);
+        return new ArrayType(templateTypes.types[0]);
     }
 
     throw new Error(`Unknown type: ${typeName}`);
@@ -418,25 +434,25 @@ export class Binary extends Expression {
 
 export class Variable extends Expression {
     name: string;
-    templateTypes: Type[];
+    templateTypes: TemplateTypes;
 
     fullName?: string;
 
-    constructor(token: Token, templateTypes: Type[] = []) {
+    constructor(token: Token, templateTypes: TemplateTypes) {
         super(token.line, token.col);
         this.name = token.text;
         this.templateTypes = templateTypes;
     }
 
     toString(): string {
-        if (this.templateTypes.length > 0) {
-            return `${this.name}[${this.templateTypes.join(", ")}]`;
+        if (this.templateTypes !== null) {
+            return `${this.name}${this.templateTypes}`;
         }
         return this.name;
     }
 
     setTypeWithTemplateTypes(ancestors: Expression[]): void {
-        this.fullName = functionNameWithParamTypes(this.name, this.templateTypes);
+        this.fullName = functionNameWithParamTypes(this.name, this.templateTypes?.types ?? []);
         let lastAncestor: Expression = this;
         for (let i = 0; i < ancestors.length; i++) {
             const ancestor = ancestors[ancestors.length - i - 1];
@@ -467,7 +483,7 @@ export class Variable extends Expression {
     }
 
     cascadeTypes(ancestors: Expression[]): void {
-        if (this.templateTypes.length > 0) {
+        if (!this.templateTypes.empty()) {
             this.setTypeWithTemplateTypes(ancestors);
             return;
         }

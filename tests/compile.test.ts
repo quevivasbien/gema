@@ -142,7 +142,7 @@ test("compile functions as variables", () => {
     );
     testCompile(
         `
-            func call(f: Func[Int, Int], x: Int): Int {
+            func call(f: Func[Int: Int], x: Int): Int {
                 f(x)
             };
             
@@ -179,7 +179,7 @@ test("allow calling non-variable objects", () => {
     );
     testCompile(
         `
-            func foo(a: Int): Func[Int] {
+            func foo(a: Int): Func[:Int] {
                 func(): Int {
                     a
                 }
@@ -195,7 +195,7 @@ test("allow calling non-variable objects", () => {
             x + 1
         };
 
-        func bar(): Func[Int, Int] {
+        func bar(): Func[Int: Int] {
             foo[Int]
         };
 
