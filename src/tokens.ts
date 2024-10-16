@@ -40,7 +40,10 @@ export enum TokenType {
     Struct = "struct",
     If = "if",
     Else = "else",
+    Range = "range",
     Map = "map",
+    Reduce = "reduce",
+    Filter = "filter",
     // Literals
     True = "true",
     False = "false",

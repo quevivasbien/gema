@@ -7,7 +7,7 @@ const presets = {
 };
 
 sayHello("Gema")`,
-    factorial: `func factorial(n: Int): Int {
+    recursiveFactorial: `func factorial(n: Int): Int {
     if (n <= 1) {
         1
     } else {
@@ -15,7 +15,20 @@ sayHello("Gema")`,
     }
 };
 
-@map(factorial, [0, 1, 2, 3, 4, 5])`
+@map(factorial, range(0, 5))`,
+    iterativeFactorial: `func factorial(n: Int): Int {
+    if (n < 1) {
+        1
+    } else {
+        reduce(
+            func (acc: Int, x: Int): Int { acc * x },
+            range(1, n),
+            1
+        )
+    }
+};
+
+@map(factorial, range(0, 5))`,  
 };
 
 code.value = presets[document.getElementById("select-preset").value];

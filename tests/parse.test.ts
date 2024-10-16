@@ -140,3 +140,27 @@ test("allow references to named functions", () => {
         bar(1)
     `);
 });
+
+test("parse filter iterator", () => {
+    testParseExpectError(`
+        func myFilter(x: Int): Int {
+            x + 1
+        };
+        @filter(myFilter, [1, 2, 3])
+    `);
+});
+
+test("parse reduce expression", () => {
+    testParseExpectError(`
+        func add(x: Int, y: Int): Int {
+            x + y
+        };
+        @filter(myFilter, [1., 2., 3.], 0)
+    `);
+    testParseExpectError(`
+        func add(x: Int, y: Int): Int {
+            x + y
+        };
+        @filter(myFilter, [1, 2, 3], false)
+    `);
+});

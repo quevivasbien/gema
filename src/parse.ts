@@ -160,8 +160,23 @@ PARSE_RULES[TokenType.At] = {
     infix: null,
     precedence: Precedence.Unary
 };
+PARSE_RULES[TokenType.Range] = {
+    prefix: parseRange,
+    infix: null,
+    precedence: Precedence.None
+};
 PARSE_RULES[TokenType.Map] = {
     prefix: parseMap,
+    infix: null,
+    precedence: Precedence.None
+};
+PARSE_RULES[TokenType.Reduce] = {
+    prefix: parseReduce,
+    infix: null,
+    precedence: Precedence.None
+};
+PARSE_RULES[TokenType.Filter] = {
+    prefix: parseFilter,
     infix: null,
     precedence: Precedence.None
 };
@@ -357,7 +372,7 @@ function parseCall(parser: Parser): AST.Expression {
             return parser.error("Unterminated call.");
         }
         args.push(arg);
-        if (parser.current().type === TokenType.Comma) {
+        if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
             parser.advance();
         }
     }
@@ -420,6 +435,48 @@ function parseArray(parser: Parser): AST.Expression {
     return parser.tryCreateASTExpression(() => new AST.Array(startToken, expressions, innerTypeAnnotation));
 }
 
+function parseRange(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after range.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const start = parser.expression();
+    if (start === null) {
+        return parser.error("Expected start of range expression.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated range expression.");
+    }
+    const end = parser.expression();
+    if (end === null) {
+        return parser.error("Expected end of range expression.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    let step = null;
+    if (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+        step = parser.expression();
+        if (step === null) {
+            return parser.error("Expected step of range expression.");
+        }
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for range expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.RangeIter(startToken, start, end, step));
+}
+
 function parseMap(parser: Parser): AST.Expression {
     const startToken = parser.previous();
     if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
@@ -435,6 +492,9 @@ function parseMap(parser: Parser): AST.Expression {
     if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
         parser.advance();
     }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated map expression.");
+    }
     const iterOver = parser.expression();
     if (iterOver === null) {
         return parser.error("Expected iterable expression.");
@@ -444,6 +504,74 @@ function parseMap(parser: Parser): AST.Expression {
     }
     parser.advance();
     return parser.tryCreateASTExpression(() => new AST.MapIter(startToken, mapFn, iterOver));
+}
+
+function parseReduce(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after reduce.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const reduceFn = parser.expression();
+    if (reduceFn === null) {
+        return parser.error("Expected reduce function.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated reduce expression.");
+    }
+    const iterOver = parser.expression();
+    if (iterOver === null) {
+        return parser.error("Expected iterable expression.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated reduce expression.");
+    }
+    const initValue = parser.expression();
+    if (initValue === null) {
+        return parser.error("Expected initial value for reduce expression.");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for reduce expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.Reduce(startToken, reduceFn, iterOver, initValue));
+}
+
+function parseFilter(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after filter.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const filterFn = parser.expression();
+    if (filterFn === null) {
+        return parser.error("Expected filter function.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated filter expression.");
+    }
+    const iterOver = parser.expression();
+    if (iterOver === null) {
+        return parser.error("Expected iterable expression.");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for filter expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.FilterIter(startToken, filterFn, iterOver));
 }
 
 class Parser {

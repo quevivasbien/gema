@@ -292,3 +292,50 @@ test("compile map iterator", () => {
         ["there", "there", "hello"]
     );
 });
+
+test("compile filter iterator", () => {
+    testCompile(
+        `
+        func isEven(x: Int): Bool {
+            x % 2 == 0
+        };
+        iter = filter(isEven, [1, 2, 3, 4, 5]);
+        @iter
+        `,
+        [2n, 4n]
+    );
+});
+
+test("compile reduce expression", () => {
+    testCompile(
+        `
+        reduce(
+            func(x: Int, y: Int): Int {
+                x * y    
+            },
+            [1, 2, 3],
+            1
+        )
+        `,
+        6n
+    );
+    testCompile(
+        `
+        func add(x: Int, y: Int): Int {
+            x + y
+        };
+        reduce(add, [1, 2, 3], 0)
+        `,
+        6n
+    );
+    testCompile(
+        `
+        func sum(x: Iter[Int]): Int {
+            reduce(func(a: Int, b: Int): Int { a + b }, x, 0)
+        }
+
+        sum(range(0, 100))
+        `,
+        5050n
+    );
+});

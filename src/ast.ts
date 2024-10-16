@@ -108,6 +108,15 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         }
         return new ArrayType(templateTypes.types[0]);
     }
+    if (typeName === "Iter") {
+        if (templateTypes.types.length !== 1) {
+            throw new Error(`Iter type requires a single template type (for the inner type)`);
+        }
+        if (templateTypes.returnType !== null) {
+            throw new Error(`Iter type cannot have a return type`);
+        }
+        return new IterType(templateTypes.types[0]);
+    }
 
     throw new Error(`Unknown type: ${typeName}`);
 }
@@ -397,6 +406,10 @@ export class Binary extends Expression {
                 this.type = ltype;
                 return;
             }
+            if (ltype.innerType === rtype.innerType && this.operator === TokenType.EqualEqual) {
+                this.type = "Bool";
+                return;
+            }
         }
 
         throw this.error(`cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
@@ -404,11 +417,21 @@ export class Binary extends Expression {
 
     toJS(writer: JSWriter): void {
         if (this.left.type instanceof ArrayType) {
-            this.left.toJS(writer);
-            writer.write(".concat(");
-            this.right.toJS(writer);
-            writer.write(")");
-            return;
+            if (this.operator === TokenType.Plus) {
+                this.left.toJS(writer);
+                writer.write(".concat(");
+                this.right.toJS(writer);
+                writer.write(")");
+                return;
+            } else if (this.operator === TokenType.EqualEqual) {
+                writer.useBuiltin("__ARRAY_EQUAL__");
+                writer.write("__ARRAY_EQUAL__(");
+                this.left.toJS(writer);
+                writer.write(", ");
+                this.right.toJS(writer);
+                writer.write(")");
+                return;
+            }
         }
         if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
             writer.write("(");
@@ -1043,6 +1066,60 @@ export class Array extends Expression {
     }
 }
 
+export class RangeIter extends Expression {
+    start: Expression;
+    end: Expression;
+    step: Expression | null;
+
+    constructor(startToken: Token, start: Expression, end: Expression, step: Expression | null) {
+        super(startToken.line, startToken.col);
+        this.start = start;
+        this.end = end;
+        this.step = step;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.start.cascadeTypes(ancestors);
+        if (this.start.type === null) {
+            throw this.error("unable to resolve type of range start expression");
+        }
+        if (this.start.type !== "Int") {
+            throw this.error("range start expression must be an integer");
+        }
+        this.end.cascadeTypes(ancestors);
+        if (this.end.type === null) {
+            throw this.error("unable to resolve type of range end expression");
+        }
+        if (this.end.type !== "Int") {
+            throw this.error("range end expression must be an integer");
+        }
+        if (this.step !== null) {
+            this.step.cascadeTypes(ancestors);
+            if (this.step.type === null) {
+                throw this.error("unable to resolve type of range step expression");
+            }
+            if (this.step.type !== "Int") {
+                throw this.error("range step expression must be an integer");
+            }
+        }
+        
+        this.type = new IterType("Int");
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__RANGEITER__");
+        writer.write("__RANGEITER__(");
+        this.start.toJS(writer);
+        writer.write(", ");
+        this.end.toJS(writer);
+        if (this.step !== null) {
+            writer.write(", ");
+            this.step.toJS(writer);
+        }
+        writer.write(")");
+    }
+}
+
 export class MapIter extends Expression {
     mapFn: Expression;
     iterOver: Expression;
@@ -1123,6 +1200,192 @@ export class MapIter extends Expression {
             writer.write(this.referToMapFnByName);
         } else {
             this.mapFn.toJS(writer);
+        }
+        writer.write(", ");
+        if (this.iterOverIsArray) {
+            // Convert to Array Iterator first
+            writer.useBuiltin("__ARRAYITER__");
+            writer.write("__ARRAYITER__(");
+            this.iterOver.toJS(writer);
+            writer.write(")");
+        } else {
+            this.iterOver.toJS(writer);
+        }
+        writer.write(")");
+    }
+}
+
+export class Reduce extends Expression {
+    reduceFn: Expression;
+    iterOver: Expression;
+    initValue: Expression;
+
+    iterOverIsArray: boolean = false;
+    referToReduceFnByName: string | null = null;
+
+    constructor(startToken: Token, reduceFn: Expression, iterOver: Expression, initValue: Expression) {
+        super(startToken.line, startToken.col);
+        this.reduceFn = reduceFn;
+        this.iterOver = iterOver;
+        this.initValue = initValue;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iterOver.cascadeTypes(ancestors);
+        if (this.iterOver.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let iterInnerType: Type;
+        if (this.iterOver.type instanceof ArrayType) {
+            iterInnerType = this.iterOver.type.innerType;
+            this.iterOverIsArray = true;
+        } else if (this.iterOver.type instanceof IterType) {
+            iterInnerType = this.iterOver.type.innerType;
+        } else {
+            throw this.error(`cannot reduce with non-iterable object (expression of type ${this.iterOver.type})`);
+        }
+
+        this.initValue.cascadeTypes(ancestors);
+        if (this.initValue.type === null) {
+            throw this.error("unable to resolve type of initial value");
+        }
+
+        // If filterFn is a Variable Expression, it may actually refer to a function, not to an extant variable
+        let reduceFnType: Type;
+        if (this.reduceFn instanceof Variable) {
+            const { result, error } = findCaller(this, ancestors, this.reduceFn.name, [this.initValue.type, iterInnerType]);
+            if (error !== null) {
+                throw this.error(error);
+            }
+            this.referToReduceFnByName = result.referToByName;
+            reduceFnType = result.callerType;
+        } else {
+            this.reduceFn.cascadeTypes(ancestors);
+            if (this.reduceFn.type === null) {
+                throw this.error("unable to resolve type of reduce function");
+            }
+            reduceFnType = this.reduceFn.type;
+        }
+        let accType: Type;
+        let inputType: Type;
+        if (reduceFnType instanceof FuncType) {
+            if (reduceFnType.paramTypes.length !== 2) {
+                throw this.error("reduce function must take exactly two arguments (an accumulator and the current element)");
+            }
+            accType = reduceFnType.paramTypes[0];
+            inputType = reduceFnType.paramTypes[1];
+            if (reduceFnType.returnType !== accType) {
+                throw this.error("reduce function must return the same type as its accumulator (first argument)");
+            }
+        } else {
+            throw this.error(`cannot reduce with non-function object (expression of type ${reduceFnType})`);
+        }
+
+        if (iterInnerType !== inputType) {
+            throw this.error(`incompatible types in reduce: expected ${inputType}, but iterable is over type ${iterInnerType}`);
+        }
+        if (accType !== this.initValue.type) {
+            throw this.error(`incompatible types in reduce: expected ${accType}, but initial value is of type ${this.initValue.type}`);
+        }
+
+        this.type = accType;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__REDUCE__");
+        writer.write("__REDUCE__(");
+        if (this.referToReduceFnByName !== null) {
+            writer.write(this.referToReduceFnByName);
+        } else {
+            this.reduceFn.toJS(writer);
+        }
+        writer.write(", ");
+        if (this.iterOverIsArray) {
+            // Convert to Array Iterator first
+            writer.useBuiltin("__ARRAYITER__");
+            writer.write("__ARRAYITER__(");
+            this.iterOver.toJS(writer);
+            writer.write(")");
+        } else {
+            this.iterOver.toJS(writer);
+        }
+        writer.write(", ");
+        this.initValue.toJS(writer);
+        writer.write(")");
+    }
+}
+
+export class FilterIter extends Expression {
+    filterFn: Expression;
+    iterOver: Expression;
+
+    iterOverIsArray: boolean = false;
+    referToFilterFnByName: string | null = null;
+
+    constructor(startToken: Token, filterFn: Expression, iterOver: Expression) {
+        super(startToken.line, startToken.col);
+        this.filterFn = filterFn;
+        this.iterOver = iterOver;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iterOver.cascadeTypes(ancestors);
+        if (this.iterOver.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let iterInnerType: Type;
+        if (this.iterOver.type instanceof ArrayType) {
+            iterInnerType = this.iterOver.type.innerType;
+            this.iterOverIsArray = true;
+        } else if (this.iterOver.type instanceof IterType) {
+            iterInnerType = this.iterOver.type.innerType;
+        } else {
+            throw this.error(`cannot filter non-iterable object (expression of type ${this.iterOver.type})`);
+        }
+
+        // If filterFn is a Variable Expression, it may actually refer to a function, not to an extant variable
+        let filterFnType: Type;
+        if (this.filterFn instanceof Variable) {
+            const { result, error } = findCaller(this, ancestors, this.filterFn.name, [iterInnerType]);
+            if (error !== null) {
+                throw this.error(error);
+            }
+            this.referToFilterFnByName = result.referToByName;
+            filterFnType = result.callerType;
+        } else {
+            this.filterFn.cascadeTypes(ancestors);
+            if (this.filterFn.type === null) {
+                throw this.error("unable to resolve type of filter function");
+            }
+            filterFnType = this.filterFn.type;
+        }
+        let inputType: Type;
+        if (filterFnType instanceof FuncType) {
+            if (filterFnType.paramTypes.length !== 1) {
+                throw this.error("filter function must take exactly one argument");
+            }
+            inputType = filterFnType.paramTypes[0];
+            if (filterFnType.returnType !== "Bool") {
+                throw this.error("filter function must return a boolean");
+            }
+        } else {
+            throw this.error(`cannot filter with non-function object (expression of type ${filterFnType})`);
+        }
+
+        if (iterInnerType !== inputType) {
+            throw this.error(`incompatible types in filter: expected ${inputType}, but iterable is over type ${iterInnerType}`);
+        }
+
+        this.type = new IterType(iterInnerType);
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__FILTERITER__");
+        writer.write("__FILTERITER__(");
+        if (this.referToFilterFnByName !== null) {
+            writer.write(this.referToFilterFnByName);
+        } else {
+            this.filterFn.toJS(writer);
         }
         writer.write(", ");
         if (this.iterOverIsArray) {
