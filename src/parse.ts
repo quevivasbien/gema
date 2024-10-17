@@ -54,6 +54,11 @@ PARSE_RULES[TokenType.Func] = {
     infix: null,
     precedence: Precedence.None
 };
+PARSE_RULES[TokenType.Trait] = {
+    prefix: parseTrait,
+    infix: null,
+    precedence: Precedence.None
+};
 
 // AST.Literals
 PARSE_RULES[TokenType.Integer] = {
@@ -296,12 +301,70 @@ function parseFunction(parser: Parser): AST.Expression {
         return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
     }
 
+    if (parser.atEnd()) {
+        return parser.error("Unterminated function definition.");
+    }
+    let typeTraits;
+    try {
+        typeTraits = parser.getTypeTraits();
+    } catch (e) {
+        if (e instanceof Error) {
+            return parser.error(e.message);
+        }
+        throw e;
+    }
+
+    if (parser.atEnd()) {
+        return parser.error("Unterminated function definition.");
+    }
     if (parser.current().type !== TokenType.LBrace) {
         return parser.error("Expected '{' after function parameters.");
     }
     parser.advance();
 
-    return parser.tryCreateASTExpression(() => new AST.Function(rootToken, name, params, returnType, parser.block()));
+    return parser.tryCreateASTExpression(() => new AST.Function(rootToken, name, params, returnType, typeTraits, parser.block()));
+}
+
+function parseTrait(parser: Parser): AST.Expression {
+    const rootToken = parser.previous(); // should be 'trait'
+    if (parser.atEnd()) {
+        return parser.error("Expected trait name.");
+    }
+    const name = parser.current().text;
+    parser.advance();
+    if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
+        return parser.error("Expected '{' after trait name.");
+    }
+    parser.advance();
+    const requiredFunctions: { name: string, types: AST.TemplateTypes }[] = [];
+    while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
+        // Expect inputs of form FuncName[ArgType1, ArgType2, ..., ArgTypeN : ReturnType]
+        if (parser.current().type !== TokenType.Identifier) {
+            return parser.error("Expected function name.");
+        }
+        const funcName = parser.current().text;
+        parser.advance();
+        const templateTypes = parser.getTemplateTypes();
+        if (templateTypes.empty()) {
+            return parser.error("expected function signature after function name.");
+        }
+        requiredFunctions.push({ name: funcName, types: templateTypes });
+        if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+            parser.advance();
+        }
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated trait definition.");
+    }
+    parser.advance();
+    try {
+        return parser.tryCreateASTExpression(() => new AST.Trait(rootToken, name, requiredFunctions));
+    } catch (e) {
+        if (e instanceof Error) {
+            return parser.error(e.message);
+        }
+        throw e;
+    }
 }
 
 function parseInt(parser: Parser): AST.Expression {
@@ -667,6 +730,51 @@ class Parser {
         }
         this.advance();
         return templateTypes;
+    }
+
+    getTypeTraits(): { type: AST.Type, trait: AST.Type }[] {
+        if (this.atEnd() || this.current().type !== TokenType.Where) {
+            return [];
+        }
+        this.advance();
+        const typeTraits: { type: AST.Type, trait: AST.Type }[] = [];
+        while (!this.atEnd() && this.current().type !== TokenType.LBrace) {
+            if (this.current().type !== TokenType.Identifier) {
+                throw new Error("expected type alias after 'where'");
+            }
+            let typeName: AST.Type;
+            try {
+                typeName = AST.getType(this.current().text, new AST.TemplateTypes());
+            } catch (e) {
+                if (e instanceof Error) {
+                    throw new Error(e.message);
+                }
+                throw e;
+            }
+            this.advance();
+            if (this.atEnd() || this.current().type !== TokenType.Is) {
+                throw new Error("expected 'is' after type alias");
+            }
+            this.advance();
+            if (this.atEnd() || this.current().type !== TokenType.Identifier) {
+                throw new Error("expected trait name after 'is'");
+            }
+            let traitName: AST.Type;
+            try {
+                traitName = AST.getType(this.current().text, new AST.TemplateTypes());
+            } catch (e) {
+                if (e instanceof Error) {
+                    throw new Error(e.message);
+                }
+                throw e;
+            }
+            this.advance();
+            if (!this.atEnd() && this.current().type === TokenType.Comma) {
+                this.advance();
+            }
+            typeTraits.push({ type: typeName, trait: traitName });
+        }
+        return typeTraits;
     }
 
     getTypeName(): AST.Type | null {

@@ -51,6 +51,27 @@ class IterType {
     }
 }
 
+class CustomType {
+    name: string;
+    traits: string[];
+
+    constructor(name: string, traits: string[] = []) {
+        this.name = name;
+        this.traits = traits;
+    }
+
+    toString(): string {
+        if (this.traits.length === 0) {
+            return this.name;
+        }
+        return `${this.name}<${this.traits.join(", ")}>`;
+    }
+
+    addTrait(trait: string) {
+        this.traits.push(trait);
+    }
+}
+
 export type Type =
     "Int" |
     "Float" |
@@ -59,13 +80,15 @@ export type Type =
     "Null" |
     FuncType |
     ArrayType |
-    IterType
+    IterType |
+    CustomType |
+    "Self"
     ;
 
 type CallableType = FuncType | ArrayType;
 
 export class TemplateTypes {
-    constructor(public types: Type[] = [], public returnType: Type | null = null) {}
+    constructor(public types: Type[] = [], public returnType: Type | null = null) { }
 
     toString(): string {
         return `[${this.types.join(", ")}${this.returnType === null ? "" : ": " + this.returnType}]`;
@@ -87,6 +110,7 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         "Str",
         "Bool",
         "Null",
+        "Self",
     ].includes(typeName)) {
         if (!templateTypes.empty()) {
             throw new Error(`${typeName} cannot have template types`);
@@ -118,7 +142,7 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         return new IterType(templateTypes.types[0]);
     }
 
-    throw new Error(`Unknown type: ${typeName}`);
+    return new CustomType(typeName);
 }
 
 export abstract class Expression {
@@ -706,7 +730,7 @@ export class Function extends Expression {
     body: Block;
     fullName: string | null;
 
-    constructor(rootToken: Token, name: string | null, params: { name: string, type: Type }[], returnType: Type, body: Expression) {
+    constructor(rootToken: Token, name: string | null, params: { name: string, type: Type }[], returnType: Type, typeTraits: { type: Type, trait: Type }[], body: Expression) {
         if (!(body instanceof Block)) {
             throw new Error("function body must be a Block expression");
         }
@@ -719,6 +743,23 @@ export class Function extends Expression {
         this.returnType = returnType;
         this.body = body;
         this.fullName = this.name !== null ? functionNameWithParamTypes(name as string, params.map(p => p.type)) : null;
+        
+        typeTraits.forEach(({ type, trait }) => {
+            if (!(type instanceof CustomType)) {
+                throw new Error(`type alias ${type} overrides a builtin type.`);
+            }
+            if (!(trait instanceof CustomType)) {
+                throw new Error(`${trait} is not a valid trait name.`);
+            }
+            this.params.forEach(param => {
+                if (param.type instanceof CustomType && param.type.name === type.name) {
+                    param.type.addTrait(trait.name);
+                }    
+            });
+            if (this.returnType instanceof CustomType && this.returnType.name === type.name) {
+                this.returnType.addTrait(trait.name);
+            }
+        });
 
         this.type = new FuncType(
             params.map(arg => arg.type),
@@ -1102,7 +1143,7 @@ export class RangeIter extends Expression {
                 throw this.error("range step expression must be an integer");
             }
         }
-        
+
         this.type = new IterType("Int");
     }
 
@@ -1398,5 +1439,34 @@ export class FilterIter extends Expression {
             this.iterOver.toJS(writer);
         }
         writer.write(")");
+    }
+}
+
+export class Trait extends Expression {
+    name: string;
+    requiredFunctions: { name: string, types: TemplateTypes }[];
+
+    constructor(rootToken: Token, name: string, requiredFunctions: { name: string, types: TemplateTypes }[]) {
+        super(rootToken.line, rootToken.col);
+        this.name = name;
+        this.requiredFunctions = requiredFunctions;
+
+        // Check that requiredFunctions all have return types
+        for (const { name, types } of requiredFunctions) {
+            if (types.returnType === null) {
+                throw new Error(`function ${name} for trait ${this.name} must have a return type`);
+            }
+        }
+
+        this.type = "Null";
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        // Nothing to do here
+    }
+
+    toJS(writer: JSWriter): void {
+        // Nothing to do here, either.
+        // Traits are solely for the sake of type checking and aren't converted to JS.
     }
 }

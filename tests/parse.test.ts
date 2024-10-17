@@ -164,3 +164,44 @@ test("parse reduce expression", () => {
         @filter(myFilter, [1, 2, 3], false)
     `);
 });
+
+test("parse functions with generics", () => {
+    testParse(
+        `
+        func foo(a: T): T {
+            a
+        }
+        `
+    );
+    testParse(
+        `
+        func foo(a: T): T where T is Bar {
+            a
+        }
+        `
+    );
+    testParse(
+        `
+        func foo(a: T): T where T is Bar, T is Baz {
+            a
+        }
+        `
+    );
+});
+
+test.todo("parse trait-defined functions", () => {
+    testParse(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        func add(a: Int, b: Int): Int {
+            a + b
+        }
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        }
+        `
+    );
+});
