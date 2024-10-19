@@ -159,7 +159,7 @@ test("compile functions as variables", () => {
 test("anonymous functions", () => {
     testCompile(
         `
-            f = func(a: Int, b: Int): Int {
+            f = func(a: Int, b: Int) {
                 a + b
             };
             f(1, 2)
@@ -171,7 +171,7 @@ test("anonymous functions", () => {
 test("allow calling non-variable objects", () => {
     testCompile(
         `
-            (func(a: Int, b: Int): Int {
+            (func(a: Int, b: Int) {
                 a + b
             })(1, 2)
         `,
@@ -180,7 +180,7 @@ test("allow calling non-variable objects", () => {
     testCompile(
         `
             func foo(a: Int): Func[:Int] {
-                func(): Int {
+                func() {
                     a
                 }
             }
@@ -258,7 +258,7 @@ test("compile array indexed access", () => {
 });
 
 test("compile map iterator", () => {
-    testCompile(`@map(func(x: Int): Int { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
+    testCompile(`@map(func(x: Int) { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
     testCompile(
         `
         func foo(x: Int): Int {
@@ -271,7 +271,7 @@ test("compile map iterator", () => {
     );
     testCompile(
         `
-        add1 = func(x: Int): Int {
+        add1 = func(x: Int) {
             x + 1
         };
         iter = map(
@@ -310,7 +310,7 @@ test("compile reduce expression", () => {
     testCompile(
         `
         reduce(
-            func(x: Int, y: Int): Int {
+            func(x: Int, y: Int) {
                 x * y    
             },
             [1, 2, 3],
@@ -331,7 +331,7 @@ test("compile reduce expression", () => {
     testCompile(
         `
         func sum(x: Iter[Int]): Int {
-            reduce(func(a: Int, b: Int): Int { a + b }, x, 0)
+            reduce(func(a: Int, b: Int) { a + b }, x, 0)
         }
 
         sum(range(0, 100))

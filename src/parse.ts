@@ -50,7 +50,7 @@ PARSE_RULES[TokenType.If] = {
     precedence: Precedence.None
 };
 PARSE_RULES[TokenType.Func] = {
-    prefix: parseFunction,
+    prefix: parseAnonymousFunction,
     infix: null,
     precedence: Precedence.None
 };
@@ -199,10 +199,10 @@ Object.values(TokenType).forEach(tokenType => {
 
 function parseGrouping(parser: Parser): AST.Expression {
     const expr = parser.expression();
-    parser.advance();
-    if (parser.previous().type !== TokenType.RParen) {
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
         parser.error("missing closing parenthesis after expression.");
     }
+    parser.advance();
     if (expr === null) {
         return parser.error("expected expression in parentheses.");
     }
@@ -250,23 +250,14 @@ function parseIfStatement(parser: Parser): AST.Expression {
     return parser.tryCreateASTExpression(() => new AST.If(rootToken, conditionalBranches, elseBranch));
 }
 
-function parseFunction(parser: Parser): AST.Expression {
+function parseAnonymousFunction(parser: Parser): AST.Expression {
     const rootToken = parser.previous();  // should be 'func'
     if (parser.atEnd()) {
-        // TODO: Allow anonymous functions
-        return parser.error("Expected function name.");
+        return parser.error("Unterminated function definition.");
     }
     let name: string | null = null;
-    if (parser.current().type === TokenType.Identifier) {
-        name = parser.current().text;
-        parser.advance();
-        if (parser.current().type !== TokenType.LParen) {
-            return parser.error("Expected '(' after function name.");
-        }
-    } else {
-        if (parser.current().type !== TokenType.LParen) {
-            return parser.error("Expected function name or anonymous function arguments.");
-        }
+    if (parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected parameters for anonymous function.", 0);
     }
     parser.advance();
     const params: { name: string, type: AST.Type }[] = [];
@@ -290,29 +281,7 @@ function parseFunction(parser: Parser): AST.Expression {
     if (parser.atEnd()) {
         return parser.error("Unterminated function definition.");
     }
-    parser.advance();
-
-    if (parser.current().type !== TokenType.Colon) {
-        return parser.error("Expected ':' after function parameters.");
-    }
-    parser.advance();
-    const returnType = parser.getTypeName();
-    if (!returnType) {
-        return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
-    }
-
-    if (parser.atEnd()) {
-        return parser.error("Unterminated function definition.");
-    }
-    let typeTraits;
-    try {
-        typeTraits = parser.getTypeTraits();
-    } catch (e) {
-        if (e instanceof Error) {
-            return parser.error(e.message);
-        }
-        throw e;
-    }
+    parser.advance();  // Advance past closing parenthesis
 
     if (parser.atEnd()) {
         return parser.error("Unterminated function definition.");
@@ -322,7 +291,7 @@ function parseFunction(parser: Parser): AST.Expression {
     }
     parser.advance();
 
-    return parser.tryCreateASTExpression(() => new AST.Function(rootToken, name, params, returnType, typeTraits, parser.block()));
+    return parser.tryCreateASTExpression(() => new AST.AnonymousFunction(rootToken, params, parser.block()));
 }
 
 function parseTrait(parser: Parser): AST.Expression {
@@ -839,6 +808,74 @@ class Parser {
         return new AST.Assignment(variableToken, value, isDropped);
     }
 
+    functionDef(): AST.Expression | null {
+        if (this.current().type !== TokenType.Func || this.peek()?.type !== TokenType.Identifier) {
+            return null;
+        }
+        const rootToken = this.current();
+        this.advance();
+        const name = this.current().text;
+        this.advance();
+        if (this.current().type !== TokenType.LParen) {
+            return this.error("Expected '(' after function name.");
+        }
+        this.advance();
+        const params: { name: string, type: AST.Type }[] = [];
+        while (!this.atEnd() && this.current().type !== TokenType.RParen) {
+            if (this.current().type !== TokenType.Identifier) {
+                return this.error("Expected parameter name.");
+            }
+            const paramName = this.current().text;
+            this.advance();
+            if (this.current().type !== TokenType.Colon) {
+                return this.error("Expected ':' after parameter name.");
+            }
+            this.advance();
+            const typeName = this.getTypeName();
+            if (!typeName) {
+                return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
+            }
+            params.push({ name: paramName, type: typeName });
+        }
+    
+        if (this.atEnd()) {
+            return this.error("Unterminated function definition.");
+        }
+        this.advance();
+    
+        if (this.current().type !== TokenType.Colon) {
+            return this.error("Expected ':' after function parameters.");
+        }
+        this.advance();
+        const returnType = this.getTypeName();
+        if (!returnType) {
+            return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
+        }
+    
+        if (this.atEnd()) {
+            return this.error("Unterminated function definition.");
+        }
+        let typeTraits;
+        try {
+            typeTraits = this.getTypeTraits();
+        } catch (e) {
+            if (e instanceof Error) {
+                return this.error(e.message);
+            }
+            throw e;
+        }
+    
+        if (this.atEnd()) {
+            return this.error("Unterminated function definition.");
+        }
+        if (this.current().type !== TokenType.LBrace) {
+            return this.error("Expected '{' after function parameters.");
+        }
+        this.advance();
+    
+        return this.tryCreateASTExpression(() => new AST.Function(rootToken, name, params, returnType, typeTraits, this.block()));
+    }
+
     expression(): AST.Expression | null {
         const expr = this.parseWithPrecedence(Precedence.None + 1);
         if (expr === null || this.atEnd()) {
@@ -858,9 +895,18 @@ class Parser {
         const rootToken = this.previous();  // Should be LBrace
         const expressions: AST.Expression[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
+            if (this.current().type === TokenType.Semicolon) {
+                this.advance();
+                continue;
+            }
             const assignment = this.assignment();
             if (assignment !== null) {
                 expressions.push(assignment);
+                continue;
+            }
+            const functionDef = this.functionDef();
+            if (functionDef !== null) {
+                expressions.push(functionDef);
                 continue;
             }
             const expr = this.expression();

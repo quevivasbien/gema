@@ -6,16 +6,11 @@ const INDENT = "    ";
 class Scope {
     parent: Scope | null;
     variableNames: Set<string> = new Set();
-    functionNames: Set<string> = new Set();
 
     lines: string[] = [];
 
     constructor(parent: Scope | null = null, public baseIndentLevel = 0) {
         this.parent = parent;
-    }
-
-    addFunctionName(name: string) {
-        this.functionNames.add(name);
     }
 
     getDeclarations(): string[] {
@@ -84,10 +79,7 @@ export class JSWriter {
         this.write("}");
     }
 
-    beginFunction(name: string | null) {
-        if (name !== null) {
-            this.scope.addFunctionName(name);
-        }
+    beginFunction() {
         this.beginScope();
     }
 

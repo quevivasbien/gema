@@ -21,7 +21,7 @@ sayHello("Gema")`,
         1
     } else {
         reduce(
-            func (acc: Int, x: Int): Int { acc * x },
+            func(acc: Int, x: Int) { acc * x },
             range(1, n),
             1
         )

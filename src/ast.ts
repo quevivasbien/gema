@@ -64,7 +64,7 @@ class CustomType {
         if (this.traits.length === 0) {
             return this.name;
         }
-        return `${this.name}<${this.traits.join(", ")}>`;
+        return `${this.name}[[${this.traits.join(", ")}]]`;
     }
 
     addTrait(trait: string) {
@@ -513,7 +513,7 @@ export class Variable extends Expression {
                     olderSibling = olderSibling.child;
                 }
                 if (olderSibling instanceof Function && olderSibling.fullName === this.fullName) {
-                    this.type = olderSibling.type;
+                    this.type = olderSibling.getFuncType();
                     return;
                 }
             }
@@ -523,8 +523,8 @@ export class Variable extends Expression {
     }
 
     resolveAssignment(e: Expression): Type | null {
-        if (e instanceof Assignment && (e as Assignment).name === this.name) {
-            return (e as Assignment).value.type;
+        if (e instanceof Assignment && e.name === this.name) {
+            return e.value.type;
         }
         return null;
     }
@@ -552,15 +552,15 @@ export class Variable extends Expression {
                         olderSibling = olderSibling.child;
                     }
                     if (olderSibling instanceof Function && olderSibling.name === this.name && olderSibling.params.length === 0 && olderSibling.fullName !== null) {
-                        this.type = olderSibling.type;
+                        this.type = olderSibling.getFuncType();
                         this.fullName = olderSibling.fullName;
                         return;
                     }
                 }
             } else if (ancestor instanceof Function) {
-                for (const arg of (ancestor as Function).params) {
-                    if (arg.name === this.name) {
-                        this.type = arg.type;
+                for (const param of ancestor.params) {
+                    if (param.name === this.name) {
+                        this.type = param.type;
                         this.fullName = this.name;
                         return;
                     }
@@ -570,6 +570,14 @@ export class Variable extends Expression {
                     this.type = ancestor.type;
                     this.fullName = ancestor.fullName;
                     return;
+                }
+            } else if (ancestor instanceof AnonymousFunction) {
+                for (const param of ancestor.params) {
+                    if (param.name === this.name) {
+                        this.type = param.type;
+                        this.fullName = this.name;
+                        return;
+                    }
                 }
             }
             lastAncestor = ancestor;
@@ -719,85 +727,37 @@ export class If extends Expression {
     }
 }
 
-function functionNameWithParamTypes(name: string, paramTypes: Type[]): string {
+function functionNameWithParamTypes(name: string | null, paramTypes: Type[]): string {
     return `${name}$${paramTypes.join("$")}`.replaceAll(" ", "").replaceAll(/[^0-9a-zA-Z_$]/g, "_");
 }
 
-export class Function extends Expression {
-    name: string | null;
+export class AnonymousFunction extends Expression {
     params: { name: string, type: Type }[];
-    returnType: Type;
     body: Block;
-    fullName: string | null;
 
-    constructor(rootToken: Token, name: string | null, params: { name: string, type: Type }[], returnType: Type, typeTraits: { type: Type, trait: Type }[], body: Expression) {
+    constructor(rootToken: Token, params: { name: string, type: Type }[], body: Expression) {
         if (!(body instanceof Block)) {
-            throw new Error("function body must be a Block expression");
-        }
-        if (params.reduce((acc, p) => acc || p.name === name, false)) {
-            throw new Error("function name cannot be the same as a parameter name");
+            throw new Error("function body must be a Blcok expression");
         }
         super(rootToken.line, rootToken.col);
-        this.name = name;
         this.params = params;
-        this.returnType = returnType;
         this.body = body;
-        this.fullName = this.name !== null ? functionNameWithParamTypes(name as string, params.map(p => p.type)) : null;
-        
-        typeTraits.forEach(({ type, trait }) => {
-            if (!(type instanceof CustomType)) {
-                throw new Error(`type alias ${type} overrides a builtin type.`);
-            }
-            if (!(trait instanceof CustomType)) {
-                throw new Error(`${trait} is not a valid trait name.`);
-            }
-            this.params.forEach(param => {
-                if (param.type instanceof CustomType && param.type.name === type.name) {
-                    param.type.addTrait(trait.name);
-                }    
-            });
-            if (this.returnType instanceof CustomType && this.returnType.name === type.name) {
-                this.returnType.addTrait(trait.name);
-            }
-        });
-
-        this.type = new FuncType(
-            params.map(arg => arg.type),
-            returnType
-        );
     }
 
     cascadeTypes(ancestors: Expression[]): void {
         this.body.cascadeTypes([...ancestors, this]);
-
-        if (!deepEquals(this.body.type, this.returnType)) {
-            throw this.error(`function body should return ${this.returnType}, but found ${this.body.type}`);
+        const returnType = this.body.type;
+        if (returnType === null) {
+            throw this.error(`unable to resolve return type of function.`);
         }
+        this.type = new FuncType(this.params.map(p => p.type), returnType);
     }
 
     toJS(writer: JSWriter): void {
-        if (this.fullName === undefined) {
-            throw new Error("function name not resolved");
-        }
-        if (this.name !== null) {
-            writer.write(`function ${this.fullName}(`);
-        } else {
-            writer.write(`(`);
-        }
+        writer.write(`(`);
         writer.write(this.params.map(p => p.name).join(", "));
-        if (this.name !== null) {
-            writer.write(") ");
-        } else {
-            writer.write(") => ")
-        }
-        try {
-            writer.beginFunction(this.fullName);
-        } catch (e) {
-            if (e instanceof Error) {
-                throw this.error(e.message);
-            }
-            throw e;
-        }
+        writer.write(") => ")
+        writer.beginFunction();
         this.body.expressions.slice(0, -1).forEach(expr => {
             expr.toJS(writer);
             writer.newLine();
@@ -817,6 +777,159 @@ export class Function extends Expression {
     }
 }
 
+export class Function extends Expression {
+    name: string | null;
+    params: { name: string, type: Type }[];
+    returnType: Type;
+    body: Block;
+    fullName: string;
+
+    calledWithArgTypes = [];
+
+    constructor(rootToken: Token, name: string, params: { name: string, type: Type }[], returnType: Type, typeTraits: { type: Type, trait: Type }[], body: Expression) {
+        if (!(body instanceof Block)) {
+            throw new Error("function body must be a Block expression");
+        }
+        if (params.reduce((acc, p) => acc || p.name === name, false)) {
+            throw new Error("function name cannot be the same as a parameter name");
+        }
+        super(rootToken.line, rootToken.col);
+        this.name = name;
+        this.params = params;
+        this.returnType = returnType;
+        this.body = body;
+        this.fullName = functionNameWithParamTypes(name as string, params.map(p => p.type));
+        
+        typeTraits.forEach(({ type, trait }) => {
+            if (!(type instanceof CustomType)) {
+                throw new Error(`type alias ${type} overrides a builtin type.`);
+            }
+            if (!(trait instanceof CustomType)) {
+                throw new Error(`${trait} is not a valid trait name.`);
+            }
+            this.params.forEach(param => {
+                if (param.type instanceof CustomType && param.type.name === type.name) {
+                    param.type.addTrait(trait.name);
+                }    
+            });
+            if (this.returnType instanceof CustomType && this.returnType.name === type.name) {
+                this.returnType.addTrait(trait.name);
+            }
+        });
+
+        this.type = "Null";
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.body.cascadeTypes([...ancestors, this]);
+
+        if (!deepEquals(this.body.type, this.returnType)) {
+            throw this.error(`function body should return ${this.returnType}, but found ${this.body.type}`);
+        }
+    }
+
+    getFuncType(): FuncType {
+        return new FuncType(this.params.map(p => p.type), this.returnType);
+    }
+
+    toJSWithParamTypes(paramTypes: Type[]) {
+
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write(`function ${this.fullName}(`);
+        writer.write(this.params.map(p => p.name).join(", "));
+        writer.write(") ");
+        writer.beginFunction();
+        this.body.expressions.slice(0, -1).forEach(expr => {
+            expr.toJS(writer);
+            writer.newLine();
+        });
+        const lastExpr = this.body.expressions[this.body.expressions.length - 1];
+        if (lastExpr instanceof DropValue || (lastExpr instanceof Assignment && lastExpr.isDropped)) {
+            lastExpr.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+            writer.write("return null;");
+        } else {
+            writer.write("return ");
+            lastExpr.toJS(writer);
+            writer.write(";");
+        }
+        writer.endFunction();
+    }
+}
+
+// function getMatchingTraitFuncSignatures(argTypes: Type[]): TemplateTypes[] {
+//     const traits: string[] = [];
+//     argTypes.forEach(argType => {
+//         if (!(argType instanceof CustomType)) {
+//             return;
+//         }
+//         argType.traits.forEach(trait => {
+//             if (!traits.includes(trait)) {
+//                 traits.push(trait);
+//             }
+//         });
+//     });
+//     const signatures: TemplateTypes[] = [];
+//     traits.forEach(trait => {
+//         const traitFuncs = getTraitFuncs(trait);
+//         traitFuncs.forEach(traitFunc => {
+//             if (functionIsCompatibleWithArgTypes(traitFunc.params, argTypes)) {
+//                 signatures.push(traitFunc.types);
+//             }
+//         });
+//     });
+//     return signatures;
+// }
+
+function getTraitFunc(root: Expression, ancestors: Expression[], name: string, argTypes: Type[]): { referToByName: string, callerType: CallableType, rootType: Type } | null {
+    const traits: { selfType: Type, traitName: string }[] = [];
+    argTypes.forEach(argType => {
+        if (!(argType instanceof CustomType)) {
+            return;
+        }
+        argType.traits.forEach(trait => {
+            traits.push({ selfType: argType, traitName: trait });
+        });
+    });
+
+    // Climb up tree of ancestors looking for functions defined by each trait
+    // If a match is found, return it
+    let lastAncestor = root;
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+        const ancestor = ancestors[i];
+        if (!(ancestor instanceof Block)) {
+            continue;
+        }
+        const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
+        for (let j = olderSiblings.length - 1; j >= 0; j--) {
+            const olderSibling = olderSiblings[j];
+            if (!(olderSibling instanceof Trait)) {
+                continue;
+            }
+            const matchingTraits = traits.filter(t => t.traitName === olderSibling.name);
+            for (const { selfType, traitName } of matchingTraits) {
+                const match = olderSibling.getMatchingFunction(selfType, argTypes);
+                if (match !== null) {
+                    return {
+                        referToByName: "I DONT KNOW",
+                        callerType: new FuncType(argTypes, match.returnType),  // TODO: Also not sure about this
+                        rootType: match.returnType,
+                    };
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+function paramTypesMatchArgTypes(funcParamTypes: Type[], argTypes: Type[]): boolean {
+    return deepEquals(funcParamTypes, argTypes);
+}
+
 /**
  * This function takes a root expression (the callable we're trying to resolve) and ancestors,
  * and tries to find a callable with a matching name and type signature.
@@ -825,6 +938,10 @@ export class Function extends Expression {
  * If no matching callable is found, it returns an error string.
  */
 function findCaller(root: Expression, ancestors: Expression[], name: string, argTypes: Type[]): { error: null, result: { referToByName: string, callerType: CallableType, rootType: Type } } | { error: string, result: null } {
+    // const traitFuncMatch = getTraitFunc(root, ancestors, name, argTypes);
+    // if (traitFuncMatch !== null) {
+    //     return { error: null, result: traitFuncMatch };
+    // }
     const fullName = functionNameWithParamTypes(name, argTypes);
     // The goal here is to figure out whether we should refer to this function by its name or fullName.
     // We want to find either function definitions with matching type signatures (matching fullName),
@@ -840,20 +957,19 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                 while (olderSibling instanceof DropValue) {
                     olderSibling = olderSibling.child;
                 }
-                if (olderSibling instanceof Function && olderSibling.fullName === fullName) {
+                if (olderSibling instanceof Function && paramTypesMatchArgTypes(olderSibling.params.map(t => t.type), argTypes)) {
                     return {
                         error: null,
                         result: {
                             referToByName: fullName,
-                            callerType: olderSibling.type as FuncType,
-                            rootType: olderSibling.returnType
+                            callerType: olderSibling.getFuncType(),
+                            rootType: olderSibling.returnType  // TODO: Adjust for trait types
                         }
                     };
                 } else if (olderSibling instanceof Assignment && olderSibling.name === name) {
                     const varType = olderSibling.value.type;
                     if (varType instanceof FuncType) {
-                        const indirectFuncName = functionNameWithParamTypes(olderSibling.name, varType.paramTypes);
-                        if (indirectFuncName !== fullName) {
+                        if (!paramTypesMatchArgTypes(varType.paramTypes, argTypes)) {
                             return { error: `most recent definition of variable ${name} has an incompatible type signature for this function call.`, result: null };
                         }
                         return {
@@ -861,7 +977,7 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                             result: {
                                 referToByName: name,
                                 callerType: varType,
-                                rootType: varType.returnType
+                                rootType: varType.returnType  // TODO: Adjust for trait types
                             }
                         };
                     }
@@ -887,8 +1003,7 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
             for (const param of ancestor.params) {
                 if (param.name === name) {
                     if (param.type instanceof FuncType) {
-                        const indirectFuncName = functionNameWithParamTypes(param.name, param.type.paramTypes);
-                        if (indirectFuncName !== fullName) {
+                        if (!paramTypesMatchArgTypes(param.type.paramTypes, argTypes)) {
                             return { error: `variable ${name} (parameter of function ${ancestor.name}) has an incompatible type signature for this function call.`, result: null };
                         }
                         return {
@@ -896,7 +1011,7 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                             result: {
                                 referToByName: name,
                                 callerType: param.type,
-                                rootType: param.type.returnType
+                                rootType: param.type.returnType  // TODO: Adjust for trait types
                             }
                         };
                     }
@@ -923,7 +1038,7 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                     error: null,
                     result: {
                         referToByName: fullName,
-                        callerType: ancestor.type as FuncType,
+                        callerType: ancestor.getFuncType(),
                         rootType: ancestor.returnType
                     }
                 };
@@ -938,7 +1053,7 @@ export class Call extends Expression {
     name: string;
     args: Expression[];
 
-    callerType?: ArrayType | FuncType;
+    callerType?: CallableType;
     referToByName?: string;
 
     constructor(nameToken: Token, args: Expression[]) {
@@ -1020,13 +1135,10 @@ export class DirectCall extends Expression {
                 }
                 return arg.type;
             });
-            if (this.caller.type.paramTypes.length !== argTypes.length) {
-                throw this.error(`expected ${this.caller.type.paramTypes.length} arguments, got ${argTypes.length}`);
-            }
-            if (this.caller.type.paramTypes.some((type, i) => type !== argTypes[i])) {
+            if (!paramTypesMatchArgTypes(this.caller.type.paramTypes, argTypes)) {
                 throw this.error(`incompatible argument types in function call: expected ${this.caller.type.paramTypes}, got ${argTypes}`);
             }
-            this.type = this.caller.type.returnType;
+            this.type = this.caller.type.returnType;  // TODO: Adjust this to be based on actually-passed values in case of trait types
             return;
         }
         if (this.caller.type instanceof ArrayType) {
@@ -1459,6 +1571,25 @@ export class Trait extends Expression {
         }
 
         this.type = "Null";
+    }
+
+    getMatchingFunction(selfType: Type, argTypes: Type[]): { name: string, returnType: Type } | null {
+        for (const { name, types } of this.requiredFunctions) {
+            if (types.returnType === null) {
+                continue;
+            }
+            const paramTypesReplaced = types.types.map(t => {
+                if (t instanceof CustomType && t.name === "Self") {
+                    return selfType;
+                } else {
+                    return t;
+                }
+            });
+            if (paramTypesMatchArgTypes(paramTypesReplaced, argTypes)) {
+                return { name, returnType: types.returnType };
+            }
+        }
+        return null;
     }
 
     cascadeTypes(ancestors: Expression[]): void {
