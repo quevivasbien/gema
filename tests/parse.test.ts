@@ -189,7 +189,7 @@ test("parse functions with generics", () => {
     );
 });
 
-test.todo("parse trait-defined functions", () => {
+test("parse trait-defined functions", () => {
     testParse(`
         trait Adder {
             add[Self, Self: Self],
@@ -202,6 +202,29 @@ test.todo("parse trait-defined functions", () => {
         func foo(a: T, b: T): T where T is Adder {
             add(a, b)
         }
+        
+        foo(1, 2)
+        `
+    );
+    testParse(`
+        trait Comparable {
+            eq[Self, Self: Bool],
+            lt[Self, Self: Bool]
+        };
+
+        func lte(a: T, b: T): T where T is Comparable {
+            lt(a, b) or eq(a, b)
+        }
+
+        func eq(a: Int, b: Int) {
+            a == b
+        }
+
+        func lt(a: Int, b: Int) {
+            a < b
+        }
+        
+        lte(2, 3)
         `
     );
 });

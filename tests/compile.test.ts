@@ -339,3 +339,45 @@ test("compile reduce expression", () => {
         5050n
     );
 });
+
+test("compile trait-defined functions", () => {
+    testCompile(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        func add(a: Int, b: Int): Int {
+            a + b
+        }
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        }
+
+        foo(1, 2)
+        `,
+        3n
+    );
+    testCompile(`
+        trait Comparable {
+            eq[Self, Self: Bool],
+            lt[Self, Self: Bool]
+        };
+
+        func lte(a: T, b: T): T where T is Comparable {
+            lt(a, b) or eq(a, b)
+        }
+
+        func eq(a: Int, b: Int) {
+            a == b
+        }
+
+        func lt(a: Int, b: Int) {
+            a < b
+        }
+        
+        [lte(2, 3), lte(3, 3), lte(4,3)]
+        `,
+        [true, true, false]
+    );
+});
