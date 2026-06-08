@@ -79,3 +79,39 @@ iter = map(
 
 @iter  # [3, 4, 5]
 ```
+
+### Custom struct types
+```
+struct Point {
+    x: Float
+    y: Float
+}
+
+func taxicab(a: Point, b: Point): Float {
+    (b("x") - a("x")) + (b("y") - a("y"))
+}
+
+taxicab(Point(8.0, 7.0), Point(-2.0, 2.0))  # -15.0
+```
+
+### Generic functions and traits
+```
+trait Comparable {
+    eq[Self, Self: Bool],
+    lt[Self, Self: Bool]
+};
+
+func lte(a: T, b: T): Bool where T is Comparable {
+    lt(a, b) or eq(a, b)
+}
+
+func eq(a: Int, b: Int): Bool {
+    a == b
+}
+
+func lt(a: Int, b: Int): Bool {
+    a < b
+}
+
+[lte(2, 3), lte(3, 3), lte(4,3)]  # [true, true, false]
+```
