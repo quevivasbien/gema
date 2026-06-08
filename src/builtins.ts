@@ -135,5 +135,20 @@ function __FILTERITER__(filterFn, innerIter) {
     }
     return accumulated;
 }`
+    ),
+    "__ITER_GET__": (
+`function __ITER_GET__(iter, index) {
+    let count = 0n;
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            return undefined;
+        }
+        if (count === index) {
+            return value;
+        }
+        count++;
+    }
+}`
     )
 };

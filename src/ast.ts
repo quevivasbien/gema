@@ -153,6 +153,16 @@ class IterType {
     toString(): string {
         return `Iter[${this.innerType}]`;
     }
+
+    checkIndicesCompatible(indexTypes: Type[]): string | null {
+        if (indexTypes.length !== 1) {
+            return `iter type requires exactly one index, got ${indexTypes.length}`;
+        }
+        if (indexTypes[0] !== "Int") {
+            return `iter index must be of type Int`;
+        }
+        return null;
+    }
 }
 
 class CustomType {
@@ -189,7 +199,7 @@ export type Type =
     "Self"
     ;
 
-type CallableType = FuncType | ArrayType;
+type CallableType = FuncType | ArrayType | IterType;
 
 export class TemplateTypes {
     constructor(public types: Type[] = [], public returnType: Type | null = null) { }
@@ -1467,6 +1477,20 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                             }
                         };
                     }
+                    if (varType instanceof IterType) {
+                        const incompatible = varType.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                referToByName: name,
+                                callerType: varType,
+                                rootType: varType.innerType
+                            }
+                        };
+                    }
                     // Struct types: fall through — might be struct field access handled by Call.cascadeTypes
                     if (varType instanceof CustomType && getStruct(varType.name)) {
                         break;
@@ -1492,6 +1516,20 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                         };
                     }
                     if (param.type instanceof ArrayType) {
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: param.type.innerType
+                            }
+                        };
+                    }
+                    if (param.type instanceof IterType) {
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -1668,6 +1706,19 @@ export class Call extends Expression {
                 });
                 writer.write(")");
             }
+        } else if (this.callerType instanceof IterType) {
+            // Iterate up to the desired index and return that element
+            writer.useBuiltin("__ITER_GET__");
+            writer.write("__ITER_GET__(");
+            writer.write(this.referToByName);
+            writer.write(", ");
+            this.args.forEach((arg, i) => {
+                if (i > 0) {
+                    writer.write(", ");
+                }
+                arg.toJS(writer);
+            });
+            writer.write(")");
         } else if (this.callerType instanceof ArrayType) {
             writer.write(this.referToByName);
             this.args.forEach((arg, i) => {
@@ -1711,6 +1762,20 @@ export class DirectCall extends Expression {
             return;
         }
         if (this.caller.type instanceof ArrayType) {
+            const incompatible = this.caller.type.checkIndicesCompatible(this.args.map(arg => arg.type as Type));
+            if (incompatible !== null) {
+                throw this.error(incompatible);
+            }
+            this.type = this.caller.type.innerType;
+            return;
+        }
+        if (this.caller.type instanceof IterType) {
+            this.args.forEach((arg, i) => {
+                arg.cascadeTypes([...ancestors, this]);
+                if (arg.type === null) {
+                    throw this.error(`unable to resolve type of argument ${i + 1} in iter access`);
+                }
+            });
             const incompatible = this.caller.type.checkIndicesCompatible(this.args.map(arg => arg.type as Type));
             if (incompatible !== null) {
                 throw this.error(incompatible);
@@ -1782,6 +1847,19 @@ export class DirectCall extends Expression {
                     arg.toJS(writer);
                     writer.write("]");
                 });
+            } else if (this.caller.type instanceof IterType) {
+                // Iterate up to the desired index and return that element
+                writer.useBuiltin("__ITER_GET__");
+                writer.write("__ITER_GET__(");
+                this.caller.toJS(writer);
+                writer.write(", ");
+                this.args.forEach((arg, i) => {
+                    if (i > 0) {
+                        writer.write(", ");
+                    }
+                    arg.toJS(writer);
+                });
+                writer.write(")");
             } else {
                 throw new Error(`unknown caller type: ${this.caller.type}`);
             }
@@ -1966,7 +2044,7 @@ export class MapIter extends Expression {
             throw this.error(`cannot map with non-callable object (expression of type ${mapFnType})`);
         }
 
-        if (iterInnerType !== inputType) {
+        if (!deepEquals(iterInnerType, inputType)) {
             throw this.error(`incompatible types in map: expected ${inputType}, but iterable is over type ${iterInnerType}`);
         }
 
@@ -2068,17 +2146,17 @@ export class Reduce extends Expression {
             }
             accType = reduceFnType.paramTypes[0];
             inputType = reduceFnType.paramTypes[1];
-            if (reduceFnType.returnType !== accType) {
+            if (!deepEquals(reduceFnType.returnType, accType)) {
                 throw this.error("reduce function must return the same type as its accumulator (first argument)");
             }
         } else {
             throw this.error(`cannot reduce with non-function object (expression of type ${reduceFnType})`);
         }
 
-        if (iterInnerType !== inputType) {
+        if (!deepEquals(iterInnerType, inputType)) {
             throw this.error(`incompatible types in reduce: expected ${inputType}, but iterable is over type ${iterInnerType}`);
         }
-        if (accType !== this.initValue.type) {
+        if (!deepEquals(accType, this.initValue.type)) {
             throw this.error(`incompatible types in reduce: expected ${accType}, but initial value is of type ${this.initValue.type}`);
         }
 
@@ -2176,7 +2254,7 @@ export class FilterIter extends Expression {
             throw this.error(`cannot filter with non-function object (expression of type ${filterFnType})`);
         }
 
-        if (iterInnerType !== inputType) {
+        if (!deepEquals(iterInnerType, inputType)) {
             throw this.error(`incompatible types in filter: expected ${inputType}, but iterable is over type ${iterInnerType}`);
         }
 

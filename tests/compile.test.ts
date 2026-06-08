@@ -484,3 +484,36 @@ test("compile trait-defined functions", () => {
         [true, true, false]
     );
 });
+
+test("compile functional operations with structs", () => {
+    testCompile(`
+        struct P { p: Int }
+
+        filtered = filter(func (p: P) { p("p") > 0 }, [P(-1), P(2)]);
+        filtered(0)("p")
+    `, 2n);
+    testCompile(`
+        struct P { p: Int }
+
+        @map(func (p: P) { p("p") }, [P(1), P(2)])
+    `, [1n, 2n]);
+});
+
+test("compile reduce with structs", () => {
+    testCompile(`
+        struct P { p: Int };
+        func addP(a: P, b: P): P {
+            P(a("p") + b("p"))
+        };
+        result = reduce(addP, [P(1), P(2), P(3)], P(0));
+        result("p")
+    `, 6n);
+});
+
+test("compile function returning struct field access", () => {
+    testCompile(`
+        struct P { p: Int };
+        func getP(): P { P(7) };
+        getP()("p")
+    `, 7n);
+});

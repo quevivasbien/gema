@@ -424,3 +424,17 @@ test("parse struct with trait generic chained add", () => {
         result("x") + result("y")
     `);
 });
+
+test("parse functional operations with structs", () => {
+    testParse(`
+        struct P { p: Int }
+
+        filtered = filter(func (p: P) { p("p") > 0 }, [P(-1), P(2)]);
+        filtered(0)("p")
+    `);
+    testParse(`
+        struct P { p: Int }
+
+        @map(func (p: P) { p("p") }, [P(1), P(2)])
+    `);
+});
