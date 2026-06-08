@@ -1642,9 +1642,11 @@ export class Call extends Expression {
             return;
         }
         if (this.callerType instanceof FuncType) {
-            // Check if this is a struct constructor (return type is a registered struct)
+            // Check if this is a struct constructor (call name matches a registered struct name)
             const structInfo = this.type instanceof CustomType ? getStruct(this.type.name) : undefined;
-            if (structInfo) {
+            // Only use constructor formatting when the call name directly matches the struct name,
+            // not when a regular function call happens to return a struct type
+            if (structInfo && this.name === structInfo.name) {
                 // Generate object literal: {field1: arg1, field2: arg2}
                 writer.write("{");
                 this.args.forEach((arg, i) => {

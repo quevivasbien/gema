@@ -369,3 +369,58 @@ test("parse generic multiple type parameters", () => {
         }
     `);
 });
+
+test("parse struct field access on param", () => {
+    testParse(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        func getX(p: Point): Int {
+            p("x")
+        };
+        getX(Point(5, 10))
+    `);
+});
+
+test("parse struct with generic identity", () => {
+    testParse(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        func id(a: T): T {
+            a
+        };
+        p = Point(1, 2);
+        q = id(p);
+        q("x") + q("y")
+    `);
+});
+
+test("parse struct with trait generic chained add", () => {
+    testParse(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        struct Point {
+            x: Int,
+            y: Int
+        };
+
+        func add(a: Point, b: Point): Point {
+            Point(a("x") + b("x"), a("y") + b("y"))
+        };
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        };
+
+        a = Point(1, 2);
+        b = Point(3, 4);
+        c = Point(5, 6);
+        result = foo(foo(a, b), c);
+        result("x") + result("y")
+    `);
+});

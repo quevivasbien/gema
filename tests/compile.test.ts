@@ -340,6 +340,109 @@ test("compile reduce expression", () => {
     );
 });
 
+test("compile struct construction and field access", () => {
+    testCompile(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        p = Point(1, 2);
+        p("x") + p("y")
+    `, 3n);
+});
+
+test("compile struct field access on param", () => {
+    testCompile(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        func getX(p: Point): Int {
+            p("x")
+        };
+        getX(Point(5, 10))
+    `, 5n);
+});
+
+test("compile struct with generic identity function", () => {
+    testCompile(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        func id(a: T): T {
+            a
+        };
+        p = Point(1, 2);
+        q = id(p);
+        q("x") + q("y")
+    `, 3n);
+});
+
+test("compile struct with trait generic (add two points)", () => {
+    testCompile(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        struct Point {
+            x: Int,
+            y: Int
+        };
+
+        func add(a: Point, b: Point): Point {
+            Point(a("x") + b("x"), a("y") + b("y"))
+        };
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        };
+
+        result = foo(Point(1, 2), Point(3, 4));
+        result("x") + result("y")
+    `, 10n);
+});
+
+test("compile struct with trait generic (chained add)", () => {
+    testCompile(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        struct Point {
+            x: Int,
+            y: Int
+        };
+
+        func add(a: Point, b: Point): Point {
+            Point(a("x") + b("x"), a("y") + b("y"))
+        };
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        };
+
+        a = Point(1, 2);
+        b = Point(3, 4);
+        c = Point(5, 6);
+        result = foo(foo(a, b), c);
+        result("x") + result("y")
+    `, 21n);
+});
+
+test("compile struct with multiple generic type params", () => {
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        struct Pair { a: Int, b: Int };
+        
+        func swap(a: T, b: U): Arr[T] {
+            [a]
+        };
+        result = swap(Point(1, 2), Pair(3, 4));
+        result(0)("x")
+    `, 1n);
+});
+
 test("compile trait-defined functions", () => {
     testCompile(`
         trait Adder {
