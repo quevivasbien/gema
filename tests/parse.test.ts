@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { scan } from "../src/scan";
 import { parse } from "../src/parse";
+import { resetRegistries } from "../src/ast";
 
 export function testParse(text: string, checkSnapshot: boolean = true) {
+    resetRegistries();
     const tokens = scan(text);
     const { ast, errors } = parse(tokens);
     if (errors.length > 0) {
@@ -14,6 +16,7 @@ export function testParse(text: string, checkSnapshot: boolean = true) {
 }
 
 function testParseExpectError(text: string) {
+    resetRegistries();
     const tokens = scan(text);
     const { ast, errors } = parse(tokens);
     expect(errors.length).toBeGreaterThan(0);
@@ -92,7 +95,8 @@ test("parse if", () => {
 });
 
 test("parse function", () => {
-    testParseExpectError(`func foo() { 1 }`);
+    // Functions without return types are allowed (inferred from body)
+    testParse(`func foo() { 1 }`);
     testParse(`func add(a: Int, b: Int): Int { a + b }`);
     testParse(`
         func myFunc(a: Func[Int: Func[Int: Int]], b: Func[:Int]): Func[Int: Func[Int: Int]] {
@@ -101,6 +105,7 @@ test("parse function", () => {
     `);
     testParse(`func myFunc(a: Int): Int { a }; myFunc(1)`);
     testParseExpectError(`func myFunc(a: Int): Int { a }; myFunc(1.0)`);
+    // Functions with params must be referenced with explicit type params
     testParseExpectError(
         `
         func foo(a: Int): Int {
@@ -212,19 +217,155 @@ test("parse trait-defined functions", () => {
             lt[Self, Self: Bool]
         };
 
-        func lte(a: T, b: T): T where T is Comparable {
+        func lte(a: T, b: T): Bool where T is Comparable {
             lt(a, b) or eq(a, b)
         }
 
-        func eq(a: Int, b: Int) {
+        func eq(a: Int, b: Int): Bool {
             a == b
         }
 
-        func lt(a: Int, b: Int) {
+        func lt(a: Int, b: Int): Bool {
             a < b
         }
         
         lte(2, 3)
         `
     );
+    testParseExpectError(`
+        trait Comparable {
+            eq[Self, Self: Bool],
+            lt[Self, Self: Bool]
+        };
+
+        func lte(a: T, b: T): Bool where T is Comparable {
+            lt(a, b) or eq(a, b)
+        }
+        
+        lte(2, 3)
+        `
+    );
+});
+
+test("parse struct definition", () => {
+    testParse(`
+        struct Point {
+            x: Int,
+            y: Int
+        }
+    `);
+    testParse(`
+        struct Empty {
+        }
+    `);
+    testParseExpectError(`
+        struct Point {
+            x
+        }
+    `);
+});
+
+test("parse struct construction and field access", () => {
+    testParse(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        p = Point(1, 2);
+        p("x")
+    `);
+});
+
+test("parse struct field access errors", () => {
+    testParseExpectError(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        p = Point(1, 2);
+        p("z")
+    `);
+    testParseExpectError(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        p("x")
+    `);
+});
+
+test("parse struct constructor errors", () => {
+    testParseExpectError(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        Point(1)
+    `);
+    testParseExpectError(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        Point(1, "hello")
+    `);
+});
+
+test("parse generic identity function", () => {
+    testParse(`
+        func id(a: T): T {
+            a
+        };
+        id(1)
+    `);
+});
+
+test("parse struct with trait generic", () => {
+    testParse(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        struct Point {
+            x: Int,
+            y: Int
+        };
+
+        func add(a: Point, b: Point): Point {
+            Point(a("x") + b("x"), a("y") + b("y"))
+        };
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        };
+
+        foo(Point(1, 2), Point(3, 4))
+    `);
+});
+
+test("parse generic error when trait not satisfied", () => {
+    testParseExpectError(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        struct Point {
+            x: Int,
+            y: Int
+        };
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        };
+
+        foo(Point(1, 2), Point(3, 4))
+    `);
+});
+
+test("parse generic multiple type parameters", () => {
+    testParse(`
+        func pair(a: T, b: U): Arr[T] {
+            [a]
+        }
+    `);
 });

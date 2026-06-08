@@ -25,6 +25,7 @@ export class JSWriter {
     indentLevel: number = 0;
     scope: Scope = new Scope();
     builtins: Set<string> = new Set();
+    monoFunctionsEmitted: boolean = false;
 
     constructor(ast: AST.Expression) {
         this.ast = ast;
@@ -67,7 +68,7 @@ export class JSWriter {
             throw new Error("Tried to exit top-level scope");
         }
         const varDeclarations = this.scope.getDeclarations();
-        const scopeLines  = this.scope.lines;
+        const scopeLines = this.scope.lines;
         this.scope = this.scope.parent;
         this.scope.lines.push(...varDeclarations, ...scopeLines);
         this.indentOut();

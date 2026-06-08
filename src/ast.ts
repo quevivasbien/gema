@@ -6,6 +6,110 @@ export class ASTError {
     constructor(public line: number, public col: number, public message: string) { }
 }
 
+// Built-in type names that cannot be used as type parameters or user-defined types
+const BUILTIN_TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Null", "Func", "Arr", "Iter", "Self"]);
+
+export function isBuiltinTypeName(name: string): boolean {
+    return BUILTIN_TYPE_NAMES.has(name);
+}
+
+// Collect all CustomType names from a type tree
+export function collectCustomTypeNames(type: Type, names: Set<string>): void {
+    if (type instanceof CustomType) {
+        names.add(type.name);
+    } else if (type instanceof FuncType) {
+        type.paramTypes.forEach(pt => collectCustomTypeNames(pt, names));
+        collectCustomTypeNames(type.returnType, names);
+    } else if (type instanceof ArrayType) {
+        collectCustomTypeNames(type.innerType, names);
+    } else if (type instanceof IterType) {
+        collectCustomTypeNames(type.innerType, names);
+    }
+}
+
+// Substitute type parameters in a type tree using a binding map
+export function substituteTypeParams(type: Type, bindings: Map<string, Type>): Type {
+    if (type instanceof CustomType && bindings.has(type.name)) {
+        const substituted = bindings.get(type.name)!;
+        // Preserve traits from the original type param
+        if (substituted instanceof CustomType && type.traits.length > 0) {
+            // Don't carry trait constraints onto the concrete type
+        }
+        return substituted;
+    }
+    if (type instanceof FuncType) {
+        return new FuncType(
+            type.paramTypes.map(pt => substituteTypeParams(pt, bindings)),
+            substituteTypeParams(type.returnType, bindings)
+        );
+    }
+    if (type instanceof ArrayType) {
+        return new ArrayType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof IterType) {
+        return new IterType(substituteTypeParams(type.innerType, bindings));
+    }
+    return type;
+}
+
+// Global registry of trait definitions, keyed by trait name
+const traitRegistry: Map<string, { name: string, types: TemplateTypes }[]> = new Map();
+
+export function registerTrait(name: string, requiredFunctions: { name: string, types: TemplateTypes }[]): void {
+    traitRegistry.set(name, requiredFunctions);
+}
+
+export function getTrait(name: string): { name: string, types: TemplateTypes }[] | undefined {
+    return traitRegistry.get(name);
+}
+
+// Global registry of struct definitions, keyed by struct name
+const structRegistry: Map<string, { name: string, fields: { name: string, type: Type }[] }> = new Map();
+
+export function registerStruct(name: string, fields: { name: string, type: Type }[]): void {
+    structRegistry.set(name, { name, fields });
+}
+
+export function getStruct(name: string): { name: string, fields: { name: string, type: Type }[] } | undefined {
+    return structRegistry.get(name);
+}
+
+// Global cache of monomorphized functions, keyed by fullName
+const monomorphizedCache: Map<string, Function> = new Map();
+
+// Global registry of all named functions (non-generic), keyed by fullName
+const functionRegistry: Map<string, Function> = new Map();
+
+export function registerFunction(fn: Function): void {
+    if (!fn.isGeneric) {
+        functionRegistry.set(fn.fullName, fn);
+    }
+}
+
+export function findFunction(fullName: string): Function | undefined {
+    return functionRegistry.get(fullName) ?? monomorphizedCache.get(fullName);
+}
+
+export function getMonomorphized(fullName: string): Function | undefined {
+    return monomorphizedCache.get(fullName);
+}
+
+export function registerMonomorphized(fullName: string, fn: Function): void {
+    monomorphizedCache.set(fullName, fn);
+}
+
+export function getAllMonomorphized(): Map<string, Function> {
+    return monomorphizedCache;
+}
+
+// Reset all global registries (useful between tests)
+export function resetRegistries(): void {
+    traitRegistry.clear();
+    structRegistry.clear();
+    functionRegistry.clear();
+    monomorphizedCache.clear();
+}
+
 class FuncType {
     constructor(
         public paramTypes: Type[],
@@ -159,6 +263,9 @@ export abstract class Expression {
     toJS(writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`)
     }
+
+    // Deep-clone this expression tree, optionally substituting type parameters
+    abstract clone(bindings?: Map<string, Type>): Expression;
 }
 
 export class ErrorExpression extends Expression {
@@ -169,6 +276,10 @@ export class ErrorExpression extends Expression {
 
     cascadeTypes(ancestors: Expression[]): void {
         // noop
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return this; // Error expressions don't need deep cloning
     }
 }
 
@@ -185,6 +296,10 @@ export class DropValue extends Expression {
 
     toJS(writer: JSWriter): void {
         this.child.toJS(writer);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new DropValue(this.child.clone(bindings));
     }
 }
 
@@ -204,6 +319,13 @@ export class Block extends Expression {
         this.type = this.expressions[this.expressions.length - 1].type;
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        return new Block(
+            { line: this.line, col: this.col, text: "", type: TokenType.LBrace },
+            this.expressions.map(e => e.clone(bindings))
+        );
+    }
+
     toJS(writer: JSWriter): void {
         writer.write("(() => ");
         writer.beginScope();
@@ -211,6 +333,18 @@ export class Block extends Expression {
             expression.toJS(writer);
             writer.write(";");
             writer.newLine();
+        }
+        // Emit monomorphized functions inside the block scope (hoisted by JS)
+        const monomorphizedFns = getAllMonomorphized();
+        if (monomorphizedFns.size > 0 && writer.monoFunctionsEmitted === false) {
+            writer.monoFunctionsEmitted = true;
+            for (const [name, fn] of monomorphizedFns) {
+                if (!fn.isGeneric) {
+                    fn.toJS(writer);
+                    writer.write(";");
+                    writer.newLine();
+                }
+            }
         }
         const lastExpr = this.expressions[this.expressions.length - 1];
         if (lastExpr instanceof DropValue || (lastExpr instanceof Assignment && lastExpr.isDropped)) {
@@ -239,6 +373,10 @@ export class Literal extends Expression {
 
     cascadeTypes(ancestors: Expression[]): void {
         // Type is already resolved; no need to do anything
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return this; // Literals are immutable, safe to share
     }
 
     toJS(compiler: JSWriter): void {
@@ -299,6 +437,14 @@ export class Unary extends Expression {
             }
         }
         throw this.error(`cannot use token ${this.operator} on expression of type ${this.child.type}.`);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new Unary(
+            { line: this.line, col: this.col, text: this.operator, type: this.operator as TokenType },
+            this.child.clone(bindings)
+        );
+        return cloned;
     }
 
     toJS(writer: JSWriter): void {
@@ -439,6 +585,15 @@ export class Binary extends Expression {
         throw this.error(`cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new Binary(
+            { line: this.line, col: this.col, text: this.operator, type: this.operator as TokenType },
+            this.left.clone(bindings),
+            this.right.clone(bindings)
+        );
+        return cloned;
+    }
+
     toJS(writer: JSWriter): void {
         if (this.left.type instanceof ArrayType) {
             if (this.operator === TokenType.Plus) {
@@ -500,6 +655,12 @@ export class Variable extends Expression {
 
     setTypeWithTemplateTypes(ancestors: Expression[]): void {
         this.fullName = functionNameWithParamTypes(this.name, this.templateTypes?.types ?? []);
+        // Check the global function registry first
+        const registered = findFunction(this.fullName);
+        if (registered) {
+            this.type = registered.getFuncType();
+            return;
+        }
         let lastAncestor: Expression = this;
         for (let i = 0; i < ancestors.length; i++) {
             const ancestor = ancestors[ancestors.length - i - 1];
@@ -585,6 +746,22 @@ export class Variable extends Expression {
         throw this.error(`unable to resolve type of variable ${this}`);
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        // If we have template types, substitute them
+        let newTemplateTypes = this.templateTypes;
+        if (bindings && !this.templateTypes.empty()) {
+            newTemplateTypes = new TemplateTypes(
+                this.templateTypes.types.map(t => substituteTypeParams(t, bindings)),
+                this.templateTypes.returnType !== null ? substituteTypeParams(this.templateTypes.returnType, bindings) : null
+            );
+        }
+        const cloned = new Variable(
+            { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
+            newTemplateTypes
+        );
+        return cloned;
+    }
+
     toJS(writer: JSWriter): void {
         if (this.fullName === undefined) {
             throw this.error(`type of variable ${this} not resolved`);
@@ -641,6 +818,15 @@ export class Assignment extends Expression {
 
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new Assignment(
+            { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
+            this.value.clone(bindings),
+            this.isDropped
+        );
+        return cloned;
+    }
+
     toJS(writer: JSWriter): void {
         writer.declareVariable(this.name);
         if (this.isDropped) {
@@ -689,6 +875,18 @@ export class If extends Expression {
         });
 
         this.type = this.elseBranch.type;
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new If(
+            { line: this.line, col: this.col, text: "if", type: TokenType.If },
+            this.conditionalBranches.map(({ condition, branch }) => ({
+                condition: condition.clone(bindings),
+                branch: branch.clone(bindings)
+            })),
+            this.elseBranch.clone(bindings)
+        );
+        return cloned;
     }
 
     toJS(writer: JSWriter): void {
@@ -753,6 +951,18 @@ export class AnonymousFunction extends Expression {
         this.type = new FuncType(this.params.map(p => p.type), returnType);
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new AnonymousFunction(
+            { line: this.line, col: this.col, text: "func", type: TokenType.Func },
+            this.params.map(p => ({
+                name: p.name,
+                type: bindings ? substituteTypeParams(p.type, bindings) : p.type
+            })),
+            this.body.clone(bindings)
+        );
+        return cloned;
+    }
+
     toJS(writer: JSWriter): void {
         writer.write(`(`);
         writer.write(this.params.map(p => p.name).join(", "));
@@ -783,8 +993,7 @@ export class Function extends Expression {
     returnType: Type;
     body: Block;
     fullName: string;
-
-    calledWithArgTypes = [];
+    typeParams: string[] = [];
 
     constructor(rootToken: Token, name: string, params: { name: string, type: Type }[], returnType: Type, typeTraits: { type: Type, trait: Type }[], body: Expression) {
         if (!(body instanceof Block)) {
@@ -799,7 +1008,7 @@ export class Function extends Expression {
         this.returnType = returnType;
         this.body = body;
         this.fullName = functionNameWithParamTypes(name as string, params.map(p => p.type));
-        
+
         typeTraits.forEach(({ type, trait }) => {
             if (!(type instanceof CustomType)) {
                 throw new Error(`type alias ${type} overrides a builtin type.`);
@@ -810,18 +1019,48 @@ export class Function extends Expression {
             this.params.forEach(param => {
                 if (param.type instanceof CustomType && param.type.name === type.name) {
                     param.type.addTrait(trait.name);
-                }    
+                }
             });
             if (this.returnType instanceof CustomType && this.returnType.name === type.name) {
                 this.returnType.addTrait(trait.name);
             }
         });
 
+        // Detect type parameters by scanning the function signature for non-builtin CustomTypes
+        // that are NOT known structs or traits (those are concrete types, not type params)
+        const foundParams = new Set<string>();
+        this.params.forEach(p => collectCustomTypeNames(p.type, foundParams));
+        collectCustomTypeNames(returnType, foundParams);
+        // Filter out built-in type names and known struct/trait names
+        this.typeParams = [...foundParams].filter((n: string) =>
+            !isBuiltinTypeName(n) && !getStruct(n) && !getTrait(n)
+        );
+
         this.type = "Null";
+
+        // Register in the global function registry (non-generic functions only)
+        if (this.name && !this.isGeneric) {
+            registerFunction(this);
+        }
+    }
+
+    get isGeneric(): boolean {
+        return this.typeParams.length > 0;
     }
 
     cascadeTypes(ancestors: Expression[]): void {
+        if (this.isGeneric) {
+            // For generic functions, we still cascade through the body Block for type resolution,
+            // but we don't validate return type match since type params aren't concrete yet.
+            this.body.cascadeTypes([...ancestors, this]);
+            return;
+        }
         this.body.cascadeTypes([...ancestors, this]);
+
+        // Infer return type if it was defaulted to "Null" (no explicit annotation)
+        if (this.returnType === "Null" && this.body.type !== null && this.body.type !== "Null") {
+            this.returnType = this.body.type;
+        }
 
         if (!deepEquals(this.body.type, this.returnType)) {
             throw this.error(`function body should return ${this.returnType}, but found ${this.body.type}`);
@@ -832,11 +1071,129 @@ export class Function extends Expression {
         return new FuncType(this.params.map(p => p.type), this.returnType);
     }
 
-    toJSWithParamTypes(paramTypes: Type[]) {
+    /**
+     * Monomorphize this generic function with concrete type parameters.
+     * Creates a cloned function with substituted types, cascadeTypes it, and registers it.
+     */
+    monomorphize(argTypes: Type[]): { fullName: string, funcType: FuncType, returnType: Type } | null {
+        if (!this.isGeneric) return null;
+        if (this.params.length !== argTypes.length) return null;
 
+        // Build type bindings from arg types
+        // A type param matches if it appears in the param types in the same position as the arg
+        const bindings = new Map<string, Type>();
+        for (let i = 0; i < this.params.length; i++) {
+            const paramType = this.params[i].type;
+            if (paramType instanceof CustomType && this.typeParams.includes(paramType.name)) {
+                // If this type param is already bound, it must match
+                const existing = bindings.get(paramType.name);
+                if (existing && !deepEquals(existing, argTypes[i])) {
+                    return null; // Type param bound to conflicting types
+                }
+                bindings.set(paramType.name, argTypes[i]);
+            } else if (paramType instanceof CustomType) {
+                // Not a type param, must match exactly
+                if (!deepEquals(paramType, argTypes[i])) return null;
+            } else if (!deepEquals(paramType, argTypes[i])) {
+                // Param has a concrete type that must match
+                return null;
+            }
+        }
+
+        // All type params must be bound
+        for (const tp of this.typeParams) {
+            if (!bindings.has(tp)) return null;
+        }
+
+        // Compute the mangled name for the monomorphized version
+        const concreteParamTypes = this.params.map(p => substituteTypeParams(p.type, bindings));
+        const concreteReturnType = substituteTypeParams(this.returnType, bindings);
+        const monomorphizedFullName = functionNameWithParamTypes(this.name!, concreteParamTypes);
+
+        // Check cache first
+        const cached = getMonomorphized(monomorphizedFullName);
+        if (cached) {
+            return {
+                fullName: monomorphizedFullName,
+                funcType: cached.getFuncType(),
+                returnType: concreteReturnType
+            };
+        }
+
+        // Check trait constraints
+        for (const param of this.params) {
+            if (param.type instanceof CustomType && param.type.traits.length > 0) {
+                const concreteType = substituteTypeParams(param.type, bindings);
+                for (const traitName of param.type.traits) {
+                    if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
+                        return null; // Trait not satisfied
+                    }
+                }
+            }
+        }
+
+        // Clone the function body with type substitution
+        const clonedBody = this.body.clone(bindings) as Block;
+
+        // Create a new assignment-like expression to hold the monomorphized version
+        const clonedParams = this.params.map(p => ({
+            name: p.name,
+            type: substituteTypeParams(p.type, bindings)
+        }));
+
+        // Create a monomorphized function with concrete types
+        const monomorphized = new Function(
+            { line: this.line, col: this.col, text: this.name!, type: TokenType.Func },
+            this.name!,
+            clonedParams,
+            concreteReturnType as Type,
+            [],
+            clonedBody
+        );
+
+        // cascadeTypes the monomorphized version with itself as ancestor (so Variable nodes can find params)
+        monomorphized.body.cascadeTypes([monomorphized]);
+
+        // Verify return type matches
+        if (!deepEquals(monomorphized.body.type, concreteReturnType)) {
+            throw new ASTError(this.line, this.col,
+                `monomorphized function body should return ${concreteReturnType}, but found ${monomorphized.body.type}`);
+        }
+
+        // Register in cache
+        registerMonomorphized(monomorphizedFullName, monomorphized);
+
+        return {
+            fullName: monomorphizedFullName,
+            funcType: monomorphized.getFuncType(),
+            returnType: concreteReturnType
+        };
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const clonedParams = this.params.map(p => ({
+            name: p.name,
+            type: bindings ? substituteTypeParams(p.type, bindings) : p.type
+        }));
+        const clonedReturnType = bindings ? substituteTypeParams(this.returnType, bindings) : this.returnType;
+        const cloned = new Function(
+            { line: this.line, col: this.col, text: this.name!, type: TokenType.Func },
+            this.name!,
+            clonedParams,
+            clonedReturnType as Type,
+            [],
+            this.body.clone(bindings)
+        );
+        cloned.fullName = this.fullName;
+        cloned.typeParams = [...this.typeParams];
+        return cloned;
     }
 
     toJS(writer: JSWriter): void {
+        if (this.isGeneric) {
+            // Generic template functions are not emitted directly — only monomorphized versions are
+            return;
+        }
         writer.write(`function ${this.fullName}(`);
         writer.write(this.params.map(p => p.name).join(", "));
         writer.write(") ");
@@ -858,6 +1215,32 @@ export class Function extends Expression {
         }
         writer.endFunction();
     }
+}
+
+/**
+ * Check if a concrete type satisfies a trait by looking for standalone function definitions
+ * that match the trait's required function signatures.
+ * Searches the global function registry for matching functions.
+ */
+function checkTraitSatisfied(concreteType: Type, traitName: string, contextFnName: string): boolean {
+    const traitFuncs = getTrait(traitName);
+    if (!traitFuncs) return false;
+
+    for (const { name, types } of traitFuncs) {
+        // Replace Self with the concrete type to get the required signature
+        const requiredParamTypes = types.types.map(t => {
+            if (t === "Self" || (t instanceof CustomType && t.name === "Self")) return concreteType;
+            return t;
+        });
+
+        const targetFullName = functionNameWithParamTypes(name, requiredParamTypes);
+
+        // Check function registry (includes both non-generic and monomorphized functions)
+        const fn = findFunction(targetFullName);
+        if (!fn) return false;
+    }
+
+    return true;
 }
 
 // function getMatchingTraitFuncSignatures(argTypes: Type[]): TemplateTypes[] {
@@ -883,6 +1266,48 @@ export class Function extends Expression {
 //     });
 //     return signatures;
 // }
+
+/**
+ * Find a variable (param or assignment) with a struct type matching the given name.
+ * Searches through the ancestors chain for function params and variable assignments.
+ * Looks through ALL expressions in each Block (not just older siblings) to find
+ * assignments with struct types.
+ */
+function findStructTypedVariable(root: Expression, ancestors: Expression[], name: string): { varName: string, structType: Type } | null {
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+        const ancestor = ancestors[i];
+        if (ancestor instanceof Function) {
+            // Check ALL params of this function (not just the first match)
+            for (const param of ancestor.params) {
+                if (param.name === name && param.type instanceof CustomType) {
+                    const structInfo = getStruct(param.type.name);
+                    if (structInfo) return { varName: name, structType: param.type };
+                }
+            }
+        } else if (ancestor instanceof AnonymousFunction) {
+            for (const param of ancestor.params) {
+                if (param.name === name && param.type instanceof CustomType) {
+                    const structInfo = getStruct(param.type.name);
+                    if (structInfo) return { varName: name, structType: param.type };
+                }
+            }
+        } else if (ancestor instanceof Block) {
+            // Check ALL expressions in this block for assignments
+            for (const expr of ancestor.expressions) {
+                let e = expr;
+                while (e instanceof DropValue) e = e.child;
+                if (e instanceof Assignment && e.name === name) {
+                    const varType = e.value.type;
+                    if (varType instanceof CustomType) {
+                        const structInfo = getStruct(varType.name);
+                        if (structInfo) return { varName: name, structType: varType };
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
 
 function getTraitFunc(root: Expression, ancestors: Expression[], name: string, argTypes: Type[]): { referToByName: string, callerType: CallableType, rootType: Type } | null {
     const traits: { selfType: Type, traitName: string }[] = [];
@@ -938,15 +1363,38 @@ function paramTypesMatchArgTypes(funcParamTypes: Type[], argTypes: Type[]): bool
  * If no matching callable is found, it returns an error string.
  */
 function findCaller(root: Expression, ancestors: Expression[], name: string, argTypes: Type[]): { error: null, result: { referToByName: string, callerType: CallableType, rootType: Type } } | { error: string, result: null } {
-    // const traitFuncMatch = getTraitFunc(root, ancestors, name, argTypes);
-    // if (traitFuncMatch !== null) {
-    //     return { error: null, result: traitFuncMatch };
-    // }
+    // Check if name matches a registered struct (constructor call)
+    const structDef = getStruct(name);
+    if (structDef) {
+        const fieldTypes = structDef.fields.map(f => f.type);
+        if (!paramTypesMatchArgTypes(fieldTypes, argTypes)) {
+            return { error: `struct ${name} constructor expects arguments of types [${fieldTypes}], got [${argTypes}]`, result: null };
+        }
+        const structType = new CustomType(name);
+        return {
+            error: null,
+            result: {
+                referToByName: name,
+                callerType: new FuncType(fieldTypes, structType),
+                rootType: structType
+            }
+        };
+    }
+
+    // First try direct match by fullName (existing logic)
     const fullName = functionNameWithParamTypes(name, argTypes);
-    // The goal here is to figure out whether we should refer to this function by its name or fullName.
-    // We want to find either function definitions with matching type signatures (matching fullName),
-    // or variables with just matching names.
-    // If we find a variable, we need to check that it's assigned to an appropriate function.
+    const foundFn = findFunction(fullName);
+    if (foundFn) {
+        return {
+            error: null,
+            result: {
+                referToByName: fullName,
+                callerType: foundFn.getFuncType(),
+                rootType: foundFn.returnType
+            }
+        };
+    }
+
     let lastAncestor: Expression = root;
     for (let i = 0; i < ancestors.length; i++) {
         const ancestor = ancestors[ancestors.length - i - 1];
@@ -957,16 +1405,40 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                 while (olderSibling instanceof DropValue) {
                     olderSibling = olderSibling.child;
                 }
-                if (olderSibling instanceof Function && paramTypesMatchArgTypes(olderSibling.params.map(t => t.type), argTypes)) {
+
+                // Direct match with a non-generic function — must match NAME too
+                if (olderSibling instanceof Function && !olderSibling.isGeneric && olderSibling.name === name && paramTypesMatchArgTypes(olderSibling.params.map(t => t.type), argTypes)) {
                     return {
                         error: null,
                         result: {
                             referToByName: fullName,
                             callerType: olderSibling.getFuncType(),
-                            rootType: olderSibling.returnType  // TODO: Adjust for trait types
+                            rootType: olderSibling.returnType
                         }
                     };
-                } else if (olderSibling instanceof Assignment && olderSibling.name === name) {
+                }
+
+                // Generic function matching — attempt monomorphization
+                if (olderSibling instanceof Function && olderSibling.isGeneric && olderSibling.params.length === argTypes.length) {
+                    // Check if this generic function could match (same name)
+                    if (olderSibling.name === name) {
+                        const result = olderSibling.monomorphize(argTypes);
+                        if (result !== null) {
+                            // Monomorphization succeeded — resolve to the concrete function
+                            return {
+                                error: null,
+                                result: {
+                                    referToByName: result.fullName,
+                                    callerType: result.funcType,
+                                    rootType: result.returnType
+                                }
+                            };
+                        }
+                    }
+                }
+
+                // Variable-based callable (assignment)
+                if (olderSibling instanceof Assignment && olderSibling.name === name) {
                     const varType = olderSibling.value.type;
                     if (varType instanceof FuncType) {
                         if (!paramTypesMatchArgTypes(varType.paramTypes, argTypes)) {
@@ -977,7 +1449,7 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                             result: {
                                 referToByName: name,
                                 callerType: varType,
-                                rootType: varType.returnType  // TODO: Adjust for trait types
+                                rootType: varType.returnType
                             }
                         };
                     }
@@ -995,6 +1467,10 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                             }
                         };
                     }
+                    // Struct types: fall through — might be struct field access handled by Call.cascadeTypes
+                    if (varType instanceof CustomType && getStruct(varType.name)) {
+                        break;
+                    }
                     return { error: `most recent definition of variable ${name} is of type ${varType}, which is not a callable object.`, result: null };
                 }
             }
@@ -1011,7 +1487,7 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                             result: {
                                 referToByName: name,
                                 callerType: param.type,
-                                rootType: param.type.returnType  // TODO: Adjust for trait types
+                                rootType: param.type.returnType
                             }
                         };
                     }
@@ -1028,6 +1504,10 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                                 rootType: param.type.innerType
                             }
                         };
+                    }
+                    // Struct types: fall through — might be struct field access handled by Call.cascadeTypes
+                    if (param.type instanceof CustomType && getStruct(param.type.name)) {
+                        break;
                     }
                     return { error: `variable ${name} (parameter of function ${ancestor.name}) is not a function.`, result: null };
                 }
@@ -1046,6 +1526,42 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
         }
         lastAncestor = ancestor;
     }
+
+    // Trait dispatch: if arg types are CustomTypes with trait bounds and the call name matches a trait method
+    const traitCandidates: { traitName: string, selfType: Type }[] = [];
+    for (const argType of argTypes) {
+        if (argType instanceof CustomType) {
+            for (const trait of argType.traits) {
+                traitCandidates.push({ traitName: trait, selfType: argType });
+            }
+        }
+    }
+    for (const { traitName, selfType } of traitCandidates) {
+        const traitFuncs = getTrait(traitName);
+        if (!traitFuncs) continue;
+        for (const tf of traitFuncs) {
+            if (tf.name !== name) continue;
+            // Replace "Self" (stored as string literal, not CustomType) with selfType
+            const replacedParamTypes = tf.types.types.map(t => {
+                if (t === "Self" || (t instanceof CustomType && t.name === "Self")) return selfType;
+                return t;
+            });
+            if (paramTypesMatchArgTypes(replacedParamTypes, argTypes)) {
+                const returnType = tf.types.returnType !== null
+                    ? (tf.types.returnType === "Self" || (tf.types.returnType instanceof CustomType && tf.types.returnType.name === "Self") ? selfType : tf.types.returnType)
+                    : "Null";
+                return {
+                    error: null,
+                    result: {
+                        referToByName: name,
+                        callerType: new FuncType(argTypes, returnType),
+                        rootType: returnType
+                    }
+                };
+            }
+        }
+    }
+
     return { error: `function ${name}[${argTypes.map(t => t.toString()).join(", ")}: unknown] not found`, result: null };
 }
 
@@ -1055,6 +1571,8 @@ export class Call extends Expression {
 
     callerType?: CallableType;
     referToByName?: string;
+    isStructFieldAccess: boolean = false;
+    structFieldName: string = "";
 
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
@@ -1078,6 +1596,26 @@ export class Call extends Expression {
         // also set type of this to return type of found function
         const { error, result } = findCaller(this, ancestors, this.name, argTypes);
         if (error !== null) {
+            // Check if this is a struct field access: varName("fieldName")
+            if (argTypes.length === 1 && argTypes[0] === "Str" && this.args[0] instanceof Literal) {
+                const fieldName = this.args[0].value.slice(1, -1);
+                const structVar = findStructTypedVariable(this, ancestors, this.name);
+                if (structVar !== null) {
+                    const structInfo = structVar.structType instanceof CustomType ? getStruct(structVar.structType.name) : undefined;
+                    if (structInfo) {
+                        const field = structInfo.fields.find(f => f.name === fieldName);
+                        if (field) {
+                            this.type = field.type;
+                            this.referToByName = structVar.varName;
+                            this.callerType = new FuncType(argTypes, field.type);
+                            this.isStructFieldAccess = true;
+                            this.structFieldName = fieldName;
+                            return;
+                        }
+                        throw this.error(`struct ${structInfo.name} has no field named "${fieldName}"`);
+                    }
+                }
+            }
             throw this.error(error);
         }
         this.referToByName = result.referToByName;
@@ -1085,20 +1623,49 @@ export class Call extends Expression {
         this.type = result.rootType;
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new Call(
+            { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
+            this.args.map(a => a.clone(bindings))
+        );
+        return cloned;
+    }
+
     toJS(writer: JSWriter): void {
         if (this.referToByName === undefined) {
             throw new Error("caller name not resolved");
         }
+        // Struct field access: p("x") → p.x
+        if (this.isStructFieldAccess) {
+            writer.write(this.referToByName!);
+            writer.write(`.${this.structFieldName}`);
+            return;
+        }
         if (this.callerType instanceof FuncType) {
-            writer.write(this.referToByName);
-            writer.write("(");
-            this.args.forEach((arg, i) => {
-                if (i > 0) {
-                    writer.write(", ");
-                }
-                arg.toJS(writer);
-            });
-            writer.write(")");
+            // Check if this is a struct constructor (return type is a registered struct)
+            const structInfo = this.type instanceof CustomType ? getStruct(this.type.name) : undefined;
+            if (structInfo) {
+                // Generate object literal: {field1: arg1, field2: arg2}
+                writer.write("{");
+                this.args.forEach((arg, i) => {
+                    if (i > 0) {
+                        writer.write(", ");
+                    }
+                    writer.write(`${structInfo.fields[i].name}: `);
+                    arg.toJS(writer);
+                });
+                writer.write("}");
+            } else {
+                writer.write(this.referToByName);
+                writer.write("(");
+                this.args.forEach((arg, i) => {
+                    if (i > 0) {
+                        writer.write(", ");
+                    }
+                    arg.toJS(writer);
+                });
+                writer.write(")");
+            }
         } else if (this.callerType instanceof ArrayType) {
             writer.write(this.referToByName);
             this.args.forEach((arg, i) => {
@@ -1138,7 +1705,7 @@ export class DirectCall extends Expression {
             if (!paramTypesMatchArgTypes(this.caller.type.paramTypes, argTypes)) {
                 throw this.error(`incompatible argument types in function call: expected ${this.caller.type.paramTypes}, got ${argTypes}`);
             }
-            this.type = this.caller.type.returnType;  // TODO: Adjust this to be based on actually-passed values in case of trait types
+            this.type = this.caller.type.returnType;
             return;
         }
         if (this.caller.type instanceof ArrayType) {
@@ -1149,30 +1716,73 @@ export class DirectCall extends Expression {
             this.type = this.caller.type.innerType;
             return;
         }
+        // Struct field access: instance("fieldName")
+        if (this.caller.type instanceof CustomType) {
+            const structInfo = getStruct(this.caller.type.name);
+            if (structInfo) {
+                if (this.args.length !== 1) {
+                    throw this.error(`struct field access requires exactly one argument (the field name), got ${this.args.length}`);
+                }
+                this.args[0].cascadeTypes([...ancestors, this]);
+                if (this.args[0].type === null) {
+                    throw this.error("unable to resolve type of field name argument");
+                }
+                if (this.args[0].type !== "Str" || !(this.args[0] instanceof Literal)) {
+                    throw this.error(`struct field access requires a string literal field name`);
+                }
+                const fieldName = this.args[0].value;
+                // Strip quotes from the string literal value
+                const cleanFieldName = fieldName.startsWith('"') ? fieldName.slice(1, -1) : fieldName;
+                const field = structInfo.fields.find(f => f.name === cleanFieldName);
+                if (!field) {
+                    throw this.error(`struct ${this.caller.type.name} has no field named "${cleanFieldName}"`);
+                }
+                this.type = field.type;
+                return;
+            }
+        }
         throw this.error(`cannot call non-callable object (expression of type ${this.caller.type})`);
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new DirectCall(
+            this.caller.clone(bindings),
+            this.args.map(a => a.clone(bindings))
+        );
+        return cloned;
+    }
+
     toJS(writer: JSWriter): void {
-        writer.write("(");
-        this.caller.toJS(writer);
-        writer.write(")");
-        if (this.caller.type instanceof FuncType) {
+        if (this.caller.type instanceof CustomType && getStruct(this.caller.type.name)) {
+            // Struct field access: p("x") → p.x
+            const fieldName = this.args[0] instanceof Literal
+                ? this.args[0].value.slice(1, -1)  // Strip quotes
+                : "";
             writer.write("(");
-            this.args.forEach((arg, i) => {
-                if (i > 0) {
-                    writer.write(", ");
-                }
-                arg.toJS(writer);
-            });
-            writer.write(")");
-        } else if (this.caller.type instanceof ArrayType) {
-            this.args.forEach((arg, i) => {
-                writer.write("[");
-                arg.toJS(writer);
-                writer.write("]");
-            });
+            this.caller.toJS(writer);
+            writer.write(`).${fieldName}`);
         } else {
-            throw new Error(`unknown caller type: ${this.caller.type}`);
+            writer.write("(");
+            this.caller.toJS(writer);
+            writer.write(")");
+            if (this.caller.type instanceof FuncType) {
+                writer.write("(");
+                this.args.forEach((arg, i) => {
+                    if (i > 0) {
+                        writer.write(", ");
+                    }
+                    arg.toJS(writer);
+                });
+                writer.write(")");
+            } else if (this.caller.type instanceof ArrayType) {
+                this.args.forEach((arg, i) => {
+                    writer.write("[");
+                    arg.toJS(writer);
+                    writer.write("]");
+                });
+            } else {
+                throw new Error(`unknown caller type: ${this.caller.type}`);
+            }
         }
     }
 }
@@ -1205,6 +1815,16 @@ export class Array extends Expression {
             throw this.error(`empty array must be annotated with a type`);
         }
         this.type = new ArrayType(this.innerType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        // Don't pass innerType — let the clone re-infer it from cloned elements
+        const cloned = new Array(
+            { line: this.line, col: this.col, text: "[", type: TokenType.LBracket },
+            this.expressions.map(e => e.clone(bindings)),
+            undefined
+        );
+        return cloned;
     }
 
     toJS(writer: JSWriter): void {
@@ -1257,6 +1877,16 @@ export class RangeIter extends Expression {
         }
 
         this.type = new IterType("Int");
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new RangeIter(
+            { line: this.line, col: this.col, text: "range", type: TokenType.Range },
+            this.start.clone(bindings),
+            this.end.clone(bindings),
+            this.step ? this.step.clone(bindings) : null
+        );
+        return cloned;
     }
 
     toJS(writer: JSWriter): void {
@@ -1339,6 +1969,15 @@ export class MapIter extends Expression {
         }
 
         this.type = new IterType(outputType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new MapIter(
+            { line: this.line, col: this.col, text: "map", type: TokenType.Map },
+            this.mapFn.clone(bindings),
+            this.iterOver.clone(bindings)
+        );
+        return cloned;
     }
 
     toJS(writer: JSWriter): void {
@@ -1444,6 +2083,16 @@ export class Reduce extends Expression {
         this.type = accType;
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new Reduce(
+            { line: this.line, col: this.col, text: "reduce", type: TokenType.Reduce },
+            this.reduceFn.clone(bindings),
+            this.iterOver.clone(bindings),
+            this.initValue.clone(bindings)
+        );
+        return cloned;
+    }
+
     toJS(writer: JSWriter): void {
         writer.useBuiltin("__REDUCE__");
         writer.write("__REDUCE__(");
@@ -1532,6 +2181,15 @@ export class FilterIter extends Expression {
         this.type = new IterType(iterInnerType);
     }
 
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new FilterIter(
+            { line: this.line, col: this.col, text: "filter", type: TokenType.Filter },
+            this.filterFn.clone(bindings),
+            this.iterOver.clone(bindings)
+        );
+        return cloned;
+    }
+
     toJS(writer: JSWriter): void {
         writer.useBuiltin("__FILTERITER__");
         writer.write("__FILTERITER__(");
@@ -1554,6 +2212,33 @@ export class FilterIter extends Expression {
     }
 }
 
+export class StructDef extends Expression {
+    name: string;
+    fields: { name: string, type: Type }[];
+
+    constructor(rootToken: Token, name: string, fields: { name: string, type: Type }[]) {
+        super(rootToken.line, rootToken.col);
+        this.name = name;
+        this.fields = fields;
+        this.type = "Null";
+
+        // Register in global struct registry
+        registerStruct(name, fields);
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        // Nothing to cascade — struct definition just registers its type
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return this; // Struct definitions are immutable, safe to share
+    }
+
+    toJS(writer: JSWriter): void {
+        // Struct definitions are for type-checking only; not emitted to JS
+    }
+}
+
 export class Trait extends Expression {
     name: string;
     requiredFunctions: { name: string, types: TemplateTypes }[];
@@ -1571,6 +2256,9 @@ export class Trait extends Expression {
         }
 
         this.type = "Null";
+
+        // Register trait globally
+        registerTrait(name, requiredFunctions);
     }
 
     getMatchingFunction(selfType: Type, argTypes: Type[]): { name: string, returnType: Type } | null {
@@ -1594,6 +2282,10 @@ export class Trait extends Expression {
 
     cascadeTypes(ancestors: Expression[]): void {
         // Nothing to do here
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return this; // Traits are immutable, safe to share
     }
 
     toJS(writer: JSWriter): void {

@@ -837,21 +837,24 @@ class Parser {
             }
             params.push({ name: paramName, type: typeName });
         }
-    
+
         if (this.atEnd()) {
             return this.error("Unterminated function definition.");
         }
         this.advance();
-    
-        if (this.current().type !== TokenType.Colon) {
-            return this.error("Expected ':' after function parameters.");
+
+        let returnType: AST.Type = "Null";
+        if (this.current().type === TokenType.Colon) {
+            this.advance();
+            const explicitReturnType = this.getTypeName();
+            if (!explicitReturnType) {
+                return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
+            }
+            returnType = explicitReturnType;
         }
-        this.advance();
-        const returnType = this.getTypeName();
-        if (!returnType) {
-            return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
-        }
-    
+        // If no return type is specified, it defaults to "Null" and will be inferred
+        // from the body during cascadeTypes
+
         if (this.atEnd()) {
             return this.error("Unterminated function definition.");
         }
@@ -864,7 +867,7 @@ class Parser {
             }
             throw e;
         }
-    
+
         if (this.atEnd()) {
             return this.error("Unterminated function definition.");
         }
@@ -872,8 +875,51 @@ class Parser {
             return this.error("Expected '{' after function parameters.");
         }
         this.advance();
-    
+
         return this.tryCreateASTExpression(() => new AST.Function(rootToken, name, params, returnType, typeTraits, this.block()));
+    }
+
+    structDef(): AST.Expression | null {
+        if (this.current().type !== TokenType.Struct || this.peek()?.type !== TokenType.Identifier) {
+            return null;
+        }
+        const rootToken = this.current();
+        this.advance();  // consume 'struct'
+        const name = this.current().text;
+        this.advance();  // consume struct name
+        if (this.atEnd() || this.current().type !== TokenType.LBrace) {
+            return this.error("Expected '{' after struct name.");
+        }
+        this.advance();  // consume '{'
+        const fields: { name: string, type: AST.Type }[] = [];
+        while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
+            if (this.current().type !== TokenType.Identifier) {
+                return this.error("Expected field name.");
+            }
+            const fieldName = this.current().text;
+            this.advance();
+            if (this.current().type !== TokenType.Colon) {
+                return this.error("Expected ':' after field name.");
+            }
+            this.advance();
+            const fieldType = this.getTypeName();
+            if (!fieldType) {
+                return new AST.ErrorExpression(rootToken, "Invalid type annotation for field.");
+            }
+            // Check for duplicate field names
+            if (fields.some(f => f.name === fieldName)) {
+                return this.error(`Duplicate field name '${fieldName}' in struct ${name}.`);
+            }
+            fields.push({ name: fieldName, type: fieldType });
+            if (!this.atEnd() && this.current().type === TokenType.Comma) {
+                this.advance();
+            }
+        }
+        if (this.atEnd()) {
+            return this.error("Unterminated struct definition.");
+        }
+        this.advance();  // consume '}'
+        return this.tryCreateASTExpression(() => new AST.StructDef(rootToken, name, fields));
     }
 
     expression(): AST.Expression | null {
@@ -902,6 +948,11 @@ class Parser {
             const assignment = this.assignment();
             if (assignment !== null) {
                 expressions.push(assignment);
+                continue;
+            }
+            const structDef = this.structDef();
+            if (structDef !== null) {
+                expressions.push(structDef);
                 continue;
             }
             const functionDef = this.functionDef();

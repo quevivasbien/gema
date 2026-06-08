@@ -364,15 +364,15 @@ test("compile trait-defined functions", () => {
             lt[Self, Self: Bool]
         };
 
-        func lte(a: T, b: T): T where T is Comparable {
+        func lte(a: T, b: T): Bool where T is Comparable {
             lt(a, b) or eq(a, b)
         }
 
-        func eq(a: Int, b: Int) {
+        func eq(a: Int, b: Int): Bool {
             a == b
         }
 
-        func lt(a: Int, b: Int) {
+        func lt(a: Int, b: Int): Bool {
             a < b
         }
         
