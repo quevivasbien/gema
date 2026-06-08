@@ -159,7 +159,7 @@ test("compile functions as variables", () => {
 test("anonymous functions", () => {
     testCompile(
         `
-            f = func(a: Int, b: Int): Int {
+            f = func(a: Int, b: Int) {
                 a + b
             };
             f(1, 2)
@@ -171,7 +171,7 @@ test("anonymous functions", () => {
 test("allow calling non-variable objects", () => {
     testCompile(
         `
-            (func(a: Int, b: Int): Int {
+            (func(a: Int, b: Int) {
                 a + b
             })(1, 2)
         `,
@@ -180,7 +180,7 @@ test("allow calling non-variable objects", () => {
     testCompile(
         `
             func foo(a: Int): Func[:Int] {
-                func(): Int {
+                func() {
                     a
                 }
             }
@@ -258,7 +258,7 @@ test("compile array indexed access", () => {
 });
 
 test("compile map iterator", () => {
-    testCompile(`@map(func(x: Int): Int { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
+    testCompile(`@map(func(x: Int) { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
     testCompile(
         `
         func foo(x: Int): Int {
@@ -271,7 +271,7 @@ test("compile map iterator", () => {
     );
     testCompile(
         `
-        add1 = func(x: Int): Int {
+        add1 = func(x: Int) {
             x + 1
         };
         iter = map(
@@ -310,7 +310,7 @@ test("compile reduce expression", () => {
     testCompile(
         `
         reduce(
-            func(x: Int, y: Int): Int {
+            func(x: Int, y: Int) {
                 x * y    
             },
             [1, 2, 3],
@@ -331,11 +331,156 @@ test("compile reduce expression", () => {
     testCompile(
         `
         func sum(x: Iter[Int]): Int {
-            reduce(func(a: Int, b: Int): Int { a + b }, x, 0)
+            reduce(func(a: Int, b: Int) { a + b }, x, 0)
         }
 
         sum(range(0, 100))
         `,
         5050n
+    );
+});
+
+test("compile struct construction and field access", () => {
+    testCompile(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        p = Point(1, 2);
+        p("x") + p("y")
+    `, 3n);
+});
+
+test("compile struct field access on param", () => {
+    testCompile(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        func getX(p: Point): Int {
+            p("x")
+        };
+        getX(Point(5, 10))
+    `, 5n);
+});
+
+test("compile struct with generic identity function", () => {
+    testCompile(`
+        struct Point {
+            x: Int,
+            y: Int
+        };
+        func id(a: T): T {
+            a
+        };
+        p = Point(1, 2);
+        q = id(p);
+        q("x") + q("y")
+    `, 3n);
+});
+
+test("compile struct with trait generic (add two points)", () => {
+    testCompile(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        struct Point {
+            x: Int,
+            y: Int
+        };
+
+        func add(a: Point, b: Point): Point {
+            Point(a("x") + b("x"), a("y") + b("y"))
+        };
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        };
+
+        result = foo(Point(1, 2), Point(3, 4));
+        result("x") + result("y")
+    `, 10n);
+});
+
+test("compile struct with trait generic (chained add)", () => {
+    testCompile(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        struct Point {
+            x: Int,
+            y: Int
+        };
+
+        func add(a: Point, b: Point): Point {
+            Point(a("x") + b("x"), a("y") + b("y"))
+        };
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        };
+
+        a = Point(1, 2);
+        b = Point(3, 4);
+        c = Point(5, 6);
+        result = foo(foo(a, b), c);
+        result("x") + result("y")
+    `, 21n);
+});
+
+test("compile struct with multiple generic type params", () => {
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        struct Pair { a: Int, b: Int };
+        
+        func swap(a: T, b: U): Arr[T] {
+            [a]
+        };
+        result = swap(Point(1, 2), Pair(3, 4));
+        result(0)("x")
+    `, 1n);
+});
+
+test("compile trait-defined functions", () => {
+    testCompile(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        func add(a: Int, b: Int): Int {
+            a + b
+        }
+
+        func foo(a: T, b: T): T where T is Adder {
+            add(a, b)
+        }
+
+        foo(1, 2)
+        `,
+        3n
+    );
+    testCompile(`
+        trait Comparable {
+            eq[Self, Self: Bool],
+            lt[Self, Self: Bool]
+        };
+
+        func lte(a: T, b: T): Bool where T is Comparable {
+            lt(a, b) or eq(a, b)
+        }
+
+        func eq(a: Int, b: Int): Bool {
+            a == b
+        }
+
+        func lt(a: Int, b: Int): Bool {
+            a < b
+        }
+        
+        [lte(2, 3), lte(3, 3), lte(4,3)]
+        `,
+        [true, true, false]
     );
 });

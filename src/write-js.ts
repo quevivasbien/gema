@@ -6,16 +6,11 @@ const INDENT = "    ";
 class Scope {
     parent: Scope | null;
     variableNames: Set<string> = new Set();
-    functionNames: Set<string> = new Set();
 
     lines: string[] = [];
 
     constructor(parent: Scope | null = null, public baseIndentLevel = 0) {
         this.parent = parent;
-    }
-
-    addFunctionName(name: string) {
-        this.functionNames.add(name);
     }
 
     getDeclarations(): string[] {
@@ -30,6 +25,7 @@ export class JSWriter {
     indentLevel: number = 0;
     scope: Scope = new Scope();
     builtins: Set<string> = new Set();
+    monoFunctionsEmitted: boolean = false;
 
     constructor(ast: AST.Expression) {
         this.ast = ast;
@@ -72,7 +68,7 @@ export class JSWriter {
             throw new Error("Tried to exit top-level scope");
         }
         const varDeclarations = this.scope.getDeclarations();
-        const scopeLines  = this.scope.lines;
+        const scopeLines = this.scope.lines;
         this.scope = this.scope.parent;
         this.scope.lines.push(...varDeclarations, ...scopeLines);
         this.indentOut();
@@ -84,10 +80,7 @@ export class JSWriter {
         this.write("}");
     }
 
-    beginFunction(name: string | null) {
-        if (name !== null) {
-            this.scope.addFunctionName(name);
-        }
+    beginFunction() {
         this.beginScope();
     }
 
