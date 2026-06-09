@@ -609,6 +609,44 @@ test("compile type conversion builtins", () => {
     testCompile(`"The number is " + toStr(152)`, "The number is 152");
 });
 
+test("compile operator overloading", () => {
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        func add(a: Point, b: Point): Point { Point(a.x + b.x, a.y + b.y) };
+        result = Point(1, 2) + Point(3, 4);
+        result.x + result.y
+    `, 10n);
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        func subtract(a: Point, b: Point): Point { Point(a.x - b.x, a.y - b.y) };
+        result = Point(5, 6) - Point(3, 2);
+        result.x + result.y
+    `, 6n);
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        func multiply(a: Point, b: Point): Point { Point(a.x * b.x, a.y * b.y) };
+        result = Point(2, 3) * Point(4, 5);
+        result.x + result.y
+    `, 23n);
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        func equal(a: Point, b: Point): Bool { a.x == b.x and a.y == b.y };
+        Point(1, 2) == Point(1, 2)
+    `, true);
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        func less(a: Point, b: Point): Bool { a.x < b.x };
+        Point(1, 2) < Point(3, 4)
+    `, true);
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        func add(a: Point, b: Point): Point { Point(a.x + b.x, a.y + b.y) };
+        a = Point(1, 2) + Point(3, 4);
+        b = a + Point(5, 6);
+        b.x + b.y
+    `, 21n);
+});
+
 test.todo("compile function with nested generic type", () => {
     testCompile(`
         func getLength(arr: Arr[T]): Int {

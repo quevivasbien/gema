@@ -1,56 +1,36 @@
 import type { JSWriter } from "./write-js";
 import { TokenType, type Token } from "./tokens";
-import { deepEquals } from "bun";  // If using Node.js, replace this with isDeepStrictEqual from "util" library
+import { deepEquals } from "bun";
+import {
+    ASTError,
+    isBuiltinTypeName,
+    collectCustomTypeNames,
+    substituteTypeParams,
+    FuncType,
+    ArrayType,
+    IterType,
+    CustomType,
+    type Type,
+    type CallableType,
+    TemplateTypes,
+    getType,
+} from "./types";
 
-export class ASTError {
-    constructor(public line: number, public col: number, public message: string) { }
-}
-
-// Built-in type names that cannot be used as type parameters or user-defined types
-const BUILTIN_TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Null", "Func", "Arr", "Iter", "Self"]);
-
-export function isBuiltinTypeName(name: string): boolean {
-    return BUILTIN_TYPE_NAMES.has(name);
-}
-
-// Collect all CustomType names from a type tree
-export function collectCustomTypeNames(type: Type, names: Set<string>): void {
-    if (type instanceof CustomType) {
-        names.add(type.name);
-    } else if (type instanceof FuncType) {
-        type.paramTypes.forEach(pt => collectCustomTypeNames(pt, names));
-        collectCustomTypeNames(type.returnType, names);
-    } else if (type instanceof ArrayType) {
-        collectCustomTypeNames(type.innerType, names);
-    } else if (type instanceof IterType) {
-        collectCustomTypeNames(type.innerType, names);
-    }
-}
-
-// Substitute type parameters in a type tree using a binding map
-export function substituteTypeParams(type: Type, bindings: Map<string, Type>): Type {
-    if (type instanceof CustomType && bindings.has(type.name)) {
-        const substituted = bindings.get(type.name)!;
-        // Preserve traits from the original type param
-        if (substituted instanceof CustomType && type.traits.length > 0) {
-            // Don't carry trait constraints onto the concrete type
-        }
-        return substituted;
-    }
-    if (type instanceof FuncType) {
-        return new FuncType(
-            type.paramTypes.map(pt => substituteTypeParams(pt, bindings)),
-            substituteTypeParams(type.returnType, bindings)
-        );
-    }
-    if (type instanceof ArrayType) {
-        return new ArrayType(substituteTypeParams(type.innerType, bindings));
-    }
-    if (type instanceof IterType) {
-        return new IterType(substituteTypeParams(type.innerType, bindings));
-    }
-    return type;
-}
+// Re-export types for backward compatibility
+export {
+    ASTError,
+    isBuiltinTypeName,
+    collectCustomTypeNames,
+    substituteTypeParams,
+    FuncType,
+    ArrayType,
+    IterType,
+    CustomType,
+    type Type,
+    type CallableType,
+    TemplateTypes,
+    getType,
+};
 
 // Global registry of trait definitions, keyed by trait name
 const traitRegistry: Map<string, { name: string, types: TemplateTypes }[]> = new Map();
@@ -108,155 +88,6 @@ export function resetRegistries(): void {
     structRegistry.clear();
     functionRegistry.clear();
     monomorphizedCache.clear();
-}
-
-class FuncType {
-    constructor(
-        public paramTypes: Type[],
-        public returnType: Type
-    ) { }
-
-    toString(): string {
-        return `Func[${this.paramTypes.join(", ")}, ${this.returnType}]`;
-    }
-}
-
-class ArrayType {
-    constructor(public innerType: Type) { }
-
-    toString(): string {
-        return `Arr[${this.innerType}]`;
-    }
-
-    nDims(): number {
-        if (!(this.innerType instanceof ArrayType)) {
-            return 1;
-        }
-        return 1 + this.innerType.nDims();
-    }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== this.nDims()) {
-            return `incompatible number of array indices: expected ${this.nDims()}, got ${indexTypes.length}`;
-        }
-        if (indexTypes.some(type => type !== "Int")) {
-            return `array indices are not of type Int`;
-        }
-
-        return null;
-    }
-}
-
-class IterType {
-    constructor(public innerType: Type) { }
-
-    toString(): string {
-        return `Iter[${this.innerType}]`;
-    }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== 1) {
-            return `iter type requires exactly one index, got ${indexTypes.length}`;
-        }
-        if (indexTypes[0] !== "Int") {
-            return `iter index must be of type Int`;
-        }
-        return null;
-    }
-}
-
-class CustomType {
-    name: string;
-    traits: string[];
-
-    constructor(name: string, traits: string[] = []) {
-        this.name = name;
-        this.traits = traits;
-    }
-
-    toString(): string {
-        if (this.traits.length === 0) {
-            return this.name;
-        }
-        return `${this.name}[[${this.traits.join(", ")}]]`;
-    }
-
-    addTrait(trait: string) {
-        this.traits.push(trait);
-    }
-}
-
-export type Type =
-    "Int" |
-    "Float" |
-    "Str" |
-    "Bool" |
-    "Null" |
-    FuncType |
-    ArrayType |
-    IterType |
-    CustomType |
-    "Self"
-    ;
-
-type CallableType = FuncType | ArrayType | IterType;
-
-export class TemplateTypes {
-    constructor(public types: Type[] = [], public returnType: Type | null = null) { }
-
-    toString(): string {
-        return `[${this.types.join(", ")}${this.returnType === null ? "" : ": " + this.returnType}]`;
-    }
-
-    push(type: Type) {
-        this.types.push(type);
-    }
-
-    empty(): boolean {
-        return this.types.length === 0 && this.returnType === null;
-    }
-}
-
-export function getType(typeName: string, templateTypes: TemplateTypes): Type {
-    if ([
-        "Int",
-        "Float",
-        "Str",
-        "Bool",
-        "Null",
-        "Self",
-    ].includes(typeName)) {
-        if (!templateTypes.empty()) {
-            throw new Error(`${typeName} cannot have template types`);
-        }
-        return typeName as Type;
-    }
-    if (typeName === "Func") {
-        if (templateTypes.returnType === null) {
-            throw new Error(`Func type requires a return type`);
-        }
-        return new FuncType(templateTypes.types, templateTypes.returnType);
-    }
-    if (typeName === "Arr") {
-        if (templateTypes.types.length !== 1) {
-            throw new Error(`Array type requires a single template type (for the inner type)`);
-        }
-        if (templateTypes.returnType !== null) {
-            throw new Error(`Array type cannot have a return type`);
-        }
-        return new ArrayType(templateTypes.types[0]);
-    }
-    if (typeName === "Iter") {
-        if (templateTypes.types.length !== 1) {
-            throw new Error(`Iter type requires a single template type (for the inner type)`);
-        }
-        if (templateTypes.returnType !== null) {
-            throw new Error(`Iter type cannot have a return type`);
-        }
-        return new IterType(templateTypes.types[0]);
-    }
-
-    return new CustomType(typeName);
 }
 
 export abstract class Expression {
@@ -343,18 +174,6 @@ export class Block extends Expression {
             expression.toJS(writer);
             writer.write(";");
             writer.newLine();
-        }
-        // Emit monomorphized functions inside the block scope (hoisted by JS)
-        const monomorphizedFns = getAllMonomorphized();
-        if (monomorphizedFns.size > 0 && writer.monoFunctionsEmitted === false) {
-            writer.monoFunctionsEmitted = true;
-            for (const [name, fn] of monomorphizedFns) {
-                if (!fn.isGeneric) {
-                    fn.toJS(writer);
-                    writer.write(";");
-                    writer.newLine();
-                }
-            }
         }
         const lastExpr = this.expressions[this.expressions.length - 1];
         if (lastExpr instanceof DropValue || (lastExpr instanceof Assignment && lastExpr.isDropped)) {
@@ -471,6 +290,21 @@ export class Unary extends Expression {
     }
 }
 
+// Operator overloading — maps TokenType to function names for user-defined types
+const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {
+    [TokenType.Plus]: "add",
+    [TokenType.Minus]: "subtract",
+    [TokenType.Star]: "multiply",
+    [TokenType.Slash]: "divide",
+    [TokenType.Percent]: "modulo",
+    [TokenType.EqualEqual]: "equal",
+    [TokenType.BangEqual]: "notEqual",
+    [TokenType.Less]: "less",
+    [TokenType.LessEqual]: "lessEqual",
+    [TokenType.Greater]: "greater",
+    [TokenType.GreaterEqual]: "greaterEqual",
+};
+
 const OPERATOR_TRANSLATIONS: Record<string, string> = {
     [TokenType.Plus]: "+",
     [TokenType.Minus]: "-",
@@ -488,6 +322,7 @@ const OPERATOR_TRANSLATIONS: Record<string, string> = {
 
 export class Binary extends Expression {
     operator: TokenType;
+    overloadedAs?: { name: string };
 
     constructor(operatorToken: Token, public left: Expression, public right: Expression) {
         super(operatorToken.line, operatorToken.col);
@@ -593,6 +428,20 @@ export class Binary extends Expression {
             }
         }
 
+        // Try operator overloading for user-defined types (at least one operand is a CustomType)
+        if ((ltype instanceof CustomType || rtype instanceof CustomType) &&
+            !(ltype instanceof ArrayType) && !(rtype instanceof ArrayType) &&
+            !(ltype instanceof IterType) && !(rtype instanceof IterType)) {
+            const opName = OPERATOR_TO_FUNCTION[this.operator];
+            if (opName) {
+                const { error, result } = findCaller(this, ancestors, opName, [ltype, rtype]);
+                if (error === null) {
+                    this.type = result.rootType;
+                    this.overloadedAs = { name: result.referToByName };
+                    return;
+                }
+            }
+        }
         throw this.error(`cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
     }
 
@@ -606,6 +455,16 @@ export class Binary extends Expression {
     }
 
     toJS(writer: JSWriter): void {
+        // Operator overloading: emit function call instead of inline operator
+        if (this.overloadedAs) {
+            writer.write(writer.safeName(this.overloadedAs.name));
+            writer.write("(");
+            this.left.toJS(writer);
+            writer.write(", ");
+            this.right.toJS(writer);
+            writer.write(")");
+            return;
+        }
         if (this.left.type instanceof ArrayType) {
             if (this.operator === TokenType.Plus) {
                 this.left.toJS(writer);
@@ -1011,6 +870,7 @@ export class Function extends Expression {
     body: Block;
     fullName: string;
     typeParams: string[] = [];
+    monomorphizedVersions: Function[] = [];
 
     constructor(rootToken: Token, name: string, params: { name: string, type: Type }[], returnType: Type, typeTraits: { type: Type, trait: Type }[], body: Expression) {
         if (!(body instanceof Block)) {
@@ -1181,8 +1041,9 @@ export class Function extends Expression {
                 `monomorphized function body should return ${concreteReturnType}, but found ${monomorphized.body.type}`);
         }
 
-        // Register in cache
+        // Register in cache and track for emission alongside the original generic function
         registerMonomorphized(monomorphizedFullName, monomorphized);
+        this.monomorphizedVersions.push(monomorphized);
 
         return {
             fullName: monomorphizedFullName,
@@ -1212,7 +1073,12 @@ export class Function extends Expression {
 
     toJS(writer: JSWriter): void {
         if (this.isGeneric) {
-            // Generic template functions are not emitted directly — only monomorphized versions are
+            // Emit monomorphized versions alongside the original generic function
+            for (const v of this.monomorphizedVersions) {
+                v.toJS(writer);
+                writer.write(";");
+                writer.newLine();
+            }
             return;
         }
         writer.write(`function ${writer.safeName(this.fullName)}(`);

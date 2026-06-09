@@ -115,3 +115,59 @@ func lt(a: Int, b: Int): Bool {
 
 [lte(2, 3), lte(3, 3), lte(4,3)]  # [true, true, false]
 ```
+
+
+### Putting it all together
+
+```
+struct Complex {
+    re: Float,
+    im: Float,
+}
+
+func abs(z: Complex): Float {
+    z.re * z.re + z.im * z.im
+}
+
+func mandelIter(z: Complex, c: Complex, i: Int): Bool {
+    if (i <= 0) { abs(z) < 4.0 }
+    else {
+        re = c.re + z.re * z.re - z.im * z.im;
+        im = c.im + 2.0 * z.re * z.im;
+        mandelIter(Complex(re, im), c, i-1)
+    }
+}
+
+func isMandel(c: Complex): Bool {
+    mandelIter(Complex(0.0, 0.0), c, 20)
+}
+
+func linspace(a: Float, b: Float, n: Int): Iter[Float] {
+    step = (b - a) / toFloat(n - 1);
+    map(func(i: Int) { a + step * toFloat(i) }, range(0, n - 1))
+}
+
+func concat(strs: Iter[Str]) {
+    reduce(func(acc:Str, x:Str){acc+x}, strs, "")
+}
+
+func toStr(arr: Iter[Bool]) {
+    strs = map(func(x: Bool){ if x { "*" } else { " " }}, arr);
+    concat(strs) + "\n"
+}
+
+grid = {
+    xs = @linspace(-2.0, 1.0, 39);
+    ys = @linspace(-1.5, 1.5, 39);
+    concat(
+        map(
+            func(y: Float) {
+                toStr(map(func(x: Float){ isMandel(Complex(x, y)) }, xs))
+            },
+            ys
+        )
+    )
+};
+
+grid
+```

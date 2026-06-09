@@ -48,7 +48,6 @@ export class JSWriter {
     indentLevel: number = 0;
     scope: Scope = new Scope();
     builtins: Set<string> = new Set();
-    monoFunctionsEmitted: boolean = false;
 
     constructor(ast: AST.Expression) {
         this.ast = ast;

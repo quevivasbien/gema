@@ -567,3 +567,52 @@ test("parse functional operations with structs", () => {
         @map(func (p: P) { p("p") }, [P(1), P(2)])
     `);
 });
+
+test("parse operator overloading", () => {
+    testParse(`
+        struct Point { x: Int, y: Int };
+        func add(a: Point, b: Point): Point { Point(a.x + b.x, a.y + b.y) };
+        Point(1, 2) + Point(3, 4)
+    `);
+    testParse(`
+        struct Point { x: Int, y: Int };
+        func subtract(a: Point, b: Point): Point { Point(a.x - b.x, a.y - b.y) };
+        Point(5, 6) - Point(3, 2)
+    `);
+    testParse(`
+        struct Point { x: Int, y: Int };
+        func multiply(a: Point, b: Point): Point { Point(a.x * b.x, a.y * b.y) };
+        Point(2, 3) * Point(4, 5)
+    `);
+    testParse(`
+        struct Point { x: Int, y: Int };
+        func equal(a: Point, b: Point): Bool { a.x == b.x and a.y == b.y };
+        Point(1, 2) == Point(1, 2)
+    `);
+    testParse(`
+        struct Point { x: Int, y: Int };
+        func less(a: Point, b: Point): Bool { a.x < b.x };
+        Point(1, 2) < Point(3, 4)
+    `);
+    testParse(`
+        struct Point { x: Int, y: Int };
+        func add(a: Point, b: Point): Point { Point(a.x + b.x, a.y + b.y) };
+        a = Point(1, 2) + Point(3, 4);
+        b = a + Point(5, 6)
+    `);
+    testParseExpectError(`
+        struct Point { x: Int, y: Int };
+        Point(1, 2) + Point(3, 4)
+    `);
+});
+
+test.todo("parse automatic conversion of array to iterator", () => {
+    testParse(`
+        func toStr(iter: Iter[Bool]) {
+            strs = map(func(x: Bool){ if x { "*" } else { " " }}, iter);
+            reduce(func(acc:Str, x:Str){acc+x}, strs, "")
+        }
+
+        toStr([false, true, false, true])
+    `);
+});
