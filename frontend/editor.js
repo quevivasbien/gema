@@ -2,7 +2,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap, Decoration } from "@codemirror/view";
-import { StateEffect, StateField } from "@codemirror/state";
+import { Prec, StateEffect, StateField } from "@codemirror/state";
 import { indentWithTab } from "@codemirror/commands";
 
 // ── Presets ──────────────────────────────────────────────────────
@@ -225,7 +225,18 @@ function createEditor(parent) {
             basicSetup,
             javascript(),
             oneDark,
-            keymap.of([indentWithTab]),
+            Prec.highest(
+                keymap.of([
+                    indentWithTab,
+                    {
+                        key: "Mod-Enter",
+                        run: (view) => {
+                            runCode(view);
+                            return true;
+                        },
+                    },
+                ])
+            ),
             errorField,
             EditorView.theme({
                 "&": { height: "100%" },
@@ -233,16 +244,6 @@ function createEditor(parent) {
             }),
         ],
         parent,
-    });
-
-    // Use a direct DOM listener for Ctrl+Enter / Cmd+Enter so it works
-    // even when CodeMirror's internal key handling captures the event.
-    view.dom.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-            event.preventDefault();
-            event.stopPropagation();
-            runCode(view);
-        }
     });
 
     return view;

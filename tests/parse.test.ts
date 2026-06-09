@@ -614,3 +614,8 @@ test.todo("parse automatic conversion of array to iterator", () => {
         toStr([false, true, false, true])
     `);
 });
+
+test.todo("treat builtin functions as valid functions", () => {
+    testParse(`f = toFloat[Int];`);
+    testParse(`map(toStr, range(1, 3))`);
+});

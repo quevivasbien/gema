@@ -4,7 +4,7 @@ A simple programming language that transpiles to JavaScript.
 
 ## Setup
 
-This project uses the [Bun](https://bun.sh) JavaScript runtime and package manager, though you should also be able to use Node + NPM (or similar) with some minor tweaks.
+This project uses the [Bun](https://bun.sh) JavaScript runtime and package manager. You may also be able to use other runtimes with some minor tweaks.
 
 To install dependencies:
 
@@ -12,10 +12,10 @@ To install dependencies:
 bun install
 ```
 
-To run, you can call functions exposed in `index.ts`, or use:
+To run, you can call functions exposed in `index.ts`, or use the code editor+compiler sandbox:
 
 ```bash
-bun run server.ts
+bun run build:frontend && bun run server.ts
 ```
 
 This will serve a simple webpage on port 3000 that allows you to try writing and run Gema code.
