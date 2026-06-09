@@ -3,11 +3,19 @@ import { writeJS } from "../src/write-js";
 import { testParse } from "./parse.test";
 
 function testCompile(text: string, expectEqual: any) {
-    const ast = testParse(text, false);
+    const ast = testParse(text);
     const sourceOut = writeJS(ast);
-    // expect(sourceOut).toMatchSnapshot();
-    expect(eval(sourceOut)).toEqual(expectEqual);
+    if (expectEqual !== null) {
+        expect(eval(sourceOut)).toEqual(expectEqual);
+    }
     return sourceOut;
+}
+
+// For testing whether two programs produce the same compiled output
+function requireIdenticalCompilation(text1: string, text2: string) {
+    const js1 = testCompile(text1, null);
+    const js2 = testCompile(text2, null);
+    expect(js1).toEqual(js2);
 }
 
 test("compile literals", () => {
@@ -657,6 +665,11 @@ test("compile dot syntax for struct field access", () => {
     `,
         2n
     );
+
+    requireIdenticalCompilation(
+        `struct Foo { x: Int }; Foo(1)("x")`,
+        `struct Foo { x: Int }; Foo(1).x`
+    );
 });
 
 test("compile type conversion builtins", () => {
@@ -757,5 +770,37 @@ test.todo("compile function with nested generic type", () => {
         computeSum([1,2,3])
     `,
         6n
+    );
+});
+
+test.todo("compile keyword arguments for functions", () => {
+    testCompile(`func foo(x: Int): Int { x }; foo(x=1)`, 1n);
+    testCompile(`func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y=1)`, 2n);
+    testCompile(`func foo(x: Int, y: Int): Int { x + y }; foo(y=1, x=1)`, 2n);
+
+    // Want to ensure that we emit the exact same JS if the function is called with the same arguments
+    requireIdenticalCompilation(
+        "func foo(x: Int, y: Int): Int { x + y }; foo(1, 2)",
+        "func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y=2)"
+    );
+    requireIdenticalCompilation(
+        "func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y=2)",
+        "func foo(x: Int, y: Int): Int { x + y }; foo(y=2, x=1)"
+    );
+});
+
+test.todo("compile keyword arguments for struct constructors", () => {
+    testCompile(`struct Foo {x: Int }; Foo(x=1).x`, 1n);
+    testCompile(`struct Foo {x: Int, y: Int }; foo = Foo(x=1, y=1); foo.x + foo.y`, 2n);
+    testCompile(`struct Foo {x: Int, y: Int }; Foo(y=1, x=2).y`, 1n);
+
+    // Want to ensure that we emit the exact same JS if a struct is constructed with the same values
+    requireIdenticalCompilation(
+        "struct Foo { x: Int, y: Int }; Foo(1, 2)",
+        "struct Foo { x: Int, y: Int }; Foo(x=1, y=2)"
+    );
+    requireIdenticalCompilation(
+        "struct Foo { x: Int, y: Int }; Foo(x=1, y=2)",
+        "struct Foo { x: Int, y: Int }; Foo(y=2, x=1)"
     );
 });

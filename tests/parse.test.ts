@@ -3,7 +3,7 @@ import { scan } from "../src/scan";
 import { parse } from "../src/parse";
 import { resetRegistries } from "../src/ast";
 
-export function testParse(text: string, checkSnapshot: boolean = true) {
+export function testParse(text: string) {
     resetRegistries();
     const tokens = scan(text);
     const { ast, errors } = parse(tokens);
@@ -11,7 +11,6 @@ export function testParse(text: string, checkSnapshot: boolean = true) {
         console.log(errors);
     }
     expect(errors.length).toBe(0);
-    // expect(ast).toMatchSnapshot();
     return ast;
 }
 
@@ -615,7 +614,23 @@ test.todo("parse automatic conversion of array to iterator", () => {
     `);
 });
 
-test.todo("treat builtin functions as valid functions", () => {
+test.todo("parse treat builtin functions as valid functions", () => {
     testParse(`f = toFloat[Int];`);
     testParse(`map(toStr, range(1, 3))`);
+});
+
+test.todo("parse keyword arguments for functions", () => {
+    testParse(`func foo(x: Int): Int { x }; foo(x=1)`);
+    testParse(`func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y=1)`);
+    testParse(`func foo(x: Int, y: Int): Int { x + y }; foo(y=1, x=1)`);
+    testParseExpectError(`func foo(x: Int, y: Int): Int { x + y }; foo(x, y=1)`); // Cannot mix with keyword calls in current language spec
+    testParseExpectError(`func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y)`); // Cannot mix with keyword calls in current language spec
+});
+
+test.todo("parse keyword arguments for struct constructors", () => {
+    testParse(`struct Foo {x: Int }; Foo(x=1)`);
+    testParse(`struct Foo {x: Int, y: Int }; Foo(x=1, y=1)`);
+    testParse(`struct Foo {x: Int, y: Int }; Foo(y=1, x=1)`);
+    testParseExpectError(`struct Foo {x: Int, y: Int }; Foo(x=1, 1)`); // Cannot mix with keyword calls in current language spec
+    testParseExpectError(`struct Foo {x: Int, y: Int }; Foo(1, y=1)`); // Cannot mix with keyword calls in current language spec
 });
