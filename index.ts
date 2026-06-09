@@ -4,6 +4,12 @@ import { writeJS } from "./src/write-js";
 
 export { parse, scan, writeJS };
 
+export interface RawError {
+    line: number;
+    col: number;
+    message: string;
+}
+
 export function compile(
     text: string
 ): { errors: null; js: string } | { errors: string[]; js: null } {
@@ -29,4 +35,39 @@ export function compile(
         return { errors: errorMessages, js: null };
     }
     return { errors: null, js: writeJS(ast) };
+}
+
+/** Like compile() but returns raw structured error data for the frontend. */
+export function compileWithRawErrors(text: string): {
+    js: string;
+    result: string | null;
+    errors: { line: number; col: number; message: string }[];
+    runtimeError: string | null;
+} {
+    const tokens = scan(text);
+    const { ast, errors } = parse(tokens);
+    if (errors.length > 0) {
+        return {
+            js: "",
+            result: null,
+            errors: errors.map((e) => ({
+                line: e.line,
+                col: e.col,
+                message: e.message,
+            })),
+            runtimeError: null,
+        };
+    }
+    const js = writeJS(ast);
+    try {
+        const result = eval(js);
+        return { js, result: String(result), errors: [], runtimeError: null };
+    } catch (e: any) {
+        return {
+            js,
+            result: null,
+            errors: [],
+            runtimeError: e instanceof Error ? e.message : String(e),
+        };
+    }
 }

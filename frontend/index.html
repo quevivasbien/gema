@@ -3,31 +3,46 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Gema Code Editor</title>
+        <title>Gema Playground</title>
         <link rel="stylesheet" href="/styles.css" />
     </head>
 
     <body>
-        <h1>Gema Code Editor</h1>
-        <textarea
-            id="code"
-            class="code"
-            placeholder="Enter code here"
-            spellcheck="false"
-        ></textarea>
-        <div class="flex-row">
-            <label>
-                Preset:
-                <select id="select-preset" name="select-preset" value="hello">
-                    <option value="hello">Hello</option>
-                    <option value="recursiveFactorial">Factorial (recursive)</option>
-                    <option value="iterativeFactorial">Factorial (iterative)</option>
-                </select>
-            </label>
-            <button id="button-run">Run (ctrl+enter)</button>
-        </div>
-        <div class="output" id="js-compiled">--View compiled JS here--</div>
-        <div class="output" id="output">--Run code to view output here--</div>
-        <script src="/main.js"></script>
+        <header class="app-header">
+            <h1 class="app-title">gema <span class="app-subtitle">playground</span></h1>
+            <div class="toolbar">
+                <label class="toolbar-label">
+                    Preset:
+                    <select id="select-preset" name="select-preset">
+                        <!-- Populated by editor.js -->
+                    </select>
+                </label>
+                <button id="button-run" class="btn btn-run">Run (Ctrl+Enter)</button>
+            </div>
+        </header>
+
+        <main class="app-main">
+            <div class="editor-panel">
+                <div id="editor" class="editor-container"></div>
+            </div>
+
+            <div class="results-panel">
+                <div class="result-section">
+                    <div class="result-header">Output</div>
+                    <div id="output" class="output-panel">-- Run code to view output here --</div>
+                </div>
+
+                <div class="result-section">
+                    <div id="js-panel-header" class="result-header result-header-toggle">
+                        Compiled JavaScript <span class="toggle-icon">▶</span>
+                    </div>
+                    <div id="js-panel-content" class="js-panel-content">
+                        <pre id="js-compiled" class="output-panel js-output"></pre>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <script type="module" src="/bundle.js"></script>
     </body>
 </html>

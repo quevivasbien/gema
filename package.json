@@ -1,11 +1,21 @@
 {
     "name": "gema",
     "module": "index.ts",
+    "scripts": {
+        "build:frontend": "bun build frontend/editor.js --outfile=frontend/dist/bundle.js",
+        "dev": "bun run server.ts"
+    },
     "devDependencies": {
         "@types/bun": "latest"
     },
     "peerDependencies": {
         "typescript": "^5.0.0"
     },
-    "type": "module"
+    "type": "module",
+    "dependencies": {
+        "@codemirror/commands": "^6.10.3",
+        "@codemirror/lang-javascript": "^6.2.5",
+        "@codemirror/theme-one-dark": "^6.1.3",
+        "codemirror": "^6.0.2"
+    }
 }
