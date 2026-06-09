@@ -476,6 +476,19 @@ test("parse string indexing", () => {
     testParse(`x = "hello"; x(0)`);
 });
 
+test("parse variables named with JS reserved words", () => {
+    testParse(`const = 5`);
+    testParse(`let = 10`);
+    testParse(`class = 20`);
+    testParse(`return = true`);
+    testParse(`func f(const: Int): Int { const }; f(5)`);
+    testParse(`
+        const = 1;
+        let = 2;
+        const + let
+    `);
+});
+
 test("parse functional operations with structs", () => {
     testParse(`
         struct P { p: Int }

@@ -782,7 +782,7 @@ export class Variable extends Expression {
         if (this.fullName === undefined) {
             throw this.error(`type of variable ${this} not resolved`);
         }
-        writer.write(this.fullName);
+        writer.write(writer.safeName(this.fullName));
     }
 }
 
@@ -846,12 +846,13 @@ export class Assignment extends Expression {
     toJS(writer: JSWriter): void {
         writer.declareVariable(this.name);
         if (this.isDropped) {
-            writer.write(`${this.name} = `);
+            const safeName = writer.safeName(this.name);
+            writer.write(`${safeName} = `);
             this.value.toJS(writer);
         } else {
-            writer.write(`(() => { ${this.name} = `);
+            writer.write(`(() => { ${writer.safeName(this.name)} = `);
             this.value.toJS(writer);
-            writer.write(`; return ${this.name}; })()`);
+            writer.write(`; return ${writer.safeName(this.name)}; })()`);
         }
     }
 }
@@ -981,7 +982,7 @@ export class AnonymousFunction extends Expression {
 
     toJS(writer: JSWriter): void {
         writer.write(`(`);
-        writer.write(this.params.map(p => p.name).join(", "));
+        writer.write(this.params.map(p => writer.safeName(p.name)).join(", "));
         writer.write(") => ")
         writer.beginFunction();
         this.body.expressions.slice(0, -1).forEach(expr => {
@@ -1214,8 +1215,8 @@ export class Function extends Expression {
             // Generic template functions are not emitted directly — only monomorphized versions are
             return;
         }
-        writer.write(`function ${this.fullName}(`);
-        writer.write(this.params.map(p => p.name).join(", "));
+        writer.write(`function ${writer.safeName(this.fullName)}(`);
+        writer.write(this.params.map(p => writer.safeName(p.name)).join(", "));
         writer.write(") ");
         writer.beginFunction();
         this.body.expressions.slice(0, -1).forEach(expr => {
@@ -1738,13 +1739,13 @@ export class Call extends Expression {
         }
         // Struct field access: p("x") → p.x
         if (this.isStructFieldAccess) {
-            writer.write(this.referToByName!);
+            writer.write(writer.safeName(this.referToByName!));
             writer.write(`.${this.structFieldName}`);
             return;
         }
         // String indexing: x(index) → x[index]
         if (this.isStringIndexing) {
-            writer.write(this.referToByName!);
+            writer.write(writer.safeName(this.referToByName!));
             writer.write("[");
             this.args[0].toJS(writer);
             writer.write("]");
@@ -1767,7 +1768,7 @@ export class Call extends Expression {
                 });
                 writer.write("}");
             } else {
-                writer.write(this.referToByName);
+                writer.write(writer.safeName(this.referToByName));
                 writer.write("(");
                 this.args.forEach((arg, i) => {
                     if (i > 0) {
@@ -1781,7 +1782,7 @@ export class Call extends Expression {
             // Iterate up to the desired index and return that element
             writer.useBuiltin("__ITER_GET__");
             writer.write("__ITER_GET__(");
-            writer.write(this.referToByName);
+            writer.write(writer.safeName(this.referToByName));
             writer.write(", ");
             this.args.forEach((arg, i) => {
                 if (i > 0) {
@@ -1791,7 +1792,7 @@ export class Call extends Expression {
             });
             writer.write(")");
         } else if (this.callerType instanceof ArrayType) {
-            writer.write(this.referToByName);
+            writer.write(writer.safeName(this.referToByName));
             this.args.forEach((arg, i) => {
                 writer.write("[");
                 arg.toJS(writer);
@@ -2164,7 +2165,7 @@ export class MapIter extends Expression {
             writer.write("__MAPITER__(");
         }
         if (this.referToMapFnByName !== null) {
-            writer.write(this.referToMapFnByName);
+            writer.write(writer.safeName(this.referToMapFnByName));
         } else {
             this.mapFn.toJS(writer);
         }
@@ -2272,7 +2273,7 @@ export class Reduce extends Expression {
         writer.useBuiltin("__REDUCE__");
         writer.write("__REDUCE__(");
         if (this.referToReduceFnByName !== null) {
-            writer.write(this.referToReduceFnByName);
+            writer.write(writer.safeName(this.referToReduceFnByName));
         } else {
             this.reduceFn.toJS(writer);
         }
@@ -2369,7 +2370,7 @@ export class FilterIter extends Expression {
         writer.useBuiltin("__FILTERITER__");
         writer.write("__FILTERITER__(");
         if (this.referToFilterFnByName !== null) {
-            writer.write(this.referToFilterFnByName);
+            writer.write(writer.safeName(this.referToFilterFnByName));
         } else {
             this.filterFn.toJS(writer);
         }

@@ -539,6 +539,36 @@ test("compile string indexing", () => {
     testCompile(`x = "hello"; x(0)`, "h");
 });
 
+test("compile variables named with JS reserved words", () => {
+    testCompile(`
+        const = 5;
+        const + 1
+    `, 6n);
+    testCompile(`
+        let = 10;
+        let
+    `, 10n);
+    testCompile(`
+        class = 20;
+        class
+    `, 20n);
+    testCompile(`
+        return = true;
+        return
+    `, true);
+    testCompile(`
+        func f(const: Int): Int {
+            const
+        };
+        f(5)
+    `, 5n);
+    testCompile(`
+        const = 1;
+        let = 2;
+        const + let
+    `, 3n);
+});
+
 test.todo("compile function with nested generic type", () => {
     testCompile(`
         func getLength(arr: Arr[T]): Int {

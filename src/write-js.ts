@@ -3,6 +3,29 @@ import { BUILTINS } from "./builtins";
 
 const INDENT = "    ";
 
+// JavaScript reserved words that cannot be used as variable/function/parameter names
+const JS_RESERVED_WORDS = new Set([
+    "const", "let", "var", "function", "class", "new", "this", "super",
+    "if", "else", "for", "while", "do", "switch", "case", "default",
+    "break", "continue", "return", "throw", "try", "catch", "finally",
+    "typeof", "void", "delete", "import", "export", "yield", "async", "await",
+    "in", "of", "instanceof",
+    "true", "false", "null", "undefined", "NaN", "Infinity",
+    "arguments", "eval",
+]);
+
+/** Map a name to a safe JS identifier if it conflicts with a reserved word. */
+export function safeJSName(name: string): string {
+    // Handle mangled names like "foo$Int$Int" — only check the base name part
+    const dollarIdx = name.indexOf("$");
+    const baseName = dollarIdx === -1 ? name : name.slice(0, dollarIdx);
+    if (JS_RESERVED_WORDS.has(baseName)) {
+        const suffix = dollarIdx === -1 ? "" : name.slice(dollarIdx);
+        return `_gema_${baseName}${suffix}`;
+    }
+    return name;
+}
+
 class Scope {
     parent: Scope | null;
     variableNames: Set<string> = new Set();
@@ -14,7 +37,7 @@ class Scope {
     }
 
     getDeclarations(): string[] {
-        return Array.from(this.variableNames).map((name) => INDENT.repeat(this.baseIndentLevel) + `let ${name};`);
+        return Array.from(this.variableNames).map((name) => INDENT.repeat(this.baseIndentLevel) + `let ${safeJSName(name)};`);
     }
 }
 
@@ -46,6 +69,10 @@ export class JSWriter {
 
     indentOut() {
         this.indentLevel -= 1;
+    }
+
+    safeName(name: string): string {
+        return safeJSName(name);
     }
 
     declareVariable(name: string) {
