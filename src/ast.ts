@@ -1753,6 +1753,7 @@ function findTypeConversion(
 export class Call extends Expression {
     name: string;
     args: Expression[];
+    keywordArgs: { name: string; value: Expression }[] = [];
 
     callerType?: CallableType;
     referToByName?: string;
@@ -1772,7 +1773,8 @@ export class Call extends Expression {
     }
 
     cascadeTypes(ancestors: Expression[]): void {
-        const argTypes = this.args.map((arg, i) => {
+        // Cascade types on all positional and keyword arg expressions first
+        const positionalArgTypes = this.args.map((arg, i) => {
             arg.cascadeTypes([...ancestors, this]);
             if (arg.type === null) {
                 throw this.error(`unable to resolve type of argument ${i + 1} in call`);
@@ -1780,12 +1782,99 @@ export class Call extends Expression {
             return arg.type;
         });
 
-        // search for the most recent caller definition with matching type, get name we should refer to it by
-        // also set type of this to return type of found function
-        const { error, result } = findCaller(this, ancestors, this.name, argTypes);
+        const keywordInfos = this.keywordArgs.map((k) => {
+            k.value.cascadeTypes([...ancestors, this]);
+            if (k.value.type === null) {
+                throw this.error(`unable to resolve type of keyword argument '${k.name}'`);
+            }
+            return { name: k.name, type: k.value.type, value: k.value };
+        });
+
+        // If keyword args exist, resolve to positional order FIRST, then call findCaller
+        if (this.keywordArgs.length > 0) {
+            // Inline keyword resolution: find the function/struct, reorder args by name
+            const totalArgs = this.args.length + keywordInfos.length;
+
+            // Try struct constructor first
+            const structDef = getStruct(this.name);
+            if (structDef) {
+                const fieldNames = structDef.fields.map((f) => f.name);
+                if (totalArgs !== fieldNames.length) {
+                    throw this.error(`struct ${this.name} constructor expects ${fieldNames.length} arguments, got ${totalArgs}`);
+                }
+                const ordered: Expression[] = [];
+                ordered.length = totalArgs;
+                const usedPositions = new Set<number>();
+                for (let pi = 0; pi < this.args.length; pi++) {
+                    ordered[pi] = this.args[pi];
+                    usedPositions.add(pi);
+                }
+                for (const kw of keywordInfos) {
+                    const pos = fieldNames.indexOf(kw.name);
+                    if (pos === -1) {
+                        throw this.error(`unknown field '${kw.name}' — struct ${this.name} has fields [${fieldNames.join(", ")}]`);
+                    }
+                    if (usedPositions.has(pos)) {
+                        throw this.error(`argument for field '${kw.name}' was already provided positionally`);
+                    }
+                    ordered[pos] = kw.value;
+                    usedPositions.add(pos);
+                }
+                if (usedPositions.size !== totalArgs) {
+                    throw this.error(`some arguments were not provided for struct ${this.name}`);
+                }
+                this.args = ordered;
+            } else {
+                // Search ancestors for a matching function
+                let lastAncestor: Expression = this;
+                for (let ai = ancestors.length - 1; ai >= 0; ai--) {
+                    const ancestor = ancestors[ai];
+                    if (ancestor instanceof Block) {
+                        const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
+                        for (let sj = olderSiblings.length - 1; sj >= 0; sj--) {
+                            let sib = olderSiblings[sj];
+                            while (sib instanceof DropValue) { sib = sib.child; }
+                            if (sib instanceof Function && sib.name === this.name && !sib.isGeneric && sib.params.length === totalArgs) {
+                                const paramNames = sib.params.map((p) => p.name);
+                                const ordered: Expression[] = [];
+                                ordered.length = totalArgs;
+                                const usedPositions = new Set<number>();
+                                for (let pi = 0; pi < this.args.length; pi++) {
+                                    ordered[pi] = this.args[pi];
+                                    usedPositions.add(pi);
+                                }
+                                for (const kw of keywordInfos) {
+                                    const pos = paramNames.indexOf(kw.name);
+                                    if (pos === -1) {
+                                        throw this.error(`unknown keyword argument '${kw.name}' — valid options are [${paramNames.join(", ")}]`);
+                                    }
+                                    if (usedPositions.has(pos)) {
+                                        throw this.error(`argument '${kw.name}' was already provided by positional argument`);
+                                    }
+                                    ordered[pos] = kw.value;
+                                    usedPositions.add(pos);
+                                }
+                                if (usedPositions.size !== totalArgs) {
+                                    throw this.error(`not all arguments were provided for function ${this.name}`);
+                                }
+                                this.args = ordered;
+                                // Found and resolved — break out of all loops
+                                ai = -1;
+                                break;
+                            }
+                        }
+                    }
+                    lastAncestor = ancestor;
+                }
+            }
+        }
+
+        const allArgTypes = [...positionalArgTypes, ...keywordInfos.map((k) => k.type)];
+
+        const { error, result } = findCaller(this, ancestors, this.name, allArgTypes);
         if (error !== null) {
             // Check if this is a struct field access: varName("fieldName")
-            if (argTypes.length === 1 && argTypes[0] === "Str" && this.args[0] instanceof Literal) {
+            if (allArgTypes.length === 1 && allArgTypes[0] === "Str" && this.args[0] instanceof Literal) {
                 const fieldName = this.args[0].value.slice(1, -1);
                 const structVar = findStructTypedVariable(this, ancestors, this.name);
                 if (structVar !== null) {
@@ -1798,7 +1887,7 @@ export class Call extends Expression {
                         if (field) {
                             this.type = field.type;
                             this.referToByName = structVar.varName;
-                            this.callerType = new FuncType(argTypes, field.type);
+                            this.callerType = new FuncType(allArgTypes, field.type);
                             this.isStructFieldAccess = true;
                             this.structFieldName = fieldName;
                             return;
@@ -1809,8 +1898,7 @@ export class Call extends Expression {
                     }
                 }
             }
-            // Check if this is string indexing: varName(index)
-            if (argTypes.length === 1 && argTypes[0] === "Int") {
+            if (allArgTypes.length === 1 && allArgTypes[0] === "Int") {
                 const stringVarType = findStringTypedVariable(this, ancestors, this.name);
                 if (stringVarType !== null) {
                     this.type = "Str";
@@ -1836,6 +1924,10 @@ export class Call extends Expression {
             { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
             this.args.map((a) => a.clone(bindings))
         );
+        cloned.keywordArgs = this.keywordArgs.map((k) => ({
+            name: k.name,
+            value: k.value.clone(bindings),
+        }));
         return cloned;
     }
 
@@ -1926,6 +2018,7 @@ export class Call extends Expression {
 export class DirectCall extends Expression {
     caller: Expression;
     args: Expression[];
+    keywordArgs: { name: string; value: Expression }[] = [];
 
     constructor(caller: Expression, args: Expression[]) {
         super(caller.line, caller.col);
@@ -2045,6 +2138,10 @@ export class DirectCall extends Expression {
             this.caller.clone(bindings),
             this.args.map((a) => a.clone(bindings))
         );
+        cloned.keywordArgs = this.keywordArgs.map((k) => ({
+            name: k.name,
+            value: k.value.clone(bindings),
+        }));
         return cloned;
     }
 

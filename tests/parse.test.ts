@@ -19,7 +19,6 @@ function testParseExpectError(text: string) {
     const tokens = scan(text);
     const { ast, errors } = parse(tokens);
     expect(errors.length).toBeGreaterThan(0);
-    // expect(errors).toMatchSnapshot();
 }
 
 test("parse addition", () => {
@@ -82,7 +81,12 @@ test("parse variable assignment", () => {
     testParseExpectError(`x = 1.0; x = 1;`);
     testParseExpectError(`x = y = 2`);
     testParseExpectError(`x = y = 2;`);
-    // testParseExpectError(`f = func foo(a: Int): Int { a };`);
+});
+
+test.todo("parse variable reassignment", () => {
+    testParse("x = 1; x = x + 1");
+    testParse("x = 1; x = x + 1; x");
+    testParse("x = 1; x = 2; x");
 });
 
 test("parse if", () => {
@@ -619,18 +623,24 @@ test.todo("parse treat builtin functions as valid functions", () => {
     testParse(`map(toStr, range(1, 3))`);
 });
 
-test.todo("parse keyword arguments for functions", () => {
+test("parse keyword arguments for functions", () => {
     testParse(`func foo(x: Int): Int { x }; foo(x=1)`);
     testParse(`func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y=1)`);
     testParse(`func foo(x: Int, y: Int): Int { x + y }; foo(y=1, x=1)`);
+    testParse(`func foo(x: Int) { x }; foo(x={ x = 1; x })`);
+    testParseExpectError(`struct foo(x: Int): Int { x }; foo(x=1, x=1)`);
+    testParseExpectError(`struct foo(x: Int, y: Int): Int { x + y }; foo(x=1)`);
     testParseExpectError(`func foo(x: Int, y: Int): Int { x + y }; foo(x, y=1)`); // Cannot mix with keyword calls in current language spec
     testParseExpectError(`func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y)`); // Cannot mix with keyword calls in current language spec
 });
 
-test.todo("parse keyword arguments for struct constructors", () => {
+test("parse keyword arguments for struct constructors", () => {
     testParse(`struct Foo {x: Int }; Foo(x=1)`);
     testParse(`struct Foo {x: Int, y: Int }; Foo(x=1, y=1)`);
     testParse(`struct Foo {x: Int, y: Int }; Foo(y=1, x=1)`);
+    testParse(`struct Foo {x: Int }; Foo(x={ x = 1; x })`);
+    testParseExpectError(`struct Foo {x: Int, }; Foo(x=1, x=1)`);
+    testParseExpectError(`struct Foo {x: Int, y: Int }; Foo(x=1)`);
     testParseExpectError(`struct Foo {x: Int, y: Int }; Foo(x=1, 1)`); // Cannot mix with keyword calls in current language spec
     testParseExpectError(`struct Foo {x: Int, y: Int }; Foo(1, y=1)`); // Cannot mix with keyword calls in current language spec
 });

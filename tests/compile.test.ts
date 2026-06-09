@@ -742,6 +742,16 @@ test("compile operator overloading", () => {
     );
 });
 
+test.todo("compile special operator functions for builtin types", () => {
+    testCompile("add(1, 2)", 3n);
+    testCompile("multiply(1, 2)", 2n);
+    testCompile("subtract(1.0, 2.0)", 1.0-2.0);
+    testCompile("less(1.0, 2.0)", true);
+
+    requireIdenticalCompilation("add(1.0, 2.0)", "1.0 + 2.0");
+    requireIdenticalCompilation("add([1,2], [3])", "[1,2] + [3]");
+});
+
 test.todo("compile function with nested generic type", () => {
     testCompile(
         `
@@ -773,10 +783,11 @@ test.todo("compile function with nested generic type", () => {
     );
 });
 
-test.todo("compile keyword arguments for functions", () => {
+test("compile keyword arguments for functions", () => {
     testCompile(`func foo(x: Int): Int { x }; foo(x=1)`, 1n);
     testCompile(`func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y=1)`, 2n);
     testCompile(`func foo(x: Int, y: Int): Int { x + y }; foo(y=1, x=1)`, 2n);
+    testCompile(`func foo(x: Int) { x }; foo(x={ x = 1; x }); foo(1)`, 1n);
 
     // Want to ensure that we emit the exact same JS if the function is called with the same arguments
     requireIdenticalCompilation(
@@ -789,10 +800,11 @@ test.todo("compile keyword arguments for functions", () => {
     );
 });
 
-test.todo("compile keyword arguments for struct constructors", () => {
+test("compile keyword arguments for struct constructors", () => {
     testCompile(`struct Foo {x: Int }; Foo(x=1).x`, 1n);
     testCompile(`struct Foo {x: Int, y: Int }; foo = Foo(x=1, y=1); foo.x + foo.y`, 2n);
     testCompile(`struct Foo {x: Int, y: Int }; Foo(y=1, x=2).y`, 1n);
+    testCompile(`struct Foo {x: Int }; Foo(x={ x = 1; x }).x`, 1n);
 
     // Want to ensure that we emit the exact same JS if a struct is constructed with the same values
     requireIdenticalCompilation(
