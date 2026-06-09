@@ -3,9 +3,9 @@ import { type Type, TemplateTypes, getType } from "./types";
 import { TokenType, type Token } from "./tokens";
 
 interface ParseError {
-    line: number,
-    col: number,
-    message: string,
+    line: number;
+    col: number;
+    message: string;
 }
 
 enum Precedence {
@@ -23,9 +23,9 @@ enum Precedence {
 }
 
 interface ParseRule {
-    prefix: ((parser: Parser) => AST.Expression) | null,
-    infix: ((parser: Parser, leftExpr: AST.Expression) => AST.Expression) | null,
-    precedence: Precedence
+    prefix: ((parser: Parser) => AST.Expression) | null;
+    infix: ((parser: Parser, leftExpr: AST.Expression) => AST.Expression) | null;
+    precedence: Precedence;
 }
 
 const PARSE_RULES: Record<string, ParseRule> = {};
@@ -34,178 +34,178 @@ const PARSE_RULES: Record<string, ParseRule> = {};
 PARSE_RULES[TokenType.LParen] = {
     prefix: parseGrouping,
     infix: parseDirectCall,
-    precedence: Precedence.Call
+    precedence: Precedence.Call,
 };
 PARSE_RULES[TokenType.LBrace] = {
     prefix: (parser: Parser) => parser.block(),
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.LBracket] = {
     prefix: parseArray,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.If] = {
     prefix: parseIfStatement,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.Func] = {
     prefix: parseAnonymousFunction,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.Trait] = {
     prefix: parseTrait,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 
 // AST.Literals
 PARSE_RULES[TokenType.Integer] = {
     prefix: parseInt,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.Float] = {
     prefix: parseFloat,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.String] = {
     prefix: parseString,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.True] = {
     prefix: parseBoolean,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.False] = {
     prefix: parseBoolean,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 
 // Operators
 PARSE_RULES[TokenType.Plus] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Term
+    precedence: Precedence.Term,
 };
 PARSE_RULES[TokenType.Minus] = {
     prefix: parseUnary,
     infix: parseBinary,
-    precedence: Precedence.Term
+    precedence: Precedence.Term,
 };
 PARSE_RULES[TokenType.Star] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Factor
+    precedence: Precedence.Factor,
 };
 PARSE_RULES[TokenType.Slash] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Factor
+    precedence: Precedence.Factor,
 };
 PARSE_RULES[TokenType.Percent] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Factor
+    precedence: Precedence.Factor,
 };
 PARSE_RULES[TokenType.Caret] = {
     prefix: null,
     infix: parseExponentiation,
-    precedence: Precedence.Exponent
+    precedence: Precedence.Exponent,
 };
 PARSE_RULES[TokenType.And] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.And
+    precedence: Precedence.And,
 };
 PARSE_RULES[TokenType.Or] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Or
+    precedence: Precedence.Or,
 };
 PARSE_RULES[TokenType.EqualEqual] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Equality
+    precedence: Precedence.Equality,
 };
 PARSE_RULES[TokenType.BangEqual] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Equality
+    precedence: Precedence.Equality,
 };
 PARSE_RULES[TokenType.Less] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Comparison
+    precedence: Precedence.Comparison,
 };
 PARSE_RULES[TokenType.LessEqual] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Comparison
+    precedence: Precedence.Comparison,
 };
 PARSE_RULES[TokenType.Greater] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Comparison
+    precedence: Precedence.Comparison,
 };
 PARSE_RULES[TokenType.GreaterEqual] = {
     prefix: null,
     infix: parseBinary,
-    precedence: Precedence.Comparison
+    precedence: Precedence.Comparison,
 };
 PARSE_RULES[TokenType.Dot] = {
     prefix: null,
     infix: parseFieldAccess,
-    precedence: Precedence.Call
+    precedence: Precedence.Call,
 };
 PARSE_RULES[TokenType.Identifier] = {
     prefix: parseVariable,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 
 // Functional ops
 PARSE_RULES[TokenType.At] = {
     prefix: parseUnary,
     infix: null,
-    precedence: Precedence.Unary
+    precedence: Precedence.Unary,
 };
 PARSE_RULES[TokenType.Range] = {
     prefix: parseRange,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.Map] = {
     prefix: parseMap,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.Reduce] = {
     prefix: parseReduce,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 PARSE_RULES[TokenType.Filter] = {
     prefix: parseFilter,
     infix: null,
-    precedence: Precedence.None
+    precedence: Precedence.None,
 };
 
 // Define default rules
-Object.values(TokenType).forEach(tokenType => {
+Object.values(TokenType).forEach((tokenType) => {
     if (!PARSE_RULES[tokenType]) {
         PARSE_RULES[tokenType] = {
             prefix: null,
             infix: null,
-            precedence: Precedence.None
-        }
+            precedence: Precedence.None,
+        };
     }
 });
 
@@ -245,25 +245,27 @@ function parseIfStatement(parser: Parser): AST.Expression {
         }
         const condition = parser.expression();
         if (condition === null) {
-            return parser.error("Expected expression after 'else if'")
+            return parser.error("Expected expression after 'else if'");
         }
         if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
             return parser.error("Expected '{' after condition");
         }
         parser.advance();
         const branch = parser.block();
-        conditionalBranches.push({ condition, branch })
+        conditionalBranches.push({ condition, branch });
     }
     if (parser.current()?.type !== TokenType.LBrace) {
         return parser.error("Expected '{' after 'else'");
     }
     parser.advance();
     const elseBranch = parser.block();
-    return parser.tryCreateASTExpression(() => new AST.If(rootToken, conditionalBranches, elseBranch));
+    return parser.tryCreateASTExpression(
+        () => new AST.If(rootToken, conditionalBranches, elseBranch)
+    );
 }
 
 function parseAnonymousFunction(parser: Parser): AST.Expression {
-    const rootToken = parser.previous();  // should be 'func'
+    const rootToken = parser.previous(); // should be 'func'
     if (parser.atEnd()) {
         return parser.error("Unterminated function definition.");
     }
@@ -272,7 +274,7 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
         return parser.error("Expected parameters for anonymous function.", 0);
     }
     parser.advance();
-    const params: { name: string, type: Type }[] = [];
+    const params: { name: string; type: Type }[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
         if (parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected parameter name.");
@@ -293,7 +295,7 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
     if (parser.atEnd()) {
         return parser.error("Unterminated function definition.");
     }
-    parser.advance();  // Advance past closing parenthesis
+    parser.advance(); // Advance past closing parenthesis
 
     if (parser.atEnd()) {
         return parser.error("Unterminated function definition.");
@@ -303,7 +305,9 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
     }
     parser.advance();
 
-    return parser.tryCreateASTExpression(() => new AST.AnonymousFunction(rootToken, params, parser.block()));
+    return parser.tryCreateASTExpression(
+        () => new AST.AnonymousFunction(rootToken, params, parser.block())
+    );
 }
 
 function parseTrait(parser: Parser): AST.Expression {
@@ -317,7 +321,7 @@ function parseTrait(parser: Parser): AST.Expression {
         return parser.error("Expected '{' after trait name.");
     }
     parser.advance();
-    const requiredFunctions: { name: string, types: TemplateTypes }[] = [];
+    const requiredFunctions: { name: string; types: TemplateTypes }[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
         // Expect inputs of form FuncName[ArgType1, ArgType2, ..., ArgTypeN : ReturnType]
         if (parser.current().type !== TokenType.Identifier) {
@@ -339,7 +343,9 @@ function parseTrait(parser: Parser): AST.Expression {
     }
     parser.advance();
     try {
-        return parser.tryCreateASTExpression(() => new AST.Trait(rootToken, name, requiredFunctions));
+        return parser.tryCreateASTExpression(
+            () => new AST.Trait(rootToken, name, requiredFunctions)
+        );
     } catch (e) {
         if (e instanceof Error) {
             return parser.error(e.message);
@@ -495,7 +501,9 @@ function parseArray(parser: Parser): AST.Expression {
         }
         innerTypeAnnotation = typeName;
     }
-    return parser.tryCreateASTExpression(() => new AST.Array(startToken, expressions, innerTypeAnnotation));
+    return parser.tryCreateASTExpression(
+        () => new AST.Array(startToken, expressions, innerTypeAnnotation)
+    );
 }
 
 function parseRange(parser: Parser): AST.Expression {
@@ -605,7 +613,9 @@ function parseReduce(parser: Parser): AST.Expression {
         return parser.error("Expected closing ')' for reduce expression.");
     }
     parser.advance();
-    return parser.tryCreateASTExpression(() => new AST.Reduce(startToken, reduceFn, iterOver, initValue));
+    return parser.tryCreateASTExpression(
+        () => new AST.Reduce(startToken, reduceFn, iterOver, initValue)
+    );
 }
 
 function parseFilter(parser: Parser): AST.Expression {
@@ -732,12 +742,12 @@ class Parser {
         return templateTypes;
     }
 
-    getTypeTraits(): { type: Type, trait: Type }[] {
+    getTypeTraits(): { type: Type; trait: Type }[] {
         if (this.atEnd() || this.current().type !== TokenType.Where) {
             return [];
         }
         this.advance();
-        const typeTraits: { type: Type, trait: Type }[] = [];
+        const typeTraits: { type: Type; trait: Type }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.LBrace) {
             if (this.current().type !== TokenType.Identifier) {
                 throw new Error("expected type alias after 'where'");
@@ -812,7 +822,10 @@ class Parser {
         while (!this.atEnd() && precedence <= PARSE_RULES[this.current().type].precedence) {
             const infixRule = PARSE_RULES[this.current().type].infix;
             if (!infixRule) {
-                return this.error(`expected infix operator, but got ${this.current().text} -- you may have forgotten a semicolon to terminate the previous expression.`, 0);
+                return this.error(
+                    `expected infix operator, but got ${this.current().text} -- you may have forgotten a semicolon to terminate the previous expression.`,
+                    0
+                );
             }
             this.advance();
             expr = infixRule(this, expr);
@@ -851,7 +864,7 @@ class Parser {
             return this.error("Expected '(' after function name.");
         }
         this.advance();
-        const params: { name: string, type: Type }[] = [];
+        const params: { name: string; type: Type }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RParen) {
             if (this.current().type !== TokenType.Identifier) {
                 return this.error("Expected parameter name.");
@@ -907,22 +920,27 @@ class Parser {
         }
         this.advance();
 
-        return this.tryCreateASTExpression(() => new AST.Function(rootToken, name, params, returnType, typeTraits, this.block()));
+        return this.tryCreateASTExpression(
+            () => new AST.Function(rootToken, name, params, returnType, typeTraits, this.block())
+        );
     }
 
     structDef(): AST.Expression | null {
-        if (this.current().type !== TokenType.Struct || this.peek()?.type !== TokenType.Identifier) {
+        if (
+            this.current().type !== TokenType.Struct ||
+            this.peek()?.type !== TokenType.Identifier
+        ) {
             return null;
         }
         const rootToken = this.current();
-        this.advance();  // consume 'struct'
+        this.advance(); // consume 'struct'
         const name = this.current().text;
-        this.advance();  // consume struct name
+        this.advance(); // consume struct name
         if (this.atEnd() || this.current().type !== TokenType.LBrace) {
             return this.error("Expected '{' after struct name.");
         }
-        this.advance();  // consume '{'
-        const fields: { name: string, type: Type }[] = [];
+        this.advance(); // consume '{'
+        const fields: { name: string; type: Type }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
             if (this.current().type !== TokenType.Identifier) {
                 return this.error("Expected field name.");
@@ -938,7 +956,7 @@ class Parser {
                 return new AST.ErrorExpression(rootToken, "Invalid type annotation for field.");
             }
             // Check for duplicate field names
-            if (fields.some(f => f.name === fieldName)) {
+            if (fields.some((f) => f.name === fieldName)) {
                 return this.error(`Duplicate field name '${fieldName}' in struct ${name}.`);
             }
             fields.push({ name: fieldName, type: fieldType });
@@ -949,7 +967,7 @@ class Parser {
         if (this.atEnd()) {
             return this.error("Unterminated struct definition.");
         }
-        this.advance();  // consume '}'
+        this.advance(); // consume '}'
         return this.tryCreateASTExpression(() => new AST.StructDef(rootToken, name, fields));
     }
 
@@ -969,7 +987,7 @@ class Parser {
         // We've started a new block context, so we can start reporting errors again
         this.panicMode = false;
 
-        const rootToken = this.previous();  // Should be LBrace
+        const rootToken = this.previous(); // Should be LBrace
         const expressions: AST.Expression[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
             if (this.current().type === TokenType.Semicolon) {
@@ -1011,7 +1029,7 @@ class Parser {
     }
 }
 
-export function parse(tokens: Token[]): { ast: AST.Expression, errors: ParseError[] } {
+export function parse(tokens: Token[]): { ast: AST.Expression; errors: ParseError[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
     if (parser.errors.length === 0) {
@@ -1022,7 +1040,7 @@ export function parse(tokens: Token[]): { ast: AST.Expression, errors: ParseErro
                 parser.errors.push({
                     line: e.line,
                     col: e.col,
-                    message: e.message
+                    message: e.message,
                 });
             } else {
                 throw e;

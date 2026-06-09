@@ -16,7 +16,9 @@ class Scanner {
     }
 
     error(message: string): Error {
-        return new Error(`At line ${this.line + 1}, column ${this.tokenStartIndex - this.lineStartIndex + 1}, ${message}`);
+        return new Error(
+            `At line ${this.line + 1}, column ${this.tokenStartIndex - this.lineStartIndex + 1}, ${message}`
+        );
     }
 
     makeToken(c: string): Token {
@@ -29,7 +31,7 @@ class Scanner {
             text: this.text.slice(this.tokenStartIndex, this.index),
             line: this.line,
             col: this.tokenStartIndex - this.lineStartIndex,
-        }
+        };
     }
 
     handleCommentsAndWhitespace() {
@@ -60,7 +62,7 @@ class Scanner {
     }
 
     readStringLiteral(): Token {
-        while (!this.atEnd() && this.text[this.index] != "\"") {
+        while (!this.atEnd() && this.text[this.index] != '"') {
             if (this.text[this.index] === "\n") {
                 this.line += 1;
                 this.lineStartIndex = this.index;
@@ -101,7 +103,7 @@ class Scanner {
             text,
             line: this.line,
             col: this.tokenStartIndex - this.lineStartIndex,
-        }
+        };
     }
 
     scanToken(): Token | null {
@@ -128,7 +130,7 @@ class Scanner {
         }
 
         // Handle literals
-        if (c === "\"") {
+        if (c === '"') {
             return this.readStringLiteral();
         }
         if (/^[0-9]$/.test(c)) {
@@ -137,7 +139,7 @@ class Scanner {
         if (/^[A-Za-z]/.test(c)) {
             return this.readIdentifierOrKeyword();
         }
-        
+
         throw this.error(`found unexpected character ${c}`);
     }
 }

@@ -5,13 +5,48 @@ const INDENT = "    ";
 
 // JavaScript reserved words that cannot be used as variable/function/parameter names
 const JS_RESERVED_WORDS = new Set([
-    "const", "let", "var", "function", "class", "new", "this", "super",
-    "if", "else", "for", "while", "do", "switch", "case", "default",
-    "break", "continue", "return", "throw", "try", "catch", "finally",
-    "typeof", "void", "delete", "import", "export", "yield", "async", "await",
-    "in", "of", "instanceof",
-    "true", "false", "null", "undefined", "NaN", "Infinity",
-    "arguments", "eval",
+    "const",
+    "let",
+    "var",
+    "function",
+    "class",
+    "new",
+    "this",
+    "super",
+    "if",
+    "else",
+    "for",
+    "while",
+    "do",
+    "switch",
+    "case",
+    "default",
+    "break",
+    "continue",
+    "return",
+    "throw",
+    "try",
+    "catch",
+    "finally",
+    "typeof",
+    "void",
+    "delete",
+    "import",
+    "export",
+    "yield",
+    "async",
+    "await",
+    "in",
+    "of",
+    "instanceof",
+    "true",
+    "false",
+    "null",
+    "undefined",
+    "NaN",
+    "Infinity",
+    "arguments",
+    "eval",
 ]);
 
 /** Map a name to a safe JS identifier if it conflicts with a reserved word. */
@@ -32,12 +67,17 @@ class Scope {
 
     lines: string[] = [];
 
-    constructor(parent: Scope | null = null, public baseIndentLevel = 0) {
+    constructor(
+        parent: Scope | null = null,
+        public baseIndentLevel = 0
+    ) {
         this.parent = parent;
     }
 
     getDeclarations(): string[] {
-        return Array.from(this.variableNames).map((name) => INDENT.repeat(this.baseIndentLevel) + `let ${safeJSName(name)};`);
+        return Array.from(this.variableNames).map(
+            (name) => INDENT.repeat(this.baseIndentLevel) + `let ${safeJSName(name)};`
+        );
     }
 }
 
@@ -118,20 +158,18 @@ export class JSWriter {
         this.ast.toJS(this);
         this.newLine();
 
-        const builtinFuncs = this.builtins.size === 0 ? "" : (
-            "// BUILTINS //\n" +
-            Array.from(this.builtins).map(
-                (name) => BUILTINS[name]
-            ).join("\n") +
-            "\n\n"
-        );
+        const builtinFuncs =
+            this.builtins.size === 0
+                ? ""
+                : "// BUILTINS //\n" +
+                  Array.from(this.builtins)
+                      .map((name) => BUILTINS[name])
+                      .join("\n") +
+                  "\n\n";
 
         const globals = this.scope.getDeclarations();
-        const globalVarDeclarations = globals.length === 0 ? "" : (
-            "// GLOBAL VARIABLES //\n" +
-            globals.join("\n") +
-            "\n\n"
-        );
+        const globalVarDeclarations =
+            globals.length === 0 ? "" : "// GLOBAL VARIABLES //\n" + globals.join("\n") + "\n\n";
 
         return (
             builtinFuncs +

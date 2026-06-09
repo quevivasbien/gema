@@ -218,8 +218,7 @@ test("parse trait-defined functions", () => {
         }
         
         foo(1, 2)
-        `
-    );
+        `);
     testParse(`
         trait Comparable {
             eq[Self, Self: Bool],
@@ -239,8 +238,7 @@ test("parse trait-defined functions", () => {
         }
         
         lte(2, 3)
-        `
-    );
+        `);
     testParse(`
         trait Any {}
 
@@ -467,7 +465,7 @@ test.todo("parse struct with generic element", () => {
 
         struct Point { x: T, y: T, } where T is Any;
     `);
-     testParse(`
+    testParse(`
         trait Adder {
             add[Self, Self: Self],
         };

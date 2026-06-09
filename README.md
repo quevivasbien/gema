@@ -2,7 +2,6 @@
 
 A simple programming language that transpiles to JavaScript.
 
-
 ## Setup
 
 This project uses the [Bun](https://bun.sh) JavaScript runtime and package manager, though you should also be able to use Node + NPM (or similar) with some minor tweaks.
@@ -24,6 +23,7 @@ This will serve a simple webpage on port 3000 that allows you to try writing and
 ## Language examples
 
 ### Assign variables
+
 ```
 x = 1;
 y = 2.17828;
@@ -33,6 +33,7 @@ z = x + y;
 ```
 
 ### Conditional expressions
+
 ```
 x = 2;
 
@@ -57,6 +58,7 @@ zeroIfOdd = if (x % 2 == 0) {
 ```
 
 ### Functions
+
 ```
 func isOdd(x: Int): Bool {
     x % 2 != 0
@@ -66,8 +68,8 @@ isOdd(11)  # true
 isOdd(12)  # false
 ```
 
-
 ### Iterators and functional programming
+
 ```
 add1 = func(x: Int): Int {
     x + 1
@@ -81,6 +83,7 @@ iter = map(
 ```
 
 ### Custom struct types
+
 ```
 struct Point {
     x: Float
@@ -95,6 +98,7 @@ taxicab(Point(8.0, 7.0), Point(-2.0, 2.0))  # -15.0
 ```
 
 ### Generic functions and traits
+
 ```
 trait Comparable {
     eq[Self, Self: Bool],
@@ -115,7 +119,6 @@ func lt(a: Int, b: Int): Bool {
 
 [lte(2, 3), lte(3, 3), lte(4,3)]  # [true, true, false]
 ```
-
 
 ### Putting it all together
 

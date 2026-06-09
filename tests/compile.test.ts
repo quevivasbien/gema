@@ -70,7 +70,8 @@ test("compile if expressions", () => {
     testCompile(`if false { 1 } else { 2 }`, 2n);
     testCompile(`if 1 == 1 { 1 } else { 2 }`, 1n);
     testCompile(`if 1 == 2 { 1 } else { 2 }`, 2n);
-    testCompile(`
+    testCompile(
+        `
         x = 1;
         if true {
             x = 2;
@@ -81,7 +82,8 @@ test("compile if expressions", () => {
         `,
         1n
     );
-    testCompile(`
+    testCompile(
+        `
         if false {
             0
         }
@@ -202,8 +204,8 @@ test("allow calling non-variable objects", () => {
         bar()(1)
         `,
         2n
-    )
-})
+    );
+});
 
 test("compile arrays", () => {
     testCompile(
@@ -341,26 +343,33 @@ test("compile reduce expression", () => {
 });
 
 test.todo("compile repeated use of iterator", () => {
-    testCompile(`
+    testCompile(
+        `
         x = range(1, 3);
 
         [x(0), x(2), x(1)]
-    `, [1n, 3n, 2n]);
+    `,
+        [1n, 3n, 2n]
+    );
 });
 
 test("compile struct construction and field access", () => {
-    testCompile(`
+    testCompile(
+        `
         struct Point {
             x: Int,
             y: Int
         };
         p = Point(1, 2);
         p("x") + p("y")
-    `, 3n);
+    `,
+        3n
+    );
 });
 
 test("compile struct field access on param", () => {
-    testCompile(`
+    testCompile(
+        `
         struct Point {
             x: Int,
             y: Int
@@ -369,11 +378,14 @@ test("compile struct field access on param", () => {
             p("x")
         };
         getX(Point(5, 10))
-    `, 5n);
+    `,
+        5n
+    );
 });
 
 test("compile struct with generic identity function", () => {
-    testCompile(`
+    testCompile(
+        `
         trait Any {}
 
         struct Point {
@@ -386,11 +398,14 @@ test("compile struct with generic identity function", () => {
         p = Point(1, 2);
         q = id(p);
         q("x") + q("y")
-    `, 3n);
+    `,
+        3n
+    );
 });
 
 test("compile struct with trait generic (add two points)", () => {
-    testCompile(`
+    testCompile(
+        `
         trait Adder {
             add[Self, Self: Self],
         };
@@ -410,11 +425,14 @@ test("compile struct with trait generic (add two points)", () => {
 
         result = foo(Point(1, 2), Point(3, 4));
         result("x") + result("y")
-    `, 10n);
+    `,
+        10n
+    );
 });
 
 test("compile struct with trait generic (chained add)", () => {
-    testCompile(`
+    testCompile(
+        `
         trait Adder {
             add[Self, Self: Self],
         };
@@ -437,11 +455,14 @@ test("compile struct with trait generic (chained add)", () => {
         c = Point(5, 6);
         result = foo(foo(a, b), c);
         result("x") + result("y")
-    `, 21n);
+    `,
+        21n
+    );
 });
 
 test("compile struct with multiple generic type params", () => {
-    testCompile(`
+    testCompile(
+        `
         trait Any {}
 
         struct Point { x: Int, y: Int };
@@ -452,11 +473,14 @@ test("compile struct with multiple generic type params", () => {
         };
         result = foo(Point(1, 2), Pair(3, 4));
         result(0)("x")
-    `, 1n);
+    `,
+        1n
+    );
 });
 
 test("compile trait-defined functions", () => {
-    testCompile(`
+    testCompile(
+        `
         trait Adder {
             add[Self, Self: Self],
         };
@@ -473,7 +497,8 @@ test("compile trait-defined functions", () => {
         `,
         3n
     );
-    testCompile(`
+    testCompile(
+        `
         trait Comparable {
             eq[Self, Self: Bool],
             lt[Self, Self: Bool]
@@ -498,44 +523,56 @@ test("compile trait-defined functions", () => {
 });
 
 test("compile functional operations with structs", () => {
-    testCompile(`
+    testCompile(
+        `
         struct P { p: Int }
 
         filtered = filter(func (p: P) { p("p") > 0 }, [P(-1), P(2)]);
         filtered(0)("p")
-    `, 2n);
-    testCompile(`
+    `,
+        2n
+    );
+    testCompile(
+        `
         struct P { p: Int }
 
         @map(func (p: P) { p("p") }, [P(1), P(2)])
-    `, [1n, 2n]);
+    `,
+        [1n, 2n]
+    );
 });
 
 test("compile reduce with structs", () => {
-    testCompile(`
+    testCompile(
+        `
         struct P { p: Int };
         func addP(a: P, b: P): P {
             P(a("p") + b("p"))
         };
         result = reduce(addP, [P(1), P(2), P(3)], P(0));
         result("p")
-    `, 6n);
+    `,
+        6n
+    );
 });
 
 test("compile function returning struct field access", () => {
-    testCompile(`
+    testCompile(
+        `
         struct P { p: Int };
         func getP(): P { P(7) };
         getP()("p")
-    `, 7n);
+    `,
+        7n
+    );
 });
 
 test("compile exponentiation", () => {
     testCompile(`2 ^ 3`, 8n);
-    testCompile(`2 ^ 3 ^ 2`, 512n);  // Right-associative: 2^(3^2) = 2^9 = 512
-    testCompile(`2 + 3 ^ 2 * 2`, 20n);  // 2 + (9 * 2) = 20
-    testCompile(`(-2) ^ 3`, -8n);  // -2^3 = -8
-    testCompile(`-2 ^ 2`, -4n);  // Exponentiation takes precedence over unary -
+    testCompile(`2 ^ 3 ^ 2`, 512n); // Right-associative: 2^(3^2) = 2^9 = 512
+    testCompile(`2 + 3 ^ 2 * 2`, 20n); // 2 + (9 * 2) = 20
+    testCompile(`(-2) ^ 3`, -8n); // -2^3 = -8
+    testCompile(`-2 ^ 2`, -4n); // Exponentiation takes precedence over unary -
     testCompile(`5 ^ 0`, 1n);
     testCompile(`2.0 ^ 3.0`, 8.0);
 });
@@ -548,51 +585,78 @@ test("compile string indexing", () => {
 });
 
 test("compile variables named with JS reserved words", () => {
-    testCompile(`
+    testCompile(
+        `
         const = 5;
         const + 1
-    `, 6n);
-    testCompile(`
+    `,
+        6n
+    );
+    testCompile(
+        `
         let = 10;
         let
-    `, 10n);
-    testCompile(`
+    `,
+        10n
+    );
+    testCompile(
+        `
         class = 20;
         class
-    `, 20n);
-    testCompile(`
+    `,
+        20n
+    );
+    testCompile(
+        `
         return = true;
         return
-    `, true);
-    testCompile(`
+    `,
+        true
+    );
+    testCompile(
+        `
         func f(const: Int): Int {
             const
         };
         f(5)
-    `, 5n);
-    testCompile(`
+    `,
+        5n
+    );
+    testCompile(
+        `
         const = 1;
         let = 2;
         const + let
-    `, 3n);
+    `,
+        3n
+    );
 });
 
 test("compile dot syntax for struct field access", () => {
-    testCompile(`
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         p = Point(1, 2);
         p.x + p.y
-    `, 3n);
-    testCompile(`
+    `,
+        3n
+    );
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         func getPoint(): Point { Point(5, 10) };
         getPoint().x
-    `, 5n);
-    testCompile(`
+    `,
+        5n
+    );
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         p = Point(1, 2);
         p("x") + p.x
-    `, 2n);
+    `,
+        2n
+    );
 });
 
 test("compile type conversion builtins", () => {
@@ -610,52 +674,74 @@ test("compile type conversion builtins", () => {
 });
 
 test("compile operator overloading", () => {
-    testCompile(`
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         func add(a: Point, b: Point): Point { Point(a.x + b.x, a.y + b.y) };
         result = Point(1, 2) + Point(3, 4);
         result.x + result.y
-    `, 10n);
-    testCompile(`
+    `,
+        10n
+    );
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         func subtract(a: Point, b: Point): Point { Point(a.x - b.x, a.y - b.y) };
         result = Point(5, 6) - Point(3, 2);
         result.x + result.y
-    `, 6n);
-    testCompile(`
+    `,
+        6n
+    );
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         func multiply(a: Point, b: Point): Point { Point(a.x * b.x, a.y * b.y) };
         result = Point(2, 3) * Point(4, 5);
         result.x + result.y
-    `, 23n);
-    testCompile(`
+    `,
+        23n
+    );
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         func equal(a: Point, b: Point): Bool { a.x == b.x and a.y == b.y };
         Point(1, 2) == Point(1, 2)
-    `, true);
-    testCompile(`
+    `,
+        true
+    );
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         func less(a: Point, b: Point): Bool { a.x < b.x };
         Point(1, 2) < Point(3, 4)
-    `, true);
-    testCompile(`
+    `,
+        true
+    );
+    testCompile(
+        `
         struct Point { x: Int, y: Int };
         func add(a: Point, b: Point): Point { Point(a.x + b.x, a.y + b.y) };
         a = Point(1, 2) + Point(3, 4);
         b = a + Point(5, 6);
         b.x + b.y
-    `, 21n);
+    `,
+        21n
+    );
 });
 
 test.todo("compile function with nested generic type", () => {
-    testCompile(`
+    testCompile(
+        `
         func getLength(arr: Arr[T]): Int {
             reduce(func(acc: Int, x: Int) { acc + 1 }, arr, 0)
         }
 
         getLength([1,2,3])
-    `, 3n);
-    testCompile(`
+    `,
+        3n
+    );
+    testCompile(
+        `
         trait Summable {
             sum[Self, Self: Self],
         }
@@ -669,5 +755,7 @@ test.todo("compile function with nested generic type", () => {
         }
 
         computeSum([1,2,3])
-    `, 6n);
+    `,
+        6n
+    );
 });

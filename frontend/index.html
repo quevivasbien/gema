@@ -1,30 +1,33 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Gema Code Editor</title>
+        <link rel="stylesheet" href="/styles.css" />
+    </head>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gema Code Editor</title>
-    <link rel="stylesheet" href="/styles.css">
-</head>
-
-<body>
-    <h1>Gema Code Editor</h1>
-    <textarea id="code" class="code" placeholder="Enter code here" spellcheck="false"></textarea>
-    <div class="flex-row">
-        <label>
-            Preset:
-            <select id="select-preset" name="select-preset" value="hello">
-                <option value="hello">Hello</option>
-                <option value="recursiveFactorial">Factorial (recursive)</option>
-                <option value="iterativeFactorial">Factorial (iterative)</option>
-            </select>
-        </label>
-        <button id="button-run">Run (ctrl+enter)</button>
-    </div>
-    <div class="output" id="js-compiled">--View compiled JS here--</div>
-    <div class="output" id="output">--Run code to view output here--</div>
-    <script src="/main.js"></script>
-</body>
-
+    <body>
+        <h1>Gema Code Editor</h1>
+        <textarea
+            id="code"
+            class="code"
+            placeholder="Enter code here"
+            spellcheck="false"
+        ></textarea>
+        <div class="flex-row">
+            <label>
+                Preset:
+                <select id="select-preset" name="select-preset" value="hello">
+                    <option value="hello">Hello</option>
+                    <option value="recursiveFactorial">Factorial (recursive)</option>
+                    <option value="iterativeFactorial">Factorial (iterative)</option>
+                </select>
+            </label>
+            <button id="button-run">Run (ctrl+enter)</button>
+        </div>
+        <div class="output" id="js-compiled">--View compiled JS here--</div>
+        <div class="output" id="output">--Run code to view output here--</div>
+        <script src="/main.js"></script>
+    </body>
 </html>

@@ -56,7 +56,10 @@ export enum TokenType {
 export const SINGLE_CHAR_TOKENS = new Set<string>();
 export const KEYWORDS = new Set<string>();
 for (const tt of Object.values(TokenType)) {
-    if (tt.length === 1 && Object.values(TokenType).reduce((acc, x) => acc && (x === tt || x[0] !== tt), true)) {
+    if (
+        tt.length === 1 &&
+        Object.values(TokenType).reduce((acc, x) => acc && (x === tt || x[0] !== tt), true)
+    ) {
         SINGLE_CHAR_TOKENS.add(tt);
     } else if (/^[A-Za-z]+$/.test(tt)) {
         KEYWORDS.add(tt);
@@ -66,7 +69,7 @@ for (const tt of Object.values(TokenType)) {
 // console.log("keywords", KEYWORDS)
 
 export const STRING_TO_TOKEN_MAP = Object.fromEntries(
-    Object.values(TokenType).map(k => [k, k as TokenType])
+    Object.values(TokenType).map((k) => [k, k as TokenType])
 );
 
 // console.log("string to token map", STRING_TO_TOKEN_MAP);

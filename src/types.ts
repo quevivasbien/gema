@@ -10,7 +10,7 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
     if (type instanceof CustomType) {
         names.add(type.name);
     } else if (type instanceof FuncType) {
-        type.paramTypes.forEach(pt => collectCustomTypeNames(pt, names));
+        type.paramTypes.forEach((pt) => collectCustomTypeNames(pt, names));
         collectCustomTypeNames(type.returnType, names);
     } else if (type instanceof ArrayType) {
         collectCustomTypeNames(type.innerType, names);
@@ -27,7 +27,7 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     }
     if (type instanceof FuncType) {
         return new FuncType(
-            type.paramTypes.map(pt => substituteTypeParams(pt, bindings)),
+            type.paramTypes.map((pt) => substituteTypeParams(pt, bindings)),
             substituteTypeParams(type.returnType, bindings)
         );
     }
@@ -44,7 +44,7 @@ export class FuncType {
     constructor(
         public paramTypes: Type[],
         public returnType: Type
-    ) { }
+    ) {}
 
     toString(): string {
         return `Func[${this.paramTypes.join(", ")}, ${this.returnType}]`;
@@ -52,7 +52,7 @@ export class FuncType {
 }
 
 export class ArrayType {
-    constructor(public innerType: Type) { }
+    constructor(public innerType: Type) {}
 
     toString(): string {
         return `Arr[${this.innerType}]`;
@@ -69,7 +69,7 @@ export class ArrayType {
         if (indexTypes.length !== this.nDims()) {
             return `incompatible number of array indices: expected ${this.nDims()}, got ${indexTypes.length}`;
         }
-        if (indexTypes.some(type => type !== "Int")) {
+        if (indexTypes.some((type) => type !== "Int")) {
             return `array indices are not of type Int`;
         }
         return null;
@@ -77,7 +77,7 @@ export class ArrayType {
 }
 
 export class IterType {
-    constructor(public innerType: Type) { }
+    constructor(public innerType: Type) {}
 
     toString(): string {
         return `Iter[${this.innerType}]`;
@@ -116,22 +116,24 @@ export class CustomType {
 }
 
 export type Type =
-    "Int" |
-    "Float" |
-    "Str" |
-    "Bool" |
-    "Null" |
-    FuncType |
-    ArrayType |
-    IterType |
-    CustomType |
-    "Self"
-    ;
+    | "Int"
+    | "Float"
+    | "Str"
+    | "Bool"
+    | "Null"
+    | FuncType
+    | ArrayType
+    | IterType
+    | CustomType
+    | "Self";
 
 export type CallableType = FuncType | ArrayType | IterType;
 
 export class TemplateTypes {
-    constructor(public types: Type[] = [], public returnType: Type | null = null) { }
+    constructor(
+        public types: Type[] = [],
+        public returnType: Type | null = null
+    ) {}
 
     toString(): string {
         return `[${this.types.join(", ")}${this.returnType === null ? "" : ": " + this.returnType}]`;
@@ -147,14 +149,7 @@ export class TemplateTypes {
 }
 
 export function getType(typeName: string, templateTypes: TemplateTypes): Type {
-    if ([
-        "Int",
-        "Float",
-        "Str",
-        "Bool",
-        "Null",
-        "Self",
-    ].includes(typeName)) {
+    if (["Int", "Float", "Str", "Bool", "Null", "Self"].includes(typeName)) {
         if (!templateTypes.empty()) {
             throw new Error(`${typeName} cannot have template types`);
         }
