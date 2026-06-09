@@ -159,6 +159,11 @@ PARSE_RULES[TokenType.GreaterEqual] = {
     infix: parseBinary,
     precedence: Precedence.Comparison
 };
+PARSE_RULES[TokenType.Dot] = {
+    prefix: null,
+    infix: parseFieldAccess,
+    precedence: Precedence.Call
+};
 PARSE_RULES[TokenType.Identifier] = {
     prefix: parseVariable,
     infix: null,
@@ -390,6 +395,15 @@ function parseExponentiation(parser: Parser, leftExpr: AST.Expression): AST.Expr
         return parser.error(`Expected expression after ${token.text}.`);
     }
     return parser.tryCreateASTExpression(() => new AST.Binary(token, leftExpr, rightExpr));
+}
+
+function parseFieldAccess(parser: Parser, leftExpr: AST.Expression): AST.Expression {
+    if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+        return parser.error("Expected field name after '.'");
+    }
+    const fieldName = parser.current().text;
+    parser.advance();
+    return new AST.FieldAccess(leftExpr, fieldName);
 }
 
 function parseVariable(parser: Parser): AST.Expression {

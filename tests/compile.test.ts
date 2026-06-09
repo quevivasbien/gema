@@ -340,6 +340,14 @@ test("compile reduce expression", () => {
     );
 });
 
+test.todo("compile repeated use of iterator", () => {
+    testCompile(`
+        x = range(1, 3);
+
+        [x(0), x(2), x(1)]
+    `, [1n, 3n, 2n]);
+});
+
 test("compile struct construction and field access", () => {
     testCompile(`
         struct Point {
@@ -567,6 +575,38 @@ test("compile variables named with JS reserved words", () => {
         let = 2;
         const + let
     `, 3n);
+});
+
+test("compile dot syntax for struct field access", () => {
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        p = Point(1, 2);
+        p.x + p.y
+    `, 3n);
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        func getPoint(): Point { Point(5, 10) };
+        getPoint().x
+    `, 5n);
+    testCompile(`
+        struct Point { x: Int, y: Int };
+        p = Point(1, 2);
+        p("x") + p.x
+    `, 2n);
+});
+
+test("compile type conversion builtins", () => {
+    testCompile(`toStr(152)`, "152");
+    testCompile(`toStr(true)`, "true");
+    testCompile(`toStr(3.14)`, "3.14");
+    testCompile(`toInt(3.14)`, 3n);
+    testCompile(`toInt(-3.14)`, -3n);
+    testCompile(`toInt(-3.8)`, -3n);
+    testCompile(`toInt(true)`, 1n);
+    testCompile(`toFloat(3)`, 3.0);
+    testCompile(`toBool(1)`, true);
+    testCompile(`toBool(0)`, false);
+    testCompile(`"The number is " + toStr(152)`, "The number is 152");
 });
 
 test.todo("compile function with nested generic type", () => {

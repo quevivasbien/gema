@@ -461,6 +461,25 @@ test("parse struct with trait generic chained add", () => {
     `);
 });
 
+test.todo("parse struct with generic element", () => {
+    testParse(`
+        trait Any {}
+
+        struct Point { x: T, y: T, } where T is Any;
+    `);
+     testParse(`
+        trait Adder {
+            add[Self, Self: Self],
+        };
+
+        struct Point { x: T, y: T, } where T is Adder;
+
+        func add(a: Point, b: Point): Point {
+            Point(add(a("x"), b("x")), add(a("y"), b("y")))
+        };
+    `);
+});
+
 test("parse exponentiation", () => {
     testParse(`2 ^ 3`);
     testParse(`2 ^ 3 ^ 4`);
@@ -487,6 +506,52 @@ test("parse variables named with JS reserved words", () => {
         let = 2;
         const + let
     `);
+});
+
+test("parse dot syntax for struct field access", () => {
+    testParse(`
+        struct Point { x: Int, y: Int };
+        p = Point(1, 2);
+        p.x
+    `);
+    testParse(`
+        struct Point { x: Int, y: Int };
+        p = Point(1, 2);
+        p.x + p.y
+    `);
+    testParse(`
+        struct Point { x: Int, y: Int };
+        func getPoint(): Point { Point(3, 4) };
+        getPoint().x
+    `);
+    testParse(`
+        struct Point { x: Int, y: Int };
+        p = Point(1, 2);
+        p("x") + p.x
+    `);
+    testParseExpectError(`
+        struct Point { x: Int, y: Int };
+        p = Point(1, 2);
+        p.z
+    `);
+    testParseExpectError(`
+        p = 5;
+        p.x
+    `);
+});
+
+test("parse type conversion builtins", () => {
+    testParse(`toStr(152)`);
+    testParse(`toStr(true)`);
+    testParse(`toStr(3.14)`);
+    testParse(`toInt(3.14)`);
+    testParse(`toInt(true)`);
+    testParse(`toFloat(3)`);
+    testParse(`toBool(1)`);
+    testParse(`toBool(0)`);
+    testParse(`"The number is " + toStr(152)`);
+    testParseExpectError(`toStr(true, false)`);
+    testParseExpectError(`toStr(Point(1, 2))`);
 });
 
 test("parse functional operations with structs", () => {

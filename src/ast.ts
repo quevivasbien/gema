@@ -1618,6 +1618,14 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
         lastAncestor = ancestor;
     }
 
+    // Check for type conversion builtins
+    if (argTypes.length === 1) {
+        const conversionResult = findTypeConversion(name, argTypes[0]);
+        if (conversionResult) {
+            return conversionResult;
+        }
+    }
+
     // Trait dispatch: if arg types are CustomTypes with trait bounds and the call name matches a trait method
     const traitCandidates: { traitName: string, selfType: Type }[] = [];
     for (const argType of argTypes) {
@@ -1656,6 +1664,50 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
     return { error: `function ${name}[${argTypes.map(t => t.toString()).join(", ")}: unknown] not found`, result: null };
 }
 
+// Type conversion builtins — maps function name + input type to { returnType, jsConversion }
+const TYPE_CONVERSIONS: Record<string, Record<string, { returnType: Type, jsExpr: (arg: string) => string }>> = {
+    "toStr": {
+        "Int": { returnType: "Str", jsExpr: (a) => `String(${a})` },
+        "Float": { returnType: "Str", jsExpr: (a) => `String(${a})` },
+        "Bool": { returnType: "Str", jsExpr: (a) => `String(${a})` },
+    },
+    "toInt": {
+        "Float": { returnType: "Int", jsExpr: (a) => `BigInt(Math.trunc(${a}))` },
+        "Bool": { returnType: "Int", jsExpr: (a) => `BigInt(${a})` },
+    },
+    "toFloat": {
+        "Int": { returnType: "Float", jsExpr: (a) => `Number(${a})` },
+    },
+    "toBool": {
+        "Int": { returnType: "Bool", jsExpr: (a) => `Boolean(${a})` },
+        "Float": { returnType: "Bool", jsExpr: (a) => `Boolean(${a})` },
+    },
+};
+
+function findTypeConversion(name: string, inputType: Type): { error: null, result: { referToByName: string, callerType: FuncType, rootType: Type, isTypeConversion: true, jsExpr: (arg: string) => string } } | null {
+    const byInput = TYPE_CONVERSIONS[name];
+    if (!byInput) return null;
+    let inputTypeKey: string | null = null;
+    if (inputType === "Int") inputTypeKey = "Int";
+    else if (inputType === "Float") inputTypeKey = "Float";
+    else if (inputType === "Bool") inputTypeKey = "Bool";
+    else if (inputType === "Str") inputTypeKey = "Str";
+    if (!inputTypeKey) return null;
+    const conversion = byInput[inputTypeKey];
+    if (!conversion) return null;
+    const fullName = functionNameWithParamTypes(name, [inputType]);
+    return {
+        error: null,
+        result: {
+            referToByName: fullName,
+            callerType: new FuncType([inputType], conversion.returnType),
+            rootType: conversion.returnType,
+            isTypeConversion: true,
+            jsExpr: conversion.jsExpr,
+        }
+    };
+}
+
 export class Call extends Expression {
     name: string;
     args: Expression[];
@@ -1665,6 +1717,8 @@ export class Call extends Expression {
     isStructFieldAccess: boolean = false;
     structFieldName: string = "";
     isStringIndexing: boolean = false;
+    isTypeConversion: boolean = false;
+    conversionJsExpr: ((arg: string) => string) | null = null;
 
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
@@ -1720,6 +1774,11 @@ export class Call extends Expression {
             }
             throw this.error(error);
         }
+        if ((result as any).isTypeConversion) {
+            const convResult = result as any;
+            this.isTypeConversion = true;
+            this.conversionJsExpr = convResult.jsExpr;
+        }
         this.referToByName = result.referToByName;
         this.callerType = result.callerType;
         this.type = result.rootType;
@@ -1741,6 +1800,18 @@ export class Call extends Expression {
         if (this.isStructFieldAccess) {
             writer.write(writer.safeName(this.referToByName!));
             writer.write(`.${this.structFieldName}`);
+            return;
+        }
+        // Type conversion: toStr(152) → String(arg)
+        if (this.isTypeConversion && this.conversionJsExpr) {
+            const jsExpr = this.conversionJsExpr;
+            const conversionStr = jsExpr("%%ARG%%");
+            const parts = conversionStr.split("%%ARG%%");
+            writer.write(parts[0]);
+            this.args[0].toJS(writer);
+            if (parts.length > 1) {
+                writer.write(parts[1]);
+            }
             return;
         }
         // String indexing: x(index) → x[index]
@@ -2385,6 +2456,44 @@ export class FilterIter extends Expression {
             this.iterOver.toJS(writer);
         }
         writer.write(")");
+    }
+}
+
+export class FieldAccess extends Expression {
+    constructor(public obj: Expression, public fieldName: string) {
+        super(obj.line, obj.col);
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.obj.cascadeTypes([...ancestors, this]);
+        if (this.obj.type === null) {
+            throw this.error("unable to resolve type of object");
+        }
+        if (!(this.obj.type instanceof CustomType)) {
+            throw this.error(`cannot access field on non-struct type ${this.obj.type}`);
+        }
+        const structInfo = getStruct(this.obj.type.name);
+        if (!structInfo) {
+            throw this.error(`type ${this.obj.type.name} is not a struct`);
+        }
+        const field = structInfo.fields.find(f => f.name === this.fieldName);
+        if (!field) {
+            throw this.error(`struct ${structInfo.name} has no field named "${this.fieldName}"`);
+        }
+        this.type = field.type;
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new FieldAccess(
+            this.obj.clone(bindings),
+            this.fieldName
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write("(");
+        this.obj.toJS(writer);
+        writer.write(`).${this.fieldName}`);
     }
 }
 
