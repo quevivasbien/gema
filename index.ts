@@ -1,6 +1,7 @@
 import { parse } from "./src/parse";
 import { scan } from "./src/scan";
 import { writeJS } from "./src/write-js";
+import { resetRegistries } from "./src/ast";
 
 export { parse, scan, writeJS };
 
@@ -44,6 +45,7 @@ export function compileWithRawErrors(text: string): {
     errors: { line: number; col: number; message: string }[];
     runtimeError: string | null;
 } {
+    resetRegistries();
     const tokens = scan(text);
     const { ast, errors } = parse(tokens);
     if (errors.length > 0) {
