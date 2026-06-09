@@ -17,6 +17,7 @@ enum Precedence {
     Term,
     Factor,
     Unary,
+    Exponent,
     Call,
 }
 
@@ -112,6 +113,11 @@ PARSE_RULES[TokenType.Percent] = {
     prefix: null,
     infix: parseBinary,
     precedence: Precedence.Factor
+};
+PARSE_RULES[TokenType.Caret] = {
+    prefix: null,
+    infix: parseExponentiation,
+    precedence: Precedence.Exponent
 };
 PARSE_RULES[TokenType.And] = {
     prefix: null,
@@ -370,6 +376,16 @@ function parseBinary(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     const rule = PARSE_RULES[token.type];
     const precedence = rule.precedence + 1;
     const rightExpr = parser.parseWithPrecedence(precedence);
+    if (rightExpr === null) {
+        return parser.error(`Expected expression after ${token.text}.`);
+    }
+    return parser.tryCreateASTExpression(() => new AST.Binary(token, leftExpr, rightExpr));
+}
+
+function parseExponentiation(parser: Parser, leftExpr: AST.Expression): AST.Expression {
+    const token = parser.previous();
+    // Right-associative: use same precedence level for right operand instead of higher
+    const rightExpr = parser.parseWithPrecedence(Precedence.Exponent);
     if (rightExpr === null) {
         return parser.error(`Expected expression after ${token.text}.`);
     }

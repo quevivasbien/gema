@@ -366,11 +366,13 @@ test("compile struct field access on param", () => {
 
 test("compile struct with generic identity function", () => {
     testCompile(`
+        trait Any {}
+
         struct Point {
             x: Int,
             y: Int
         };
-        func id(a: T): T {
+        func id(a: T): T where T is Any {
             a
         };
         p = Point(1, 2);
@@ -432,13 +434,15 @@ test("compile struct with trait generic (chained add)", () => {
 
 test("compile struct with multiple generic type params", () => {
     testCompile(`
+        trait Any {}
+
         struct Point { x: Int, y: Int };
         struct Pair { a: Int, b: Int };
         
-        func swap(a: T, b: U): Arr[T] {
+        func foo(a: T, b: U): Arr[T] where T is Any, U is Any {
             [a]
         };
-        result = swap(Point(1, 2), Pair(3, 4));
+        result = foo(Point(1, 2), Pair(3, 4));
         result(0)("x")
     `, 1n);
 });
@@ -516,4 +520,46 @@ test("compile function returning struct field access", () => {
         func getP(): P { P(7) };
         getP()("p")
     `, 7n);
+});
+
+test("compile exponentiation", () => {
+    testCompile(`2 ^ 3`, 8n);
+    testCompile(`2 ^ 3 ^ 2`, 512n);  // Right-associative: 2^(3^2) = 2^9 = 512
+    testCompile(`2 + 3 ^ 2 * 2`, 20n);  // 2 + (9 * 2) = 20
+    testCompile(`(-2) ^ 3`, -8n);  // -2^3 = -8
+    testCompile(`-2 ^ 2`, -4n);  // Exponentiation takes precedence over unary -
+    testCompile(`5 ^ 0`, 1n);
+    testCompile(`2.0 ^ 3.0`, 8.0);
+});
+
+test("compile string indexing", () => {
+    testCompile(`"hello"(0)`, "h");
+    testCompile(`"hello"(1)`, "e");
+    testCompile(`"hello"(4)`, "o");
+    testCompile(`x = "hello"; x(0)`, "h");
+});
+
+test.todo("compile function with nested generic type", () => {
+    testCompile(`
+        func getLength(arr: Arr[T]): Int {
+            reduce(func(acc: Int, x: Int) { acc + 1 }, arr, 0)
+        }
+
+        getLength([1,2,3])
+    `, 3n);
+    testCompile(`
+        trait Summable {
+            sum[Self, Self: Self],
+        }
+
+        func computeSum(arr: Arr[T]): T where T is Summable {
+            reduce(func(acc: T, x: T) { sum(acc, x) }, arr, 0)
+        }
+
+        func sum(a: Int, y: Int): Int {
+            x + y
+        }
+
+        computeSum([1,2,3])
+    `, 6n);
 });

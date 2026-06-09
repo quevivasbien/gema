@@ -27,6 +27,7 @@ export enum TokenType {
     Star = "*",
     Slash = "/",
     Percent = "%",
+    Caret = "^",
     BangEqual = "!=",
     Equal = "=",
     EqualEqual = "==",
@@ -35,7 +36,6 @@ export enum TokenType {
     Less = "<",
     LessEqual = "<=",
     // Other keywords
-    For = "for",
     Func = "func",
     Struct = "struct",
     Trait = "trait",

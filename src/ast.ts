@@ -465,9 +465,9 @@ export class Unary extends Expression {
             writer.write(")");
             return;
         }
-        writer.write(`(${this.operator}`);
+        writer.write(`(${this.operator}(`);
         this.child.toJS(writer);
-        writer.write(")");
+        writer.write("))");
     }
 }
 
@@ -506,6 +506,7 @@ export class Binary extends Expression {
             TokenType.Star,
             TokenType.Slash,
             TokenType.Percent,
+            TokenType.Caret,
         ];
         const COMPARISON_OPS = [
             TokenType.Greater,
@@ -638,6 +639,11 @@ export class Binary extends Expression {
             writer.write(", ");
             this.right.toJS(writer);
             writer.write(")");
+            return;
+        } else if (this.operator === TokenType.Caret) {
+            this.left.toJS(writer);
+            writer.write(" ** ");
+            this.right.toJS(writer);
             return;
         }
         throw this.error(`tried to use token ${this.operator} as binary operator`);
@@ -1019,6 +1025,8 @@ export class Function extends Expression {
         this.body = body;
         this.fullName = functionNameWithParamTypes(name as string, params.map(p => p.type));
 
+        // Collect type params from the where clause (types with trait bounds)
+        const typeParamNames = new Set<string>();
         typeTraits.forEach(({ type, trait }) => {
             if (!(type instanceof CustomType)) {
                 throw new Error(`type alias ${type} overrides a builtin type.`);
@@ -1026,6 +1034,7 @@ export class Function extends Expression {
             if (!(trait instanceof CustomType)) {
                 throw new Error(`${trait} is not a valid trait name.`);
             }
+            typeParamNames.add(type.name);
             this.params.forEach(param => {
                 if (param.type instanceof CustomType && param.type.name === type.name) {
                     param.type.addTrait(trait.name);
@@ -1035,16 +1044,17 @@ export class Function extends Expression {
                 this.returnType.addTrait(trait.name);
             }
         });
+        this.typeParams = [...typeParamNames];
 
-        // Detect type parameters by scanning the function signature for non-builtin CustomTypes
-        // that are NOT known structs or traits (those are concrete types, not type params)
-        const foundParams = new Set<string>();
-        this.params.forEach(p => collectCustomTypeNames(p.type, foundParams));
-        collectCustomTypeNames(returnType, foundParams);
-        // Filter out built-in type names and known struct/trait names
-        this.typeParams = [...foundParams].filter((n: string) =>
-            !isBuiltinTypeName(n) && !getStruct(n) && !getTrait(n)
-        );
+        // Validate: every non-builtin, non-struct CustomType in the signature must be a type param
+        const signatureTypes = new Set<string>();
+        this.params.forEach(p => collectCustomTypeNames(p.type, signatureTypes));
+        collectCustomTypeNames(returnType, signatureTypes);
+        for (const name of signatureTypes) {
+            if (!isBuiltinTypeName(name) && !getStruct(name) && !getTrait(name) && !typeParamNames.has(name)) {
+                throw new Error(`unknown type '${name}' — if it's a generic type parameter, add it to a 'where' clause with a trait bound (e.g., 'where ${name} is SomeTrait')`);
+            }
+        }
 
         this.type = "Null";
 
@@ -1319,6 +1329,40 @@ function findStructTypedVariable(root: Expression, ancestors: Expression[], name
     return null;
 }
 
+/**
+ * Find a variable (param or assignment) with a string type matching the given name.
+ * Returns the variable name if found, null otherwise.
+ */
+function findStringTypedVariable(root: Expression, ancestors: Expression[], name: string): string | null {
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+        const ancestor = ancestors[i];
+        if (ancestor instanceof Function) {
+            for (const param of ancestor.params) {
+                if (param.name === name && param.type === "Str") {
+                    return name;
+                }
+            }
+        } else if (ancestor instanceof AnonymousFunction) {
+            for (const param of ancestor.params) {
+                if (param.name === name && param.type === "Str") {
+                    return name;
+                }
+            }
+        } else if (ancestor instanceof Block) {
+            for (const expr of ancestor.expressions) {
+                let e = expr;
+                while (e instanceof DropValue) e = e.child;
+                if (e instanceof Assignment && e.name === name) {
+                    if (e.value.type === "Str") {
+                        return name;
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
 function getTraitFunc(root: Expression, ancestors: Expression[], name: string, argTypes: Type[]): { referToByName: string, callerType: CallableType, rootType: Type } | null {
     const traits: { selfType: Type, traitName: string }[] = [];
     argTypes.forEach(argType => {
@@ -1495,6 +1539,10 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                     if (varType instanceof CustomType && getStruct(varType.name)) {
                         break;
                     }
+                    // String types: fall through — might be string indexing handled by Call.cascadeTypes
+                    if (varType === "Str") {
+                        break;
+                    }
                     return { error: `most recent definition of variable ${name} is of type ${varType}, which is not a callable object.`, result: null };
                 }
             }
@@ -1545,6 +1593,10 @@ function findCaller(root: Expression, ancestors: Expression[], name: string, arg
                     }
                     // Struct types: fall through — might be struct field access handled by Call.cascadeTypes
                     if (param.type instanceof CustomType && getStruct(param.type.name)) {
+                        break;
+                    }
+                    // String types: fall through — might be string indexing handled by Call.cascadeTypes
+                    if (param.type === "Str") {
                         break;
                     }
                     return { error: `variable ${name} (parameter of function ${ancestor.name}) is not a function.`, result: null };
@@ -1611,6 +1663,7 @@ export class Call extends Expression {
     referToByName?: string;
     isStructFieldAccess: boolean = false;
     structFieldName: string = "";
+    isStringIndexing: boolean = false;
 
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
@@ -1654,6 +1707,16 @@ export class Call extends Expression {
                     }
                 }
             }
+            // Check if this is string indexing: varName(index)
+            if (argTypes.length === 1 && argTypes[0] === "Int") {
+                const stringVarType = findStringTypedVariable(this, ancestors, this.name);
+                if (stringVarType !== null) {
+                    this.type = "Str";
+                    this.referToByName = this.name;
+                    this.isStringIndexing = true;
+                    return;
+                }
+            }
             throw this.error(error);
         }
         this.referToByName = result.referToByName;
@@ -1677,6 +1740,14 @@ export class Call extends Expression {
         if (this.isStructFieldAccess) {
             writer.write(this.referToByName!);
             writer.write(`.${this.structFieldName}`);
+            return;
+        }
+        // String indexing: x(index) → x[index]
+        if (this.isStringIndexing) {
+            writer.write(this.referToByName!);
+            writer.write("[");
+            this.args[0].toJS(writer);
+            writer.write("]");
             return;
         }
         if (this.callerType instanceof FuncType) {
@@ -1783,6 +1854,24 @@ export class DirectCall extends Expression {
             this.type = this.caller.type.innerType;
             return;
         }
+        // String indexing: "hello"(0) → character at index 0
+        if (this.caller.type === "Str") {
+            this.args.forEach((arg, i) => {
+                arg.cascadeTypes([...ancestors, this]);
+                if (arg.type === null) {
+                    throw this.error(`unable to resolve type of argument ${i + 1} in string index access`);
+                }
+            });
+            if (this.args.length !== 1) {
+                throw this.error(`string indexing requires exactly one argument (the index), got ${this.args.length}`);
+            }
+            if (this.args[0].type !== "Int") {
+                throw this.error(`string index must be of type Int`);
+            }
+            this.type = "Str";
+            return;
+        }
+
         // Struct field access: instance("fieldName")
         if (this.caller.type instanceof CustomType) {
             const structInfo = getStruct(this.caller.type.name);
@@ -1820,7 +1909,13 @@ export class DirectCall extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        if (this.caller.type instanceof CustomType && getStruct(this.caller.type.name)) {
+        // String indexing: "hello"(0) → "hello"[0]
+        if (this.caller.type === "Str") {
+            this.caller.toJS(writer);
+            writer.write("[");
+            this.args[0].toJS(writer);
+            writer.write("]");
+        } else if (this.caller.type instanceof CustomType && getStruct(this.caller.type.name)) {
             // Struct field access: p("x") → p.x
             const fieldName = this.args[0] instanceof Literal
                 ? this.args[0].value.slice(1, -1)  // Strip quotes

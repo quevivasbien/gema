@@ -171,9 +171,12 @@ test("parse reduce expression", () => {
 });
 
 test("parse functions with generics", () => {
+    // Generic type params must have trait bounds
     testParse(
         `
-        func foo(a: T): T {
+        trait Any {}
+
+        func foo(a: T): T where T is Any {
             a
         }
         `
@@ -192,6 +195,12 @@ test("parse functions with generics", () => {
         }
         `
     );
+    // Generic without a where clause is an error
+    testParseExpectError(`
+        func foo(a: T): T {
+            a
+        }
+    `);
 });
 
 test("parse trait-defined functions", () => {
@@ -232,6 +241,17 @@ test("parse trait-defined functions", () => {
         lte(2, 3)
         `
     );
+    testParse(`
+        trait Any {}
+
+        func identity(x: T): T where T is Any { x }
+
+        identity("hello")
+    `);
+});
+
+test("generic functions with unsatisifed traits", () => {
+    // Should fail because 2 is not Comparable
     testParseExpectError(`
         trait Comparable {
             eq[Self, Self: Bool],
@@ -243,8 +263,18 @@ test("parse trait-defined functions", () => {
         }
         
         lte(2, 3)
-        `
-    );
+    `);
+    // Should fail because Int is not Bar, even though bar is not called
+    testParseExpectError(`
+        trait Foo {}
+        trait Bar {
+            bar[Self, Self: Self],
+        }
+
+        func foo(x: T): T where T is Foo, T is Bar {x}
+
+        foo(1)
+    `);
 });
 
 test("parse struct definition", () => {
@@ -313,7 +343,9 @@ test("parse struct constructor errors", () => {
 
 test("parse generic identity function", () => {
     testParse(`
-        func id(a: T): T {
+        trait Any {}
+
+        func id(a: T): T where T is Any {
             a
         };
         id(1)
@@ -364,7 +396,9 @@ test("parse generic error when trait not satisfied", () => {
 
 test("parse generic multiple type parameters", () => {
     testParse(`
-        func pair(a: T, b: U): Arr[T] {
+        trait Any {}
+
+        func pair(a: T, b: U): Arr[T] where T is Any, U is Any {
             [a]
         }
     `);
@@ -385,11 +419,13 @@ test("parse struct field access on param", () => {
 
 test("parse struct with generic identity", () => {
     testParse(`
+        trait Any {}
+
         struct Point {
             x: Int,
             y: Int
         };
-        func id(a: T): T {
+        func id(a: T): T where T is Any {
             a
         };
         p = Point(1, 2);
@@ -423,6 +459,21 @@ test("parse struct with trait generic chained add", () => {
         result = foo(foo(a, b), c);
         result("x") + result("y")
     `);
+});
+
+test("parse exponentiation", () => {
+    testParse(`2 ^ 3`);
+    testParse(`2 ^ 3 ^ 4`);
+    testParse(`2 + 3 ^ 4 * 5`);
+    testParse(`-2 ^ 3`);
+    testParseExpectError(`true ^ false`);
+    testParseExpectError(`\"hello\" ^ 2`);
+});
+
+test("parse string indexing", () => {
+    testParse(`\"hello\"(0)`);
+    testParse(`\"hello\"(1)`);
+    testParse(`x = "hello"; x(0)`);
 });
 
 test("parse functional operations with structs", () => {
