@@ -1,11 +1,5 @@
-import { deepEquals } from "bun";
-
-export class ASTError {
-    constructor(public line: number, public col: number, public message: string) { }
-}
-
 // Built-in type names that cannot be used as type parameters or user-defined types
-const BUILTIN_TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Null", "Func", "Arr", "Iter", "Self"]);
+const BUILTIN_TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Func", "Arr", "Iter", "Self"]);
 
 export function isBuiltinTypeName(name: string): boolean {
     return BUILTIN_TYPE_NAMES.has(name);

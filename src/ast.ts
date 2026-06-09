@@ -2,7 +2,6 @@ import type { JSWriter } from "./write-js";
 import { TokenType, type Token } from "./tokens";
 import { deepEquals } from "bun";
 import {
-    ASTError,
     isBuiltinTypeName,
     collectCustomTypeNames,
     substituteTypeParams,
@@ -13,24 +12,7 @@ import {
     type Type,
     type CallableType,
     TemplateTypes,
-    getType,
 } from "./types";
-
-// Re-export types for backward compatibility
-export {
-    ASTError,
-    isBuiltinTypeName,
-    collectCustomTypeNames,
-    substituteTypeParams,
-    FuncType,
-    ArrayType,
-    IterType,
-    CustomType,
-    type Type,
-    type CallableType,
-    TemplateTypes,
-    getType,
-};
 
 // Global registry of trait definitions, keyed by trait name
 const traitRegistry: Map<string, { name: string, types: TemplateTypes }[]> = new Map();
@@ -88,6 +70,10 @@ export function resetRegistries(): void {
     structRegistry.clear();
     functionRegistry.clear();
     monomorphizedCache.clear();
+}
+
+export class ASTError {
+    constructor(public line: number, public col: number, public message: string) { }
 }
 
 export abstract class Expression {
@@ -334,6 +320,13 @@ export class Binary extends Expression {
         this.right.cascadeTypes([...ancestors, this]);
 
         const [ltype, rtype] = [this.left.type, this.right.type];
+
+        if (ltype === null) {
+            throw this.error("Left-hand side of expression has null type");
+        }
+        if (rtype === null) {
+            throw this.error("Right-hand side of expression has null type");
+        }
 
         const NUMERIC_OPS = [
             TokenType.Plus,

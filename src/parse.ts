@@ -1,4 +1,5 @@
 import * as AST from "./ast";
+import { type Type, TemplateTypes, getType } from "./types";
 import { TokenType, type Token } from "./tokens";
 
 interface ParseError {
@@ -271,7 +272,7 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
         return parser.error("Expected parameters for anonymous function.", 0);
     }
     parser.advance();
-    const params: { name: string, type: AST.Type }[] = [];
+    const params: { name: string, type: Type }[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
         if (parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected parameter name.");
@@ -316,7 +317,7 @@ function parseTrait(parser: Parser): AST.Expression {
         return parser.error("Expected '{' after trait name.");
     }
     parser.advance();
-    const requiredFunctions: { name: string, types: AST.TemplateTypes }[] = [];
+    const requiredFunctions: { name: string, types: TemplateTypes }[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
         // Expect inputs of form FuncName[ArgType1, ArgType2, ..., ArgTypeN : ReturnType]
         if (parser.current().type !== TokenType.Identifier) {
@@ -485,7 +486,7 @@ function parseArray(parser: Parser): AST.Expression {
     // consume closing bracket
     parser.advance();
     // Process optional type annotation
-    let innerTypeAnnotation: AST.Type | undefined = undefined;
+    let innerTypeAnnotation: Type | undefined = undefined;
     if (!parser.atEnd() && parser.current().type === TokenType.Colon) {
         parser.advance();
         const typeName = parser.getTypeName();
@@ -694,12 +695,12 @@ class Parser {
         }
     }
 
-    getTemplateTypes(): AST.TemplateTypes {
+    getTemplateTypes(): TemplateTypes {
         if (this.atEnd() || this.current().type !== TokenType.LBracket) {
-            return new AST.TemplateTypes();
+            return new TemplateTypes();
         }
         this.advance();
-        const templateTypes = new AST.TemplateTypes();
+        const templateTypes = new TemplateTypes();
         while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
             if (this.current().type === TokenType.Colon) {
                 // Separating return type for function
@@ -710,7 +711,7 @@ class Parser {
                 const returnTypeName = this.current().text;
                 this.advance();
                 const nestedTemplateTypes = this.getTemplateTypes();
-                templateTypes.returnType = AST.getType(returnTypeName, nestedTemplateTypes);
+                templateTypes.returnType = getType(returnTypeName, nestedTemplateTypes);
                 break;
             }
             if (this.current().type !== TokenType.Identifier) {
@@ -719,7 +720,7 @@ class Parser {
             const typeName = this.current().text;
             this.advance();
             let nestedTemplateTypes = this.getTemplateTypes();
-            templateTypes.push(AST.getType(typeName, nestedTemplateTypes));
+            templateTypes.push(getType(typeName, nestedTemplateTypes));
             if (this.current().type === TokenType.Comma) {
                 this.advance();
             }
@@ -731,19 +732,19 @@ class Parser {
         return templateTypes;
     }
 
-    getTypeTraits(): { type: AST.Type, trait: AST.Type }[] {
+    getTypeTraits(): { type: Type, trait: Type }[] {
         if (this.atEnd() || this.current().type !== TokenType.Where) {
             return [];
         }
         this.advance();
-        const typeTraits: { type: AST.Type, trait: AST.Type }[] = [];
+        const typeTraits: { type: Type, trait: Type }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.LBrace) {
             if (this.current().type !== TokenType.Identifier) {
                 throw new Error("expected type alias after 'where'");
             }
-            let typeName: AST.Type;
+            let typeName: Type;
             try {
-                typeName = AST.getType(this.current().text, new AST.TemplateTypes());
+                typeName = getType(this.current().text, new TemplateTypes());
             } catch (e) {
                 if (e instanceof Error) {
                     throw new Error(e.message);
@@ -758,9 +759,9 @@ class Parser {
             if (this.atEnd() || this.current().type !== TokenType.Identifier) {
                 throw new Error("expected trait name after 'is'");
             }
-            let traitName: AST.Type;
+            let traitName: Type;
             try {
-                traitName = AST.getType(this.current().text, new AST.TemplateTypes());
+                traitName = getType(this.current().text, new TemplateTypes());
             } catch (e) {
                 if (e instanceof Error) {
                     throw new Error(e.message);
@@ -776,7 +777,7 @@ class Parser {
         return typeTraits;
     }
 
-    getTypeName(): AST.Type | null {
+    getTypeName(): Type | null {
         if (this.current().type !== TokenType.Identifier) {
             return null;
         }
@@ -787,7 +788,7 @@ class Parser {
             this.advance();
         }
         try {
-            return AST.getType(paramType, templateTypes);
+            return getType(paramType, templateTypes);
         } catch (e) {
             if (e instanceof Error) {
                 this.error(e.message);
@@ -850,7 +851,7 @@ class Parser {
             return this.error("Expected '(' after function name.");
         }
         this.advance();
-        const params: { name: string, type: AST.Type }[] = [];
+        const params: { name: string, type: Type }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RParen) {
             if (this.current().type !== TokenType.Identifier) {
                 return this.error("Expected parameter name.");
@@ -873,7 +874,7 @@ class Parser {
         }
         this.advance();
 
-        let returnType: AST.Type = "Null";
+        let returnType: Type = "Null";
         if (this.current().type === TokenType.Colon) {
             this.advance();
             const explicitReturnType = this.getTypeName();
@@ -921,7 +922,7 @@ class Parser {
             return this.error("Expected '{' after struct name.");
         }
         this.advance();  // consume '{'
-        const fields: { name: string, type: AST.Type }[] = [];
+        const fields: { name: string, type: Type }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
             if (this.current().type !== TokenType.Identifier) {
                 return this.error("Expected field name.");
