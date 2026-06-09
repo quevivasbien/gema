@@ -1,6 +1,6 @@
 import { EditorView, basicSetup } from "codemirror";
-import { javascript } from "@codemirror/lang-javascript";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { gema } from "./gema-language.js";
 import { keymap, Decoration } from "@codemirror/view";
 import { Prec, StateEffect, StateField } from "@codemirror/state";
 import { indentWithTab } from "@codemirror/commands";
@@ -223,7 +223,7 @@ function createEditor(parent) {
         doc: PRESETS[startPreset].code,
         extensions: [
             basicSetup,
-            javascript(),
+            gema(),
             oneDark,
             Prec.highest(
                 keymap.of([
