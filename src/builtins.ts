@@ -132,7 +132,7 @@ function __ARRAYMAPITER__(arr, innerIter) {
 function __FILTERITER__(filterFn, innerIter) {
     return new _FILTER_ITERATOR_(filterFn, innerIter);
 }`,
-    __REDUCE__: `function __REDUCE__(reduceFn, iter, initValue) {
+    __REDUCE__: `function __REDUCE__(reduceFn, initValue, iter) {
     let accumulated = initValue;
     while (true) {
         const value = iter.next();
@@ -155,6 +155,165 @@ function __FILTERITER__(filterFn, innerIter) {
         if (count === index) {
             iter.reset();
             return value;
+        }
+        count++;
+    }
+}`,
+    __TAKEITER__: `class _TAKE_ITERATOR_ {
+    constructor(innerIter, count) {
+        this.innerIter = innerIter;
+        this.remaining = count;
+        this.originalCount = count;
+    }
+    next() {
+        if (this.remaining <= 0) {
+            this.reset();
+            return undefined;
+        }
+        const value = this.innerIter.next();
+        if (value === undefined) {
+            this.reset();
+            return undefined;
+        }
+        this.remaining--;
+        return value;
+    }
+    reset() {
+        this.innerIter.reset();
+        this.remaining = this.originalCount;
+    }
+}
+function __TAKEITER__(count, iter) {
+    return new _TAKE_ITERATOR_(iter, count);
+}`,
+    __TAKEWHILEITER__: `class _TAKEWHILE_ITERATOR_ {
+    constructor(innerIter, pred) {
+        this.innerIter = innerIter;
+        this.pred = pred;
+    }
+    next() {
+        const value = this.innerIter.next();
+        if (value === undefined || !this.pred(value)) {
+            this.reset();
+            return undefined;
+        }
+        return value;
+    }
+    reset() {
+        this.innerIter.reset();
+    }
+}
+function __TAKEWHILEITER__(pred, iter) {
+    return new _TAKEWHILE_ITERATOR_(iter, pred);
+}`,
+    __DROPITER__: `class _DROP_ITERATOR_ {
+    constructor(innerIter, count) {
+        this.innerIter = innerIter;
+        this.toSkip = count;
+        this.dropping = true;
+    }
+    next() {
+        if (this.dropping) {
+            for (let i = 0; i < this.toSkip; i++) {
+                const value = this.innerIter.next();
+                if (value === undefined) {
+                    this.reset();
+                    return undefined;
+                }
+            }
+            this.dropping = false;
+        }
+        const value = this.innerIter.next();
+        if (value === undefined) {
+            this.reset();
+            return undefined;
+        }
+        return value;
+    }
+    reset() {
+        this.innerIter.reset();
+        this.dropping = true;
+    }
+}
+function __DROPITER__(count, iter) {
+    return new _DROP_ITERATOR_(iter, count);
+}`,
+    __DROPWHILEITER__: `class _DROPWHILE_ITERATOR_ {
+    constructor(innerIter, pred) {
+        this.innerIter = innerIter;
+        this.pred = pred;
+        this.dropping = true;
+    }
+    next() {
+        if (this.dropping) {
+            while (true) {
+                const value = this.innerIter.next();
+                if (value === undefined) {
+                    this.reset();
+                    return undefined;
+                }
+                if (!this.pred(value)) {
+                    this.dropping = false;
+                    return value;
+                }
+            }
+        }
+        const value = this.innerIter.next();
+        if (value === undefined) {
+            this.reset();
+            return undefined;
+        }
+        return value;
+    }
+    reset() {
+        this.innerIter.reset();
+        this.dropping = true;
+    }
+}
+function __DROPWHILEITER__(pred, iter) {
+    return new _DROPWHILE_ITERATOR_(iter, pred);
+}`,
+    __ITERATEITER__: `class _ITERATE_ITERATOR_ {
+    constructor(fn, start) {
+        this.fn = fn;
+        this.current = start;
+        this.first = true;
+        this.start = start;
+    }
+    next() {
+        if (this.first) {
+            this.first = false;
+            return this.current;
+        }
+        this.current = this.fn(this.current);
+        return this.current;
+    }
+    reset() {
+        this.current = this.start;
+        this.first = true;
+    }
+}
+function __ITERATEITER__(fn, start) {
+    return new _ITERATE_ITERATOR_(fn, start);
+}`,
+    __LAST__: `function __LAST__(iter) {
+    let lastValue;
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            iter.reset();
+            return lastValue;
+        }
+        lastValue = value;
+    }
+}`,
+    __LENGTH__: `function __LENGTH__(iter) {
+    let count = 0n;
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            iter.reset();
+            return count;
         }
         count++;
     }

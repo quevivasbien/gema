@@ -36,8 +36,8 @@ sayHello("Gema")`,
     } else {
         reduce(
             func(acc: Int, x: Int) { acc * x },
-            range(1, n),
-            1
+            1,
+            range(1, n)
         )
     }
 };
@@ -77,8 +77,8 @@ plus1 = @map(add1, evens);
 
 sum = reduce(
     func(acc: Int, x: Int) { acc + x },
-    plus1,
-    0
+    0,
+    plus1
 );
 
 sum   # 30 (sum of even numbers 1-10, each +1)`,
@@ -182,7 +182,7 @@ func linspace(a: Float, b: Float, n: Int): Iter[Float] {
 }
 
 func concat(strs: Iter[Str]) {
-    reduce(func(acc:Str, x:Str){acc+x}, strs, "")
+    reduce(func(acc:Str, x:Str){acc+x}, "", strs)
 }
 
 func toStr(arr: Iter[Bool]) {

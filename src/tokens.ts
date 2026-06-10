@@ -47,6 +47,13 @@ export enum TokenType {
     Map = "map",
     Reduce = "reduce",
     Filter = "filter",
+    Take = "take",
+    TakeWhile = "takeWhile",
+    Drop = "drop",
+    DropWhile = "dropWhile",
+    Iterate = "iterate",
+    Last = "last",
+    Length = "length",
     // Literals
     True = "true",
     False = "false",

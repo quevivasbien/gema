@@ -2839,8 +2839,8 @@ export class MapIter extends Expression {
 
 export class Reduce extends Expression {
     reduceFn: Expression;
-    iterOver: Expression;
     initValue: Expression;
+    iterOver: Expression;
 
     iterOverIsArray: boolean = false;
     referToReduceFnByName: string | null = null;
@@ -2848,16 +2848,20 @@ export class Reduce extends Expression {
     constructor(
         startToken: Token,
         reduceFn: Expression,
-        iterOver: Expression,
-        initValue: Expression
+        initValue: Expression,
+        iterOver: Expression
     ) {
         super(startToken.line, startToken.col);
         this.reduceFn = reduceFn;
-        this.iterOver = iterOver;
         this.initValue = initValue;
+        this.iterOver = iterOver;
     }
 
     cascadeTypes(ancestors: Expression[]): void {
+        this.initValue.cascadeTypes(ancestors);
+        if (this.initValue.type === null) {
+            throw this.error("unable to resolve type of initial value");
+        }
         this.iterOver.cascadeTypes(ancestors);
         if (this.iterOver.type === null) {
             throw this.error("unable to resolve type of iterable expression");
@@ -2872,11 +2876,6 @@ export class Reduce extends Expression {
             throw this.error(
                 `cannot reduce with non-iterable object (expression of type ${this.iterOver.type})`
             );
-        }
-
-        this.initValue.cascadeTypes(ancestors);
-        if (this.initValue.type === null) {
-            throw this.error("unable to resolve type of initial value");
         }
 
         // If filterFn is a Variable Expression, it may actually refer to a function, not to an extant variable
@@ -2944,8 +2943,8 @@ export class Reduce extends Expression {
         const cloned = new Reduce(
             { line: this.line, col: this.col, text: "reduce", type: TokenType.Reduce },
             this.reduceFn.clone(bindings),
-            this.iterOver.clone(bindings),
-            this.initValue.clone(bindings)
+            this.initValue.clone(bindings),
+            this.iterOver.clone(bindings)
         );
         return cloned;
     }
@@ -2959,6 +2958,8 @@ export class Reduce extends Expression {
             this.reduceFn.toJS(writer);
         }
         writer.write(", ");
+        this.initValue.toJS(writer);
+        writer.write(", ");
         if (this.iterOverIsArray) {
             // Convert to Array Iterator first
             writer.useBuiltin("__ARRAYITER__");
@@ -2968,8 +2969,6 @@ export class Reduce extends Expression {
         } else {
             this.iterOver.toJS(writer);
         }
-        writer.write(", ");
-        this.initValue.toJS(writer);
         writer.write(")");
     }
 }
@@ -3074,6 +3073,504 @@ export class FilterIter extends Expression {
             this.iterOver.toJS(writer);
         }
         writer.write(")");
+    }
+}
+
+export class TakeIter extends Expression {
+    count: Expression;
+    iter: Expression;
+    iterIsArray: boolean = false;
+
+    constructor(startToken: Token, count: Expression, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.count = count;
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.count.cascadeTypes(ancestors);
+        if (this.count.type === null) {
+            throw this.error("unable to resolve type of count expression");
+        }
+        if (this.count.type !== "Int") {
+            throw this.error("take count must be an integer");
+        }
+        this.iter.cascadeTypes(ancestors);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let innerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            innerType = this.iter.type.innerType;
+            this.iterIsArray = true;
+        } else if (this.iter.type instanceof IterType) {
+            innerType = this.iter.type.innerType;
+        } else {
+            throw this.error(
+                `cannot take from non-iterable object (expression of type ${this.iter.type})`
+            );
+        }
+        this.type = new IterType(innerType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new TakeIter(
+            { line: this.line, col: this.col, text: "take", type: TokenType.Take },
+            this.count.clone(bindings),
+            this.iter.clone(bindings)
+        );
+        return cloned;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__TAKEITER__");
+        writer.write("__TAKEITER__(");
+        this.count.toJS(writer);
+        writer.write(", ");
+        if (this.iterIsArray) {
+            writer.useBuiltin("__ARRAYITER__");
+            writer.write("__ARRAYITER__(");
+            this.iter.toJS(writer);
+            writer.write(")");
+        } else {
+            this.iter.toJS(writer);
+        }
+        writer.write(")");
+    }
+}
+
+export class TakeWhileIter extends Expression {
+    pred: Expression;
+    iter: Expression;
+    iterIsArray: boolean = false;
+    referToPredByName: string | null = null;
+
+    constructor(startToken: Token, pred: Expression, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.pred = pred;
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iter.cascadeTypes(ancestors);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let iterInnerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            iterInnerType = this.iter.type.innerType;
+            this.iterIsArray = true;
+        } else if (this.iter.type instanceof IterType) {
+            iterInnerType = this.iter.type.innerType;
+        } else {
+            throw this.error(
+                `cannot use takeWhile on non-iterable object (expression of type ${this.iter.type})`
+            );
+        }
+
+        let predType: Type;
+        if (this.pred instanceof Variable) {
+            const { result, error } = findCaller(this, ancestors, this.pred.name, [iterInnerType]);
+            if (error !== null) {
+                throw this.error(error);
+            }
+            this.referToPredByName = result.referToByName;
+            predType = result.callerType;
+        } else {
+            this.pred.cascadeTypes(ancestors);
+            if (this.pred.type === null) {
+                throw this.error("unable to resolve type of predicate");
+            }
+            predType = this.pred.type;
+        }
+        if (predType instanceof FuncType) {
+            if (predType.paramTypes.length !== 1) {
+                throw this.error("takeWhile predicate must take exactly one argument");
+            }
+            if (predType.returnType !== "Bool") {
+                throw this.error("takeWhile predicate must return a boolean");
+            }
+            if (!typeEquals(predType.paramTypes[0], iterInnerType)) {
+                throw this.error(
+                    `incompatible types in takeWhile: predicate expects ${predType.paramTypes[0]}, but iterable is over type ${iterInnerType}`
+                );
+            }
+        } else {
+            throw this.error(
+                `cannot use takeWhile with non-function object (expression of type ${predType})`
+            );
+        }
+
+        this.type = new IterType(iterInnerType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new TakeWhileIter(
+            { line: this.line, col: this.col, text: "takeWhile", type: TokenType.TakeWhile },
+            this.pred.clone(bindings),
+            this.iter.clone(bindings)
+        );
+        return cloned;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__TAKEWHILEITER__");
+        writer.write("__TAKEWHILEITER__(");
+        // Order: predicate first, iterable second
+        if (this.referToPredByName !== null) {
+            writer.write(writer.safeName(this.referToPredByName));
+        } else {
+            this.pred.toJS(writer);
+        }
+        writer.write(", ");
+        if (this.iterIsArray) {
+            writer.useBuiltin("__ARRAYITER__");
+            writer.write("__ARRAYITER__(");
+            this.iter.toJS(writer);
+            writer.write(")");
+        } else {
+            this.iter.toJS(writer);
+        }
+        writer.write(")");
+    }
+}
+
+export class DropIter extends Expression {
+    count: Expression;
+    iter: Expression;
+    iterIsArray: boolean = false;
+
+    constructor(startToken: Token, count: Expression, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.count = count;
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.count.cascadeTypes(ancestors);
+        if (this.count.type === null) {
+            throw this.error("unable to resolve type of count expression");
+        }
+        if (this.count.type !== "Int") {
+            throw this.error("drop count must be an integer");
+        }
+        this.iter.cascadeTypes(ancestors);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let innerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            innerType = this.iter.type.innerType;
+            this.iterIsArray = true;
+        } else if (this.iter.type instanceof IterType) {
+            innerType = this.iter.type.innerType;
+        } else {
+            throw this.error(
+                `cannot drop from non-iterable object (expression of type ${this.iter.type})`
+            );
+        }
+        this.type = new IterType(innerType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new DropIter(
+            { line: this.line, col: this.col, text: "drop", type: TokenType.Drop },
+            this.count.clone(bindings),
+            this.iter.clone(bindings)
+        );
+        return cloned;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__DROPITER__");
+        writer.write("__DROPITER__(");
+        this.count.toJS(writer);
+        writer.write(", ");
+        if (this.iterIsArray) {
+            writer.useBuiltin("__ARRAYITER__");
+            writer.write("__ARRAYITER__(");
+            this.iter.toJS(writer);
+            writer.write(")");
+        } else {
+            this.iter.toJS(writer);
+        }
+        writer.write(")");
+    }
+}
+
+export class DropWhileIter extends Expression {
+    pred: Expression;
+    iter: Expression;
+    iterIsArray: boolean = false;
+    referToPredByName: string | null = null;
+
+    constructor(startToken: Token, pred: Expression, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.pred = pred;
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iter.cascadeTypes(ancestors);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let iterInnerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            iterInnerType = this.iter.type.innerType;
+            this.iterIsArray = true;
+        } else if (this.iter.type instanceof IterType) {
+            iterInnerType = this.iter.type.innerType;
+        } else {
+            throw this.error(
+                `cannot use dropWhile on non-iterable object (expression of type ${this.iter.type})`
+            );
+        }
+
+        let predType: Type;
+        if (this.pred instanceof Variable) {
+            const { result, error } = findCaller(this, ancestors, this.pred.name, [iterInnerType]);
+            if (error !== null) {
+                throw this.error(error);
+            }
+            this.referToPredByName = result.referToByName;
+            predType = result.callerType;
+        } else {
+            this.pred.cascadeTypes(ancestors);
+            if (this.pred.type === null) {
+                throw this.error("unable to resolve type of predicate");
+            }
+            predType = this.pred.type;
+        }
+        if (predType instanceof FuncType) {
+            if (predType.paramTypes.length !== 1) {
+                throw this.error("dropWhile predicate must take exactly one argument");
+            }
+            if (predType.returnType !== "Bool") {
+                throw this.error("dropWhile predicate must return a boolean");
+            }
+            if (!typeEquals(predType.paramTypes[0], iterInnerType)) {
+                throw this.error(
+                    `incompatible types in dropWhile: predicate expects ${predType.paramTypes[0]}, but iterable is over type ${iterInnerType}`
+                );
+            }
+        } else {
+            throw this.error(
+                `cannot use dropWhile with non-function object (expression of type ${predType})`
+            );
+        }
+
+        this.type = new IterType(iterInnerType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new DropWhileIter(
+            { line: this.line, col: this.col, text: "dropWhile", type: TokenType.DropWhile },
+            this.pred.clone(bindings),
+            this.iter.clone(bindings)
+        );
+        return cloned;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__DROPWHILEITER__");
+        writer.write("__DROPWHILEITER__(");
+        // Order: predicate first, iterable second
+        if (this.referToPredByName !== null) {
+            writer.write(writer.safeName(this.referToPredByName));
+        } else {
+            this.pred.toJS(writer);
+        }
+        writer.write(", ");
+        if (this.iterIsArray) {
+            writer.useBuiltin("__ARRAYITER__");
+            writer.write("__ARRAYITER__(");
+            this.iter.toJS(writer);
+            writer.write(")");
+        } else {
+            this.iter.toJS(writer);
+        }
+        writer.write(")");
+    }
+}
+
+export class IterateIter extends Expression {
+    fn: Expression;
+    start: Expression;
+    referToFnByName: string | null = null;
+
+    constructor(startToken: Token, fn: Expression, start: Expression) {
+        super(startToken.line, startToken.col);
+        this.fn = fn;
+        this.start = start;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.start.cascadeTypes(ancestors);
+        if (this.start.type === null) {
+            throw this.error("unable to resolve type of start value");
+        }
+        const startType = this.start.type;
+
+        let fnType: Type;
+        if (this.fn instanceof Variable) {
+            const { result, error } = findCaller(this, ancestors, this.fn.name, [startType]);
+            if (error !== null) {
+                throw this.error(error);
+            }
+            this.referToFnByName = result.referToByName;
+            fnType = result.callerType;
+        } else {
+            this.fn.cascadeTypes(ancestors);
+            if (this.fn.type === null) {
+                throw this.error("unable to resolve type of iterate function");
+            }
+            fnType = this.fn.type;
+        }
+        if (fnType instanceof FuncType) {
+            if (fnType.paramTypes.length !== 1) {
+                throw this.error("iterate function must take exactly one argument");
+            }
+            if (!typeEquals(fnType.paramTypes[0], startType)) {
+                throw this.error(
+                    `incompatible types in iterate: function expects ${fnType.paramTypes[0]}, but start value is ${startType}`
+                );
+            }
+            if (!typeEquals(fnType.returnType, startType)) {
+                if (isConcreteType(fnType.returnType) && isConcreteType(startType)) {
+                    throw this.error(
+                        `iterate function must return the same type as its argument, got ${fnType.returnType} vs ${startType}`
+                    );
+                }
+            }
+        } else {
+            throw this.error(
+                `cannot use iterate with non-function object (expression of type ${fnType})`
+            );
+        }
+
+        this.type = new IterType(startType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new IterateIter(
+            { line: this.line, col: this.col, text: "iterate", type: TokenType.Iterate },
+            this.fn.clone(bindings),
+            this.start.clone(bindings)
+        );
+        return cloned;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__ITERATEITER__");
+        writer.write("__ITERATEITER__(");
+        if (this.referToFnByName !== null) {
+            writer.write(writer.safeName(this.referToFnByName));
+        } else {
+            this.fn.toJS(writer);
+        }
+        writer.write(", ");
+        this.start.toJS(writer);
+        writer.write(")");
+    }
+}
+
+export class Last extends Expression {
+    iter: Expression;
+    iterIsArray: boolean = false;
+
+    constructor(startToken: Token, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iter.cascadeTypes(ancestors);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let innerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            innerType = this.iter.type.innerType;
+            this.iterIsArray = true;
+        } else if (this.iter.type instanceof IterType) {
+            innerType = this.iter.type.innerType;
+        } else {
+            throw this.error(
+                `cannot get last element of non-iterable object (expression of type ${this.iter.type})`
+            );
+        }
+        this.type = innerType;
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new Last(
+            { line: this.line, col: this.col, text: "last", type: TokenType.Last },
+            this.iter.clone(bindings)
+        );
+        return cloned;
+    }
+
+    toJS(writer: JSWriter): void {
+        if (this.iterIsArray) {
+            // Direct array access: arr[arr.length - 1]
+            this.iter.toJS(writer);
+            writer.write("[");
+            this.iter.toJS(writer);
+            writer.write(".length - 1]");
+        } else {
+            writer.useBuiltin("__LAST__");
+            writer.write("__LAST__(");
+            this.iter.toJS(writer);
+            writer.write(")");
+        }
+    }
+}
+
+export class Length extends Expression {
+    iter: Expression;
+    iterIsArray: boolean = false;
+
+    constructor(startToken: Token, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iter.cascadeTypes(ancestors);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        if (this.iter.type instanceof ArrayType) {
+            this.iterIsArray = true;
+        } else if (!(this.iter.type instanceof IterType)) {
+            throw this.error(
+                `cannot get length of non-iterable object (expression of type ${this.iter.type})`
+            );
+        }
+        this.type = "Int";
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        const cloned = new Length(
+            { line: this.line, col: this.col, text: "length", type: TokenType.Length },
+            this.iter.clone(bindings)
+        );
+        return cloned;
+    }
+
+    toJS(writer: JSWriter): void {
+        if (this.iterIsArray) {
+            // Direct array length (must return BigInt for type Int)
+            writer.write("BigInt(");
+            this.iter.toJS(writer);
+            writer.write(".length)");
+        } else {
+            writer.useBuiltin("__LENGTH__");
+            writer.write("__LENGTH__(");
+            this.iter.toJS(writer);
+            writer.write(")");
+        }
     }
 }
 

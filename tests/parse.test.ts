@@ -624,7 +624,7 @@ test("parse fallback on functions with Iter params when calling with Arr", () =>
     testParse(`
         func toStr(iter: Iter[Bool]) {
             strs = map(func(x: Bool){ if x { "*" } else { " " }}, iter);
-            reduce(func(acc:Str, x:Str){acc+x}, strs, "")
+            reduce(func(acc:Str, x:Str){acc+x}, "", strs)
         }
 
         toStr([false, true, false, true])
@@ -857,7 +857,7 @@ test("parse anonymous function with return type annotation", () => {
     `);
     // Anonymous function with return type used in reduce
     testParse(`
-        reduce(func (acc: Int, x: Int): Int { acc + x }, [1, 2, 3], 0)
+        reduce(func (acc: Int, x: Int): Int { acc + x }, 0, [1, 2, 3])
     `);
     // Anonymous function without return type should still work (no regression)
     testParse(`func (x: Int) { x + 1 }`);

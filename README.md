@@ -151,7 +151,7 @@ func linspace(a: Float, b: Float, n: Int): Iter[Float] {
 }
 
 func concat(strs: Iter[Str]) {
-    reduce(func(acc:Str, x:Str){acc+x}, strs, "")
+    reduce(func(acc:Str, x:Str){acc+x}, "", strs)
 }
 
 func toStr(arr: Iter[Bool]) {

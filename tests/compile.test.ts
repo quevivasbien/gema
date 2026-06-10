@@ -323,8 +323,8 @@ test("compile reduce expression", () => {
             func(x: Int, y: Int) {
                 x * y    
             },
-            [1, 2, 3],
-            1
+            1,
+            [1, 2, 3]
         )
         `,
         6n
@@ -334,14 +334,14 @@ test("compile reduce expression", () => {
         func add(x: Int, y: Int): Int {
             x + y
         };
-        reduce(add, [1, 2, 3], 0)
+        reduce(add, 0, [1, 2, 3])
         `,
         6n
     );
     testCompile(
         `
         func sum(x: Iter[Int]): Int {
-            reduce(func(a: Int, b: Int) { a + b }, x, 0)
+            reduce(func(a: Int, b: Int) { a + b }, 0, x)
         }
 
         sum(range(0, 100))
@@ -354,6 +354,66 @@ test("compile iterator indexed access", () => {
     testCompile("x = range(0, 1); x(0)", 0n);
     testCompile("x = range(0, 1)(0)", 0n);
     testCompile("map(func(x: Int){x}, [1,2,3])(1)", 2n);
+});
+
+test("compile take", () => {
+    // take(n, iter) — first n elements
+    testCompile("@take(3, range(0, 5))", [0n, 1n, 2n]);
+    testCompile("@take(0, range(0, 5))", []);
+    testCompile("@take(2, [1, 2, 3, 4])", [1n, 2n]);
+    // Take more than available
+    testCompile("@take(10, range(0, 3))", [0n, 1n, 2n, 3n]);
+    // Chaining with other iterator ops
+    testCompile("@take(2, map(func(x: Int){ x * 2 }, [1, 2, 3, 4]))", [2n, 4n]);
+});
+
+test("compile takeWhile", () => {
+    // takeWhile(pred, iter) — elements while predicate is true
+    testCompile(`@takeWhile(func(x: Int): Bool { x < 3 }, range(0, 10))`, [0n, 1n, 2n]);
+    testCompile(`@takeWhile(func(x: Int): Bool { x < 3 }, [1, 2, 3, 4, 5])`, [1n, 2n]);
+    // Predicate fails immediately
+    testCompile(`@takeWhile(func(x: Int): Bool { x > 5 }, [1, 2, 3])`, []);
+});
+
+test("compile drop", () => {
+    // drop(n, iter) — skip first n elements
+    testCompile("@drop(2, range(0, 5))", [2n, 3n, 4n, 5n]);
+    testCompile("@drop(2, [1, 2, 3, 4])", [3n, 4n]);
+    testCompile("@drop(0, [1, 2, 3])", [1n, 2n, 3n]);
+    // Drop more than available
+    testCompile("@drop(10, range(0, 3))", []);
+});
+
+test("compile dropWhile", () => {
+    // dropWhile(pred, iter) — skip elements while predicate is true
+    testCompile(`@dropWhile(func(x: Int): Bool { x < 3 }, [1, 2, 3, 4, 5])`, [3n, 4n, 5n]);
+    testCompile(`@dropWhile(func(x: Int): Bool { x < 2 }, range(0, 5))`, [2n, 3n, 4n, 5n]);
+    // Predicate fails immediately — nothing dropped
+    testCompile(`@dropWhile(func(x: Int): Bool { x > 5 }, [1, 2, 3])`, [1n, 2n, 3n]);
+});
+
+test("compile iterate", () => {
+    // iterate(f, start) — start, f(start), f(f(start)), ...
+    const take5 = `take(5, iterate(func(x: Int): Int { x + 1 }, 0))`;
+    testCompile(`@${take5}`, [0n, 1n, 2n, 3n, 4n]);
+
+    const take3 = `take(3, iterate(func(x: Int): Int { x * 2 }, 1))`;
+    testCompile(`@${take3}`, [1n, 2n, 4n]);
+});
+
+test("compile last", () => {
+    // last(iter) — last element
+    testCompile("last([1, 2, 3])", 3n);
+    testCompile("last([42])", 42n);
+    testCompile("last(range(0, 5))", 5n);
+});
+
+test("compile length", () => {
+    // length(iter) — number of elements
+    testCompile("length([1, 2, 3])", 3n);
+    testCompile("length([]: Int)", 0n);
+    testCompile("length(range(0, 5))", 6n);
+    testCompile("length(range(100, 0))", 0n);
 });
 
 test("compile repeated use of iterator", () => {
@@ -397,9 +457,9 @@ test("compile repeated use of iterator", () => {
     testCompile(
         `
         x = range(1, 3);
-        y = reduce(func(acc: Int, x: Int){acc+x}, x, 0);
+        y = reduce(func(acc: Int, x: Int){acc+x}, 0, x);
 
-        y + reduce(func(acc: Int, x: Int){acc+x}, x, 0)
+        y + reduce(func(acc: Int, x: Int){acc+x}, 0, x)
     `,
         12n
     );
@@ -601,7 +661,7 @@ test("compile reduce with structs", () => {
         func addP(a: P, b: P): P {
             P(a("p") + b("p"))
         };
-        result = reduce(addP, [P(1), P(2), P(3)], P(0));
+        result = reduce(addP, P(0), [P(1), P(2), P(3)]);
         result("p")
     `,
         6n
@@ -802,7 +862,7 @@ test("compile fallback on functions with Iter params when calling with Arr", () 
     //   2. Auto array-to-iterator conversion (Arr[Int] → Iter[Int])
     testCompile(
         `
-        func foo(x: Iter[Int]) { reduce(func(acc: Int, x: Int){acc+x}, [1,2,3], 0) }
+        func foo(x: Iter[Int]) { reduce(func(acc: Int, x: Int){acc+x}, 0, [1,2,3]) }
 
         foo([1,2,3])
      `,
@@ -827,7 +887,7 @@ test("compile function with nested generic type", () => {
         trait Any {}
 
         func getLength(arr: Arr[T]): Int where T is Any {
-            reduce(func(acc: Int, x: T) { acc + 1 }, arr, 0)
+            reduce(func(acc: Int, x: T) { acc + 1 }, 0, arr)
         }
 
         getLength([1,2,3])
@@ -841,7 +901,7 @@ test("compile function with nested generic type", () => {
         }
 
         func computeSum(arr: Arr[T]): T where T is Summable {
-            reduce(func(acc: T, x: T) { sum(acc, x) }, arr, 0)
+            reduce(func(acc: T, x: T) { sum(acc, x) }, 0, arr)
         }
 
         func sum(x: Int, y: Int): Int {
@@ -862,7 +922,7 @@ test("compile function with nested generic type", () => {
         }
 
         func sum(iter: Iter[T], start: T): T where T is Summable {
-            reduce(func(acc: T, x: T) { sum(acc, x) }, iter, start)
+            reduce(func(acc: T, x: T) { sum(acc, x) }, start, iter)
         }
 
         func sum(a: Int, b: Int): Int {
@@ -880,7 +940,7 @@ test("compile function with nested generic type", () => {
         }
 
         func join(iter: Iter[T], start: T): T where T is Concat {
-            reduce(func(acc: T, x: T) { concat(acc, x) }, iter, start)
+            reduce(func(acc: T, x: T) { concat(acc, x) }, start, iter)
         }
 
         func concat(a: Arr[Int], b: Arr[Int]): Arr[Int] {
@@ -1068,7 +1128,7 @@ test("compile anonymous function with return type annotation", () => {
     testCompile(`func (x: Int): Int { x + 1 }(5)`, 6n);
     testCompile(`@map(func (x: Int): Int { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
     testCompile(`@filter(func (x: Int): Bool { x > 0 }, [1, 2, 3])`, [1n, 2n, 3n]);
-    testCompile(`reduce(func (acc: Int, x: Int): Int { acc + x }, [1, 2, 3], 0)`, 6n);
+    testCompile(`reduce(func (acc: Int, x: Int): Int { acc + x }, 0, [1, 2, 3])`, 6n);
     // Regular anonymous functions still work
     testCompile(`func (x: Int) { x + 1 }(5)`, 6n);
 });
