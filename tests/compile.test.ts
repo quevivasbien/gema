@@ -350,7 +350,7 @@ test("compile reduce expression", () => {
     );
 });
 
-test.todo("compile repeated use of iterator", () => {
+test("compile repeated use of iterator", () => {
     testCompile(
         `
         x = range(1, 3);
@@ -358,6 +358,44 @@ test.todo("compile repeated use of iterator", () => {
         [x(0), x(2), x(1)]
     `,
         [1n, 3n, 2n]
+    );
+    testCompile(
+        `
+        x = range(1, 3);
+
+        @x;
+        @x
+    `,
+        [1n, 2n, 3n]
+    );
+    testCompile(
+        `
+        x = range(1, 3);
+        y = map(func(i: Int){ i + 1 }, x);
+
+        @x;
+        @y
+    `,
+        [2n, 3n, 4n]
+    );
+    testCompile(
+        `
+        x = range(1, 3);
+        y = map(func(i: Int){ i + 1 }, x);
+
+        @y;
+        @x
+    `,
+        [1n, 2n, 3n]
+    );
+    testCompile(
+        `
+        x = range(1, 3);
+        y = reduce(func(acc: Int, x: Int){acc+x}, x, 0);
+
+        y + reduce(func(acc: Int, x: Int){acc+x}, x, 0)
+    `,
+        12n
     );
 });
 

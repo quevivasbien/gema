@@ -18,6 +18,7 @@ export const BUILTINS: Record<string, string> = {
     while (true) {
         const value = iter.next();
         if (value === undefined) {
+            iter.reset();
             break;
         }
         out.push(value);
@@ -30,7 +31,14 @@ export const BUILTINS: Record<string, string> = {
         this.index = 0;
     }
     next() {
-        return this.array[this.index++];
+        const value = this.array[this.index++];
+        if (value === undefined) {
+            this.reset();
+        }
+        return value;
+    }
+    reset() {
+        this.index = 0;
     }
 }
 function __ARRAYITER__(array) {
@@ -39,16 +47,21 @@ function __ARRAYITER__(array) {
     __RANGEITER__: `class _RANGE_ITERATOR_ {
     constructor(start, end, step) {
         this.value = start;
+        this.start = start;
         this.end = end;
         this.step = step;
     }
     next() {
         if (this.step > 0 ? this.value > this.end : this.value < this.end) {
+            this.reset();
             return undefined;
         }
         const value = this.value;
         this.value += this.step;
         return value;
+    }
+    reset() {
+        this.value = this.start;
     }
 }
 function __RANGEITER__(start, end, step = 1n) {
@@ -62,9 +75,13 @@ function __RANGEITER__(start, end, step = 1n) {
     next() {
         const value = this.innerIter.next();
         if (value === undefined) {
+            this.reset();
             return undefined;
         }
         return this.mapfn(value);
+    }
+    reset() {
+        this.innerIter.reset();
     }
 }
 function __MAPITER__(mapfn, innerIter) {
@@ -78,9 +95,13 @@ function __MAPITER__(mapfn, innerIter) {
     next() {
         const value = this.innerIter.next();
         if (value === undefined) {
+            this.reset();
             return undefined;
         }
         return this.arr[value];
+    }
+    reset() {
+        this.innerIter.reset();
     }
 }
 function __ARRAYMAPITER__(arr, innerIter) {
@@ -95,6 +116,7 @@ function __ARRAYMAPITER__(arr, innerIter) {
         while (true) {
             const value = this.innerIter.next();
             if (value === undefined) {
+                this.reset();
                 break;
             }
             if (this.filterFn(value)) {
@@ -103,15 +125,19 @@ function __ARRAYMAPITER__(arr, innerIter) {
         }
         return undefined;
     }
+    reset() {
+        this.innerIter.reset();
+    }
 }
 function __FILTERITER__(filterFn, innerIter) {
     return new _FILTER_ITERATOR_(filterFn, innerIter);
 }`,
-    __REDUCE__: `function __REDUCE__(reduceFn, innerIter, initValue) {
+    __REDUCE__: `function __REDUCE__(reduceFn, iter, initValue) {
     let accumulated = initValue;
     while (true) {
-        const value = innerIter.next();
+        const value = iter.next();
         if (value === undefined) {
+            iter.reset();
             break;
         }
         accumulated = reduceFn(accumulated, value);
@@ -123,9 +149,11 @@ function __FILTERITER__(filterFn, innerIter) {
     while (true) {
         const value = iter.next();
         if (value === undefined) {
+            iter.reset();
             return undefined;
         }
         if (count === index) {
+            iter.reset();
             return value;
         }
         count++;
