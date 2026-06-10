@@ -32,16 +32,21 @@ export function getTrait(
 }
 
 // Global registry of struct definitions, keyed by struct name
-const structRegistry: Map<string, { name: string; fields: { name: string; type: Type }[] }> =
-    new Map();
+const structRegistry: Map<
+    string,
+    { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
+> = new Map();
 
-export function registerStruct(name: string, fields: { name: string; type: Type }[]): void {
+export function registerStruct(
+    name: string,
+    fields: { name: string; type: Type; mutable: boolean }[]
+): void {
     structRegistry.set(name, { name, fields });
 }
 
 export function getStruct(
     name: string
-): { name: string; fields: { name: string; type: Type }[] } | undefined {
+): { name: string; fields: { name: string; type: Type; mutable: boolean }[] } | undefined {
     return structRegistry.get(name);
 }
 
@@ -3755,11 +3760,78 @@ export class FieldAccess extends Expression {
     }
 }
 
+export class FieldAssignment extends Expression {
+    obj: Expression;
+    fieldName: string;
+    value: Expression;
+    isDropped: boolean = false;
+
+    constructor(obj: Expression, fieldName: string, value: Expression, isDropped: boolean = false) {
+        super(obj.line, obj.col);
+        this.obj = obj;
+        this.fieldName = fieldName;
+        this.value = value;
+        this.isDropped = isDropped;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.value.cascadeTypes([...ancestors, this]);
+        this.obj.cascadeTypes([...ancestors, this]);
+        if (this.obj.type === null) {
+            throw this.error("unable to resolve type of object");
+        }
+        if (!(this.obj.type instanceof CustomType)) {
+            throw this.error(`cannot assign field on non-struct type ${this.obj.type}`);
+        }
+        const structInfo = getStruct(this.obj.type.name);
+        if (!structInfo) {
+            throw this.error(`type ${this.obj.type.name} is not a struct`);
+        }
+        const field = structInfo.fields.find((f) => f.name === this.fieldName);
+        if (!field) {
+            throw this.error(
+                `struct ${structInfo.name} has no field named "${this.fieldName}"`
+            );
+        }
+        if (!field.mutable) {
+            throw this.error(
+                `cannot assign to non-mutable field '${this.fieldName}' on struct ${structInfo.name}`
+            );
+        }
+        const assignType = this.value.type!;
+        if (!deepEquals(field.type, assignType)) {
+            throw this.error(
+                `cannot assign value of type ${assignType} to field '${this.fieldName}' of type ${field.type}`
+            );
+        }
+        this.type = this.isDropped ? "Null" : assignType;
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new FieldAssignment(
+            this.obj.clone(bindings),
+            this.fieldName,
+            this.value.clone(bindings),
+            this.isDropped
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        this.obj.toJS(writer);
+        writer.write(`.${this.fieldName} = `);
+        this.value.toJS(writer);
+    }
+}
+
 export class StructDef extends Expression {
     name: string;
-    fields: { name: string; type: Type }[];
+    fields: { name: string; type: Type; mutable: boolean }[];
 
-    constructor(rootToken: Token, name: string, fields: { name: string; type: Type }[]) {
+    constructor(
+        rootToken: Token,
+        name: string,
+        fields: { name: string; type: Type; mutable: boolean }[]
+    ) {
         super(rootToken.line, rootToken.col);
         this.name = name;
         this.fields = fields;

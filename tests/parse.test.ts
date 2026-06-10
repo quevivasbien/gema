@@ -88,12 +88,6 @@ test("parse mutable variable reassignment", () => {
     testParseExpectError(`x = 1; x = 2;`);
 });
 
-test.todo("parse variable reassignment", () => {
-    testParse("x = 1; x = x + 1");
-    testParse("x = 1; x = x + 1; x");
-    testParse("x = 1; x = 2; x");
-});
-
 test("parse if", () => {
     testParse(`if true { 1 } else { 2 }`);
     testParseExpectError(`if 1 { 1 } else { 2 }`);

@@ -572,3 +572,338 @@ test("compound: no and=/or= operators", () => {
     testCompileError("mut x = true; x and= false");
     testCompileError("mut x = true; x or= false");
 });
+
+// ============================================================
+// PHASE 3: Mutable struct fields
+// ============================================================
+
+// ── Basic field mutation ──
+
+test("field: mutate mutable field with =", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int, mut y: Int };
+        p = Point(1, 2);
+        p.x = 5;
+        p.x
+        `,
+        5n
+    );
+});
+
+test("field: mutate multiple mutable fields", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int, mut y: Int };
+        p = Point(1, 2);
+        p.x = 10;
+        p.y = 20;
+        p.x + p.y
+        `,
+        30n
+    );
+});
+
+test("field: mutate mutable string field", () => {
+    testCompile(
+        `
+        struct S { mut val: Str };
+        s = S("hi");
+        s.val = "hello";
+        s.val
+        `,
+        "hello"
+    );
+});
+
+test("field: mutate mutable bool field", () => {
+    testCompile(
+        `
+        struct S { mut flag: Bool };
+        s = S(true);
+        s.flag = false;
+        s.flag
+        `,
+        false
+    );
+});
+
+// ── Reading fields (mutable or not) still works ──
+
+test("field: read non-mut field still works", () => {
+    testCompile(
+        `
+        struct S { x: Int };
+        s = S(42);
+        s.x
+        `,
+        42n
+    );
+});
+
+test("field: read mut field also works", () => {
+    testCompile(
+        `
+        struct S { mut x: Int };
+        s = S(99);
+        s.x
+        `,
+        99n
+    );
+});
+
+// ── Compound assignment on mutable fields ──
+
+test("field: compound += on mutable field", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int, mut y: Int };
+        p = Point(1, 2);
+        p.x += 3;
+        p.x
+        `,
+        4n
+    );
+});
+
+test("field: compound -= on mutable field", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int, mut y: Int };
+        p = Point(5, 6);
+        p.x -= 2;
+        p.x
+        `,
+        3n
+    );
+});
+
+test("field: compound *= on mutable field", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int, mut y: Int };
+        p = Point(2, 3);
+        p.x *= 4;
+        p.x
+        `,
+        8n
+    );
+});
+
+test("field: compound /= on mutable field", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int, mut y: Int };
+        p = Point(10, 3);
+        p.x /= 3;
+        p.x
+        `,
+        3n
+    );
+});
+
+test("field: compound %= on mutable field", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int, mut y: Int };
+        p = Point(10, 3);
+        p.x %= 6;
+        p.x
+        `,
+        4n
+    );
+});
+
+test("field: compound ^= on mutable field", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int, mut y: Int };
+        p = Point(2, 3);
+        p.x ^= 3;
+        p.x
+        `,
+        8n
+    );
+});
+
+// ── Mutating field via nested block (reassigns field on outer struct) ──
+
+test("field: mutate field from nested block", () => {
+    testCompile(
+        `
+        struct Point { mut x: Int };
+        p = Point(1);
+        {
+            p.x = 5
+        };
+        p.x
+        `,
+        5n
+    );
+});
+
+// ── Mut struct var does NOT make fields mutable ──
+
+test("field: mut var doesn't make non-mut field mutable", () => {
+    testCompileError(`
+        struct S { x: Int };
+        mut s = S(1);
+        s.x = 2
+    `);
+});
+
+// ── Error: assign to non-mut field ──
+
+test("field: error assigning to non-mutable field", () => {
+    testCompileError(`
+        struct S { x: Int };
+        s = S(1);
+        s.x = 2
+    `);
+});
+
+// ── Error: assign to non-existent field ──
+
+test("field: error assigning to non-existent field", () => {
+    testCompileError(`
+        struct S { mut x: Int };
+        s = S(1);
+        s.y = 2
+    `);
+});
+
+// ── Error: type mismatch on field assignment ──
+
+test("field: error type mismatch on field assignment", () => {
+    testCompileError(`
+        struct S { mut x: Int };
+        s = S(1);
+        s.x = true
+    `);
+});
+
+test("field: error type mismatch on compound field assignment", () => {
+    testCompileError(`
+        struct S { mut x: Int };
+        s = S(1);
+        s.x += true
+    `);
+});
+
+// ── Error: compound on non-mut field ──
+
+test("field: error compound on non-mutable field", () => {
+    testCompileError(`
+        struct S { x: Int };
+        s = S(1);
+        s.x += 2
+    `);
+});
+
+// ── Error: assign to field on non-struct type ──
+
+test("field: error assigning field on non-struct", () => {
+    testCompileError(`
+        x = 1;
+        x.y = 2
+    `);
+});
+
+// ── Struct with mixed mutable and immutable fields ──
+
+test("field: mixed mut and non-mut fields", () => {
+    testCompile(
+        `
+        struct HalfMut { mut x: Int, y: Int };
+        q = HalfMut(1, 2);
+        q.x = 10;
+        q.x + q.y
+        `,
+        12n
+    );
+    // Non-mut field cannot be mutated
+    testCompileError(`
+        struct HalfMut { mut x: Int, y: Int };
+        q = HalfMut(1, 2);
+        q.y = 20
+    `);
+});
+
+// ── Mutating field through multiple levels of struct nesting ──
+
+test("field: nested struct with mutable fields", () => {
+    testCompile(
+        `
+        struct Inner { mut val: Int };
+        struct Outer { inner: Inner };
+        o = Outer(Inner(1));
+        o.inner.val = 5;
+        o.inner.val
+        `,
+        5n
+    );
+});
+
+
+test("field: mutable struct fields from vars", () => {
+    testCompile(
+        `
+        struct S { mut a: Int };
+        x = 1;
+        s = S(x);
+        s.a = 2;
+        x
+        `,
+        1n
+    );
+    testCompile(
+        `
+        struct S { mut a: Int };
+        mut x = 1;
+        s = S(x);
+        s.a = 2;
+        x
+        `,
+        1n
+    );
+    testCompile(
+        `
+        struct S { mut a: Arr[Int] };
+        x = [1];
+        s = S(x);
+        s.a = [2];
+        x
+        `,
+        [1n]
+    );
+});
+
+test("field: mutable struct fields with keyword constructors", () => {
+    testCompile(
+        `
+        struct S { mut a: Int };
+        s = S(a=1);
+        s.a = 2
+        `,
+        2n
+    );
+    testCompile(
+        `
+        struct S { mut a: Int, b: Int };
+        s = S(b=1, a=2);
+        s.a = 3;
+        s.a
+        `,
+        3n
+    );
+    testCompile(
+        `
+        struct S { mut a: Int };
+        x = 1;
+        s = S(a=x);
+        s.a = s.a + 1;
+        s.a
+        `,
+        2n
+    );
+});

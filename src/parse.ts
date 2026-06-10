@@ -1197,6 +1197,41 @@ class Parser {
         [TokenType.CaretEqual]: TokenType.Caret,
     };
 
+    /**
+     * Finish parsing a field assignment: obj.field = value or obj.field += value.
+     * The FieldAccess expression has already been parsed; we're positioned at = or a compound op.
+     */
+    finishFieldAssignment(fieldAccess: AST.FieldAccess, isCompound: boolean): AST.FieldAssignment | null {
+        const compoundOp = isCompound ? Parser.COMPOUND_OPS[this.current().type] : null;
+        this.advance(); // consume = or compound op
+
+        const rhs = this.parseWithPrecedence(Precedence.Assignment);
+        if (!rhs) {
+            this.error("Expected expression after =");
+            return null;
+        }
+
+        let value: AST.Expression = rhs;
+        if (isCompound && compoundOp) {
+            // Desugar p.x += expr → p.x = p.x + expr
+            const opToken = {
+                line: fieldAccess.line,
+                col: fieldAccess.col,
+                text: compoundOp,
+                type: compoundOp as TokenType,
+            };
+            const fieldRead = new AST.FieldAccess(fieldAccess.obj, fieldAccess.fieldName);
+            value = new AST.Binary(opToken, fieldRead, rhs);
+        }
+
+        let isDropped = false;
+        if (!this.atEnd() && this.current().type === TokenType.Semicolon) {
+            this.advance();
+            isDropped = true;
+        }
+        return new AST.FieldAssignment(fieldAccess.obj, fieldAccess.fieldName, value, isDropped);
+    }
+
     assignment(): AST.Expression | null {
         let isMutable = false;
         // Check for optional 'mut' keyword before the variable name
@@ -1225,7 +1260,7 @@ class Parser {
         }
 
         let value: AST.Expression = rhs;
-        if (isCompound) {
+        if (isCompound && compoundOp) {
             // Desugar x += expr → x = x + expr by creating a Binary node
             const varRef = new AST.Variable(variableToken, new TemplateTypes());
             value = this.tryCreateASTExpression(() => {
@@ -1336,8 +1371,14 @@ class Parser {
             return this.error("Expected '{' after struct name.");
         }
         this.advance(); // consume '{'
-        const fields: { name: string; type: Type }[] = [];
+        const fields: { name: string; type: Type; mutable: boolean }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
+            // Check for optional 'mut' before field name
+            let fieldMutable = false;
+            if (this.current().type === TokenType.Mut && this.peek()?.type === TokenType.Identifier) {
+                fieldMutable = true;
+                this.advance(); // skip 'mut'
+            }
             if (this.current().type !== TokenType.Identifier) {
                 return this.error("Expected field name.");
             }
@@ -1355,7 +1396,7 @@ class Parser {
             if (fields.some((f) => f.name === fieldName)) {
                 return this.error(`Duplicate field name '${fieldName}' in struct ${name}.`);
             }
-            fields.push({ name: fieldName, type: fieldType });
+            fields.push({ name: fieldName, type: fieldType, mutable: fieldMutable });
             if (!this.atEnd() && this.current().type === TokenType.Comma) {
                 this.advance();
             }
@@ -1407,6 +1448,23 @@ class Parser {
             }
             const expr = this.expression();
             if (expr !== null) {
+                // Check for field assignment: obj.field = value or obj.field += value etc.
+                if (expr instanceof AST.FieldAccess && !this.atEnd()) {
+                    const nextType = this.current().type;
+                    if (nextType === TokenType.Equal) {
+                        const fa = this.finishFieldAssignment(expr, false);
+                        if (fa !== null) {
+                            expressions.push(fa);
+                            continue;
+                        }
+                    } else if (nextType in Parser.COMPOUND_OPS) {
+                        const fa = this.finishFieldAssignment(expr, true);
+                        if (fa !== null) {
+                            expressions.push(fa);
+                            continue;
+                        }
+                    }
+                }
                 expressions.push(expr);
             }
         }
