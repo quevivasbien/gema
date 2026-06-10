@@ -3,10 +3,12 @@
     "module": "index.ts",
     "scripts": {
         "build:frontend": "bun build frontend/editor.js --outfile=frontend/dist/bundle.js",
-        "dev": "bun run server.ts"
+        "dev": "bun run server.ts",
+        "bench": "bun run benchmarks/compile.bench.ts && bun run benchmarks/runtime.bench.ts"
     },
     "devDependencies": {
-        "@types/bun": "latest"
+        "@types/bun": "latest",
+        "mitata": "^1.0.34"
     },
     "peerDependencies": {
         "typescript": "^5.0.0"
