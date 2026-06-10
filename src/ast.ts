@@ -911,7 +911,9 @@ export class AnonymousFunction extends Expression {
                 type: bindings ? substituteTypeParams(p.type, bindings) : p.type,
             })),
             this.body.clone(bindings),
-            this.returnType ? (substituteTypeParams(this.returnType, bindings) as Type) : null
+            this.returnType && bindings
+                ? (substituteTypeParams(this.returnType, bindings) as Type)
+                : null
         );
         return cloned;
     }
@@ -958,7 +960,8 @@ export class Function extends Expression {
         params: { name: string; type: Type }[],
         returnType: Type,
         typeTraits: { type: Type; trait: Type }[],
-        body: Expression
+        body: Expression,
+        skipTypeValidation: boolean = false
     ) {
         if (!(body instanceof Block)) {
             throw new Error("function body must be a Block expression");
@@ -997,20 +1000,24 @@ export class Function extends Expression {
         });
         this.typeParams = [...typeParamNames];
 
-        // Validate: every non-builtin, non-struct CustomType in the signature must be a type param
-        const signatureTypes = new Set<string>();
-        this.params.forEach((p) => collectCustomTypeNames(p.type, signatureTypes));
-        collectCustomTypeNames(returnType, signatureTypes);
-        for (const name of signatureTypes) {
-            if (
-                !isBuiltinTypeName(name) &&
-                !getStruct(name) &&
-                !getTrait(name) &&
-                !typeParamNames.has(name)
-            ) {
-                throw new Error(
-                    `unknown type '${name}' — if it's a generic type parameter, add it to a 'where' clause with a trait bound (e.g., 'where ${name} is SomeTrait')`
-                );
+        // When creating a monomorphized function programmatically, the types might
+        // reference outer function type params — skip validation in that case.
+        if (!skipTypeValidation) {
+            // Validate: every non-builtin, non-struct CustomType in the signature must be a type param
+            const signatureTypes = new Set<string>();
+            this.params.forEach((p) => collectCustomTypeNames(p.type, signatureTypes));
+            collectCustomTypeNames(returnType, signatureTypes);
+            for (const name of signatureTypes) {
+                if (
+                    !isBuiltinTypeName(name) &&
+                    !getStruct(name) &&
+                    !getTrait(name) &&
+                    !typeParamNames.has(name)
+                ) {
+                    throw new Error(
+                        `unknown type '${name}' — if it's a generic type parameter, add it to a 'where' clause with a trait bound (e.g., 'where ${name} is SomeTrait')`
+                    );
+                }
             }
         }
 
@@ -1059,7 +1066,8 @@ export class Function extends Expression {
      * Creates a cloned function with substituted types, cascadeTypes it, and registers it.
      */
     monomorphize(
-        argTypes: Type[]
+        argTypes: Type[],
+        ancestors?: Expression[]
     ): { fullName: string; funcType: FuncType; returnType: Type } | null {
         if (!this.isGeneric) return null;
         if (this.params.length !== argTypes.length) return null;
@@ -1105,13 +1113,22 @@ export class Function extends Expression {
             };
         }
 
-        // Check trait constraints
+        // Check trait constraints — only when the concrete type is truly concrete
+        // (skip when it's still a type variable from an outer generic function)
         for (const param of this.params) {
             if (param.type instanceof CustomType && param.type.traits.length > 0) {
                 const concreteType = substituteTypeParams(param.type, bindings);
-                for (const traitName of param.type.traits) {
-                    if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
-                        return null; // Trait not satisfied
+                // If the "concrete" type is still a CustomType, it's actually a type variable
+                // from an outer generic function — skip the check for now.
+                const isConcrete =
+                    !(concreteType instanceof CustomType) ||
+                    isBuiltinTypeName(concreteType.name) ||
+                    getStruct(concreteType.name) !== undefined;
+                if (isConcrete) {
+                    for (const traitName of param.type.traits) {
+                        if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
+                            return null; // Trait not satisfied
+                        }
                     }
                 }
             }
@@ -1133,11 +1150,22 @@ export class Function extends Expression {
             clonedParams,
             concreteReturnType as Type,
             [],
-            clonedBody
+            clonedBody,
+            true // skipTypeValidation: outer type params are OK here
         );
 
-        // cascadeTypes the monomorphized version with itself as ancestor (so Variable nodes can find params)
-        monomorphized.body.cascadeTypes([monomorphized]);
+        // Determine if this monomorphization produced truly concrete types
+        // (as opposed to still having type variables from an outer generic function)
+        const allConcrete = clonedParams.every(
+            (p) =>
+                !(p.type instanceof CustomType) ||
+                isBuiltinTypeName(p.type.name) ||
+                getStruct(p.type.name) !== undefined
+        );
+
+        // cascadeTypes the monomorphized version with the original ancestors so that
+        // findCaller can resolve functions defined in outer scopes.
+        monomorphized.body.cascadeTypes([...(ancestors || []), monomorphized]);
 
         // Infer return type if the original generic function had no explicit return type
         if (
@@ -1159,9 +1187,11 @@ export class Function extends Expression {
             );
         }
 
-        // Register in cache and track for emission alongside the original generic function
-        registerMonomorphized(monomorphizedFullName, monomorphized);
-        this.monomorphizedVersions.push(monomorphized);
+        // Only cache and register when the types are truly concrete
+        if (allConcrete) {
+            registerMonomorphized(monomorphizedFullName, monomorphized);
+            this.monomorphizedVersions.push(monomorphized);
+        }
 
         return {
             fullName: monomorphizedFullName,
@@ -1519,7 +1549,7 @@ function findCaller(
                 ) {
                     // Check if this generic function could match (same name)
                     if (olderSibling.name === name) {
-                        const result = olderSibling.monomorphize(argTypes);
+                        const result = olderSibling.monomorphize(argTypes, ancestors);
                         if (result !== null) {
                             // Monomorphization succeeded — resolve to the concrete function
                             return {

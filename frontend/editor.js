@@ -98,20 +98,45 @@ taxicab(Point(8.0, 7.0), Point(-2.0, 2.0))  # -15.0`,
     },
     generics: {
         label: "Generic Functions",
-        code: `trait Any {}
+        code: `trait Concatenatable {
+  concat[(a: Self, b: Self): Self],
+}
 
-struct Point {
-    x: Int,
-    y: Int
-};
+func tacnoc(a: T, b: T): T where T is Concatenatable {
+  concat(b, a)
+}
 
-func id(a: T): T where T is Any {
-    a
-};
+# Implement Concatenatable for strings
+func concat(a: Str, b: Str) {
+  a + b
+}
 
-p = Point(1, 2);
-q = id(p);
-q.x + q.y   # 3`,
+tacnoc("hello", "there")  # "therehello"
+
+# Implement Concatenatable for integers
+func concat(a: Int, b: Int) {
+  func getNDigits(x: Int, n: Int): Int {
+    if x <= 0 { n }
+    else { getNDigits(x / 10, n + 1) }
+  }
+  a*10^getNDigits(b, 0) + b
+}
+
+tacnoc(123, 45)  # 45123
+
+# Implement Concatenatable for a custom type
+struct Pair { first: Int, second: Int }
+
+func concat(a: Pair, b: Pair) {
+  Pair(concat(a.first, b.first), concat(a.second, b.second))
+}
+
+# To help us view the result
+func toStr(p: Pair) {
+  "(" + toStr(p.first) + ", " + toStr(p.second) + ")"
+}
+
+toStr(tacnoc(Pair(1, 2), Pair(34, 56)))  # (341, 562)`,
     },
     typeConversion: {
         label: "Type Conversions",

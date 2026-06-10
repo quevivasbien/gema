@@ -181,7 +181,21 @@ export class JSWriter {
     }
 }
 
-export function writeJS(ast: AST.Expression): string {
+export function writeJS(ast: AST.Expression, minify: boolean = true): string {
     const compiler = new JSWriter(ast);
-    return compiler.compile();
+    let compiled = compiler.compile();
+    if (minify) {
+        compiled = compiled
+            .split("\n")
+            .filter((line) => {
+                const trimmed = line.trim();
+                // Remove lines that are only semicolons (with optional whitespace)
+                if (/^;+$/.test(trimmed)) return false;
+                // Remove completely empty lines
+                if (trimmed === "") return false;
+                return true;
+            })
+            .join("\n");
+    }
+    return compiled;
 }

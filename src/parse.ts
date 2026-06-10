@@ -1178,7 +1178,13 @@ export function parse(tokens: Token[]): { ast: AST.Expression; errors: ParseErro
                     message: e.message,
                 });
             } else {
-                throw e;
+                // Non-ASTError (e.g. from Function constructor validation).
+                // Report it without line/col info.
+                parser.errors.push({
+                    line: 0,
+                    col: 0,
+                    message: e instanceof Error ? e.message : String(e),
+                });
             }
         }
     }

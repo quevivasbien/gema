@@ -917,6 +917,41 @@ test("compile generic function without return type annotation", () => {
     `,
         "hello"
     );
+    // Generic function calling another generic function inside a generic body
+    testCompile(
+        `
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        func wrap(x: T): T where T is Any { id(x) }
+        wrap(10)
+    `,
+        10n
+    );
+    // Generic with trait-defined function, nested in another generic
+    testCompile(
+        `
+        trait Foo {
+            foo[(x: Self): Self]
+        }
+        func foo(x: Int) { x }
+        func id(x: T) where T is Foo { foo(x) }
+        func wrap(x: T): T where T is Foo { id(x) }
+        id(10)
+    `,
+        10n
+    );
+    testCompile(
+        `
+        trait Foo {
+            foo[(x: Self): Self]
+        }
+        func foo(x: Int) { x }
+        func id(x: T) where T is Foo { foo(x) }
+        func wrap(x: T): T where T is Foo { id(x) }
+        wrap(10)
+    `,
+        10n
+    );
 });
 
 test("compile anonymous function with return type annotation", () => {

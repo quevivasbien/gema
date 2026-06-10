@@ -46,30 +46,40 @@ export function compileWithRawErrors(text: string): {
     runtimeError: string | null;
 } {
     resetRegistries();
-    const tokens = scan(text);
-    const { ast, errors } = parse(tokens);
-    if (errors.length > 0) {
+    try {
+        const tokens = scan(text);
+        const { ast, errors } = parse(tokens);
+        if (errors.length > 0) {
+            return {
+                js: "",
+                result: null,
+                errors: errors.map((e) => ({
+                    line: e.line,
+                    col: e.col,
+                    message: e.message,
+                })),
+                runtimeError: null,
+            };
+        }
+        const js = writeJS(ast);
+        try {
+            const result = eval(js);
+            return { js, result: String(result), errors: [], runtimeError: null };
+        } catch (e: any) {
+            return {
+                js,
+                result: null,
+                errors: [],
+                runtimeError: e instanceof Error ? e.message : String(e),
+            };
+        }
+    } catch (e: unknown) {
+        // Safety net for any unexpected errors during compilation
         return {
             js: "",
             result: null,
-            errors: errors.map((e) => ({
-                line: e.line,
-                col: e.col,
-                message: e.message,
-            })),
+            errors: [{ line: 0, col: 0, message: e instanceof Error ? e.message : String(e) }],
             runtimeError: null,
-        };
-    }
-    const js = writeJS(ast);
-    try {
-        const result = eval(js);
-        return { js, result: String(result), errors: [], runtimeError: null };
-    } catch (e: any) {
-        return {
-            js,
-            result: null,
-            errors: [],
-            runtimeError: e instanceof Error ? e.message : String(e),
         };
     }
 }
