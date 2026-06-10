@@ -752,11 +752,38 @@ test.todo("compile special operator functions for builtin types", () => {
     requireIdenticalCompilation("add([1,2], [3])", "[1,2] + [3]");
 });
 
-test.todo("compile function with nested generic type", () => {
+test("compile fallback on functions with Iter params when calling with Arr", () => {
+    // Tests the combination of both features:
+    //   1. Nested generic type Iter[T] in the signature
+    //   2. Auto array-to-iterator conversion (Arr[Int] → Iter[Int])
     testCompile(
         `
-        func getLength(arr: Arr[T]): Int {
-            reduce(func(acc: Int, x: Int) { acc + 1 }, arr, 0)
+        func foo(x: Iter[Int]) { reduce(func(acc: Int, x: Int){acc+x}, [1,2,3], 0) }
+
+        foo([1,2,3])
+     `,
+        6n
+    );
+    // If Arr signature is available, this is the one that should be used
+    testCompile(
+        `
+        func matches(x: Arr[Int]) { true }
+
+        func matches(x: Iter[Int]) { false }
+
+        matches([1])
+    `,
+        true
+    );
+});
+
+test("compile function with nested generic type", () => {
+    testCompile(
+        `
+        trait Any {}
+
+        func getLength(arr: Arr[T]): Int where T is Any {
+            reduce(func(acc: Int, x: T) { acc + 1 }, arr, 0)
         }
 
         getLength([1,2,3])
@@ -773,13 +800,52 @@ test.todo("compile function with nested generic type", () => {
             reduce(func(acc: T, x: T) { sum(acc, x) }, arr, 0)
         }
 
-        func sum(a: Int, y: Int): Int {
-            a + y
+        func sum(x: Int, y: Int): Int {
+            x + y
         }
 
         computeSum([1,2,3])
     `,
         6n
+    );
+    // Tests the combination of both features:
+    //   1. Nested generic type Iter[T] in the signature
+    //   2. Auto array-to-iterator conversion (Arr[Int] → Iter[Int])
+    testCompile(
+        `
+        trait Summable {
+            sum[(a: Self, b: Self): Self],
+        }
+
+        func sum(iter: Iter[T], start: T): T where T is Summable {
+            reduce(func(acc: T, x: T) { sum(acc, x) }, iter, start)
+        }
+
+        func sum(a: Int, b: Int): Int {
+            a + b
+        }
+
+        sum([1, 2, 3], 0)
+    `,
+        6n
+    );
+    testCompile(
+        `
+        trait Concat {
+            concat[(a: Self, b: Self): Self],
+        }
+
+        func join(iter: Iter[T], start: T): T where T is Concat {
+            reduce(func(acc: T, x: T) { concat(acc, x) }, iter, start)
+        }
+
+        func concat(a: Arr[Int], b: Arr[Int]): Arr[Int] {
+            a + b
+        }
+
+        join([[1,2], [3,4], [5,6]], []: Int)
+    `,
+        [1n, 2n, 3n, 4n, 5n, 6n]
     );
 });
 

@@ -620,7 +620,7 @@ test("parse operator overloading", () => {
     `);
 });
 
-test.todo("parse automatic conversion of array to iterator", () => {
+test("parse fallback on functions with Iter params when calling with Arr", () => {
     testParse(`
         func toStr(iter: Iter[Bool]) {
             strs = map(func(x: Bool){ if x { "*" } else { " " }}, iter);

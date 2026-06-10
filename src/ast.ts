@@ -863,7 +863,168 @@ export class If extends Expression {
 }
 
 function functionNameWithParamTypes(name: string | null, paramTypes: Type[]): string {
-    return `${name}$${paramTypes.join("$")}`.replaceAll(" ", "").replaceAll(/[^0-9a-zA-Z_$]/g, "_");
+    return `${name}$${paramTypes.map(typeToName).join("$")}`;
+}
+
+/** Produce a stable, readable name fragment for a type. */
+function typeToName(t: Type): string {
+    if (typeof t === "string") return t;
+    if (t instanceof CustomType) return t.name;
+    if (t instanceof ArrayType) return `Arr_${typeToName(t.innerType)}`;
+    if (t instanceof IterType) return `Iter_${typeToName(t.innerType)}`;
+    if (t instanceof FuncType)
+        return `Func_${t.paramTypes.map(typeToName).join("_")}_${typeToName(t.returnType)}`;
+    return "Null";
+}
+
+/**
+ * Recursively extract type param bindings from param types against arg types.
+ * Handles nested types like Arr[T], Iter[T], Func[Int: T], and auto-converts
+ * Arr → Iter when matching.
+ */
+function extractBindingsFromParams(
+    params: { name: string; type: Type }[],
+    argTypes: Type[],
+    typeParams: string[],
+    bindings: Map<string, Type>
+): boolean {
+    if (params.length !== argTypes.length) return false;
+    for (let i = 0; i < params.length; i++) {
+        if (!extractBindings(params[i].type, argTypes[i], typeParams, bindings)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function extractBindings(
+    paramType: Type,
+    argType: Type,
+    typeParams: string[],
+    bindings: Map<string, Type>
+): boolean {
+    if (paramType instanceof CustomType && typeParams.includes(paramType.name)) {
+        const existing = bindings.get(paramType.name);
+        if (existing && !deepEquals(existing, argType)) return false;
+        bindings.set(paramType.name, argType);
+        return true;
+    }
+    if (paramType instanceof ArrayType && argType instanceof ArrayType) {
+        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+    }
+    if (paramType instanceof IterType && argType instanceof IterType) {
+        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+    }
+    // Auto-convert: Arr[X] matches Iter[X]
+    if (paramType instanceof IterType && argType instanceof ArrayType) {
+        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+    }
+    if (paramType instanceof FuncType && argType instanceof FuncType) {
+        if (paramType.paramTypes.length !== argType.paramTypes.length) return false;
+        for (let i = 0; i < paramType.paramTypes.length; i++) {
+            if (
+                !extractBindings(
+                    paramType.paramTypes[i],
+                    argType.paramTypes[i],
+                    typeParams,
+                    bindings
+                )
+            )
+                return false;
+        }
+        return extractBindings(paramType.returnType, argType.returnType, typeParams, bindings);
+    }
+    // For non-type-param types, just check equality (with Arr↔Iter conversion)
+    if (!typesMatchWithConversion(paramType, argType)) return false;
+    return true;
+}
+
+/** Check if two types match, allowing Arr[X] ↔ Iter[X] auto-conversion
+ *  and ignoring trait differences on CustomTypes. */
+function typesMatchWithConversion(a: Type, b: Type): boolean {
+    if (deepEquals(a, b)) return true;
+    // Try comparison with traits stripped (traits are metadata, not semantic type identity)
+    if (deepEquals(stripTraits(a), stripTraits(b))) return true;
+    // Arr[X] can be treated as Iter[X]
+    if (a instanceof IterType && b instanceof ArrayType) {
+        return typesMatchWithConversion(a.innerType, b.innerType);
+    }
+    if (a instanceof ArrayType && b instanceof IterType) {
+        return typesMatchWithConversion(a.innerType, b.innerType);
+    }
+    return false;
+}
+
+/** Return a copy of a type with all trait information removed. */
+function stripTraits(t: Type): Type {
+    if (t instanceof CustomType) {
+        return new CustomType(t.name);
+    }
+    if (t instanceof ArrayType) {
+        return new ArrayType(stripTraits(t.innerType));
+    }
+    if (t instanceof IterType) {
+        return new IterType(stripTraits(t.innerType));
+    }
+    if (t instanceof FuncType) {
+        return new FuncType(
+            t.paramTypes.map((pt) => stripTraits(pt)),
+            stripTraits(t.returnType)
+        );
+    }
+    return t;
+}
+
+/** Compare two types for equality, ignoring trait differences on CustomTypes. */
+function typeEquals(a: Type, b: Type): boolean {
+    return deepEquals(stripTraits(a), stripTraits(b));
+}
+
+/** Check if a type is fully concrete (not a type variable from an enclosing generic). */
+function isConcreteType(t: Type): boolean {
+    if (typeof t === "string") return true;
+    if (t instanceof CustomType) {
+        return isBuiltinTypeName(t.name) || getStruct(t.name) !== undefined;
+    }
+    if (t instanceof ArrayType) return isConcreteType(t.innerType);
+    if (t instanceof IterType) return isConcreteType(t.innerType);
+    if (t instanceof FuncType)
+        return t.paramTypes.every(isConcreteType) && isConcreteType(t.returnType);
+    return true;
+}
+
+/** Collect trait names associated with a type param name inside a type tree. */
+function collectTraitsForTypeParam(t: Type, typeParamName: string): string[] {
+    if (t instanceof CustomType && t.name === typeParamName) {
+        return [...t.traits];
+    }
+    if (t instanceof ArrayType) {
+        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    }
+    if (t instanceof IterType) {
+        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    }
+    if (t instanceof FuncType) {
+        const result: string[] = [];
+        t.paramTypes.forEach((pt) => result.push(...collectTraitsForTypeParam(pt, typeParamName)));
+        result.push(...collectTraitsForTypeParam(t.returnType, typeParamName));
+        return result;
+    }
+    return [];
+}
+
+/** Recursively add a trait to all CustomTypes with the given name inside a type tree. */
+function addTraitToType(t: Type, typeParamName: string, traitName: string): void {
+    if (t instanceof CustomType && t.name === typeParamName) {
+        t.addTrait(traitName);
+    } else if (t instanceof ArrayType) {
+        addTraitToType(t.innerType, typeParamName, traitName);
+    } else if (t instanceof IterType) {
+        addTraitToType(t.innerType, typeParamName, traitName);
+    } else if (t instanceof FuncType) {
+        t.paramTypes.forEach((pt) => addTraitToType(pt, typeParamName, traitName));
+        addTraitToType(t.returnType, typeParamName, traitName);
+    }
 }
 
 export class AnonymousFunction extends Expression {
@@ -1072,25 +1233,11 @@ export class Function extends Expression {
         if (!this.isGeneric) return null;
         if (this.params.length !== argTypes.length) return null;
 
-        // Build type bindings from arg types
-        // A type param matches if it appears in the param types in the same position as the arg
+        // Build type bindings from arg types.
+        // Recursively handles nested types like Arr[T], Iter[T], Func[Int: T], etc.
         const bindings = new Map<string, Type>();
-        for (let i = 0; i < this.params.length; i++) {
-            const paramType = this.params[i].type;
-            if (paramType instanceof CustomType && this.typeParams.includes(paramType.name)) {
-                // If this type param is already bound, it must match
-                const existing = bindings.get(paramType.name);
-                if (existing && !deepEquals(existing, argTypes[i])) {
-                    return null; // Type param bound to conflicting types
-                }
-                bindings.set(paramType.name, argTypes[i]);
-            } else if (paramType instanceof CustomType) {
-                // Not a type param, must match exactly
-                if (!deepEquals(paramType, argTypes[i])) return null;
-            } else if (!deepEquals(paramType, argTypes[i])) {
-                // Param has a concrete type that must match
-                return null;
-            }
+        if (!extractBindingsFromParams(this.params, argTypes, this.typeParams, bindings)) {
+            return null;
         }
 
         // All type params must be bound
@@ -1446,7 +1593,8 @@ function getTraitFunc(
 }
 
 function paramTypesMatchArgTypes(funcParamTypes: Type[], argTypes: Type[]): boolean {
-    return deepEquals(funcParamTypes, argTypes);
+    if (funcParamTypes.length !== argTypes.length) return false;
+    return funcParamTypes.every((t, i) => typesMatchWithConversion(t, argTypes[i]));
 }
 
 /**
@@ -1534,7 +1682,7 @@ function findCaller(
                     return {
                         error: null,
                         result: {
-                            referToByName: fullName,
+                            referToByName: olderSibling.fullName,
                             callerType: olderSibling.getFuncType(),
                             rootType: olderSibling.returnType,
                         },
@@ -1748,6 +1896,62 @@ function findCaller(
                     },
                 };
             }
+        }
+    }
+
+    // Fallback: when inside a generic function body, check if the call name matches
+    // a trait function required by the function's type params. This handles cases
+    // where type variables (like T) don't carry their traits on the arg type objects.
+    for (let ai = ancestors.length - 1; ai >= 0; ai--) {
+        const ancestor = ancestors[ai];
+        if (ancestor instanceof Function && ancestor.isGeneric) {
+            for (const tp of ancestor.typeParams) {
+                // Collect traits for this type param by examining the function's params/return type
+                const traits = new Set<string>();
+                for (const param of ancestor.params) {
+                    for (const t of collectTraitsForTypeParam(param.type, tp)) {
+                        traits.add(t);
+                    }
+                }
+                // Also check the return type
+                for (const t of collectTraitsForTypeParam(ancestor.returnType, tp)) {
+                    traits.add(t);
+                }
+                for (const traitName of traits) {
+                    const traitFuncs = getTrait(traitName);
+                    if (!traitFuncs) continue;
+                    for (const tf of traitFuncs) {
+                        if (tf.name !== name) continue;
+                        // Replace Self with the type variable T for trait matching
+                        const selfType = new CustomType(tp);
+                        const replacedParamTypes = tf.types.types.map((t) => {
+                            if (t === "Self" || (t instanceof CustomType && t.name === "Self"))
+                                return selfType;
+                            return t;
+                        });
+                        if (paramTypesMatchArgTypes(replacedParamTypes, argTypes)) {
+                            const returnType =
+                                tf.types.returnType !== null
+                                    ? tf.types.returnType === "Self" ||
+                                      (tf.types.returnType instanceof CustomType &&
+                                          tf.types.returnType.name === "Self")
+                                        ? selfType
+                                        : tf.types.returnType
+                                    : "Null";
+                            return {
+                                error: null,
+                                result: {
+                                    referToByName: name,
+                                    callerType: new FuncType(argTypes, returnType),
+                                    rootType: returnType,
+                                    paramNames: tf.paramNames,
+                                },
+                            };
+                        }
+                    }
+                }
+            }
+            break; // Only check the innermost enclosing generic function
         }
     }
 
@@ -2166,11 +2370,31 @@ export class Call extends Expression {
             } else {
                 writer.write(writer.safeName(this.referToByName));
                 writer.write("(");
+                // Look up the function to check for Array→Iter conversion needed at call site
+                const calledFn = findFunction(this.referToByName);
+                const iterParamIndices: number[] = [];
+                if (calledFn) {
+                    calledFn.params.forEach((p, i) => {
+                        if (p.type instanceof IterType && i < this.args.length) {
+                            const argType = this.args[i].type;
+                            if (argType instanceof ArrayType) {
+                                iterParamIndices.push(i);
+                            }
+                        }
+                    });
+                }
                 this.args.forEach((arg, i) => {
                     if (i > 0) {
                         writer.write(", ");
                     }
-                    arg.toJS(writer);
+                    if (iterParamIndices.includes(i)) {
+                        writer.useBuiltin("__ARRAYITER__");
+                        writer.write("__ARRAYITER__(");
+                        arg.toJS(writer);
+                        writer.write(")");
+                    } else {
+                        arg.toJS(writer);
+                    }
                 });
                 writer.write(")");
             }
@@ -2568,7 +2792,7 @@ export class MapIter extends Expression {
             );
         }
 
-        if (!deepEquals(iterInnerType, inputType)) {
+        if (!typeEquals(iterInnerType, inputType)) {
             throw this.error(
                 `incompatible types in map: expected ${inputType}, but iterable is over type ${iterInnerType}`
             );
@@ -2684,10 +2908,13 @@ export class Reduce extends Expression {
             }
             accType = reduceFnType.paramTypes[0];
             inputType = reduceFnType.paramTypes[1];
-            if (!deepEquals(reduceFnType.returnType, accType)) {
-                throw this.error(
-                    "reduce function must return the same type as its accumulator (first argument)"
-                );
+            if (!typeEquals(reduceFnType.returnType, accType)) {
+                // Inside a generic function body, type variables may not yet be resolved
+                if (isConcreteType(reduceFnType.returnType) && isConcreteType(accType)) {
+                    throw this.error(
+                        "reduce function must return the same type as its accumulator (first argument)"
+                    );
+                }
             }
         } else {
             throw this.error(
@@ -2695,15 +2922,19 @@ export class Reduce extends Expression {
             );
         }
 
-        if (!deepEquals(iterInnerType, inputType)) {
-            throw this.error(
-                `incompatible types in reduce: expected ${inputType}, but iterable is over type ${iterInnerType}`
-            );
+        if (!typeEquals(iterInnerType, inputType)) {
+            if (isConcreteType(iterInnerType) && isConcreteType(inputType)) {
+                throw this.error(
+                    `incompatible types in reduce: expected ${inputType}, but iterable is over type ${iterInnerType}`
+                );
+            }
         }
-        if (!deepEquals(accType, this.initValue.type)) {
-            throw this.error(
-                `incompatible types in reduce: expected ${accType}, but initial value is of type ${this.initValue.type}`
-            );
+        if (!typeEquals(accType, this.initValue.type)) {
+            if (isConcreteType(accType) && isConcreteType(this.initValue.type)) {
+                throw this.error(
+                    `incompatible types in reduce: expected ${accType}, but initial value is of type ${this.initValue.type}`
+                );
+            }
         }
 
         this.type = accType;
@@ -2806,7 +3037,7 @@ export class FilterIter extends Expression {
             );
         }
 
-        if (!deepEquals(iterInnerType, inputType)) {
+        if (!typeEquals(iterInnerType, inputType)) {
             throw this.error(
                 `incompatible types in filter: expected ${inputType}, but iterable is over type ${iterInnerType}`
             );
