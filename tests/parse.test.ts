@@ -206,10 +206,23 @@ test("parse functions with generics", () => {
     `);
 });
 
+test("parse traits", () => {
+    testParse("trait Foo {}");
+    testParse("trait Foo { foo[(self: Self): Self] }");
+    testParse("trait Foo { foo[(self: Self): Self], bar[(self: Self): Int] }");
+    testParse("trait Foo { foo[(a: Self, b: Self): Self] }");
+    testParse("trait Foo { foo[(a: Self, b: Int): Self] }");
+    testParse("trait Foo { foo[(a: Int, b: Self): Int] }");
+
+    // Self needs to be at least one of the arguments of all required functions
+    testParseExpectError("trait Foo { foo[(a: Int, b: Int): Int] }");
+    testParseExpectError("trait Foo { foo[(self: Self): Self], bar[(a: Int): Self] }");
+});
+
 test("parse trait-defined functions", () => {
     testParse(`
         trait Adder {
-            add[Self, Self: Self],
+            add[(a: Self, b: Self): Self],
         };
 
         func add(a: Int, b: Int): Int {
@@ -224,8 +237,8 @@ test("parse trait-defined functions", () => {
         `);
     testParse(`
         trait Comparable {
-            eq[Self, Self: Bool],
-            lt[Self, Self: Bool]
+            eq[(a: Self, b: Self): Bool],
+            lt[(a: Self, b: Self): Bool]
         };
 
         func lte(a: T, b: T): Bool where T is Comparable {
@@ -255,8 +268,8 @@ test("generic functions with unsatisifed traits", () => {
     // Should fail because 2 is not Comparable
     testParseExpectError(`
         trait Comparable {
-            eq[Self, Self: Bool],
-            lt[Self, Self: Bool]
+            eq[(a: Self, b: Self): Bool],
+            lt[(a: Self, b: Self): Bool]
         };
 
         func lte(a: T, b: T): Bool where T is Comparable {
@@ -269,7 +282,7 @@ test("generic functions with unsatisifed traits", () => {
     testParseExpectError(`
         trait Foo {}
         trait Bar {
-            bar[Self, Self: Self],
+            bar[(a: Self, b: Self): Self],
         }
 
         func foo(x: T): T where T is Foo, T is Bar {x}
@@ -356,7 +369,7 @@ test("parse generic identity function", () => {
 test("parse struct with trait generic", () => {
     testParse(`
         trait Adder {
-            add[Self, Self: Self],
+            add[(a: Self, b: Self): Self],
         };
 
         struct Point {
@@ -379,7 +392,7 @@ test("parse struct with trait generic", () => {
 test("parse generic error when trait not satisfied", () => {
     testParseExpectError(`
         trait Adder {
-            add[Self, Self: Self],
+            add[(a: Self, b: Self): Self],
         };
 
         struct Point {
@@ -438,7 +451,7 @@ test("parse struct with generic identity", () => {
 test("parse struct with trait generic chained add", () => {
     testParse(`
         trait Adder {
-            add[Self, Self: Self],
+            add[(a: Self, b: Self): Self],
         };
 
         struct Point {
@@ -470,7 +483,7 @@ test.todo("parse struct with generic element", () => {
     `);
     testParse(`
         trait Adder {
-            add[Self, Self: Self],
+            add[(a: Self, b: Self): Self],
         };
 
         struct Point { x: T, y: T, } where T is Adder;
@@ -634,6 +647,41 @@ test("parse keyword arguments for functions", () => {
     testParseExpectError(`func foo(x: Int, y: Int): Int { x + y }; foo(x=1, y)`); // Cannot mix with keyword calls in current language spec
 });
 
+test("parse keyword arguments for functions, with mixed types", () => {
+    testParse(`
+        func foo(x: Int, y: Float): Int {
+            x + toInt(y)
+        }
+        foo(x=1, y=2.)
+    `);
+    testParse(`
+        func foo(x: Int, y: Float): Int {
+            x + toInt(y)
+        }
+        foo(y=1., x=2)
+    `);
+    testParse(`
+        func foo(x: Int, y: Str): Str {
+            toStr(x) + y
+        }
+        foo(y="hello", x=1)
+    `);
+    testParse(`
+        func foo(x: Arr[Int], y: Int): Int {
+            x(0) + y
+        }
+        foo(y=1, x=[1, 2])
+    `);
+});
+
+test("parse keyword arguments for functions, with generics", () => {
+    testParse(`
+        trait Any {}
+        func foo(x: T): T where T is Any { x }
+        foo(x=1) + toInt(foo(x=1.))
+    `);
+});
+
 test("parse keyword arguments for struct constructors", () => {
     testParse(`struct Foo {x: Int }; Foo(x=1)`);
     testParse(`struct Foo {x: Int, y: Int }; Foo(x=1, y=1)`);
@@ -643,4 +691,153 @@ test("parse keyword arguments for struct constructors", () => {
     testParseExpectError(`struct Foo {x: Int, y: Int }; Foo(x=1)`);
     testParseExpectError(`struct Foo {x: Int, y: Int }; Foo(x=1, 1)`); // Cannot mix with keyword calls in current language spec
     testParseExpectError(`struct Foo {x: Int, y: Int }; Foo(1, y=1)`); // Cannot mix with keyword calls in current language spec
+});
+
+test("parse keyword arguments with named trait signatures in generic functions", () => {
+    // Keyword args matching trait param names should work
+    testParse(`
+        trait Adder {
+            add[(a: Self, b: Self): Self],
+        };
+        func add(a: Int, b: Int): Int { a + b };
+        func double(a: T): T where T is Adder { add(a=a, b=a) };
+        double(4)
+    `);
+    testParse(`
+        trait Comparable {
+            eq[(x: Self, y: Self): Bool],
+            lt[(x: Self, y: Self): Bool]
+        };
+        func eq(a: Int, b: Int): Bool { a == b };
+        func lt(a: Int, b: Int): Bool { a < b };
+        func check(a: T, b: T): Bool where T is Comparable { eq(x=a, y=b) };
+        check(1, 2)
+    `);
+    testParse(`
+        trait Any {}
+        func id(x: T): T where T is Any { x }
+        id(x=42)
+    `);
+    // Keyword args work with reordered names
+    testParse(`
+        trait Adder {
+            add[(a: Self, b: Self): Self],
+        };
+        func add(x: Int, y: Int): Int { x + y };
+        func double(a: T): T where T is Adder { add(b=a, a=a) };
+        double(4)
+    `);
+    // Keyword args still work with non-generic functions (unchanged behavior)
+    testParse(`func foo(x: Int, y: Int): Int { x + y }; foo(y=1, x=2)`);
+    // Keyword args where concrete function name differs from trait param names
+    // (resolution uses concrete function's names when it's in scope)
+    testParse(`
+        trait Adder {
+            add[(a: Self, b: Self): Self],
+        };
+        func add(x: Int, y: Int): Int { x + y };
+        func double(a: T): T where T is Adder { add(x=a, y=a) };
+        double(4)
+    `);
+});
+
+test("parse keyword argument name mismatch with trait param names", () => {
+    // When the concrete function is NOT in the ancestor chain (e.g., defined
+    // in a different scope), keyword resolution falls back to trait param names.
+    // In the current single-file setup, the concrete function is always in scope,
+    // so mismatches are detected by the concrete function's param names.
+
+    // Trait says add(a: Self, b: Self), call uses wrong name not matching any param
+    testParseExpectError(`
+        trait Adder {
+            add[(a: Self, b: Self): Self],
+        };
+        func add(x: Int, y: Int): Int { x + y };
+        func double(a: T): T where T is Adder { add(z=a, w=a) };
+        double(4)
+    `);
+    // Reordered: trait says eq(x: Self, y: Self), call uses mismatched name
+    testParseExpectError(`
+        trait Comparable {
+            eq[(x: Self, y: Self): Bool],
+        };
+        func eq(a: Int, b: Int): Bool { a == b };
+        func check(a: T, b: T): Bool where T is Comparable { eq(z=a, w=b) };
+        check(1, 2)
+    `);
+});
+
+test("parse positional args still work in generic functions with traits", () => {
+    // Existing positional-arg-only behavior should still work
+    testParse(`
+        trait Adder {
+            add[(a: Self, b: Self): Self],
+        };
+        func add(a: Int, b: Int): Int { a + b };
+        func foo(a: T, b: T): T where T is Adder { add(a, b) };
+        foo(1, 2)
+    `);
+    testParse(`
+        trait Comparable {
+            eq[(x: Self, y: Self): Bool],
+            lt[(x: Self, y: Self): Bool]
+        };
+        func eq(a: Int, b: Int): Bool { a == b };
+        func lt(a: Int, b: Int): Bool { a < b };
+        func lte(a: T, b: T): Bool where T is Comparable { lt(a, b) or eq(a, b) };
+        lte(2, 3)
+    `);
+});
+
+test("parse generic function without return type annotation", () => {
+    // Generic functions can infer return type from body
+    testParse(`
+        trait Any {}
+        func foo(a: T) where T is Any { a }
+    `);
+    // Body returning concrete type (not the type param)
+    testParse(`
+        trait Any {}
+        func bar(a: T) where T is Any { 42 }
+    `);
+    // Multiple type params
+    testParse(`
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        id(42)
+    `);
+    // Generic function without return type, used with trait dispatch
+    testParse(`
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        id(42)
+    `);
+});
+
+test("parse anonymous function with return type annotation", () => {
+    // Basic anonymous function with return type
+    testParse(`func (x: Int): Int { x + 1 }`);
+    // Return type matching body
+    testParse(`func (x: Int): Int { x }`);
+    // Return type that's different from final expression but still valid
+    testParse(`x = func (a: Int): Int { a }; x(5)`);
+    // Anonymous function with return type used in map
+    testParse(`
+        @map(func (x: Int): Int { x + 1 }, [1, 2, 3])
+    `);
+    // Anonymous function with return type used in filter
+    testParse(`
+        @filter(func (x: Int): Bool { x > 0 }, [1, 2, 3])
+    `);
+    // Anonymous function with return type used in reduce
+    testParse(`
+        reduce(func (acc: Int, x: Int): Int { acc + x }, [1, 2, 3], 0)
+    `);
+    // Anonymous function without return type should still work (no regression)
+    testParse(`func (x: Int) { x + 1 }`);
+
+    // Error: anonymous function with conflicting return type
+    testParseExpectError(`func (x: Int): Str { x + 1 }`);
+    testParseExpectError(`func (x: Int): Bool { x }`);
+    testParseExpectError(`func (x: Bool): Int { x }`);
 });

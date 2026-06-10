@@ -15,16 +15,19 @@ import {
 } from "./types";
 
 // Global registry of trait definitions, keyed by trait name
-const traitRegistry: Map<string, { name: string; types: TemplateTypes }[]> = new Map();
+const traitRegistry: Map<string, { name: string; paramNames: string[]; types: TemplateTypes }[]> =
+    new Map();
 
 export function registerTrait(
     name: string,
-    requiredFunctions: { name: string; types: TemplateTypes }[]
+    requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[]
 ): void {
     traitRegistry.set(name, requiredFunctions);
 }
 
-export function getTrait(name: string): { name: string; types: TemplateTypes }[] | undefined {
+export function getTrait(
+    name: string
+): { name: string; paramNames: string[]; types: TemplateTypes }[] | undefined {
     return traitRegistry.get(name);
 }
 
@@ -866,25 +869,37 @@ function functionNameWithParamTypes(name: string | null, paramTypes: Type[]): st
 export class AnonymousFunction extends Expression {
     params: { name: string; type: Type }[];
     body: Block;
+    returnType: Type | null;
 
-    constructor(rootToken: Token, params: { name: string; type: Type }[], body: Expression) {
+    constructor(
+        rootToken: Token,
+        params: { name: string; type: Type }[],
+        body: Expression,
+        returnType: Type | null = null
+    ) {
         if (!(body instanceof Block)) {
             throw new Error("function body must be a Blcok expression");
         }
         super(rootToken.line, rootToken.col);
         this.params = params;
         this.body = body;
+        this.returnType = returnType;
     }
 
     cascadeTypes(ancestors: Expression[]): void {
         this.body.cascadeTypes([...ancestors, this]);
-        const returnType = this.body.type;
-        if (returnType === null) {
+        const bodyReturnType = this.body.type;
+        if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
+        }
+        if (this.returnType !== null && !deepEquals(bodyReturnType, this.returnType)) {
+            throw this.error(
+                `anonymous function body should return ${this.returnType}, but found ${bodyReturnType}`
+            );
         }
         this.type = new FuncType(
             this.params.map((p) => p.type),
-            returnType
+            this.returnType ?? bodyReturnType
         );
     }
 
@@ -895,7 +910,8 @@ export class AnonymousFunction extends Expression {
                 name: p.name,
                 type: bindings ? substituteTypeParams(p.type, bindings) : p.type,
             })),
-            this.body.clone(bindings)
+            this.body.clone(bindings),
+            this.returnType ? (substituteTypeParams(this.returnType, bindings) as Type) : null
         );
         return cloned;
     }
@@ -1123,12 +1139,23 @@ export class Function extends Expression {
         // cascadeTypes the monomorphized version with itself as ancestor (so Variable nodes can find params)
         monomorphized.body.cascadeTypes([monomorphized]);
 
-        // Verify return type matches
-        if (!deepEquals(monomorphized.body.type, concreteReturnType)) {
+        // Infer return type if the original generic function had no explicit return type
+        if (
+            this.returnType === "Null" &&
+            monomorphized.body.type !== null &&
+            monomorphized.body.type !== "Null"
+        ) {
+            monomorphized.returnType = monomorphized.body.type;
+        }
+
+        // Verify return type matches (use inferred type if applicable)
+        const finalReturnType =
+            this.returnType === "Null" ? monomorphized.returnType : concreteReturnType;
+        if (!deepEquals(monomorphized.body.type, finalReturnType)) {
             throw new ASTError(
                 this.line,
                 this.col,
-                `monomorphized function body should return ${concreteReturnType}, but found ${monomorphized.body.type}`
+                `monomorphized function body should return ${finalReturnType}, but found ${monomorphized.body.type}`
             );
         }
 
@@ -1139,7 +1166,7 @@ export class Function extends Expression {
         return {
             fullName: monomorphizedFullName,
             funcType: monomorphized.getFuncType(),
-            returnType: concreteReturnType,
+            returnType: monomorphized.returnType,
         };
     }
 
@@ -1405,7 +1432,15 @@ function findCaller(
     name: string,
     argTypes: Type[]
 ):
-    | { error: null; result: { referToByName: string; callerType: CallableType; rootType: Type } }
+    | {
+          error: null;
+          result: {
+              referToByName: string;
+              callerType: CallableType;
+              rootType: Type;
+              paramNames?: string[];
+          };
+      }
     | { error: string; result: null } {
     // Check if name matches a registered struct (constructor call)
     const structDef = getStruct(name);
@@ -1679,6 +1714,7 @@ function findCaller(
                         referToByName: name,
                         callerType: new FuncType(argTypes, returnType),
                         rootType: returnType,
+                        paramNames: tf.paramNames,
                     },
                 };
             }
@@ -1800,7 +1836,9 @@ export class Call extends Expression {
             if (structDef) {
                 const fieldNames = structDef.fields.map((f) => f.name);
                 if (totalArgs !== fieldNames.length) {
-                    throw this.error(`struct ${this.name} constructor expects ${fieldNames.length} arguments, got ${totalArgs}`);
+                    throw this.error(
+                        `struct ${this.name} constructor expects ${fieldNames.length} arguments, got ${totalArgs}`
+                    );
                 }
                 const ordered: Expression[] = [];
                 ordered.length = totalArgs;
@@ -1812,10 +1850,14 @@ export class Call extends Expression {
                 for (const kw of keywordInfos) {
                     const pos = fieldNames.indexOf(kw.name);
                     if (pos === -1) {
-                        throw this.error(`unknown field '${kw.name}' — struct ${this.name} has fields [${fieldNames.join(", ")}]`);
+                        throw this.error(
+                            `unknown field '${kw.name}' — struct ${this.name} has fields [${fieldNames.join(", ")}]`
+                        );
                     }
                     if (usedPositions.has(pos)) {
-                        throw this.error(`argument for field '${kw.name}' was already provided positionally`);
+                        throw this.error(
+                            `argument for field '${kw.name}' was already provided positionally`
+                        );
                     }
                     ordered[pos] = kw.value;
                     usedPositions.add(pos);
@@ -1824,18 +1866,38 @@ export class Call extends Expression {
                     throw this.error(`some arguments were not provided for struct ${this.name}`);
                 }
                 this.args = ordered;
+                this.keywordArgs = [];
             } else {
                 // Search ancestors for a matching function
                 let lastAncestor: Expression = this;
                 for (let ai = ancestors.length - 1; ai >= 0; ai--) {
                     const ancestor = ancestors[ai];
                     if (ancestor instanceof Block) {
-                        const olderSiblings = ancestor.expressions.slice(0, ancestor.expressions.indexOf(lastAncestor));
+                        const olderSiblings = ancestor.expressions.slice(
+                            0,
+                            ancestor.expressions.indexOf(lastAncestor)
+                        );
                         for (let sj = olderSiblings.length - 1; sj >= 0; sj--) {
                             let sib = olderSiblings[sj];
-                            while (sib instanceof DropValue) { sib = sib.child; }
-                            if (sib instanceof Function && sib.name === this.name && !sib.isGeneric && sib.params.length === totalArgs) {
+                            while (sib instanceof DropValue) {
+                                sib = sib.child;
+                            }
+                            if (
+                                sib instanceof Function &&
+                                sib.name === this.name &&
+                                !sib.isGeneric &&
+                                sib.params.length === totalArgs
+                            ) {
                                 const paramNames = sib.params.map((p) => p.name);
+                                // Check if ALL keyword names match this function's param names
+                                const allKeywordsMatch = keywordInfos.every((kw) =>
+                                    paramNames.includes(kw.name)
+                                );
+                                if (!allKeywordsMatch) {
+                                    // Keyword names don't match this concrete function — skip it.
+                                    // Could be a trait-based call; let findCaller resolve it.
+                                    continue;
+                                }
                                 const ordered: Expression[] = [];
                                 ordered.length = totalArgs;
                                 const usedPositions = new Set<number>();
@@ -1845,19 +1907,19 @@ export class Call extends Expression {
                                 }
                                 for (const kw of keywordInfos) {
                                     const pos = paramNames.indexOf(kw.name);
-                                    if (pos === -1) {
-                                        throw this.error(`unknown keyword argument '${kw.name}' — valid options are [${paramNames.join(", ")}]`);
-                                    }
                                     if (usedPositions.has(pos)) {
-                                        throw this.error(`argument '${kw.name}' was already provided by positional argument`);
+                                        throw this.error(
+                                            `argument '${kw.name}' was already provided by positional argument`
+                                        );
                                     }
                                     ordered[pos] = kw.value;
                                     usedPositions.add(pos);
                                 }
                                 if (usedPositions.size !== totalArgs) {
-                                    throw this.error(`not all arguments were provided for function ${this.name}`);
+                                    continue;
                                 }
                                 this.args = ordered;
+                                this.keywordArgs = [];
                                 // Found and resolved — break out of all loops
                                 ai = -1;
                                 break;
@@ -1869,12 +1931,26 @@ export class Call extends Expression {
             }
         }
 
-        const allArgTypes = [...positionalArgTypes, ...keywordInfos.map((k) => k.type)];
+        // After keyword resolution, recompute allArgTypes from the (possibly reordered) args.
+        // If keyword args were resolved (keywordArgs cleared), use the resolved args directly.
+        // Otherwise, combine positional and keyword types for findCaller.
+        let allArgTypes: Type[];
+        if (this.keywordArgs.length === 0) {
+            // Resolution succeeded — use reordered args
+            allArgTypes = this.args.map((arg) => arg.type as Type);
+        } else {
+            // Resolution didn't happen (trait dispatch) — combine types
+            allArgTypes = [...positionalArgTypes, ...keywordInfos.map((k) => k.type)];
+        }
 
         const { error, result } = findCaller(this, ancestors, this.name, allArgTypes);
         if (error !== null) {
             // Check if this is a struct field access: varName("fieldName")
-            if (allArgTypes.length === 1 && allArgTypes[0] === "Str" && this.args[0] instanceof Literal) {
+            if (
+                allArgTypes.length === 1 &&
+                allArgTypes[0] === "Str" &&
+                this.args[0] instanceof Literal
+            ) {
                 const fieldName = this.args[0].value.slice(1, -1);
                 const structVar = findStructTypedVariable(this, ancestors, this.name);
                 if (structVar !== null) {
@@ -1917,6 +1993,85 @@ export class Call extends Expression {
         this.referToByName = result.referToByName;
         this.callerType = result.callerType;
         this.type = result.rootType;
+
+        // If keyword args weren't resolved by ancestor search, try trait param names
+        if (
+            this.keywordArgs.length > 0 &&
+            this.args.length < positionalArgTypes.length + keywordInfos.length &&
+            result.paramNames
+        ) {
+            const totalArgs = positionalArgTypes.length + keywordInfos.length;
+            if (totalArgs !== result.paramNames.length) {
+                throw this.error(
+                    `trait function ${this.name} expects ${result.paramNames.length} arguments, got ${totalArgs}`
+                );
+            }
+            const ordered: Expression[] = [];
+            ordered.length = totalArgs;
+            const usedPositions = new Set<number>();
+            for (let pi = 0; pi < this.args.length; pi++) {
+                ordered[pi] = this.args[pi];
+                usedPositions.add(pi);
+            }
+            for (const kw of keywordInfos) {
+                const pos = result.paramNames.indexOf(kw.name);
+                if (pos === -1) {
+                    throw this.error(
+                        `unknown keyword argument '${kw.name}' — ${this.name} (via trait) expects parameters [${result.paramNames.join(", ")}]`
+                    );
+                }
+                if (usedPositions.has(pos)) {
+                    throw this.error(
+                        `argument '${kw.name}' was already provided by positional argument`
+                    );
+                }
+                ordered[pos] = kw.value;
+                usedPositions.add(pos);
+            }
+            if (usedPositions.size !== totalArgs) {
+                throw this.error(`not all arguments were provided for function ${this.name}`);
+            }
+            this.args = ordered;
+            this.keywordArgs = [];
+        } else if (
+            this.keywordArgs.length > 0 &&
+            this.args.length < positionalArgTypes.length + keywordInfos.length
+        ) {
+            // Fallback: look up the resolved function by name and use its param names
+            const resolvedFn = findFunction(result.referToByName);
+            if (
+                resolvedFn &&
+                resolvedFn.params.length === positionalArgTypes.length + keywordInfos.length
+            ) {
+                const paramNames = resolvedFn.params.map((p) => p.name);
+                const totalArgs = positionalArgTypes.length + keywordInfos.length;
+                const ordered: Expression[] = [];
+                ordered.length = totalArgs;
+                const usedPositions = new Set<number>();
+                for (let pi = 0; pi < this.args.length; pi++) {
+                    ordered[pi] = this.args[pi];
+                    usedPositions.add(pi);
+                }
+                let allMatched = true;
+                for (const kw of keywordInfos) {
+                    const pos = paramNames.indexOf(kw.name);
+                    if (pos === -1) {
+                        allMatched = false;
+                        break;
+                    }
+                    if (usedPositions.has(pos)) {
+                        allMatched = false;
+                        break;
+                    }
+                    ordered[pos] = kw.value;
+                    usedPositions.add(pos);
+                }
+                if (allMatched && usedPositions.size === totalArgs) {
+                    this.args = ordered;
+                    this.keywordArgs = [];
+                }
+            }
+        }
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -2728,12 +2883,12 @@ export class StructDef extends Expression {
 
 export class Trait extends Expression {
     name: string;
-    requiredFunctions: { name: string; types: TemplateTypes }[];
+    requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[];
 
     constructor(
         rootToken: Token,
         name: string,
-        requiredFunctions: { name: string; types: TemplateTypes }[]
+        requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[]
     ) {
         super(rootToken.line, rootToken.col);
         this.name = name;
@@ -2746,6 +2901,18 @@ export class Trait extends Expression {
             }
         }
 
+        // Check that Self appears in at least one argument of each required function
+        for (const { name, types } of requiredFunctions) {
+            const hasSelf = types.types.some(
+                (t) => t === "Self" || (t instanceof CustomType && t.name === "Self")
+            );
+            if (!hasSelf) {
+                throw new Error(
+                    `function ${name} for trait ${this.name} must include Self in at least one parameter type`
+                );
+            }
+        }
+
         this.type = "Null";
 
         // Register trait globally
@@ -2755,8 +2922,8 @@ export class Trait extends Expression {
     getMatchingFunction(
         selfType: Type,
         argTypes: Type[]
-    ): { name: string; returnType: Type } | null {
-        for (const { name, types } of this.requiredFunctions) {
+    ): { name: string; paramNames: string[]; returnType: Type } | null {
+        for (const { name, paramNames, types } of this.requiredFunctions) {
             if (types.returnType === null) {
                 continue;
             }
@@ -2768,7 +2935,7 @@ export class Trait extends Expression {
                 }
             });
             if (paramTypesMatchArgTypes(paramTypesReplaced, argTypes)) {
-                return { name, returnType: types.returnType };
+                return { name, paramNames, returnType: types.returnType };
             }
         }
         return null;

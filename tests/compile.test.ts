@@ -415,7 +415,7 @@ test("compile struct with trait generic (add two points)", () => {
     testCompile(
         `
         trait Adder {
-            add[Self, Self: Self],
+            add[(a: Self, b: Self): Self],
         };
 
         struct Point {
@@ -442,7 +442,7 @@ test("compile struct with trait generic (chained add)", () => {
     testCompile(
         `
         trait Adder {
-            add[Self, Self: Self],
+            add[(a: Self, b: Self): Self],
         };
 
         struct Point {
@@ -490,7 +490,7 @@ test("compile trait-defined functions", () => {
     testCompile(
         `
         trait Adder {
-            add[Self, Self: Self],
+            add[(a: Self, b: Self): Self],
         };
 
         func add(a: Int, b: Int): Int {
@@ -508,8 +508,8 @@ test("compile trait-defined functions", () => {
     testCompile(
         `
         trait Comparable {
-            eq[Self, Self: Bool],
-            lt[Self, Self: Bool]
+            eq[(a: Self, b: Self): Bool],
+            lt[(a: Self, b: Self): Bool]
         };
 
         func lte(a: T, b: T): Bool where T is Comparable {
@@ -745,7 +745,7 @@ test("compile operator overloading", () => {
 test.todo("compile special operator functions for builtin types", () => {
     testCompile("add(1, 2)", 3n);
     testCompile("multiply(1, 2)", 2n);
-    testCompile("subtract(1.0, 2.0)", 1.0-2.0);
+    testCompile("subtract(1.0, 2.0)", 1.0 - 2.0);
     testCompile("less(1.0, 2.0)", true);
 
     requireIdenticalCompilation("add(1.0, 2.0)", "1.0 + 2.0");
@@ -766,7 +766,7 @@ test.todo("compile function with nested generic type", () => {
     testCompile(
         `
         trait Summable {
-            sum[Self, Self: Self],
+            sum[(a: Self, b: Self): Self],
         }
 
         func computeSum(arr: Arr[T]): T where T is Summable {
@@ -774,7 +774,7 @@ test.todo("compile function with nested generic type", () => {
         }
 
         func sum(a: Int, y: Int): Int {
-            x + y
+            a + y
         }
 
         computeSum([1,2,3])
@@ -815,4 +815,115 @@ test("compile keyword arguments for struct constructors", () => {
         "struct Foo { x: Int, y: Int }; Foo(x=1, y=2)",
         "struct Foo { x: Int, y: Int }; Foo(y=2, x=1)"
     );
+});
+
+test("compile keyword arguments with named trait signatures in generic functions", () => {
+    // Keyword args matching trait param names in generic function
+    testCompile(
+        `
+        trait Adder {
+            add[(a: Self, b: Self): Self],
+        };
+        func add(a: Int, b: Int): Int { a + b };
+        func double(a: T): T where T is Adder { add(a=a, b=a) };
+        double(4)
+    `,
+        8n
+    );
+    // Reordered keyword args matching trait param names
+    testCompile(
+        `
+        trait Adder {
+            add[(a: Self, b: Self): Self],
+        };
+        func add(a: Int, b: Int): Int { a + b };
+        func double(a: T): T where T is Adder { add(b=a, a=a) };
+        double(4)
+    `,
+        8n
+    );
+    // Keyword args with trait that has one param
+    testCompile(
+        `
+        trait Any {}
+        func id(x: T): T where T is Any { x }
+        id(x=42)
+    `,
+        42n
+    );
+    // Keyword args produce identical output to positional args
+    requireIdenticalCompilation(
+        `trait Adder { add[(a: Self, b: Self): Self], };
+         func add(a: Int, b: Int): Int { a + b };
+         func double(a: T): T where T is Adder { add(a, a) };
+         double(4)`,
+        `trait Adder { add[(a: Self, b: Self): Self], };
+         func add(a: Int, b: Int): Int { a + b };
+         func double(a: T): T where T is Adder { add(a=a, b=a) };
+         double(4)`
+    );
+    requireIdenticalCompilation(
+        `trait Adder { add[(a: Self, b: Self): Self], };
+         func add(a: Int, b: Int): Int { a + b };
+         func double(a: T): T where T is Adder { add(a=a, b=a) };
+         double(4)`,
+        `trait Adder { add[(a: Self, b: Self): Self], };
+         func add(a: Int, b: Int): Int { a + b };
+         func double(a: T): T where T is Adder { add(b=a, a=a) };
+         double(4)`
+    );
+    // Multiple trait functions with keyword args
+    testCompile(
+        `
+        trait Comparable {
+            eq[(x: Self, y: Self): Bool],
+            lt[(x: Self, y: Self): Bool]
+        };
+        func eq(a: Int, b: Int): Bool { a == b };
+        func lt(a: Int, b: Int): Bool { a < b };
+        func lte(a: T, b: T): Bool where T is Comparable { lt(x=a, y=b) or eq(x=a, y=b) };
+        [lte(2, 3), lte(3, 3), lte(4, 3)]
+    `,
+        [true, true, false]
+    );
+    // Original positional-arg behavior still works through traits
+    testCompile(
+        `
+        trait Adder {
+            add[(a: Self, b: Self): Self],
+        };
+        func add(a: Int, b: Int): Int { a + b };
+        func foo(a: T, b: T): T where T is Adder { add(a, b) };
+        foo(1, 2)
+    `,
+        3n
+    );
+});
+
+test("compile generic function without return type annotation", () => {
+    testCompile(
+        `
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        id(42)
+    `,
+        42n
+    );
+    testCompile(
+        `
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        id("hello")
+    `,
+        "hello"
+    );
+});
+
+test("compile anonymous function with return type annotation", () => {
+    testCompile(`func (x: Int): Int { x + 1 }(5)`, 6n);
+    testCompile(`@map(func (x: Int): Int { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
+    testCompile(`@filter(func (x: Int): Bool { x > 0 }, [1, 2, 3])`, [1n, 2n, 3n]);
+    testCompile(`reduce(func (acc: Int, x: Int): Int { acc + x }, [1, 2, 3], 0)`, 6n);
+    // Regular anonymous functions still work
+    testCompile(`func (x: Int) { x + 1 }(5)`, 6n);
 });

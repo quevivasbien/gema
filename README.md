@@ -86,12 +86,12 @@ iter = map(
 
 ```
 struct Point {
-    x: Float
+    x: Float,
     y: Float
 }
 
 func taxicab(a: Point, b: Point): Float {
-    (b("x") - a("x")) + (b("y") - a("y"))
+    (b.x - a.x) + (b.y - a.y)
 }
 
 taxicab(Point(8.0, 7.0), Point(-2.0, 2.0))  # -15.0
@@ -101,8 +101,8 @@ taxicab(Point(8.0, 7.0), Point(-2.0, 2.0))  # -15.0
 
 ```
 trait Comparable {
-    eq[Self, Self: Bool],
-    lt[Self, Self: Bool]
+    eq[(a: Self, b: Self): Bool],
+    lt[(a: Self, b: Self): Bool]
 };
 
 func lte(a: T, b: T): Bool where T is Comparable {

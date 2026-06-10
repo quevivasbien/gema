@@ -52,6 +52,7 @@ frontend/
 - **`if` requires `else`**: There is no standalone `if` — every `if` must have an `else` branch.
 - **Empty arrays must be annotated**: Write `[]: Arr[Int]`, not `[]`.
 - **Names conflicting with JS reserved words** (`const`, `let`, `return`, etc.) get auto-prefixed with `_gema_`.
+- Run Prettier formatter (e.g. `bun run prettier . --write`) when finalizing any changes.
 
 ## Testing Patterns
 
@@ -61,7 +62,7 @@ Tests use Bun's built-in test runner (`bun:test`). Two test files in [`tests/`](
 - [`tests/compile.test.ts`](tests/compile.test.ts) uses a local `testCompile(text, expectedResult)` helper.
 - Always create new tests before adding a new language feature.
 - If you suspect that a test is not passing because the test itself has a mistake in it, let the user know.
-- If you add or modify tests for any reason, always have the user review your changes to the tests before making further changes to the codebase. 
+- If you add or modify tests for any reason, always have the user review your changes to the tests before making further changes to the codebase.
 
 ## Important Gotchas
 

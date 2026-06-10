@@ -2,8 +2,21 @@ import { StreamLanguage, HighlightStyle, syntaxHighlighting } from "@codemirror/
 import { tags } from "@lezer/highlight";
 
 const KEYWORDS = new Set([
-    "and", "or", "func", "struct", "trait", "where", "is",
-    "if", "else", "range", "map", "reduce", "filter", "true", "false",
+    "and",
+    "or",
+    "func",
+    "struct",
+    "trait",
+    "where",
+    "is",
+    "if",
+    "else",
+    "range",
+    "map",
+    "reduce",
+    "filter",
+    "true",
+    "false",
 ]);
 
 const TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Func", "Arr", "Iter", "Self"]);

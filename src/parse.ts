@@ -297,6 +297,16 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
     }
     parser.advance(); // Advance past closing parenthesis
 
+    // Optional return type annotation
+    let returnType: Type | null = null;
+    if (!parser.atEnd() && parser.current().type === TokenType.Colon) {
+        parser.advance();
+        returnType = parser.getTypeName();
+        if (!returnType) {
+            return parser.error("Invalid return type for anonymous function.");
+        }
+    }
+
     if (parser.atEnd()) {
         return parser.error("Unterminated function definition.");
     }
@@ -306,7 +316,7 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
     parser.advance();
 
     return parser.tryCreateASTExpression(
-        () => new AST.AnonymousFunction(rootToken, params, parser.block())
+        () => new AST.AnonymousFunction(rootToken, params, parser.block(), returnType)
     );
 }
 
@@ -321,19 +331,86 @@ function parseTrait(parser: Parser): AST.Expression {
         return parser.error("Expected '{' after trait name.");
     }
     parser.advance();
-    const requiredFunctions: { name: string; types: TemplateTypes }[] = [];
+    const requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
-        // Expect inputs of form FuncName[ArgType1, ArgType2, ..., ArgTypeN : ReturnType]
+        // Expect inputs of form FuncName[(name: Type, name: Type, ...): ReturnType]
         if (parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected function name.");
         }
         const funcName = parser.current().text;
         parser.advance();
-        const templateTypes = parser.getTemplateTypes();
-        if (templateTypes.empty()) {
-            return parser.error("expected function signature after function name.");
+
+        // Expect '[' after function name
+        if (parser.atEnd() || parser.current().type !== TokenType.LBracket) {
+            return parser.error("Expected '[' after function name in trait.");
         }
-        requiredFunctions.push({ name: funcName, types: templateTypes });
+        parser.advance();
+
+        // Expect '(' for parameter list
+        if (parser.atEnd() || parser.current().type !== TokenType.LParen) {
+            return parser.error("Expected '(' for parameter list in trait function signature.");
+        }
+        parser.advance();
+
+        // Parse parameter list: name: Type, name: Type, ...
+        const paramNames: string[] = [];
+        const paramTypes: Type[] = [];
+        while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+            if (parser.current().type !== TokenType.Identifier) {
+                return parser.error("Expected parameter name.");
+            }
+            const paramName = parser.current().text;
+            parser.advance();
+
+            if (parser.atEnd() || parser.current().type !== TokenType.Colon) {
+                return parser.error("Expected ':' after parameter name.");
+            }
+            parser.advance();
+
+            const paramType = parser.getTypeName();
+            if (!paramType) {
+                return parser.error("Invalid type for parameter.");
+            }
+
+            paramNames.push(paramName);
+            paramTypes.push(paramType);
+
+            if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+                parser.advance();
+            }
+        }
+        if (parser.atEnd()) {
+            return parser.error("Unterminated parameter list in trait function signature.");
+        }
+        parser.advance(); // consume ')'
+
+        // Expect ':'
+        if (parser.atEnd() || parser.current().type !== TokenType.Colon) {
+            return parser.error("Expected ':' after parameters for return type.");
+        }
+        parser.advance();
+
+        // Parse return type
+        if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+            return parser.error("Expected return type.");
+        }
+        const returnTypeName = parser.current().text;
+        parser.advance();
+        const nestedTemplateTypes = parser.getTemplateTypes();
+        const returnType = getType(returnTypeName, nestedTemplateTypes);
+
+        // Expect ']'
+        if (parser.atEnd() || parser.current().type !== TokenType.RBracket) {
+            return parser.error("Expected ']' to close trait function signature.");
+        }
+        parser.advance();
+
+        requiredFunctions.push({
+            name: funcName,
+            paramNames,
+            types: new TemplateTypes(paramTypes, returnType),
+        });
+
         if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
             parser.advance();
         }
@@ -444,9 +521,7 @@ function parseCall(parser: Parser): AST.Expression {
             parser.peek()?.type === TokenType.Equal
         ) {
             if (args.length > 0) {
-                return parser.error(
-                    "Cannot mix positional and keyword arguments."
-                );
+                return parser.error("Cannot mix positional and keyword arguments.");
             }
             seenKeyword = true;
             const name = parser.current().text;
@@ -462,9 +537,7 @@ function parseCall(parser: Parser): AST.Expression {
             keywordArgs.push({ name, value });
         } else {
             if (seenKeyword) {
-                return parser.error(
-                    "Cannot mix positional and keyword arguments."
-                );
+                return parser.error("Cannot mix positional and keyword arguments.");
             }
             const arg = parser.expression();
             if (arg === null) {
@@ -511,9 +584,7 @@ function parseDirectCall(parser: Parser, leftExpr: AST.Expression): AST.Expressi
             keywordArgs.push({ name, value });
         } else {
             if (seenKeyword) {
-                return parser.error(
-                    "Cannot mix positional and keyword arguments."
-                );
+                return parser.error("Cannot mix positional and keyword arguments.");
             }
             const arg = parser.expression();
             if (arg === null) {
