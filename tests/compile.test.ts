@@ -65,7 +65,7 @@ test("compile variables", () => {
     );
     testCompile(
         `
-            x = 1.2;
+            mut x = 1.2;
             y = { 2.3 }
             x = x + y
         `,
@@ -80,7 +80,7 @@ test("compile if expressions", () => {
     testCompile(`if 1 == 2 { 1 } else { 2 }`, 2n);
     testCompile(
         `
-        x = 1;
+        mut x = 1;
         if true {
             x = 2;
         } else {
@@ -88,7 +88,7 @@ test("compile if expressions", () => {
         }
         x
         `,
-        1n
+        2n
     );
     testCompile(
         `

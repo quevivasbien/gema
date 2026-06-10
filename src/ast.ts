@@ -691,57 +691,186 @@ export class Variable extends Expression {
 
 export class Assignment extends Expression {
     name: string;
+    isMutable: boolean = false;
+    isReassignment: boolean = false;
 
     constructor(
         variableToken: Token,
         public value: Expression,
-        public isDropped: boolean
+        public isDropped: boolean,
+        isMutable: boolean = false
     ) {
         super(variableToken.line, variableToken.col);
         this.name = variableToken.text;
+        this.isMutable = isMutable;
+    }
+
+    /**
+     * Find a previous assignment for the variable in the SAME block (same scope level).
+     * Returns the original declaration (skipping past intermediate reassignments).
+     */
+    static findDefiningAssignment(
+        name: string,
+        startNode: Expression,
+        ancestors: Expression[]
+    ): { isMutable: boolean; type: Type } | null {
+        // Find the nearest Block ancestor that contains startNode
+        for (let i = 0; i < ancestors.length; i++) {
+            const ancestor = ancestors[ancestors.length - i - 1];
+            if (ancestor instanceof Block) {
+                const olderSiblings = ancestor.expressions.slice(
+                    0,
+                    ancestor.expressions.indexOf(startNode)
+                );
+                for (let j = olderSiblings.length - 1; j >= 0; j--) {
+                    let olderSibling = olderSiblings[j];
+                    if (olderSibling instanceof DropValue) {
+                        olderSibling = olderSibling.child;
+                    }
+                    if (olderSibling instanceof Assignment && olderSibling.name === name) {
+                        // Skip past intermediate reassignments to find the original declaration
+                        if (olderSibling.isReassignment) {
+                            continue;
+                        }
+                        return {
+                            isMutable: olderSibling.isMutable,
+                            type: olderSibling.value.type!,
+                        };
+                    }
+                }
+                // Only check the immediate (innermost) Block containing startNode
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Search across outer blocks and function boundaries for a variable definition.
+     * Used to find variables in enclosing scopes (for reassignment from nested blocks
+     * or closure capture).
+     * Returns { isMutable, type } of the original declaration, or null.
+     */
+    static findOuterDefinition(
+        name: string,
+        startNode: Expression,
+        ancestors: Expression[]
+    ): { isMutable: boolean; type: Type } | null {
+        // First skip past the innermost Block to reach outer scopes
+        let foundInnerBlock = false;
+        let lastAncestor: Expression = startNode;
+        for (let i = 0; i < ancestors.length; i++) {
+            const ancestor = ancestors[ancestors.length - i - 1];
+            if (!foundInnerBlock) {
+                if (ancestor instanceof Block) {
+                    foundInnerBlock = true;
+                }
+                lastAncestor = ancestor;
+                continue;
+            }
+            if (ancestor instanceof Block) {
+                const olderSiblings = ancestor.expressions.slice(
+                    0,
+                    ancestor.expressions.indexOf(lastAncestor)
+                );
+                for (let j = olderSiblings.length - 1; j >= 0; j--) {
+                    let olderSibling = olderSiblings[j];
+                    if (olderSibling instanceof DropValue) {
+                        olderSibling = olderSibling.child;
+                    }
+                    if (olderSibling instanceof Assignment && olderSibling.name === name) {
+                        if (olderSibling.isReassignment) {
+                            continue;
+                        }
+                        return {
+                            isMutable: olderSibling.isMutable,
+                            type: olderSibling.value.type!,
+                        };
+                    }
+                }
+            } else if (ancestor instanceof Function) {
+                for (const arg of ancestor.params) {
+                    if (arg.name === name) {
+                        return { isMutable: false, type: arg.type };
+                    }
+                }
+            } else if (ancestor instanceof AnonymousFunction) {
+                for (const arg of ancestor.params) {
+                    if (arg.name === name) {
+                        return { isMutable: false, type: arg.type };
+                    }
+                }
+            }
+            lastAncestor = ancestor;
+        }
+        return null;
     }
 
     cascadeTypes(ancestors: Expression[]): void {
         this.value.cascadeTypes([...ancestors, this]);
 
-        // // Disallow assignment to non-anonymous function declaration
-        // if (this.value.type instanceof FuncType) {
-        //     throw this.error("cannot assign a non-anonymous function to a variable");
-        // }
-
         this.type = this.isDropped ? "Null" : this.value.type;
 
-        // Check if this variable has been defined before in the same block, get type of previous definition if so to make sure it matches
-        const previousType = (() => {
-            for (let i = 0; i < ancestors.length; i++) {
-                const ancestor = ancestors[ancestors.length - i - 1];
-                if (ancestor instanceof Block) {
-                    const olderSiblings = ancestor.expressions.slice(
-                        0,
-                        ancestor.expressions.indexOf(this)
-                    );
-                    for (let j = 0; j < olderSiblings.length; j++) {
-                        const olderSibling = olderSiblings[olderSiblings.length - j - 1];
-                        if (olderSibling instanceof Assignment && olderSibling.name === this.name) {
-                            return olderSibling.value.type;
-                        }
-                    }
-                    return null;
-                } else if (ancestor instanceof Function) {
-                    for (const arg of ancestor.params) {
-                        if (arg.name === this.name) {
-                            return arg.type;
-                        }
-                    }
-                }
-            }
-            return null;
-        })();
+        // Step 1: Check for a previous definition in the SAME block
+        const sameBlockDef = Assignment.findDefiningAssignment(this.name, this, ancestors);
 
-        if (previousType !== null && !deepEquals(previousType, this.type)) {
-            throw this.error(
-                `tried to reassign variable ${this.name} with type ${this.type} but it was previously defined in the same scope with type ${previousType}`
-            );
+        if (sameBlockDef !== null) {
+            // Same-block reassignment
+            this.isReassignment = true;
+
+            // Using 'mut' on a reassignment is not allowed (double declaration)
+            if (this.isMutable) {
+                throw this.error(
+                    `cannot redeclare variable '${this.name}' with 'mut' — it was already defined in this scope`
+                );
+            }
+
+            // Reassignment requires the variable to be mutable
+            if (!sameBlockDef.isMutable) {
+                throw this.error(
+                    `cannot reassign non-mutable variable '${this.name}'`
+                );
+            }
+
+            // Reassignment must match the original type
+            const assignType = this.value.type!;
+            if (!deepEquals(sameBlockDef.type, assignType)) {
+                throw this.error(
+                    `tried to reassign variable '${this.name}' with type ${assignType} but it was previously defined with type ${sameBlockDef.type}`
+                );
+            }
+        } else if (this.isMutable) {
+            // New 'mut' declaration — check for shadowing conflicts with outer non-mut vars
+            const outerDef = Assignment.findOuterDefinition(this.name, this, ancestors);
+            if (outerDef !== null && !outerDef.isMutable) {
+                throw this.error(
+                    `cannot declare mutable variable '${this.name}' — it shadows a non-mutable variable in an outer scope`
+                );
+            }
+            this.isReassignment = false;
+        } else {
+            // Non-mut assignment — check if this is a reassignment of an outer variable
+            const outerDef = Assignment.findOuterDefinition(this.name, this, ancestors);
+            if (outerDef !== null) {
+                // Cross-block reassignment (e.g., from a nested block or closure)
+                this.isReassignment = true;
+
+                if (!outerDef.isMutable) {
+                    throw this.error(
+                        `cannot reassign non-mutable variable '${this.name}'`
+                    );
+                }
+
+                const assignType = this.value.type!;
+                if (!deepEquals(outerDef.type, assignType)) {
+                    throw this.error(
+                        `tried to reassign variable '${this.name}' with type ${assignType} but it was previously defined with type ${outerDef.type}`
+                    );
+                }
+            } else {
+                // New non-mut declaration
+                this.isReassignment = false;
+            }
         }
     }
 
@@ -749,21 +878,35 @@ export class Assignment extends Expression {
         const cloned = new Assignment(
             { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
             this.value.clone(bindings),
-            this.isDropped
+            this.isDropped,
+            this.isMutable
         );
         return cloned;
     }
 
     toJS(writer: JSWriter): void {
-        writer.declareVariable(this.name);
-        if (this.isDropped) {
-            const safeName = writer.safeName(this.name);
-            writer.write(`${safeName} = `);
-            this.value.toJS(writer);
+        const safeName = writer.safeName(this.name);
+        if (this.isReassignment) {
+            // Reassignment: just emit "x = value" (no let)
+            if (this.isDropped) {
+                writer.write(`${safeName} = `);
+                this.value.toJS(writer);
+            } else {
+                writer.write(`(() => { ${safeName} = `);
+                this.value.toJS(writer);
+                writer.write(`; return ${safeName}; })()`);
+            }
         } else {
-            writer.write(`(() => { ${writer.safeName(this.name)} = `);
-            this.value.toJS(writer);
-            writer.write(`; return ${writer.safeName(this.name)}; })()`);
+            // First declaration: emit "let x; x = value"
+            writer.declareVariable(this.name);
+            if (this.isDropped) {
+                writer.write(`${safeName} = `);
+                this.value.toJS(writer);
+            } else {
+                writer.write(`(() => { ${safeName} = `);
+                this.value.toJS(writer);
+                writer.write(`; return ${safeName}; })()`);
+            }
         }
     }
 }

@@ -54,6 +54,13 @@ export enum TokenType {
     Iterate = "iterate",
     Last = "last",
     Length = "length",
+    Mut = "mut",
+    PlusEqual = "+=",
+    MinusEqual = "-=",
+    StarEqual = "*=",
+    SlashEqual = "/=",
+    PercentEqual = "%=",
+    CaretEqual = "^=",
     // Literals
     True = "true",
     False = "false",

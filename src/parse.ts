@@ -1187,22 +1187,65 @@ class Parser {
         return expr;
     }
 
+    // Map compound assignment token types to the corresponding binary operator type
+    static readonly COMPOUND_OPS: Record<string, string> = {
+        [TokenType.PlusEqual]: TokenType.Plus,
+        [TokenType.MinusEqual]: TokenType.Minus,
+        [TokenType.StarEqual]: TokenType.Star,
+        [TokenType.SlashEqual]: TokenType.Slash,
+        [TokenType.PercentEqual]: TokenType.Percent,
+        [TokenType.CaretEqual]: TokenType.Caret,
+    };
+
     assignment(): AST.Expression | null {
-        if (this.current().type !== TokenType.Identifier || this.peek()?.type !== TokenType.Equal) {
+        let isMutable = false;
+        // Check for optional 'mut' keyword before the variable name
+        const afterMut = this.current().type === TokenType.Mut
+            && this.peek()?.type === TokenType.Identifier
+            && (this.peek(2)?.type === TokenType.Equal || this.peek(2)?.type in Parser.COMPOUND_OPS);
+        if (afterMut) {
+            isMutable = true;
+            this.advance(); // skip 'mut'
+        }
+        if (this.current().type !== TokenType.Identifier) {
+            return null;
+        }
+        const nextType = this.peek()?.type;
+        if (nextType !== TokenType.Equal && !(nextType && nextType in Parser.COMPOUND_OPS)) {
             return null;
         }
         const variableToken = this.current();
-        this.advance(2);
-        const value = this.parseWithPrecedence(Precedence.Assignment);
-        if (!value) {
+        const isCompound = nextType !== TokenType.Equal;
+        const compoundOp = isCompound ? Parser.COMPOUND_OPS[nextType!] : null;
+        this.advance(2); // skip Identifier and = or += etc.
+
+        const rhs = this.parseWithPrecedence(Precedence.Assignment);
+        if (!rhs) {
             return this.error("Expected expression after =");
         }
+
+        let value: AST.Expression = rhs;
+        if (isCompound) {
+            // Desugar x += expr → x = x + expr by creating a Binary node
+            const varRef = new AST.Variable(variableToken, new TemplateTypes());
+            value = this.tryCreateASTExpression(() => {
+                // Build the binary operation token
+                const opToken = {
+                    line: variableToken.line,
+                    col: variableToken.col,
+                    text: compoundOp,
+                    type: compoundOp as TokenType,
+                };
+                return new AST.Binary(opToken, varRef, rhs);
+            });
+        }
+
         let isDropped = false;
         if (!this.atEnd() && this.current().type === TokenType.Semicolon) {
             this.advance();
             isDropped = true;
         }
-        return new AST.Assignment(variableToken, value, isDropped);
+        return new AST.Assignment(variableToken, value, isDropped, isMutable);
     }
 
     functionDef(): AST.Expression | null {

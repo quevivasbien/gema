@@ -115,6 +115,17 @@ class Scanner {
         const c = this.text[this.index];
         this.index += 1;
 
+        // Handle compound assignment operators (+=, -=, *=, /=, %=, ^=)
+        if (!this.atEnd() && this.text[this.index] === "=" && "+-*/%^".includes(c)) {
+            this.index += 1;
+            return this.makeToken(c + "=");
+        }
+
+        // Also handle these characters as single-char operators when not followed by =
+        if ("+-*/%^".includes(c)) {
+            return this.makeToken(c);
+        }
+
         if (SINGLE_CHAR_TOKENS.has(c)) {
             return this.makeToken(c);
         }

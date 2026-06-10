@@ -76,11 +76,16 @@ test("parse variable assignment", () => {
         x = 1.22
         y = { 1.23 }
         z = 3.13;
-        x = 3.
     `);
     testParseExpectError(`x = 1.0; x = 1;`);
     testParseExpectError(`x = y = 2`);
     testParseExpectError(`x = y = 2;`);
+});
+
+test("parse mutable variable reassignment", () => {
+    testParse(`mut x = 1; x = 2;`);
+    testParse(`mut x = 1.22; x = 3.;`);
+    testParseExpectError(`x = 1; x = 2;`);
 });
 
 test.todo("parse variable reassignment", () => {
