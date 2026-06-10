@@ -350,6 +350,12 @@ test("compile reduce expression", () => {
     );
 });
 
+test("compile iterator indexed access", () => {
+    testCompile("x = range(0, 1); x(0)", 0n);
+    testCompile("x = range(0, 1)(0)", 0n);
+    testCompile("map(func(x: Int){x}, [1,2,3])(1)", 2n);
+});
+
 test("compile repeated use of iterator", () => {
     testCompile(
         `

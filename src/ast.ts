@@ -2570,6 +2570,19 @@ export class DirectCall extends Expression {
             writer.write("(");
             this.caller.toJS(writer);
             writer.write(`).${fieldName}`);
+        } else if (this.caller.type instanceof IterType) {
+            // Iterate up to the desired index and return that element
+            writer.useBuiltin("__ITER_GET__");
+            writer.write("__ITER_GET__(");
+            this.caller.toJS(writer);
+            writer.write(", ");
+            this.args.forEach((arg, i) => {
+                if (i > 0) {
+                    writer.write(", ");
+                }
+                arg.toJS(writer);
+            });
+            writer.write(")");
         } else {
             writer.write("(");
             this.caller.toJS(writer);
@@ -2589,19 +2602,6 @@ export class DirectCall extends Expression {
                     arg.toJS(writer);
                     writer.write("]");
                 });
-            } else if (this.caller.type instanceof IterType) {
-                // Iterate up to the desired index and return that element
-                writer.useBuiltin("__ITER_GET__");
-                writer.write("__ITER_GET__(");
-                this.caller.toJS(writer);
-                writer.write(", ");
-                this.args.forEach((arg, i) => {
-                    if (i > 0) {
-                        writer.write(", ");
-                    }
-                    arg.toJS(writer);
-                });
-                writer.write(")");
             } else {
                 throw new Error(`unknown caller type: ${this.caller.type}`);
             }
