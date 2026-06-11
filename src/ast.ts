@@ -122,7 +122,7 @@ export abstract class Expression {
 
     abstract cascadeTypes(ancestors: Expression[]): void;
 
-    toJS(writer: JSWriter): void {
+    toJS(_writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`);
     }
 
@@ -138,11 +138,11 @@ export class ErrorExpression extends Expression {
         super(token.line, token.col);
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[]): void {
         // noop
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
+    clone(_bindings?: Map<string, Type>): Expression {
         return this; // Error expressions don't need deep cloning
     }
 }
@@ -229,11 +229,11 @@ export class Literal extends Expression {
         this.type = type;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[]): void {
         // Type is already resolved; no need to do anything
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
+    clone(_bindings?: Map<string, Type>): Expression {
         return this; // Literals are immutable, safe to share
     }
 
@@ -582,6 +582,7 @@ export class Variable extends Expression {
             this.type = registered.getFuncType();
             return;
         }
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         let lastAncestor: Expression = this;
         for (let i = 0; i < ancestors.length; i++) {
             const ancestor = ancestors[ancestors.length - i - 1];
@@ -619,6 +620,7 @@ export class Variable extends Expression {
             this.setTypeWithTemplateTypes(ancestors);
             return;
         }
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         let lastAncestor: Expression = this;
         for (let i = 0; i < ancestors.length; i++) {
             const ancestor = ancestors[ancestors.length - i - 1];
@@ -1215,18 +1217,18 @@ function collectTraitsForTypeParam(t: Type, typeParamName: string): string[] {
 }
 
 /** Recursively add a trait to all CustomTypes with the given name inside a type tree. */
-function addTraitToType(t: Type, typeParamName: string, traitName: string): void {
-    if (t instanceof CustomType && t.name === typeParamName) {
-        t.addTrait(traitName);
-    } else if (t instanceof ArrayType) {
-        addTraitToType(t.innerType, typeParamName, traitName);
-    } else if (t instanceof IterType) {
-        addTraitToType(t.innerType, typeParamName, traitName);
-    } else if (t instanceof FuncType) {
-        t.paramTypes.forEach((pt) => addTraitToType(pt, typeParamName, traitName));
-        addTraitToType(t.returnType, typeParamName, traitName);
-    }
-}
+// function addTraitToType(t: Type, typeParamName: string, traitName: string): void {
+//     if (t instanceof CustomType && t.name === typeParamName) {
+//         t.addTrait(traitName);
+//     } else if (t instanceof ArrayType) {
+//         addTraitToType(t.innerType, typeParamName, traitName);
+//     } else if (t instanceof IterType) {
+//         addTraitToType(t.innerType, typeParamName, traitName);
+//     } else if (t instanceof FuncType) {
+//         t.paramTypes.forEach((pt) => addTraitToType(pt, typeParamName, traitName));
+//         addTraitToType(t.returnType, typeParamName, traitName);
+//     }
+// }
 
 export class AnonymousFunction extends Expression {
     params: { name: string; type: Type }[];
@@ -1613,7 +1615,7 @@ export class Function extends Expression {
 function checkTraitSatisfied(
     concreteType: Type,
     traitName: string,
-    contextFnName: string
+    _contextFnName: string
 ): boolean {
     const traitFuncs = getTrait(traitName);
     if (!traitFuncs) return false;
@@ -1740,56 +1742,6 @@ function findStringTypedVariable(
             }
         }
     }
-    return null;
-}
-
-function getTraitFunc(
-    root: Expression,
-    ancestors: Expression[],
-    name: string,
-    argTypes: Type[]
-): { referToByName: string; callerType: CallableType; rootType: Type } | null {
-    const traits: { selfType: Type; traitName: string }[] = [];
-    argTypes.forEach((argType) => {
-        if (!(argType instanceof CustomType)) {
-            return;
-        }
-        argType.traits.forEach((trait) => {
-            traits.push({ selfType: argType, traitName: trait });
-        });
-    });
-
-    // Climb up tree of ancestors looking for functions defined by each trait
-    // If a match is found, return it
-    let lastAncestor = root;
-    for (let i = ancestors.length - 1; i >= 0; i--) {
-        const ancestor = ancestors[i];
-        if (!(ancestor instanceof Block)) {
-            continue;
-        }
-        const olderSiblings = ancestor.expressions.slice(
-            0,
-            ancestor.expressions.indexOf(lastAncestor)
-        );
-        for (let j = olderSiblings.length - 1; j >= 0; j--) {
-            const olderSibling = olderSiblings[j];
-            if (!(olderSibling instanceof Trait)) {
-                continue;
-            }
-            const matchingTraits = traits.filter((t) => t.traitName === olderSibling.name);
-            for (const { selfType, traitName } of matchingTraits) {
-                const match = olderSibling.getMatchingFunction(selfType, argTypes);
-                if (match !== null) {
-                    return {
-                        referToByName: "I DONT KNOW",
-                        callerType: new FuncType(argTypes, match.returnType), // TODO: Also not sure about this
-                        rootType: match.returnType,
-                    };
-                }
-            }
-        }
-    }
-
     return null;
 }
 
@@ -2398,6 +2350,7 @@ export class Call extends Expression {
                 this.keywordArgs = [];
             } else {
                 // Search ancestors for a matching function
+                // eslint-disable-next-line @typescript-eslint/no-this-alias
                 let lastAncestor: Expression = this;
                 for (let ai = ancestors.length - 1; ai >= 0; ai--) {
                     const ancestor = ancestors[ai];
@@ -2514,7 +2467,9 @@ export class Call extends Expression {
             }
             throw this.error(error);
         }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((result as any).isTypeConversion) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const convResult = result as any;
             this.isTypeConversion = true;
             this.conversionJsExpr = convResult.jsExpr;
@@ -2752,7 +2707,7 @@ export class Call extends Expression {
             writer.write(")");
         } else if (this.callerType instanceof ArrayType || this.callerType instanceof MutArrType) {
             writer.write(writer.safeName(this.referToByName));
-            this.args.forEach((arg, i) => {
+            this.args.forEach((arg) => {
                 writer.write("[");
                 arg.toJS(writer);
                 writer.write("]");
@@ -2939,7 +2894,7 @@ export class DirectCall extends Expression {
                 this.caller.type instanceof ArrayType ||
                 this.caller.type instanceof MutArrType
             ) {
-                this.args.forEach((arg, i) => {
+                this.args.forEach((arg) => {
                     writer.write("[");
                     arg.toJS(writer);
                     writer.write("]");
@@ -2951,7 +2906,7 @@ export class DirectCall extends Expression {
     }
 }
 
-export class Array extends Expression {
+export class ArrLit extends Expression {
     expressions: Expression[];
     innerType?: Type;
 
@@ -2984,13 +2939,10 @@ export class Array extends Expression {
     }
 
     clone(bindings?: Map<string, Type>): Expression {
-        // Don't pass innerType — let the clone re-infer it from cloned elements
-        const cloned = new Array(
+        return new ArrLit(
             { line: this.line, col: this.col, text: "[", type: TokenType.LBracket },
-            this.expressions.map((e) => e.clone(bindings)),
-            undefined
+            this.expressions.map((e) => e.clone(bindings))
         );
-        return cloned;
     }
 
     toJS(writer: JSWriter): void {
@@ -4148,13 +4100,12 @@ export class SetValue extends Expression {
     }
 
     clone(bindings?: Map<string, Type>): Expression {
-        return new Set(
+        return new SetValue(
             { line: this.line, col: this.col, text: "set", type: TokenType.Set },
             this.mutarr.clone(bindings),
             this.index.clone(bindings),
             this.value.clone(bindings)
         );
-        return cloned;
     }
 
     toJS(writer: JSWriter): void {
@@ -4190,15 +4141,15 @@ export class ForLoop extends Expression {
         if (this.iter.type === null) {
             throw this.error("unable to resolve type of iterator");
         }
-        let innerType: Type;
+        let _innerType: Type;
         if (this.iter.type instanceof ArrayType) {
-            innerType = this.iter.type.innerType;
+            _innerType = this.iter.type.innerType;
         } else if (this.iter.type instanceof IterType) {
-            innerType = this.iter.type.innerType;
+            _innerType = this.iter.type.innerType;
         } else if (this.iter.type instanceof MutArrType) {
-            innerType = this.iter.type.innerType;
+            _innerType = this.iter.type.innerType;
         } else if (this.iter.type === "Str") {
-            innerType = "Str";
+            _innerType = "Str";
         } else {
             throw this.error(`cannot iterate over object of type ${this.iter.type}`);
         }
@@ -4274,7 +4225,7 @@ export class Break extends Expression {
         // Break is always valid; type is Null
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
+    clone(_bindings?: Map<string, Type>): Expression {
         return new Break({ line: this.line, col: this.col, text: "break", type: TokenType.Break });
     }
 
@@ -4400,15 +4351,15 @@ export class StructDef extends Expression {
         registerStruct(name, fields);
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[]): void {
         // Nothing to cascade — struct definition just registers its type
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
+    clone(_bindings?: Map<string, Type>): Expression {
         return this; // Struct definitions are immutable, safe to share
     }
 
-    toJS(writer: JSWriter): void {
+    toJS(_writer: JSWriter): void {
         // Struct definitions are for type-checking only; not emitted to JS
     }
 }
@@ -4473,15 +4424,15 @@ export class Trait extends Expression {
         return null;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[]): void {
         // Nothing to do here
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
+    clone(_bindings?: Map<string, Type>): Expression {
         return this; // Traits are immutable, safe to share
     }
 
-    toJS(writer: JSWriter): void {
+    toJS(_writer: JSWriter): void {
         // Nothing to do here, either.
         // Traits are solely for the sake of type checking and aren't converted to JS.
     }

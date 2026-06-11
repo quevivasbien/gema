@@ -1,3 +1,5 @@
+import { test } from "bun:test";
+
 import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 test("compile map iterator", () => {

@@ -65,6 +65,7 @@ export function compileWithRawErrors(text: string): {
         try {
             const result = eval(js);
             return { js, result: String(result), errors: [], runtimeError: null };
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } catch (e: any) {
             return {
                 js,

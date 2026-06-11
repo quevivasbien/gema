@@ -1,7 +1,8 @@
+import { test } from "bun:test";
+
 import {
     requireIdenticalCompilation,
     testCompile,
-    testCompileError,
     testParse,
     testParseExpectError,
 } from "./helpers";

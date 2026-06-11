@@ -8,7 +8,7 @@ import { resetRegistries } from "../src/ast";
  * Parse + compile a Gema program, then eval the JS.
  * Asserts the final expression equals expectEqual.
  */
-export function testCompile(text: string, expectEqual: any) {
+export function testCompile(text: string, expectEqual: unknown) {
     resetRegistries();
     const tokens = scan(text);
     const { ast, errors } = parse(tokens);
@@ -27,7 +27,7 @@ export function testCompile(text: string, expectEqual: any) {
 export function testCompileError(text: string) {
     resetRegistries();
     const tokens = scan(text);
-    const { ast, errors } = parse(tokens);
+    const { errors } = parse(tokens);
     expect(errors.length).toBeGreaterThan(0);
 }
 
@@ -51,9 +51,8 @@ export function testParse(text: string) {
 export function testParseExpectError(text: string) {
     resetRegistries();
     const tokens = scan(text);
-    const { ast, errors } = parse(tokens);
+    const { errors } = parse(tokens);
     expect(errors.length).toBeGreaterThan(0);
-    return ast;
 }
 
 /**

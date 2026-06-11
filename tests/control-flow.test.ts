@@ -1,3 +1,5 @@
+import { test } from "bun:test";
+
 import { testCompile, testCompileError, testParse, testParseExpectError } from "./helpers";
 
 test("compile if expressions", () => {

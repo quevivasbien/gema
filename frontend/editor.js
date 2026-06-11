@@ -2,6 +2,8 @@ import { EditorView, basicSetup } from "codemirror";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { gema } from "./gema-language.js";
 import { keymap, Decoration } from "@codemirror/view";
+/* global document, window */
+
 import { Prec, StateEffect, StateField } from "@codemirror/state";
 import { indentWithTab } from "@codemirror/commands";
 

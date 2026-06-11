@@ -82,6 +82,7 @@ grid
 // ── Benchmark helpers ───────────────────────────────────────────
 
 /** Compile once, return a function that evals the compiled JS. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeRunner(code: string): () => any {
     resetRegistries();
     const tokens = scan(code);

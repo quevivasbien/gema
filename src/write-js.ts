@@ -1,4 +1,4 @@
-import * as AST from "./ast";
+import type * as AST from "./ast";
 import { BUILTINS } from "./builtins";
 
 const INDENT = "    ";

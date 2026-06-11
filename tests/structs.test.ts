@@ -1,3 +1,5 @@
+import { test } from "bun:test";
+
 import {
     requireIdenticalCompilation,
     testCompile,

@@ -1,3 +1,5 @@
+import { test } from "bun:test";
+
 import { testCompile, testCompileError } from "./helpers";
 
 // ============================================================

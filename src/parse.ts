@@ -364,7 +364,6 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
     if (parser.atEnd()) {
         return parser.error("Unterminated function definition.");
     }
-    let name: string | null = null;
     if (parser.current().type !== TokenType.LParen) {
         return parser.error("Expected parameters for anonymous function.", 0);
     }
@@ -750,7 +749,7 @@ function parseArray(parser: Parser): AST.Expression {
         innerTypeAnnotation = typeName;
     }
     return parser.tryCreateASTExpression(
-        () => new AST.Array(startToken, expressions, innerTypeAnnotation)
+        () => new AST.ArrLit(startToken, expressions, innerTypeAnnotation)
     );
 }
 
@@ -1316,7 +1315,7 @@ class Parser {
             }
             const typeName = this.current().text;
             this.advance();
-            let nestedTemplateTypes = this.getTemplateTypes();
+            const nestedTemplateTypes = this.getTemplateTypes();
             templateTypes.push(getType(typeName, nestedTemplateTypes));
             if (this.current().type === TokenType.Comma) {
                 this.advance();
@@ -1344,7 +1343,7 @@ class Parser {
                 typeName = getType(this.current().text, new TemplateTypes());
             } catch (e) {
                 if (e instanceof Error) {
-                    throw new Error(e.message);
+                    throw new Error(e.message, { cause: e });
                 }
                 throw e;
             }
@@ -1361,7 +1360,7 @@ class Parser {
                 traitName = getType(this.current().text, new TemplateTypes());
             } catch (e) {
                 if (e instanceof Error) {
-                    throw new Error(e.message);
+                    throw new Error(e.message, { cause: e });
                 }
                 throw e;
             }
@@ -1380,7 +1379,7 @@ class Parser {
         }
         const paramType = this.current().text;
         this.advance();
-        let templateTypes = this.getTemplateTypes();
+        const templateTypes = this.getTemplateTypes();
         if (!this.atEnd() && this.current().type === TokenType.Comma) {
             this.advance();
         }
