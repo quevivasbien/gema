@@ -9,18 +9,16 @@ import { writeJS } from "../src/write-js";
 const ARITHMETIC = `(1 + 2 * 3 - 4 / 2) ^ 3 % 5 + (10 - 3) * 2`;
 
 const ITERATORS = `
-func add1(x: Int): Int { x + 1 }
-func isEven(x: Int): Bool { x % 2 == 0 }
-func sum(acc: Int, x: Int): Int { acc + x }
-
-result = reduce(sum, filter(isEven, map(add1, range(1, 100))), 0)
+result = reduce(
+    func(acc: Int, x: Int) { acc + x },
+    0,
+    filter(func(x: Int): Bool { x % 2 == 0 }, map(func(x: Int): Int { x + 1 }, range(1, 100)))
+);
 result
 `;
 
 const FACTORIAL_REDUCE = `
-func product(acc: Int, x: Int): Int { acc * x }
-
-reduce(product, range(1, 10), 1)
+reduce(func(acc: Int, x: Int): Int { acc * x }, 1, range(1, 10))
 `;
 
 const STRUCT_OPS = `
@@ -42,9 +40,14 @@ area(translate(r, 5, 5))
 `;
 
 const MANDELBROT = `
-struct Complex { re: Float, im: Float }
+struct Complex {
+    re: Float,
+    im: Float,
+}
 
-func abs(z: Complex): Float { z.re * z.re + z.im * z.im }
+func abs(z: Complex): Float {
+    z.re * z.re + z.im * z.im
+}
 
 func mandelIter(z: Complex, c: Complex, i: Int): Bool {
     if (i <= 0) { abs(z) < 4.0 }
@@ -55,7 +58,9 @@ func mandelIter(z: Complex, c: Complex, i: Int): Bool {
     }
 }
 
-func isMandel(c: Complex): Bool { mandelIter(Complex(0.0, 0.0), c, 20) }
+func isMandel(c: Complex): Bool {
+    mandelIter(Complex(0.0, 0.0), c, 20)
+}
 
 func linspace(a: Float, b: Float, n: Int): Iter[Float] {
     step = (b - a) / toFloat(n - 1);
@@ -63,7 +68,7 @@ func linspace(a: Float, b: Float, n: Int): Iter[Float] {
 }
 
 func concat(strs: Iter[Str]) {
-    reduce(func(acc:Str, x:Str){acc+x}, strs, "")
+    reduce(func(acc:Str, x:Str){acc+x}, "", strs)
 }
 
 func toStr(arr: Iter[Bool]) {
@@ -74,9 +79,42 @@ func toStr(arr: Iter[Bool]) {
 grid = {
     xs = @linspace(-1.75, 0.25, 19);
     ys = @linspace(-1., 1., 19);
-    concat(map(func(y: Float) { toStr(map(func(x: Float){ isMandel(Complex(x, y)) }, xs)) }, ys))
+    concat(
+        map(
+            func(y: Float) {
+                toStr(map(func(x: Float){ isMandel(Complex(x, y)) }, xs))
+            },
+            ys
+        )
+    )
 };
 grid
+`;
+
+const PRIMES_SIEVE = `
+trait Any {}
+
+func fill(x: T, n: Int) where T is Any {
+  @take(n, iterate(func(ignore: T){ x }, x))
+}
+
+func sieve(upto: Int) {
+  isPrime = fill(true, upto) | unsafeTrans;
+  primes = []:Int | trans;
+  for i = range(2, upto) {
+    if isPrime(i-1) {
+      push(primes, i);
+      if i * i < upto {
+        for m = range(0, (upto - i*i) / i) {
+          set(isPrime, m*i + i*i - 1, false);
+        }
+      }
+    };
+  }
+  primes | detrans
+}
+
+100000 | sieve | last
 `;
 
 // ── Benchmark helpers ───────────────────────────────────────────
@@ -96,6 +134,7 @@ const runIterators = makeRunner(ITERATORS);
 const runFactorial = makeRunner(FACTORIAL_REDUCE);
 const runStructs = makeRunner(STRUCT_OPS);
 const runMandelbrot = makeRunner(MANDELBROT);
+const runPrimesSieve = makeRunner(PRIMES_SIEVE);
 
 // ── Runtime benchmarks ──────────────────────────────────────────
 
@@ -105,6 +144,7 @@ group("run", () => {
     bench("factorial reduce", () => do_not_optimize(runFactorial()));
     bench("struct ops", () => do_not_optimize(runStructs()));
     bench("mandelbrot", () => do_not_optimize(runMandelbrot()));
+    bench("primes sieve", () => do_not_optimize(runPrimesSieve()));
 });
 
 await run();

@@ -37,15 +37,15 @@ trait Any {}
 trait Summable { sum[(a: Self, b: Self): Self] }
 
 func getLength(arr: Arr[T]): Int where T is Any {
-    reduce(func(acc: Int, x: T) { acc + 1 }, arr, 0)
+    reduce(func(acc: Int, x: T) { acc + 1 }, 0, arr)
 }
 
 func computeSum(arr: Arr[T]): T where T is Summable {
-    reduce(func(acc: T, x: T) { sum(acc, x) }, arr, 0)
+    reduce(func(acc: T, x: T) { sum(acc, x) }, 0, arr)
 }
 
 func sum(iter: Iter[T], start: T): T where T is Summable {
-    reduce(func(acc: T, x: T) { sum(acc, x) }, iter, start)
+    reduce(func(acc: T, x: T) { sum(acc, x) }, start, iter)
 }
 
 func sum(a: Int, b: Int): Int { a + b }
@@ -62,9 +62,14 @@ result = foo(x=1, y=2) + foo(y=3, x=4) + bar(a=5, b="x", c=1.5)
 `;
 
 const MANDELBROT = `
-struct Complex { re: Float, im: Float }
+struct Complex {
+    re: Float,
+    im: Float,
+}
 
-func abs(z: Complex): Float { z.re * z.re + z.im * z.im }
+func abs(z: Complex): Float {
+    z.re * z.re + z.im * z.im
+}
 
 func mandelIter(z: Complex, c: Complex, i: Int): Bool {
     if (i <= 0) { abs(z) < 4.0 }
@@ -75,7 +80,9 @@ func mandelIter(z: Complex, c: Complex, i: Int): Bool {
     }
 }
 
-func isMandel(c: Complex): Bool { mandelIter(Complex(0.0, 0.0), c, 20) }
+func isMandel(c: Complex): Bool {
+    mandelIter(Complex(0.0, 0.0), c, 20)
+}
 
 func linspace(a: Float, b: Float, n: Int): Iter[Float] {
     step = (b - a) / toFloat(n - 1);
@@ -83,7 +90,7 @@ func linspace(a: Float, b: Float, n: Int): Iter[Float] {
 }
 
 func concat(strs: Iter[Str]) {
-    reduce(func(acc:Str, x:Str){acc+x}, strs, "")
+    reduce(func(acc:Str, x:Str){acc+x}, "", strs)
 }
 
 func toStr(arr: Iter[Bool]) {
@@ -94,9 +101,42 @@ func toStr(arr: Iter[Bool]) {
 grid = {
     xs = @linspace(-1.75, 0.25, 19);
     ys = @linspace(-1., 1., 19);
-    concat(map(func(y: Float) { toStr(map(func(x: Float){ isMandel(Complex(x, y)) }, xs)) }, ys))
+    concat(
+        map(
+            func(y: Float) {
+                toStr(map(func(x: Float){ isMandel(Complex(x, y)) }, xs))
+            },
+            ys
+        )
+    )
 };
 grid
+`;
+
+const PRIMES_SIEVE = `
+trait Any {}
+
+func fill(x: T, n: Int) where T is Any {
+  @take(n, iterate(func(ignore: T){ x }, x))
+}
+
+func sieve(upto: Int) {
+  isPrime = fill(true, upto) | unsafeTrans;
+  primes = []:Int | trans;
+  for i = range(2, upto) {
+    if isPrime(i-1) {
+      push(primes, i);
+      if i * i < upto {
+        for m = range(0, (upto - i*i) / i) {
+          set(isPrime, m*i + i*i - 1, false);
+        }
+      }
+    };
+  }
+  primes | detrans
+}
+
+100000 | sieve | last
 `;
 
 // ── Benchmark helpers ───────────────────────────────────────────
@@ -143,6 +183,7 @@ group("compile", () => {
     bench("nested generics", () => do_not_optimize(compileCode(NESTED_GENERICS)));
     bench("keyword args", () => do_not_optimize(compileCode(KEYWORD_ARGS)));
     bench("mandelbrot", () => do_not_optimize(compileCode(MANDELBROT)));
+    bench("primes sieve", () => do_not_optimize(compileCode(PRIMES_SIEVE)));
 });
 
 await run();
