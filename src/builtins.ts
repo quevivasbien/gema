@@ -318,4 +318,21 @@ function __ITERATEITER__(fn, start) {
         count++;
     }
 }`,
+    __TRANS__: `function __TRANS__(arr) {
+    return [...arr];
+}`,
+    __UNSAFETRANS__: `function __UNSAFETRANS__(arr) {
+    return arr;
+}`,
+    __DETRANS__: `function __DETRANS__(mutarr) {
+    return mutarr;
+}`,
+    __PUSH__: `function __PUSH__(mutarr, val) {
+    mutarr.push(val);
+    return mutarr;
+}`,
+    __SET__: `function __SET__(mutarr, idx, val) {
+    mutarr[idx] = val;
+    return val;
+}`,
 };

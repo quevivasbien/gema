@@ -8,6 +8,7 @@ import {
     FuncType,
     ArrayType,
     IterType,
+    MutArrType,
     CustomType,
     type Type,
     type CallableType,
@@ -78,12 +79,25 @@ export function getAllMonomorphized(): Map<string, Function> {
     return monomorphizedCache;
 }
 
+// Track variable names that have been consumed (e.g., by detrans).
+// After detrans(mutarr), 'mutarr' is added here and cannot be used as a MutArr.
+const consumedVars = new Map<string, boolean>();
+
+export function isVarConsumed(name: string): boolean {
+    return consumedVars.has(name);
+}
+
+export function markVarConsumed(name: string): void {
+    consumedVars.set(name, true);
+}
+
 // Reset all global registries (useful between tests)
 export function resetRegistries(): void {
     traitRegistry.clear();
     structRegistry.clear();
     functionRegistry.clear();
     monomorphizedCache.clear();
+    consumedVars.clear();
 }
 
 export class ASTError {
@@ -1020,6 +1034,7 @@ function typeToName(t: Type): string {
     if (t instanceof CustomType) return t.name;
     if (t instanceof ArrayType) return `Arr_${typeToName(t.innerType)}`;
     if (t instanceof IterType) return `Iter_${typeToName(t.innerType)}`;
+    if (t instanceof MutArrType) return `MutArr_${typeToName(t.innerType)}`;
     if (t instanceof FuncType)
         return `Func_${t.paramTypes.map(typeToName).join("_")}_${typeToName(t.returnType)}`;
     return "Null";
@@ -1114,6 +1129,9 @@ function stripTraits(t: Type): Type {
     if (t instanceof IterType) {
         return new IterType(stripTraits(t.innerType));
     }
+    if (t instanceof MutArrType) {
+        return new MutArrType(stripTraits(t.innerType));
+    }
     if (t instanceof FuncType) {
         return new FuncType(
             t.paramTypes.map((pt) => stripTraits(pt)),
@@ -1136,6 +1154,7 @@ function isConcreteType(t: Type): boolean {
     }
     if (t instanceof ArrayType) return isConcreteType(t.innerType);
     if (t instanceof IterType) return isConcreteType(t.innerType);
+    if (t instanceof MutArrType) return isConcreteType(t.innerType);
     if (t instanceof FuncType)
         return t.paramTypes.every(isConcreteType) && isConcreteType(t.returnType);
     return true;
@@ -1879,7 +1898,7 @@ function findCaller(
                             },
                         };
                     }
-                    if (varType instanceof ArrayType) {
+                    if (varType instanceof ArrayType || varType instanceof MutArrType) {
                         const incompatible = varType.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -1955,7 +1974,7 @@ function findCaller(
                             },
                         };
                     }
-                    if (param.type instanceof IterType) {
+                    if (param.type instanceof IterType || param.type instanceof MutArrType) {
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -2559,7 +2578,7 @@ export class Call extends Expression {
                 arg.toJS(writer);
             });
             writer.write(")");
-        } else if (this.callerType instanceof ArrayType) {
+        } else if (this.callerType instanceof ArrayType || this.callerType instanceof MutArrType) {
             writer.write(writer.safeName(this.referToByName));
             this.args.forEach((arg, i) => {
                 writer.write("[");
@@ -2606,7 +2625,7 @@ export class DirectCall extends Expression {
             this.type = this.caller.type.returnType;
             return;
         }
-        if (this.caller.type instanceof ArrayType) {
+        if (this.caller.type instanceof ArrayType || this.caller.type instanceof MutArrType) {
             const incompatible = this.caller.type.checkIndicesCompatible(
                 this.args.map((arg) => arg.type as Type)
             );
@@ -2744,7 +2763,7 @@ export class DirectCall extends Expression {
                     arg.toJS(writer);
                 });
                 writer.write(")");
-            } else if (this.caller.type instanceof ArrayType) {
+            } else if (this.caller.type instanceof ArrayType || this.caller.type instanceof MutArrType) {
                 this.args.forEach((arg, i) => {
                     writer.write("[");
                     arg.toJS(writer);
@@ -3719,6 +3738,258 @@ export class Length extends Expression {
             this.iter.toJS(writer);
             writer.write(")");
         }
+    }
+}
+
+// ── Mutable Array operations ──
+
+export class TransArray extends Expression {
+    iter: Expression;
+
+    constructor(startToken: Token, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iter.cascadeTypes([...ancestors, this]);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let innerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            innerType = this.iter.type.innerType;
+        } else {
+            throw this.error(
+                `cannot trans non-array object (expression of type ${this.iter.type})`
+            );
+        }
+        this.type = new MutArrType(innerType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new TransArray(
+            { line: this.line, col: this.col, text: "trans", type: TokenType.Trans },
+            this.iter.clone(bindings)
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__TRANS__");
+        writer.write("__TRANS__(");
+        this.iter.toJS(writer);
+        writer.write(")");
+    }
+}
+
+export class UnsafeTransArray extends Expression {
+    iter: Expression;
+
+    constructor(startToken: Token, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iter.cascadeTypes([...ancestors, this]);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let innerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            innerType = this.iter.type.innerType;
+        } else {
+            throw this.error(
+                `cannot unsafeTrans non-array object (expression of type ${this.iter.type})`
+            );
+        }
+        this.type = new MutArrType(innerType);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new UnsafeTransArray(
+            { line: this.line, col: this.col, text: "unsafeTrans", type: TokenType.UnsafeTrans },
+            this.iter.clone(bindings)
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__UNSAFETRANS__");
+        writer.write("__UNSAFETRANS__(");
+        this.iter.toJS(writer);
+        writer.write(")");
+    }
+}
+
+export class DetransArray extends Expression {
+    iter: Expression;
+
+    constructor(startToken: Token, iter: Expression) {
+        super(startToken.line, startToken.col);
+        this.iter = iter;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.iter.cascadeTypes([...ancestors, this]);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterable expression");
+        }
+        let innerType: Type;
+        if (this.iter.type instanceof MutArrType) {
+            innerType = this.iter.type.innerType;
+        } else {
+            throw this.error(
+                `cannot detrans non-mutable-array object (expression of type ${this.iter.type})`
+            );
+        }
+        this.type = new ArrayType(innerType);
+
+        // Track consumed variable: if the argument is a simple variable, mark it consumed
+        if (this.iter instanceof Variable && this.iter.fullName) {
+            markVarConsumed(this.iter.fullName);
+        }
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new DetransArray(
+            { line: this.line, col: this.col, text: "detrans", type: TokenType.Detrans },
+            this.iter.clone(bindings)
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__DETRANS__");
+        writer.write("__DETRANS__(");
+        this.iter.toJS(writer);
+        writer.write(")");
+    }
+}
+
+export class Push extends Expression {
+    mutarr: Expression;
+    value: Expression;
+
+    constructor(startToken: Token, mutarr: Expression, value: Expression) {
+        super(startToken.line, startToken.col);
+        this.mutarr = mutarr;
+        this.value = value;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.value.cascadeTypes([...ancestors, this]);
+        this.mutarr.cascadeTypes([...ancestors, this]);
+        if (this.mutarr.type === null) {
+            throw this.error("unable to resolve type of mutable array");
+        }
+        if (!(this.mutarr.type instanceof MutArrType)) {
+            throw this.error(
+                `cannot push on non-mutable-array (expression of type ${this.mutarr.type})`
+            );
+        }
+        // Check for consumed variable
+        if (this.mutarr instanceof Variable && this.mutarr.fullName) {
+            if (isVarConsumed(this.mutarr.fullName)) {
+                throw this.error(
+                    `cannot use variable '${this.mutarr.fullName}' after it was detrans'd`
+                );
+            }
+        }
+        const innerType = this.mutarr.type.innerType;
+        if (this.value.type === null) {
+            throw this.error("unable to resolve type of value to push");
+        }
+        if (!deepEquals(innerType, this.value.type)) {
+            throw this.error(
+                `cannot push value of type ${this.value.type} into mutable array of type MutArr[${innerType}]`
+            );
+        }
+        this.type = this.mutarr.type;
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new Push(
+            { line: this.line, col: this.col, text: "push", type: TokenType.Push },
+            this.mutarr.clone(bindings),
+            this.value.clone(bindings)
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__PUSH__");
+        writer.write("__PUSH__(");
+        this.mutarr.toJS(writer);
+        writer.write(", ");
+        this.value.toJS(writer);
+        writer.write(")");
+    }
+}
+
+export class SetValue extends Expression {
+    mutarr: Expression;
+    index: Expression;
+    value: Expression;
+
+    constructor(startToken: Token, mutarr: Expression, index: Expression, value: Expression) {
+        super(startToken.line, startToken.col);
+        this.mutarr = mutarr;
+        this.index = index;
+        this.value = value;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.index.cascadeTypes([...ancestors, this]);
+        this.value.cascadeTypes([...ancestors, this]);
+        this.mutarr.cascadeTypes([...ancestors, this]);
+        if (this.mutarr.type === null) {
+            throw this.error("unable to resolve type of mutable array");
+        }
+        if (!(this.mutarr.type instanceof MutArrType)) {
+            throw this.error(
+                `cannot set on non-mutable-array (expression of type ${this.mutarr.type})`
+            );
+        }
+        // Check for consumed variable
+        if (this.mutarr instanceof Variable && this.mutarr.fullName) {
+            if (isVarConsumed(this.mutarr.fullName)) {
+                throw this.error(
+                    `cannot use variable '${this.mutarr.fullName}' after it was detrans'd`
+                );
+            }
+        }
+        if (this.index.type !== "Int") {
+            throw this.error(`set index must be of type Int, got ${this.index.type}`);
+        }
+        const innerType = this.mutarr.type.innerType;
+        if (this.value.type === null) {
+            throw this.error("unable to resolve type of value to set");
+        }
+        if (!deepEquals(innerType, this.value.type)) {
+            throw this.error(
+                `cannot set value of type ${this.value.type} into mutable array of type MutArr[${innerType}]`
+            );
+        }
+        this.type = innerType;
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new Set(
+            { line: this.line, col: this.col, text: "set", type: TokenType.Set },
+            this.mutarr.clone(bindings),
+            this.index.clone(bindings),
+            this.value.clone(bindings)
+        );
+        return cloned;
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__SET__");
+        writer.write("__SET__(");
+        this.mutarr.toJS(writer);
+        writer.write(", ");
+        this.index.toJS(writer);
+        writer.write(", ");
+        this.value.toJS(writer);
+        writer.write(")");
     }
 }
 

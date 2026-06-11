@@ -206,6 +206,72 @@ grid = {
 grid
 `,
     },
+    mutableVars: {
+        label: "Mutable Variables",
+        code: `# Mutable variables with reassignment and compound ops
+
+mut counter = 0;
+counter = counter + 1;   # 1
+counter += 2;            # 3 (compound +=)
+counter *= 3;            # 9 (compound *=)
+
+# Closures capture mutable vars by reference
+func makeCounter(): Func[:Int] {
+    mut count = 0;
+    func() { count = count + 1; count }
+};
+
+a = makeCounter();
+b = makeCounter();
+[a(), a(), b(), b()]   # [1, 2, 1, 2]`,
+    },
+    mutableStructs: {
+        label: "Mutable Struct Fields",
+        code: `# Struct fields can be declared mutable
+struct Point {
+    mut x: Int,
+    mut y: Int,
+};
+
+p = Point(1, 2);
+p.x = 10;       # Field mutation
+p.y += 5;       # Compound field assignment
+p.x + p.y       # 15
+
+# Operator overloading still works with mutability
+struct Adder {
+    mut val: Int,
+};
+
+func add(a: Adder, b: Adder): Adder {
+    Adder(a.val + b.val)
+};
+
+mut a = Adder(3);
+a += Adder(4);
+a.val   # 7`,
+    },
+    mutableArrays: {
+        label: "Mutable Arrays",
+        code: `# trans() creates a mutable array (deep copy from Arr)
+mutarr = trans([1, 2, 3]);
+
+# push returns the array (chainable)
+push(mutarr, 4);
+push(mutarr, 5);
+
+# set(index, value) returns the new value
+set(mutarr, 0, 99);
+
+# detrans() freezes back to a regular array
+detrans(mutarr)   # [99, 2, 3, 4, 5]
+
+# unsafeTrans avoids the copy
+x = [1, 2, 3];
+y = unsafeTrans(x);
+set(y, 0, 99);
+x   # [99, 2, 3] — original was modified!`,
+    },
 };
 
 // ── Error decoration state ──────────────────────────────────────

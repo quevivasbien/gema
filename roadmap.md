@@ -1,16 +1,5 @@
 # Roadmap for `gema` development
 
-## More iterator ops
-
-Here are some new operations on iterators that would be nice to have:
-
-- `take(iter, i)` which gives us a iterator with up to `i` of the first consecutive elements of `iter`
-- `takeWhile(iter, f)` which gives us an iterator that takes elements as long as we meet some predicate, similar to how `filter` works
-- Analogously: `drop` and `dropWhile`
-- `iterate(f, start)` repeatedly applies f; gives `start, f(start), f(f(start)), f(f(f(start))), ...`
-- `last(iter)` gives the final element in the iterator -- will probably want to specially handle the case where we provide a list to this one, instead of implicitly converting, so we can take advantage of the known length of a list.
-- `length(iter)` gives the length of an iterator (again, will want a special case for arrays)
-
 ## Mutable variables
 
 Here is the basic syntax that we want to be able to support:
@@ -65,7 +54,7 @@ We have a separate mutable array type with special rules
 ```gema
 mutarr = mut([]:Int);  # This creates a new empty mutable array
 push(mutarr, 1);
-set(mutarr, 0, 2);
+mutarr(0) = 2  # Array access to an element of an Arr[mut T] should give us a value that behaves like a variable of type mut T.
 arr = freeze(mutarr);  # This converts the mutable array to a non-mutable array. In JS, this is a no-op; trying to access mutarr after this point should give a compile-time error.
 ```
 
@@ -77,7 +66,7 @@ x = [1, 2, 3];
 # Here we need to a deep copy of x so that if we access x later, it won't have changed from its original value.
 # Maybe we should also have an `unsafe mut` operation that avoids copying
 y = mut(x);
-y(0) += 1;  # Array access to an element of an Arr[mut T] should give us a value that behaves like a variable of type mut T.
+y(0) += 1;
 mut a = y(1); a += 1;  # Modifying a won't modify y, since basic numeric types create copies when they assigned from other vars.
 
 z = freeze(y);  # z == [2, 2 3]
@@ -164,3 +153,55 @@ zipped = zip([1, 2, 3], range(1, 3));
 
 zipped(0)  # Evaluates to (1, 1)
 ```
+
+## Hash maps and sets
+
+### Maps
+
+All keys must be of the same type, and all values must be of the same type (type signature is `Map[K, V]`). (Open question, what types are allowed for keys? I think JS supports anything if we piggy-back on JS's `Map`, but we might want to limit it or have some concept of hashability?)
+
+Example usage
+```gema
+# Construct maps with an array of key-value tuples
+m = map([("a", 1), ("b", 2)]);  # m has type Map[Str, Int]
+
+set(m, "c", 3);
+get(m, "c")
+```
+
+### Sets
+
+Example usage
+```gema
+mut s = set([1, 2, 3, 2]);  # s has type Set[Int]
+s += set([2, 3, 4]);  # takes the union
+s *= set([1, 3, 8]);  # takes the intersection
+push(s, 4);
+contains(s, 3)  # true!
+```
+
+
+## Tentative: remove `:` from type annotations.
+
+The `:` that we have as part of our type annotations is not really needed--it's just an extra character to type. We could just have go-style type annotations like `func(a Int, b Float) Float { toFloat(a) + b }`
+
+
+## Modules
+
+We need to be able to create projects across multiple files. TBD what the best way to approach this is.
+
+One potential way to do this is to continue to treat every file like a script that returns whatever the last expression is in the file, and module files just have their exported members listed at the end, something like
+
+```gema
+func exportedFunction(x: Int) { x + 1 }
+struct ExportedStruct { x: Int, y: Int }
+trait ExportedTrait { foo{Self: Int} }
+exportedConstant = 11;
+
+exports(exportedFunction, ExportedStruct, ExportedTrait, exportedConstant)
+```
+
+
+## IO
+
+We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.

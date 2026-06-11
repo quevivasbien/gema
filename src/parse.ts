@@ -232,6 +232,31 @@ PARSE_RULES[TokenType.Length] = {
     infix: null,
     precedence: Precedence.None,
 };
+PARSE_RULES[TokenType.Trans] = {
+    prefix: parseTrans,
+    infix: null,
+    precedence: Precedence.None,
+};
+PARSE_RULES[TokenType.UnsafeTrans] = {
+    prefix: parseUnsafeTrans,
+    infix: null,
+    precedence: Precedence.None,
+};
+PARSE_RULES[TokenType.Detrans] = {
+    prefix: parseDetrans,
+    infix: null,
+    precedence: Precedence.None,
+};
+PARSE_RULES[TokenType.Push] = {
+    prefix: parsePush,
+    infix: null,
+    precedence: Precedence.None,
+};
+PARSE_RULES[TokenType.Set] = {
+    prefix: parseSet,
+    infix: null,
+    precedence: Precedence.None,
+};
 
 // Define default rules
 Object.values(TokenType).forEach((tokenType) => {
@@ -998,6 +1023,131 @@ function parseLength(parser: Parser): AST.Expression {
     }
     parser.advance();
     return parser.tryCreateASTExpression(() => new AST.Length(startToken, iter));
+}
+
+function parseTrans(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after trans.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const iter = parser.expression();
+    if (iter === null) {
+        return parser.error("Expected array expression.");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for trans expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.TransArray(startToken, iter));
+}
+
+function parseUnsafeTrans(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after unsafeTrans.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const iter = parser.expression();
+    if (iter === null) {
+        return parser.error("Expected array expression.");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for unsafeTrans expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.UnsafeTransArray(startToken, iter));
+}
+
+function parseDetrans(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after detrans.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const iter = parser.expression();
+    if (iter === null) {
+        return parser.error("Expected mutable array expression.");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for detrans expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.DetransArray(startToken, iter));
+}
+
+function parsePush(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after push.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const mutarr = parser.expression();
+    if (mutarr === null) {
+        return parser.error("Expected mutable array expression.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated push expression.");
+    }
+    const value = parser.expression();
+    if (value === null) {
+        return parser.error("Expected value expression.");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for push expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.Push(startToken, mutarr, value));
+}
+
+function parseSet(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    if (!parser.atEnd() && parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after set.");
+    }
+    if (!parser.atEnd()) {
+        parser.advance();
+    }
+    const mutarr = parser.expression();
+    if (mutarr === null) {
+        return parser.error("Expected mutable array expression.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated set expression.");
+    }
+    const index = parser.expression();
+    if (index === null) {
+        return parser.error("Expected index expression.");
+    }
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        parser.advance();
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated set expression.");
+    }
+    const value = parser.expression();
+    if (value === null) {
+        return parser.error("Expected value expression.");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        return parser.error("Expected closing ')' for set expression.");
+    }
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.SetValue(startToken, mutarr, index, value));
 }
 
 class Parser {

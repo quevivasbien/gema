@@ -52,8 +52,6 @@ frontend/
 - **`if` requires `else`**: There is no standalone `if` — every `if` must have an `else` branch.
 - **Empty arrays must be annotated**: Write `[]: Arr[Int]`, not `[]`.
 - **Names conflicting with JS reserved words** (`const`, `let`, `return`, etc.) get auto-prefixed with `_gema_`.
-- Run Prettier formatter (e.g. `bun run prettier . --write`) when finalizing any changes.
-- If you add notable new syntax or other features to the language, you can update the `README.md` and the code examples in the frontend sandbox to showcase the new language features.
 
 ## Testing Patterns
 
@@ -72,3 +70,8 @@ Tests use Bun's built-in test runner (`bun:test`). Two test files in [`tests/`](
 - **Generic functions** (`typeParams.length > 0`) skip body type-checking until monomorphization. They're stored as templates, not registered in `functionRegistry`.
 - **`Self` type** is represented as both the string `"Self"` and `CustomType("Self")` in different code paths — be careful when adding trait-related code.
 - **Experimental features** (marked `test.todo`): repeated iterator reads, nested generic types, generic struct fields.
+
+## Contribution guidelines
+- Run eslint (e.g. `bun run eslint`) before finalizing changes. Do your best to comply with its suggestions.
+- Run Prettier formatter (e.g. `bun run prettier . --write`) when finalizing any changes.
+- If you add notable new syntax or other features to the language, you can update the `README.md` and the code examples in the frontend sandbox to showcase the new language features.

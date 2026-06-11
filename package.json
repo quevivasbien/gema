@@ -7,9 +7,14 @@
         "bench": "bun run benchmarks/compile.bench.ts && bun run benchmarks/runtime.bench.ts"
     },
     "devDependencies": {
+        "@eslint/js": "^10.0.1",
         "@types/bun": "latest",
+        "eslint": "^10.4.1",
+        "globals": "^17.6.0",
+        "jiti": "^2.7.0",
         "mitata": "^1.0.34",
-        "prettier": "^3.8.4"
+        "prettier": "^3.8.4",
+        "typescript-eslint": "^8.61.0"
     },
     "peerDependencies": {
         "typescript": "^5.0.0"

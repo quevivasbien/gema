@@ -1,5 +1,5 @@
 // Built-in type names that cannot be used as type parameters or user-defined types
-const BUILTIN_TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Func", "Arr", "Iter", "Self"]);
+const BUILTIN_TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Func", "Arr", "Iter", "MutArr", "Self"]);
 
 export function isBuiltinTypeName(name: string): boolean {
     return BUILTIN_TYPE_NAMES.has(name);
@@ -15,6 +15,8 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
     } else if (type instanceof ArrayType) {
         collectCustomTypeNames(type.innerType, names);
     } else if (type instanceof IterType) {
+        collectCustomTypeNames(type.innerType, names);
+    } else if (type instanceof MutArrType) {
         collectCustomTypeNames(type.innerType, names);
     }
 }
@@ -36,6 +38,9 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     }
     if (type instanceof IterType) {
         return new IterType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof MutArrType) {
+        return new MutArrType(substituteTypeParams(type.innerType, bindings));
     }
     return type;
 }
@@ -94,6 +99,24 @@ export class IterType {
     }
 }
 
+export class MutArrType {
+    constructor(public innerType: Type) {}
+
+    toString(): string {
+        return `MutArr[${this.innerType}]`;
+    }
+
+    checkIndicesCompatible(indexTypes: Type[]): string | null {
+        if (indexTypes.length !== 1) {
+            return `mutable array requires exactly one index, got ${indexTypes.length}`;
+        }
+        if (indexTypes[0] !== "Int") {
+            return `mutable array index must be of type Int`;
+        }
+        return null;
+    }
+}
+
 export class CustomType {
     name: string;
     traits: string[];
@@ -127,7 +150,7 @@ export type Type =
     | CustomType
     | "Self";
 
-export type CallableType = FuncType | ArrayType | IterType;
+export type CallableType = FuncType | ArrayType | IterType | MutArrType;
 
 export class TemplateTypes {
     constructor(
@@ -178,6 +201,15 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
             throw new Error(`Iter type cannot have a return type`);
         }
         return new IterType(templateTypes.types[0]);
+    }
+    if (typeName === "MutArr") {
+        if (templateTypes.types.length !== 1) {
+            throw new Error(`MutArr type requires a single template type (for the inner type)`);
+        }
+        if (templateTypes.returnType !== null) {
+            throw new Error(`MutArr type cannot have a return type`);
+        }
+        return new MutArrType(templateTypes.types[0]);
     }
 
     return new CustomType(typeName);

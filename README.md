@@ -174,3 +174,68 @@ grid = {
 
 grid
 ```
+
+### Mutable variables
+
+```
+mut x = 0;
+x = x + 1;   # x == 1
+x += 2;      # x == 3 (compound assignment)
+x *= 3;      # x == 9
+
+# Non-mutable variables cannot be reassigned
+y = 1;
+# y = 2   — compile error!
+
+# Closures capture mutable variables by reference
+func makeCounter(): Func[:Int] {
+    mut count = 0;
+    func() { count = count + 1; count }
+};
+a = makeCounter();
+b = makeCounter();
+a();  # 1
+a();  # 2
+b();  # 1
+```
+
+### Mutable struct fields
+
+```
+struct Point {
+    mut x: Int,
+    mut y: Int,
+};
+
+p = Point(1, 2);
+p.x = 10;       # Field mutation (field must be declared mut)
+p.y += 5;       # Compound field assignment
+p.x + p.y       # 15
+
+struct HalfMut { mut a: Int, b: Int };
+q = HalfMut(1, 2);
+q.a = 3;        # OK — field is mutable
+# q.b = 4       — compile error (field not mutable)
+```
+
+### Mutable arrays
+
+```
+# Create a mutable array from a regular array (deep copy)
+mutarr = trans([1, 2, 3]);
+
+# push appends an element, returns the array
+push(mutarr, 4);
+
+# set overwrites an element, returns the new value
+set(mutarr, 0, 99);
+
+# freeze back to a regular array
+result = detrans(mutarr);   # [99, 2, 3, 4]
+
+# unsafeTrans creates a mutable view without copying
+x = [1, 2, 3];
+y = unsafeTrans(x);
+set(y, 0, 99);
+x   # [99, 2, 3] — original is also modified!
+```
