@@ -1,6 +1,6 @@
 import type { JSWriter } from "./write-js";
 import { TokenType, type Token } from "./tokens";
-import { deepEquals } from "bun";
+import { deepEquals } from "./deep-equals";
 import {
     isBuiltinTypeName,
     collectCustomTypeNames,

@@ -2,7 +2,8 @@ import { EditorView, basicSetup } from "codemirror";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { gema } from "./gema-language.js";
 import { keymap, Decoration } from "@codemirror/view";
-/* global document, window */
+import { compile } from "./compiler.js";
+/* global document, window, Worker */
 
 import { Prec, StateEffect, StateField } from "@codemirror/state";
 import { indentWithTab } from "@codemirror/commands";
@@ -342,6 +343,54 @@ function createEditor(parent) {
     return view;
 }
 
+// ── Worker pool (singleton) ─────────────────────────────────────
+
+let workerInstance = null;
+
+/** Get or create the sandboxed execution Worker. */
+function getWorker() {
+    if (workerInstance) return workerInstance;
+    // Create the Worker inline via Blob URL — no separate file needed at runtime.
+    // eval() is safe inside a Worker because Workers have no DOM access.
+    const blob = new Blob(
+        [
+            `self.onmessage=function(e){
+        const js=e.data.js;
+        if(typeof js!=="string"){self.postMessage({runtimeError:"No JS code provided."});return}
+        try{const r=eval(js);self.postMessage({result:String(r)})}
+        catch(err){self.postMessage({runtimeError:err instanceof Error?err.message:String(err)})}
+      }`,
+        ],
+        { type: "application/javascript" }
+    );
+    workerInstance = new Worker(URL.createObjectURL(blob));
+    return workerInstance;
+}
+
+/** Display error lines by highlighting them in the editor. */
+function displayErrors(view, errors, code) {
+    const outputEl = document.getElementById("output");
+    const lines = code.split("\n");
+    const errorText = errors
+        .map((err) => {
+            const lineNum = err.line + 1;
+            const context = lines[err.line] || "";
+            return `Error on line ${lineNum}, column ${err.col + 1}: ${err.message}\n  ${lineNum} | ${context}\n  ${" ".repeat(String(lineNum).length + err.col + 3)}^`;
+        })
+        .join("\n\n");
+    outputEl.innerText = errorText;
+    outputEl.className = "output-panel output-error";
+
+    const errorLines = errors.map((e) => e.line);
+    view.dispatch({ effects: addErrorLine.of(errorLines) });
+
+    const firstErrorLine = Math.min(...errorLines);
+    const line = view.state.doc.line(firstErrorLine + 1);
+    view.dispatch({
+        effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+    });
+}
+
 // ── Run code ────────────────────────────────────────────────────
 
 async function runCode(view) {
@@ -361,54 +410,52 @@ async function runCode(view) {
     outputEl.innerText = "Running...";
     outputEl.className = "output-panel";
     jsOutputEl.innerText = "";
+    jsContent.classList.add("collapsed");
     runBtn.disabled = true;
     runBtn.textContent = "Running...";
 
     try {
-        const response = await fetch("/run", { method: "POST", body: code });
-        const data = await response.json();
+        // Step 1: Compile (runs in main thread — pure string manipulation, safe)
+        const compiled = compile(code);
 
-        if (data.errors && data.errors.length > 0) {
-            // Display errors
-            const lines = code.split("\n");
-            const errorText = data.errors
-                .map((err) => {
-                    const lineNum = err.line + 1;
-                    const context = lines[err.line] || "";
-                    return `Error on line ${lineNum}, column ${err.col + 1}: ${err.message}\n  ${lineNum} | ${context}\n  ${" ".repeat(String(lineNum).length + err.col + 3)}^`;
-                })
-                .join("\n\n");
-            outputEl.innerText = errorText;
+        if (compiled.errors && compiled.errors.length > 0) {
+            displayErrors(view, compiled.errors, code);
+            runBtn.disabled = false;
+            runBtn.textContent = "Run (Ctrl+Enter)";
+            return;
+        }
+
+        // Show compiled JS immediately
+        jsOutputEl.innerText = compiled.js;
+        jsContent.classList.remove("collapsed");
+
+        // Step 2: Execute in a sandboxed Worker
+        const result = await new Promise((resolve, reject) => {
+            const worker = getWorker();
+            const onMessage = (e) => {
+                worker.removeEventListener("message", onMessage);
+                worker.removeEventListener("error", onError);
+                resolve(e.data);
+            };
+            const onError = (err) => {
+                worker.removeEventListener("message", onMessage);
+                worker.removeEventListener("error", onError);
+                reject(err);
+            };
+            worker.addEventListener("message", onMessage);
+            worker.addEventListener("error", onError);
+            worker.postMessage({ js: compiled.js });
+        });
+
+        if (result.runtimeError) {
+            outputEl.innerText = `Runtime error: ${result.runtimeError}`;
             outputEl.className = "output-panel output-error";
-
-            // Highlight error lines in editor
-            const errorLines = data.errors.map((e) => e.line);
-            view.dispatch({ effects: addErrorLine.of(errorLines) });
-
-            // Scroll to first error
-            const firstErrorLine = Math.min(...errorLines);
-            const line = view.state.doc.line(firstErrorLine + 1);
-            view.dispatch({
-                effects: EditorView.scrollIntoView(line.from, { y: "center" }),
-            });
-        } else if (data.runtimeError) {
-            outputEl.innerText = `Runtime error: ${data.runtimeError}`;
-            outputEl.className = "output-panel output-error";
-            if (data.js) {
-                jsOutputEl.innerText = data.js;
-                jsContent.classList.remove("collapsed");
-            }
         } else {
-            // Success
-            outputEl.innerText = data.result;
+            outputEl.innerText = result.result;
             outputEl.className = "output-panel output-success";
-            if (data.js) {
-                jsOutputEl.innerText = data.js;
-                jsContent.classList.remove("collapsed");
-            }
         }
     } catch (err) {
-        outputEl.innerText = `Request failed: ${err.message}`;
+        outputEl.innerText = `Execution failed: ${err.message}`;
         outputEl.className = "output-panel output-error";
     } finally {
         runBtn.disabled = false;

@@ -2,7 +2,8 @@
     "name": "gema",
     "module": "index.ts",
     "scripts": {
-        "build:frontend": "bun build frontend/editor.js --outfile=frontend/dist/bundle.js",
+        "build:frontend": "bun build frontend/editor.js --minify --outfile=frontend/dist/bundle.js && bun build --minify frontend/worker-entry.js --outfile=frontend/dist/worker.js",
+        "build:static-site": "bun run build:frontend && mkdir -p frontend/static-site && cp frontend/index.html frontend/styles.css frontend/dist/bundle.js frontend/static-site/",
         "dev": "bun run server.ts",
         "bench": "bun run benchmarks/compile.bench.ts && bun run benchmarks/runtime.bench.ts"
     },

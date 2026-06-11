@@ -1,6 +1,5 @@
 import { serve } from "bun";
 import { join } from "path";
-import { compileWithRawErrors } from ".";
 
 serve({
     async fetch(request: Request): Promise<Response> {
@@ -22,13 +21,6 @@ serve({
                 return new Response(file);
             }
             return new Response("Not found", { status: 404 });
-        }
-        if (request.method === "POST" && url.pathname === "/run") {
-            const body = await request.text();
-            const result = compileWithRawErrors(body);
-            return new Response(JSON.stringify(result), {
-                headers: { "content-type": "application/json" },
-            });
         }
 
         return new Response("Not found", { status: 404 });
