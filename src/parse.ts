@@ -1,6 +1,6 @@
 import * as AST from "./ast";
 import { type Type, TemplateTypes, getType } from "./types";
-import { TokenType, type Token } from "./tokens";
+import { TokenType, KEYWORDS, type Token } from "./tokens";
 
 interface ParseError {
     line: number;
@@ -11,6 +11,7 @@ interface ParseError {
 enum Precedence {
     None,
     Assignment,
+    Pipe,
     Or,
     And,
     Equality,
@@ -124,6 +125,11 @@ PARSE_RULES[TokenType.And] = {
     prefix: null,
     infix: parseBinary,
     precedence: Precedence.And,
+};
+PARSE_RULES[TokenType.Pipe] = {
+    prefix: null,
+    infix: parsePipe,
+    precedence: Precedence.Pipe,
 };
 PARSE_RULES[TokenType.Or] = {
     prefix: null,
@@ -257,6 +263,16 @@ PARSE_RULES[TokenType.Set] = {
     infix: null,
     precedence: Precedence.None,
 };
+PARSE_RULES[TokenType.For] = {
+    prefix: parseFor,
+    infix: null,
+    precedence: Precedence.None,
+};
+PARSE_RULES[TokenType.Break] = {
+    prefix: parseBreak,
+    infix: null,
+    precedence: Precedence.None,
+};
 
 // Define default rules
 Object.values(TokenType).forEach((tokenType) => {
@@ -293,9 +309,12 @@ function parseIfStatement(parser: Parser): AST.Expression {
     parser.advance();
     const branch = parser.block();
     const conditionalBranches = [{ condition, branch }];
+    let hasElse = true;
     while (true) {
         if (parser.current()?.type !== TokenType.Else) {
-            return parser.error("Expected 'else' or 'else if'");
+            // No else — this is a statement-only if
+            hasElse = false;
+            break;
         }
         parser.advance();
         if (parser.current()?.type === TokenType.If) {
@@ -314,13 +333,24 @@ function parseIfStatement(parser: Parser): AST.Expression {
         const branch = parser.block();
         conditionalBranches.push({ condition, branch });
     }
-    if (parser.current()?.type !== TokenType.LBrace) {
-        return parser.error("Expected '{' after 'else'");
+    let elseBranch: AST.Expression;
+    if (hasElse) {
+        if (parser.current()?.type !== TokenType.LBrace) {
+            return parser.error("Expected '{' after 'else'");
+        }
+        parser.advance();
+        elseBranch = parser.block();
+    } else {
+        // Dummy else branch — will not be type-checked since hasElse=false
+        // Create a minimal block with a null literal
+        const nullToken = { line: rootToken.line, col: rootToken.col, text: "null", type: TokenType.Integer };
+        elseBranch = new AST.Block(
+            { line: rootToken.line, col: rootToken.col, text: "{", type: TokenType.LBrace },
+            [new AST.Literal(nullToken, "Null")]
+        );
     }
-    parser.advance();
-    const elseBranch = parser.block();
     return parser.tryCreateASTExpression(
-        () => new AST.If(rootToken, conditionalBranches, elseBranch)
+        () => new AST.If(rootToken, conditionalBranches, elseBranch, hasElse)
     );
 }
 
@@ -539,6 +569,24 @@ function parseExponentiation(parser: Parser, leftExpr: AST.Expression): AST.Expr
         return parser.error(`Expected expression after ${token.text}.`);
     }
     return parser.tryCreateASTExpression(() => new AST.Binary(token, leftExpr, rightExpr));
+}
+
+function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
+    // Right side must be an identifier or keyword (function/builtin name)
+    if (parser.atEnd()) {
+        return parser.error("Expected function name after '|'");
+    }
+    const tt = parser.current().type;
+    if (tt !== TokenType.Identifier && !KEYWORDS.has(tt as string)) {
+        return parser.error("Expected function name after '|'");
+    }
+    // Create a synthetic Identifier token so Call accepts it
+    const nameToken = {
+        ...parser.current(),
+        type: TokenType.Identifier as TokenType,
+    };
+    parser.advance();
+    return parser.tryCreateASTExpression(() => new AST.Call(nameToken, [leftExpr]));
 }
 
 function parseFieldAccess(parser: Parser, leftExpr: AST.Expression): AST.Expression {
@@ -1150,6 +1198,35 @@ function parseSet(parser: Parser): AST.Expression {
     return parser.tryCreateASTExpression(() => new AST.SetValue(startToken, mutarr, index, value));
 }
 
+function parseFor(parser: Parser): AST.Expression {
+    const startToken = parser.previous(); // should be 'for'
+    // Expect Identifier = expression
+    if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+        return parser.error("Expected loop variable name after 'for'");
+    }
+    const varName = parser.current().text;
+    parser.advance();
+    if (parser.atEnd() || parser.current().type !== TokenType.Equal) {
+        return parser.error("Expected '=' after loop variable name");
+    }
+    parser.advance();
+    const iter = parser.expression();
+    if (iter === null) {
+        return parser.error("Expected iterator expression after '='");
+    }
+    if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
+        return parser.error("Expected '{' for for loop body");
+    }
+    parser.advance();
+    const body = parser.block();
+    return parser.tryCreateASTExpression(() => new AST.ForLoop(startToken, varName, iter, body as AST.Block));
+}
+
+function parseBreak(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    return new AST.Break(startToken);
+}
+
 class Parser {
     tokens: Token[];
     index: number = 0;
@@ -1360,6 +1437,10 @@ class Parser {
             this.error("Expected expression after =");
             return null;
         }
+        if (rhs instanceof AST.If && !rhs.hasElse) {
+            this.error("if without else can only be used as a statement, not as an expression.");
+            return null;
+        }
 
         let value: AST.Expression = rhs;
         if (isCompound && compoundOp) {
@@ -1407,6 +1488,9 @@ class Parser {
         const rhs = this.parseWithPrecedence(Precedence.Assignment);
         if (!rhs) {
             return this.error("Expected expression after =");
+        }
+        if (rhs instanceof AST.If && !rhs.hasElse) {
+            return this.error("if without else can only be used as a statement, not as an expression.");
         }
 
         let value: AST.Expression = rhs;
@@ -1563,6 +1647,19 @@ class Parser {
         if (expr === null || this.atEnd()) {
             return expr;
         }
+
+        // If-without-else is statement-only — enforce dropping
+        if (expr instanceof AST.If && !expr.hasElse) {
+            if (this.current().type === TokenType.Semicolon) {
+                this.advance();
+                return new AST.DropValue(expr);
+            }
+            if (this.current().type === TokenType.RBrace) {
+                return new AST.DropValue(expr);
+            }
+            return this.error("if without else can only be used as a statement, not as an expression.");
+        }
+
         if (this.current().type === TokenType.Semicolon) {
             this.advance();
             return new AST.DropValue(expr);

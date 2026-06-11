@@ -676,6 +676,23 @@ export class Variable extends Expression {
                         return;
                     }
                 }
+            } else if (ancestor instanceof ForLoop) {
+                if (ancestor.varName === this.name) {
+                    // Resolve the loop variable type from the iterator's inner type
+                    let innerType: Type = "Int";
+                    if (ancestor.iter.type instanceof ArrayType) {
+                        innerType = ancestor.iter.type.innerType;
+                    } else if (ancestor.iter.type instanceof IterType) {
+                        innerType = ancestor.iter.type.innerType;
+                    } else if (ancestor.iter.type instanceof MutArrType) {
+                        innerType = ancestor.iter.type.innerType;
+                    } else if (ancestor.iter.type === "Str") {
+                        innerType = "Str";
+                    }
+                    this.type = innerType;
+                    this.fullName = this.name;
+                    return;
+                }
             }
             lastAncestor = ancestor;
         }
@@ -933,11 +950,13 @@ export class Assignment extends Expression {
 export class If extends Expression {
     conditionalBranches: { condition: Expression; branch: Block }[];
     elseBranch: Block;
+    hasElse: boolean;
 
     constructor(
         rootToken: Token,
         conditionalBranches: { condition: Expression; branch: Expression }[],
-        elseBranch: Expression
+        elseBranch: Expression,
+        hasElse: boolean = true
     ) {
         super(rootToken.line, rootToken.col);
 
@@ -955,6 +974,7 @@ export class If extends Expression {
             branch: Block;
         }[];
         this.elseBranch = elseBranch;
+        this.hasElse = hasElse;
     }
 
     cascadeTypes(ancestors: Expression[]): void {
@@ -966,14 +986,14 @@ export class If extends Expression {
                 throw this.error(`condition must be boolean, but found ${condition.type}`);
             }
             branch.cascadeTypes([...ancestors, this]);
-            if (!deepEquals(this.elseBranch.type, branch.type)) {
+            if (this.hasElse && !deepEquals(this.elseBranch.type, branch.type)) {
                 throw this.error(
                     `all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`
                 );
             }
         });
 
-        this.type = this.elseBranch.type;
+        this.type = this.hasElse ? this.elseBranch.type : "Null";
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -983,22 +1003,37 @@ export class If extends Expression {
                 condition: condition.clone(bindings),
                 branch: branch.clone(bindings),
             })),
-            this.elseBranch.clone(bindings)
+            this.elseBranch.clone(bindings),
+            this.hasElse
         );
         return cloned;
     }
 
     toJS(writer: JSWriter): void {
-        writer.write("(() => {");
-        writer.indentIn();
-        writer.newLine();
-        this.conditionalBranches.forEach(({ condition, branch }) => {
-            writer.write("if (");
-            condition.toJS(writer);
-            writer.write(") ");
+        if (this.hasElse) {
+            // Expression-style if: wrap in IIFE
+            writer.write("(() => {");
+            writer.indentIn();
+            writer.newLine();
+            this.conditionalBranches.forEach(({ condition, branch }) => {
+                writer.write("if (");
+                condition.toJS(writer);
+                writer.write(") ");
+                writer.beginScope();
+                branch.expressions.forEach((expr, i) => {
+                    if (i === branch.expressions.length - 1) {
+                        writer.write("return ");
+                    }
+                    expr.toJS(writer);
+                    writer.write(";");
+                    writer.newLine();
+                });
+                writer.endScope();
+                writer.write(" else ");
+            });
             writer.beginScope();
-            branch.expressions.forEach((expr, i) => {
-                if (i === branch.expressions.length - 1) {
+            this.elseBranch.expressions.forEach((expr, i) => {
+                if (i === this.elseBranch!.expressions.length - 1) {
                     writer.write("return ");
                 }
                 expr.toJS(writer);
@@ -1006,21 +1041,24 @@ export class If extends Expression {
                 writer.newLine();
             });
             writer.endScope();
-            writer.write(" else ");
-        });
-        writer.beginScope();
-        this.elseBranch.expressions.forEach((expr, i) => {
-            if (i === this.elseBranch!.expressions.length - 1) {
-                writer.write("return ");
-            }
-            expr.toJS(writer);
-            writer.write(";");
+            writer.indentOut();
             writer.newLine();
-        });
-        writer.endScope();
-        writer.indentOut();
-        writer.newLine();
-        writer.write("})()");
+            writer.write("})()");
+        } else {
+            // Statement-style if: no IIFE, no return statements
+            this.conditionalBranches.forEach(({ condition, branch }) => {
+                writer.write("if (");
+                condition.toJS(writer);
+                writer.write(") ");
+                writer.beginScope();
+                branch.expressions.forEach((expr) => {
+                    expr.toJS(writer);
+                    writer.write(";");
+                    writer.newLine();
+                });
+                writer.endScope();
+            });
+        }
     }
 }
 
@@ -2122,6 +2160,51 @@ function findCaller(
         }
     }
 
+    // Check for keyword-based builtins (last, length, trans, push, set, etc.)
+    if (argTypes.length === 1) {
+        const arg = argTypes[0];
+        if (name === "last") {
+            if (arg instanceof ArrayType || arg instanceof IterType || arg instanceof MutArrType) {
+                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], arg.innerType), rootType: arg.innerType } };
+            }
+        }
+        if (name === "length") {
+            if (arg instanceof ArrayType || arg instanceof IterType || arg instanceof MutArrType) {
+                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], "Int"), rootType: "Int" } };
+            }
+        }
+        if (name === "detrans") {
+            if (arg instanceof MutArrType) {
+                const ret = new ArrayType(arg.innerType);
+                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], ret), rootType: ret } };
+            }
+        }
+        if (name === "trans") {
+            if (arg instanceof ArrayType) {
+                const ret = new MutArrType(arg.innerType);
+                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], ret), rootType: ret } };
+            }
+        }
+        if (name === "unsafeTrans") {
+            if (arg instanceof ArrayType) {
+                const ret = new MutArrType(arg.innerType);
+                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], ret), rootType: ret } };
+            }
+        }
+    }
+    if (argTypes.length === 2) {
+        if (name === "push") {
+            if (argTypes[0] instanceof MutArrType) {
+                return { error: null, result: { referToByName: name, callerType: new FuncType(argTypes, argTypes[0]), rootType: argTypes[0] } };
+            }
+        }
+        if (name === "set") {
+            if (argTypes[0] instanceof MutArrType) {
+                return { error: null, result: { referToByName: name, callerType: new FuncType(argTypes, argTypes[0].innerType), rootType: argTypes[0].innerType } };
+            }
+        }
+    }
+
     return {
         error: `function ${name}[${argTypes.map((t) => t.toString()).join(", ")}: unknown] not found`,
         result: null,
@@ -2518,6 +2601,50 @@ export class Call extends Expression {
             return;
         }
         if (this.callerType instanceof FuncType) {
+            // Check for keyword-based builtins that use specialized codegen
+            const keywordBuiltinMap: Record<string, string> = {
+                last: "__LAST__",
+                length: "__LENGTH__",
+                detrans: "__DETRANS__",
+                push: "__PUSH__",
+                set: "__SET__",
+            };
+            // trans and unsafeTrans are inlined (no builtin needed)
+            if (this.name === "trans") {
+                writer.write("[...");
+                this.args[0]?.toJS(writer);
+                writer.write("]");
+                return;
+            }
+            if (this.name === "unsafeTrans") {
+                this.args[0]?.toJS(writer);
+                return;
+            }
+            if (this.name in keywordBuiltinMap) {
+                const builtinName = keywordBuiltinMap[this.name];
+                // For length/last on arrays, use direct access instead of iterator
+                if (this.name === "length" && this.args[0]?.type instanceof ArrayType) {
+                    writer.write("BigInt(");
+                    this.args[0].toJS(writer);
+                    writer.write(".length)");
+                    return;
+                }
+                if (this.name === "last" && this.args[0]?.type instanceof ArrayType) {
+                    this.args[0].toJS(writer);
+                    writer.write("[");
+                    this.args[0].toJS(writer);
+                    writer.write(".length - 1]");
+                    return;
+                }
+                writer.useBuiltin(builtinName);
+                writer.write(`${builtinName}(`);
+                this.args.forEach((arg, i) => {
+                    if (i > 0) writer.write(", ");
+                    arg.toJS(writer);
+                });
+                writer.write(")");
+                return;
+            }
             // Check if this is a struct constructor (call name matches a registered struct name)
             const structInfo =
                 this.type instanceof CustomType ? getStruct(this.type.name) : undefined;
@@ -3991,6 +4118,122 @@ export class SetValue extends Expression {
         writer.write(", ");
         this.value.toJS(writer);
         writer.write(")");
+    }
+}
+
+// ── For loops and break ──
+
+export class ForLoop extends Expression {
+    varName: string;
+    iter: Expression;
+    body: Block;
+
+    constructor(startToken: Token, varName: string, iter: Expression, body: Block) {
+        super(startToken.line, startToken.col);
+        this.varName = varName;
+        this.iter = iter;
+        this.body = body;
+        this.type = "Null";
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        // Cascade the iterator to resolve its type
+        this.iter.cascadeTypes([...ancestors, this]);
+        if (this.iter.type === null) {
+            throw this.error("unable to resolve type of iterator");
+        }
+        let innerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type instanceof IterType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type instanceof MutArrType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type === "Str") {
+            innerType = "Str";
+        } else {
+            throw this.error(
+                `cannot iterate over object of type ${this.iter.type}`
+            );
+        }
+        // Cascade the body
+        this.body.cascadeTypes([...ancestors, this]);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new ForLoop(
+            { line: this.line, col: this.col, text: "for", type: TokenType.For },
+            this.varName,
+            this.iter.clone(bindings),
+            this.body.clone(bindings) as Block
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        // Convert the iterable to an iterator if needed
+        const iterVar = `_iter_${this.varName}`;
+        const safeIterVar = writer.safeName(iterVar);
+        const safeVarName = writer.safeName(this.varName);
+
+        if (this.iter.type instanceof ArrayType || this.iter.type instanceof MutArrType) {
+            // Array: iterate with index
+            writer.useBuiltin("__ARRAYITER__");
+            writer.write(`const ${safeIterVar} = __ARRAYITER__(`);
+            this.iter.toJS(writer);
+            writer.write(");");
+            writer.newLine();
+        } else if (this.iter.type === "Str") {
+            // String: iterate with index
+            writer.write(`const ${safeIterVar} = __ARRAYITER__(`);
+            this.iter.toJS(writer);
+            writer.write(`.split(""));`);
+            writer.newLine();
+        } else {
+            // Iterator: use directly
+            writer.write(`const ${safeIterVar} = `);
+            this.iter.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+        }
+
+        writer.write("while (true) {");
+        writer.indentIn();
+        writer.newLine();
+        writer.write(`const ${safeVarName} = ${safeIterVar}.next();`);
+        writer.newLine();
+        writer.write(`if (${safeVarName} === undefined) break;`);
+        writer.newLine();
+
+        this.body.expressions.forEach((expr) => {
+            expr.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+        });
+
+        writer.indentOut();
+        writer.newLine();
+        writer.write("}");
+        writer.newLine();
+        writer.write(`${safeIterVar}.reset();`);
+    }
+}
+
+export class Break extends Expression {
+    constructor(startToken: Token) {
+        super(startToken.line, startToken.col);
+        this.type = "Null";
+    }
+
+    cascadeTypes(_ancestors: Expression[]): void {
+        // Break is always valid; type is Null
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new Break({ line: this.line, col: this.col, text: "break", type: TokenType.Break });
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write("break");
     }
 }
 

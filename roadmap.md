@@ -131,14 +131,18 @@ func f(x: Int) { x + 1}
 1 | f  # equivalent to f(1)
 ```
 
+This of course would only work for functions with one parameter.
+
 
 ## Make builtins behave like normal functions
 
 We already have this to some extent with the type conversion operations like `toStr`, but it is a bit awkward right now that we have a bunch of operations like `map`, `length`, `last`, etc. that look like functions and behave very similarly to functions but can't get overloaded.
 
+
 ## Tentative: Enums
 
 It might be nice to have enums, maybe similar to how it is handled in Rust.
+
 
 ## Proper handling of null/undefined values.
 
@@ -162,3 +166,39 @@ arr ! 1  # This is an unsafe access, for when the user knows the index is in bou
 arr(1) ? 0  # This is semantic sugar for unwrap(arr(1), 0)
 arr(1) ??  # Abort the program if arr(1) is undefined
 ```
+
+I actually kind of like `!` as an unsafe call, so maybe we could use it more generally to denote an unsafe call, for example, replace `unsafeTrans(arr)` with `trans ! arr`. More speculatively, we could have a concept of an unsafe function with `!` as the syntax to call those functions. At the same time, it might make sense to introduce `$` as the equivalent safe call operator (would work the same way as just parenthesis calls but have different precedence).
+
+
+## No type annotations for anonymous functions.
+
+It should be possible to infer type signatures of anonymous functions from usage. If you try to use an anonymous function, and it's not possible to infer the type signature, that's when we get an error.
+
+```gema
+func sum(arr: Arr[Int]) {
+    reduce(func(acc, x){acc+x}, 0, arr)  # It's clear here that the anonymous function should have the signature Func[Int, Int]: Int
+}
+```
+
+We can use the same annotated function syntax that we already have in place for non-anonymous functions when we're passing anonymous functions around like variables.
+
+
+We probably should also not allow anonymous functions in the top-level scope.
+
+### An extension to this: completely different syntax
+
+We might want to change the syntax of anon functions so they're even less clunky to use.
+
+E.g., something like `(x, y, z) { x + y + z }` instead of `func(x, y, z) {x + y + z}` (the `func` shouldn't really be needed, since it's not legal to have a tuple right next to a curly brace block without a semicolon in between). Probably to make it even more clear that it's an anon function, we could use Haskell-like syntax and do something like `\x, y, z { x + y + z }` or Rust-like syntax like `|x, y, z| { x + y + z }`. We could also copy JS and do `(x, y, z) => { x + y + z }`, but I'd prefer to keep the number of chars required for this at a minimum, since this language is so heavily functional.
+
+```gema
+func sum(arr: Arr[Int]) {
+    f = \acc, x { acc + x };
+    reduce(f, 0, arr)
+}
+```
+
+
+## Tentative: list comprehensions
+
+List comprehensions are super helpful as a succinct map + zip + filter. Could be nice to have.

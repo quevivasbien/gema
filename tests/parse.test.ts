@@ -91,7 +91,7 @@ test("parse mutable variable reassignment", () => {
 test("parse if", () => {
     testParse(`if true { 1 } else { 2 }`);
     testParseExpectError(`if 1 { 1 } else { 2 }`);
-    testParseExpectError(`if true { 1 }`);
+    testParse(`if true { 1 }`); // else-less if is now valid (evaluates to null)
     testParseExpectError(`if true { 1 } else { 2.0 }`);
     testParse(`x = 10; if x < 0 { 1 } else if x > 10 { 2 } else { 3 }`);
 });

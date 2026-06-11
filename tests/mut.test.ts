@@ -1158,3 +1158,177 @@ test("mutarr: error set non-integer index", () => {
 test("mutarr: error trans on non-array variable", () => {
     testCompileError("x = 1; trans(x)");
 });
+
+// ============================================================
+// PHASE 5: If without else
+// ============================================================
+
+test("if-else: else-less if as statement mutates variable", () => {
+    testCompile(
+        `
+        mut x = 1;
+        if x < 2 {
+            x = 5
+        };
+        x
+        `,
+        5n
+    );
+});
+
+test("if-else: else-less if false does not mutate", () => {
+    testCompile(
+        `
+        mut x = 1;
+        if false {
+            x = 5
+        };
+        x
+        `,
+        1n
+    );
+});
+
+test("if-else: else-less if with else-if chain still works", () => {
+    testCompile(
+        `
+        mut x = 0;
+        if x == 5 {
+            x = 10
+        } else if x == 0 {
+            x = 20
+        } else {
+            x = 30
+        };
+        x
+        `,
+        20n
+    );
+});
+
+test("if-else: else-less if as final expression evaluates to null", () => {
+    testCompile(
+        `
+        if false {
+            1
+        }
+        `,
+        null
+    );
+});
+
+test("if-else: error else-less if in expression context", () => {
+    testCompileError("x = if true { 1 }");
+    testCompileError("x = if false { 1 }");
+});
+
+test("if-else: regular if-else still works", () => {
+    testCompile("if true { 1 } else { 2 }", 1n);
+    testCompile("if false { 1 } else { 2 }", 2n);
+    testCompile(
+        `
+        mut x = 1;
+        if true {
+            x = 2
+        } else {
+            x = 3
+        };
+        x
+        `,
+        2n
+    );
+});
+
+// ============================================================
+// PHASE 6: Pipe syntax
+// ============================================================
+
+test("pipe: basic pipe", () => {
+    testCompile(
+        `
+        add1 = func(x: Int) { x + 1 };
+        1 | add1
+        `,
+        2n
+    );
+});
+
+test("pipe: chained pipe", () => {
+    testCompile(
+        `
+        add1 = func(x: Int) { x + 1 };
+        5 | add1 | add1
+        `,
+        7n
+    );
+});
+
+test("pipe: pipe to length", () => {
+    testCompile("[1, 2, 3] | length", 3n);
+});
+
+test("pipe: pipe to last", () => {
+    testCompile("[10, 20, 30] | last", 30n);
+});
+
+test("pipe: error non-identifier RHS", () => {
+    testCompileError("1 | 2");
+    testCompileError("true | false");
+});
+
+// ============================================================
+// PHASE 7: For loops
+// ============================================================
+
+test("for: basic for loop over range", () => {
+    testCompile(
+        `
+        mut sum = 0;
+        for i = range(1, 3) {
+            sum = sum + i
+        };
+        sum
+        `,
+        6n
+    );
+});
+
+test("for: for loop over array", () => {
+    testCompile(
+        `
+        mut sum = 0;
+        for i = [1, 2, 3] {
+            sum = sum + i
+        };
+        sum
+        `,
+        6n
+    );
+});
+
+test("for: for loop with break", () => {
+    testCompile(
+        `
+        mut sum = 0;
+        for i = range(1, 10) {
+            if i > 3 {
+                break
+            };
+            sum = sum + i
+        };
+        sum
+        `,
+        6n
+    );
+});
+
+test("for: for loop evaluates to null", () => {
+    testCompile(
+        `
+        for i = [1, 2, 3] {
+            i
+        }
+        `,
+        null
+    );
+});
