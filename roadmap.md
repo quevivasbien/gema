@@ -1,128 +1,44 @@
 # Roadmap for `gema` development
 
-## Mutable variables
-
-Here is the basic syntax that we want to be able to support:
-
-```gema
-mut x = 1;
-x = x + 1;  # x == 2
-x = 0;  # x == 0
-
-mut y = 1;
-y += 1;  # y == 2
-y = x;  # y == 0
-
-mut arr = [1, 2, 3];
-arr += [1];  # arr == [1, 2, 3, 1]
-arr = [];  # arr = [0]
-
-struct Point { x: Int, y: Int }
-mut p = Point(1, 2);
-p = Point(2, 3);  # p == Point(2, 3)
-
-func add(a: Point, b: Point) {
-  Point(a.x + b.x, a.y + b.y)
-}
-# add is defined, so += should also work
-p += Point(4, 5)  # p == Point(6, 8)
-```
-
-Here are some examples of code that should fail at parsing:
-
-```gema
-x = 1;
-# Both of the below should fail -- Can't re-assign or shadow non-mutable var
-x += 1;
-x = 0;
-
-mut arr = [1, 2, 3];
-# Both of these will fail because elements of an array are immutable even if the array itself is mutable -- Will have a separate data type for arrays with mutable contents
-push(arr, 4)
-arr(0) = 1
-
-struct Point { x: Int, y: Int }
-mut p = Point(1, 2);
-# Should fail because we can't mutate a non-mutable member of a struct, even if the struct itself is mutable
-p.x = 2;
-```
-
-### How to mutate elements of arrays or members of structs?
-
-We have a separate mutable array type with special rules
-
-```gema
-mutarr = mut([]:Int);  # This creates a new empty mutable array
-push(mutarr, 1);
-mutarr(0) = 2  # Array access to an element of an Arr[mut T] should give us a value that behaves like a variable of type mut T.
-arr = freeze(mutarr);  # This converts the mutable array to a non-mutable array. In JS, this is a no-op; trying to access mutarr after this point should give a compile-time error.
-```
-
-Another example
-
-```gema
-x = [1, 2, 3];
-
-# Here we need to a deep copy of x so that if we access x later, it won't have changed from its original value.
-# Maybe we should also have an `unsafe mut` operation that avoids copying
-y = mut(x);
-y(0) += 1;
-mut a = y(1); a += 1;  # Modifying a won't modify y, since basic numeric types create copies when they assigned from other vars.
-
-z = freeze(y);  # z == [2, 2 3]
-x == z  # Evaluates to false since [1, 2, 3] != [2, 2, 3]
-```
-
-A more complicated example
-
-```
-x = [[1], [2], [3]];
-y = mut(x);
-mut a = y(0);
-b = y(0);
-a = [1, 2];
-a == b  # Will evaluate to false; we've reassigned a, but that doesn't modify the array that a originally pointed to.
-
-# Note that we haven't actually modified y; we've just created copies of pointers to its first element.
-
-# We cannot do this, because the elements of y are not mutable even if y itself is mutable
-# push(y(0), 2);
-```
-
-Structs must be declared with mutable members in order to mutate their contents:
-
-```gema
-struct MutPoint {
-    mut x: Int,
-    mut y: Int,
-}
-p = MutPoint(1, 2);
-p.x = 2;  # This is allowed!
-p = MutPoint(2, 2);  # This is not allowed, since p itself was not declared as mutable.
-
-struct HalfMutPoint {
-    mut x: Int,
-    y: Int,
-}
-q = HalfMutPoint(1, 2);
-q.y = 2;  # This is not allowed, since field y was not declared as mutable.
-```
-
 ## For loops
 
-We should introduce for a for loop along with this:
+We should introduce for a for loop, something like:
 
 ```gema
 func factorial(i: Int) {
     mut result = 1;
     # Syntax is <variable> = <iterator>
     # Loop runs until iterator is exhausted
-    # This is itself an expression; its value is the last value it has when its source iterator runs out
-    for j = range(1, i) {
+    for j = range(2, i) {
         result *= j
     }
+    result
+}
+
+# Alternative of same function
+func factorial(i: Int) {
+    mut result = 1;
+    for j = iterate(func(k: Int){k+1}, 2) {
+        if j > i {
+            break;
+        }
+        result *= j
+    }
+    result
 }
 ```
+
+For loops have null value (you can't set something equal to a for loop or return a for loop from a function): since they are really only helpful for mutations or other operations with side effects, we don't need to force them into the functional framework.
+
+## If statements (without else)
+
+```
+mut x = 1;
+if x < 2 {
+    x += 1;
+}
+```
+This sort of thing should be possible, but if if statements don't have else blocks, they should evaluate to a null value.
 
 ## Tuples
 
@@ -147,7 +63,7 @@ x = (1, 2, 3);
 d = 0;  # Note that this won't impact x, since automatic unpacking will always copy values.
 ```
 
-We this data type, we can support a zip iterator:
+With this data type, we can support a zip iterator:
 ```gema
 zipped = zip([1, 2, 3], range(1, 3));
 
@@ -205,3 +121,44 @@ exports(exportedFunction, ExportedStruct, ExportedTrait, exportedConstant)
 ## IO
 
 We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
+
+
+## Pipe syntax
+
+It could be nice to pipe values into functions like
+```gema
+func f(x: Int) { x + 1}
+1 | f  # equivalent to f(1)
+```
+
+
+## Make builtins behave like normal functions
+
+We already have this to some extent with the type conversion operations like `toStr`, but it is a bit awkward right now that we have a bunch of operations like `map`, `length`, `last`, etc. that look like functions and behave very similarly to functions but can't get overloaded.
+
+## Tentative: Enums
+
+It might be nice to have enums, maybe similar to how it is handled in Rust.
+
+## Proper handling of null/undefined values.
+
+It's possible to get null values with things like `x = { 1; };`. We probably should try to disallow these patterns (it's okay to have statements that aren't expressions, but being able to assign variables to them makes little sense). Right now it's not intended to be able to return a null value from a function, but it is technically possible, and it could make sense to do so given that we now support mutable variables (so we could have functions that are just meant to mutate something). I would say we probably should prohibit functions returning null values.
+
+It is possible to get `undefined` values if we do out of bounds array or iterator access or try to use an empty iterator. This is not possible to prohibit at compile time.
+
+If we have Rust-style enums, we could have a Maybe or Optional enum type; any expression that might give a null value would instead give a Maybe value. If we don't have enums like that, it could be reasonable to just make this a built-in type. `Maybe[Int]` would just mean a value that compiles to either a `BigInt` or `undefined`, and the `Maybe` syntax would just be a way for the type checker to force the user to check if the value is `undefined` or not.
+
+The syntax could look something like
+```
+arr = [1, 2, 3];
+x = arr(1);  # this has type Maybe[Int], but it just compiles to x = arr[1n], no need to wrap it in anything in JS
+x + 1  # not allowed! can't add a Maybe[Int] to an Int
+unwrap(x, 0)  # converts to an Int, falling back on default value if x === undefined, analogous to Rust's unwrap_or_else
+```
+
+We could maybe introduce some new operators:
+```
+arr ! 1  # This is an unsafe access, for when the user knows the index is in bounds and doesn't want to bother with unwrapping
+arr(1) ? 0  # This is semantic sugar for unwrap(arr(1), 0)
+arr(1) ??  # Abort the program if arr(1) is undefined
+```
