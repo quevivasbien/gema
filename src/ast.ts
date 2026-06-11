@@ -3662,6 +3662,9 @@ export class Last extends Expression {
             this.iterIsArray = true;
         } else if (this.iter.type instanceof IterType) {
             innerType = this.iter.type.innerType;
+        } else if (this.iter.type instanceof MutArrType) {
+            innerType = this.iter.type.innerType;
+            this.iterIsArray = true;
         } else {
             throw this.error(
                 `cannot get last element of non-iterable object (expression of type ${this.iter.type})`
@@ -3708,7 +3711,7 @@ export class Length extends Expression {
         if (this.iter.type === null) {
             throw this.error("unable to resolve type of iterable expression");
         }
-        if (this.iter.type instanceof ArrayType) {
+        if (this.iter.type instanceof ArrayType || this.iter.type instanceof MutArrType) {
             this.iterIsArray = true;
         } else if (!(this.iter.type instanceof IterType)) {
             throw this.error(
@@ -3775,10 +3778,10 @@ export class TransArray extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.useBuiltin("__TRANS__");
-        writer.write("__TRANS__(");
+        // Inline the spread: [...arr]
+        writer.write("[...");
         this.iter.toJS(writer);
-        writer.write(")");
+        writer.write("]");
     }
 }
 
@@ -3814,10 +3817,8 @@ export class UnsafeTransArray extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.useBuiltin("__UNSAFETRANS__");
-        writer.write("__UNSAFETRANS__(");
+        // unsafeTrans is a type-system-only operation; no runtime transformation needed
         this.iter.toJS(writer);
-        writer.write(")");
     }
 }
 

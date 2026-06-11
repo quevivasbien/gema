@@ -318,12 +318,6 @@ function __ITERATEITER__(fn, start) {
         count++;
     }
 }`,
-    __TRANS__: `function __TRANS__(arr) {
-    return [...arr];
-}`,
-    __UNSAFETRANS__: `function __UNSAFETRANS__(arr) {
-    return arr;
-}`,
     __DETRANS__: `function __DETRANS__(mutarr) {
     return mutarr;
 }`,

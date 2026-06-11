@@ -977,6 +977,16 @@ test("mutarr: element access via indexing", () => {
     testCompile("mutarr = trans([10, 20, 30]); mutarr(2)", 30n);
 });
 
+test("mutarr: length on MutArr", () => {
+    testCompile("mutarr = trans([1, 2, 3]); length(mutarr)", 3n);
+    testCompile("mutarr = trans([]:Int); length(mutarr)", 0n);
+});
+
+test("mutarr: last on MutArr", () => {
+    testCompile("mutarr = trans([10, 20, 30]); last(mutarr)", 30n);
+    testCompile("mutarr = trans([42]); last(mutarr)", 42n);
+});
+
 // ── trans() makes a deep copy ──
 
 test("mutarr: trans creates deep copy", () => {
