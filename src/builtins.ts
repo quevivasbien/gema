@@ -318,9 +318,6 @@ function __ITERATEITER__(fn, start) {
         count++;
     }
 }`,
-    __DETRANS__: `function __DETRANS__(mutarr) {
-    return mutarr;
-}`,
     __PUSH__: `function __PUSH__(mutarr, val) {
     mutarr.push(val);
     return mutarr;

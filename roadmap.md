@@ -1,46 +1,5 @@
 # Roadmap for `gema` development
 
-## For loops
-
-We should introduce for a for loop, something like:
-
-```gema
-func factorial(i: Int) {
-    mut result = 1;
-    # Syntax is <variable> = <iterator>
-    # Loop runs until iterator is exhausted
-    for j = range(2, i) {
-        result *= j
-    }
-    result
-}
-
-# Alternative of same function
-func factorial(i: Int) {
-    mut result = 1;
-    for j = iterate(func(k: Int){k+1}, 2) {
-        if j > i {
-            break;
-        }
-        result *= j
-    }
-    result
-}
-```
-
-For loops have null value (you can't set something equal to a for loop or return a for loop from a function): since they are really only helpful for mutations or other operations with side effects, we don't need to force them into the functional framework.
-
-## If statements (without else)
-
-```
-mut x = 1;
-if x < 2 {
-    x += 1;
-}
-```
-
-This sort of thing should be possible, but if if statements don't have else blocks, they should evaluate to a null value.
-
 ## Tuples
 
 We need some sort of data structure that (1) is both guaranteed to have a fixed length, (2) can hold multiple data types at the same time, and (3) doesn't require special declaration beforehand (so we can't just use structs for this purpose).
@@ -87,7 +46,7 @@ Example usage
 m = map([("a", 1), ("b", 2)]);  # m has type Map[Str, Int]
 
 set(m, "c", 3);
-get(m, "c")
+m("c")
 ```
 
 ### Sets
@@ -124,17 +83,6 @@ exports(exportedFunction, ExportedStruct, ExportedTrait, exportedConstant)
 ## IO
 
 We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
-
-## Pipe syntax
-
-It could be nice to pipe values into functions like
-
-```gema
-func f(x: Int) { x + 1}
-1 | f  # equivalent to f(1)
-```
-
-This of course would only work for functions with one parameter.
 
 ## Make builtins behave like normal functions
 

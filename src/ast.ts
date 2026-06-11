@@ -2605,11 +2605,10 @@ export class Call extends Expression {
             const keywordBuiltinMap: Record<string, string> = {
                 last: "__LAST__",
                 length: "__LENGTH__",
-                detrans: "__DETRANS__",
                 push: "__PUSH__",
                 set: "__SET__",
             };
-            // trans and unsafeTrans are inlined (no builtin needed)
+            // Handle inlined cases (no builtin needed)
             if (this.name === "trans") {
                 writer.write("[...");
                 this.args[0]?.toJS(writer);
@@ -2617,9 +2616,16 @@ export class Call extends Expression {
                 return;
             }
             if (this.name === "unsafeTrans") {
+                // This is a no-op in JS
                 this.args[0]?.toJS(writer);
                 return;
             }
+            if (this.name === "detrans") {
+                // This is a no-op in JS
+                this.args[0]?.toJS(writer);
+                return;
+            }
+            // Handle cases that use builtin functions
             if (this.name in keywordBuiltinMap) {
                 const builtinName = keywordBuiltinMap[this.name];
                 // For length/last on arrays, use direct access instead of iterator
@@ -3986,10 +3992,7 @@ export class DetransArray extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.useBuiltin("__DETRANS__");
-        writer.write("__DETRANS__(");
         this.iter.toJS(writer);
-        writer.write(")");
     }
 }
 
