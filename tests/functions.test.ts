@@ -1,0 +1,286 @@
+import { testCompile, testParse, testParseExpectError } from "./helpers";
+
+test("compile functions", () => {
+    testCompile(`func myFunc(a: Int, b: Int): Int { a + b }; myFunc(1, 2)`, 3n);
+});
+
+test("compile recursive functions", () => {
+    testCompile(
+        `
+        func factorial(n: Int): Int {
+            if n <= 1 {
+                1
+            } else {
+                n * factorial(n - 1)
+            }
+        };
+
+        factorial(4)
+        `,
+        24n
+    );
+});
+
+test("compile functions as variables", () => {
+    testCompile(
+        `
+        func foo(): Int {
+            1
+        };
+        x = foo;
+        y = foo[];
+    
+        x() + y()
+        `,
+        2n
+    );
+    testCompile(
+        `
+        func foo(a: Int): Int {
+            a
+        };
+        x = foo[Int];
+        x(1)
+        `,
+        1n
+    );
+    testCompile(
+        `
+            func call(f: Func[Int: Int], x: Int): Int {
+                f(x)
+            };
+            
+            func add1(x: Int): Int {
+                x + 1
+            };
+            
+            call(add1[Int], 1)
+        `,
+        2n
+    );
+});
+
+test("anonymous functions", () => {
+    testCompile(
+        `
+            f = func(a: Int, b: Int) {
+                a + b
+            };
+            f(1, 2)
+        `,
+        3n
+    );
+});
+
+test("allow calling non-variable objects", () => {
+    testCompile(
+        `
+            (func(a: Int, b: Int) {
+                a + b
+            })(1, 2)
+        `,
+        3n
+    );
+    testCompile(
+        `
+            func foo(a: Int): Func[:Int] {
+                func() {
+                    a
+                }
+            }
+            
+            foo(1)()
+        `,
+        1n
+    );
+    testCompile(
+        `
+        func foo(x: Int): Int {
+            x + 1
+        };
+
+        func bar(): Func[Int: Int] {
+            foo[Int]
+        };
+
+        bar()(1)
+        `,
+        2n
+    );
+});
+
+test("compile generic function without return type annotation", () => {
+    testCompile(
+        `
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        id(42)
+    `,
+        42n
+    );
+    testCompile(
+        `
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        id("hello")
+    `,
+        "hello"
+    );
+    // Generic function calling another generic function inside a generic body
+    testCompile(
+        `
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        func wrap(x: T): T where T is Any { id(x) }
+        wrap(10)
+    `,
+        10n
+    );
+    // Generic with trait-defined function, nested in another generic
+    testCompile(
+        `
+        trait Foo {
+            foo[(x: Self): Self]
+        }
+        func foo(x: Int) { x }
+        func id(x: T) where T is Foo { foo(x) }
+        func wrap(x: T): T where T is Foo { id(x) }
+        id(10)
+    `,
+        10n
+    );
+    testCompile(
+        `
+        trait Foo {
+            foo[(x: Self): Self]
+        }
+        func foo(x: Int) { x }
+        func id(x: T) where T is Foo { foo(x) }
+        func wrap(x: T): T where T is Foo { id(x) }
+        wrap(10)
+    `,
+        10n
+    );
+});
+
+test("compile anonymous function with return type annotation", () => {
+    testCompile(`func (x: Int): Int { x + 1 }(5)`, 6n);
+    testCompile(`@map(func (x: Int): Int { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
+    testCompile(`@filter(func (x: Int): Bool { x > 0 }, [1, 2, 3])`, [1n, 2n, 3n]);
+    testCompile(`reduce(func (acc: Int, x: Int): Int { acc + x }, 0, [1, 2, 3])`, 6n);
+    // Regular anonymous functions still work
+    testCompile(`func (x: Int) { x + 1 }(5)`, 6n);
+});
+
+test("parse function", () => {
+    // Functions without return types are allowed (inferred from body)
+    testParse(`func foo() { 1 }`);
+    testParse(`func add(a: Int, b: Int): Int { a + b }`);
+    testParse(`
+        func myFunc(a: Func[Int: Func[Int: Int]], b: Func[:Int]): Func[Int: Func[Int: Int]] {
+            a
+        }
+    `);
+    testParse(`func myFunc(a: Int): Int { a }; myFunc(1)`);
+    testParseExpectError(`func myFunc(a: Int): Int { a }; myFunc(1.0)`);
+    // Functions with params must be referenced with explicit type params
+    testParseExpectError(
+        `
+        func foo(a: Int): Int {
+            a
+        }
+        x = foo;
+        `
+    );
+});
+
+test("allow references to named functions", () => {
+    testParse(`
+        func foo(x: Int): Int {
+            x
+        };
+        
+        bar = foo[Int];
+
+        bar(1)
+    `);
+});
+
+test("parse anonymous function with return type annotation", () => {
+    // Basic anonymous function with return type
+    testParse(`func (x: Int): Int { x + 1 }`);
+    // Return type matching body
+    testParse(`func (x: Int): Int { x }`);
+    // Return type that's different from final expression but still valid
+    testParse(`x = func (a: Int): Int { a }; x(5)`);
+    // Anonymous function with return type used in map
+    testParse(`
+        @map(func (x: Int): Int { x + 1 }, [1, 2, 3])
+    `);
+    // Anonymous function with return type used in filter
+    testParse(`
+        @filter(func (x: Int): Bool { x > 0 }, [1, 2, 3])
+    `);
+    // Anonymous function with return type used in reduce
+    testParse(`
+        reduce(func (acc: Int, x: Int): Int { acc + x }, 0, [1, 2, 3])
+    `);
+    // Anonymous function without return type should still work (no regression)
+    testParse(`func (x: Int) { x + 1 }`);
+
+    // Error: anonymous function with conflicting return type
+    testParseExpectError(`func (x: Int): Str { x + 1 }`);
+    testParseExpectError(`func (x: Int): Bool { x }`);
+    testParseExpectError(`func (x: Bool): Int { x }`);
+});
+
+test("parse generic function without return type annotation", () => {
+    // Generic functions can infer return type from body
+    testParse(`
+        trait Any {}
+        func foo(a: T) where T is Any { a }
+    `);
+    // Body returning concrete type (not the type param)
+    testParse(`
+        trait Any {}
+        func bar(a: T) where T is Any { 42 }
+    `);
+    // Multiple type params
+    testParse(`
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        id(42)
+    `);
+    // Generic function without return type, used with trait dispatch
+    testParse(`
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        id(42)
+    `);
+    // Generic function calling another generic function inside a generic body
+    testParse(`
+        trait Any {}
+        func id(x: T) where T is Any { x }
+        func wrap(x: T): T where T is Any { id(x) }
+        wrap(10)
+    `);
+    // Generic with trait-defined function, nested in another generic
+    testParse(`
+        trait Foo {
+            foo[(x: Self): Self]
+        }
+        func foo(x: Int) { x }
+        func id(x: T) where T is Foo { foo(x) }
+        func wrap(x: T): T where T is Foo { id(x) }
+        id(10)
+    `);
+    testParse(`
+        trait Foo {
+            foo[(x: Self): Self]
+        }
+        func foo(x: Int) { x }
+        func id(x: T) where T is Foo { foo(x) }
+        func wrap(x: T): T where T is Foo { id(x) }
+        wrap(10)
+    `);
+});

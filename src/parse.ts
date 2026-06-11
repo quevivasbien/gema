@@ -343,7 +343,12 @@ function parseIfStatement(parser: Parser): AST.Expression {
     } else {
         // Dummy else branch — will not be type-checked since hasElse=false
         // Create a minimal block with a null literal
-        const nullToken = { line: rootToken.line, col: rootToken.col, text: "null", type: TokenType.Integer };
+        const nullToken = {
+            line: rootToken.line,
+            col: rootToken.col,
+            text: "null",
+            type: TokenType.Integer,
+        };
         elseBranch = new AST.Block(
             { line: rootToken.line, col: rootToken.col, text: "{", type: TokenType.LBrace },
             [new AST.Literal(nullToken, "Null")]
@@ -1219,7 +1224,9 @@ function parseFor(parser: Parser): AST.Expression {
     }
     parser.advance();
     const body = parser.block();
-    return parser.tryCreateASTExpression(() => new AST.ForLoop(startToken, varName, iter, body as AST.Block));
+    return parser.tryCreateASTExpression(
+        () => new AST.ForLoop(startToken, varName, iter, body as AST.Block)
+    );
 }
 
 function parseBreak(parser: Parser): AST.Expression {
@@ -1428,7 +1435,10 @@ class Parser {
      * Finish parsing a field assignment: obj.field = value or obj.field += value.
      * The FieldAccess expression has already been parsed; we're positioned at = or a compound op.
      */
-    finishFieldAssignment(fieldAccess: AST.FieldAccess, isCompound: boolean): AST.FieldAssignment | null {
+    finishFieldAssignment(
+        fieldAccess: AST.FieldAccess,
+        isCompound: boolean
+    ): AST.FieldAssignment | null {
         const compoundOp = isCompound ? Parser.COMPOUND_OPS[this.current().type] : null;
         this.advance(); // consume = or compound op
 
@@ -1466,9 +1476,10 @@ class Parser {
     assignment(): AST.Expression | null {
         let isMutable = false;
         // Check for optional 'mut' keyword before the variable name
-        const afterMut = this.current().type === TokenType.Mut
-            && this.peek()?.type === TokenType.Identifier
-            && (this.peek(2)?.type === TokenType.Equal || this.peek(2)?.type in Parser.COMPOUND_OPS);
+        const afterMut =
+            this.current().type === TokenType.Mut &&
+            this.peek()?.type === TokenType.Identifier &&
+            (this.peek(2)?.type === TokenType.Equal || this.peek(2)?.type in Parser.COMPOUND_OPS);
         if (afterMut) {
             isMutable = true;
             this.advance(); // skip 'mut'
@@ -1490,7 +1501,9 @@ class Parser {
             return this.error("Expected expression after =");
         }
         if (rhs instanceof AST.If && !rhs.hasElse) {
-            return this.error("if without else can only be used as a statement, not as an expression.");
+            return this.error(
+                "if without else can only be used as a statement, not as an expression."
+            );
         }
 
         let value: AST.Expression = rhs;
@@ -1609,7 +1622,10 @@ class Parser {
         while (!this.atEnd() && this.current().type !== TokenType.RBrace) {
             // Check for optional 'mut' before field name
             let fieldMutable = false;
-            if (this.current().type === TokenType.Mut && this.peek()?.type === TokenType.Identifier) {
+            if (
+                this.current().type === TokenType.Mut &&
+                this.peek()?.type === TokenType.Identifier
+            ) {
                 fieldMutable = true;
                 this.advance(); // skip 'mut'
             }
@@ -1657,7 +1673,9 @@ class Parser {
             if (this.current().type === TokenType.RBrace) {
                 return new AST.DropValue(expr);
             }
-            return this.error("if without else can only be used as a statement, not as an expression.");
+            return this.error(
+                "if without else can only be used as a statement, not as an expression."
+            );
         }
 
         if (this.current().type === TokenType.Semicolon) {

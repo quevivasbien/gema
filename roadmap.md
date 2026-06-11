@@ -38,6 +38,7 @@ if x < 2 {
     x += 1;
 }
 ```
+
 This sort of thing should be possible, but if if statements don't have else blocks, they should evaluate to a null value.
 
 ## Tuples
@@ -45,6 +46,7 @@ This sort of thing should be possible, but if if statements don't have else bloc
 We need some sort of data structure that (1) is both guaranteed to have a fixed length, (2) can hold multiple data types at the same time, and (3) doesn't require special declaration beforehand (so we can't just use structs for this purpose).
 
 Proposed syntax:
+
 ```gema
 tup = (1, 2.0, "hello");  # Creates a Tuple[Int, Float, Str]
 first = tup(0);
@@ -55,6 +57,7 @@ func getThreeTypes(x: Int): Tuple[Int, Float, Str] {
 ```
 
 It would be nice to have automatic unpacking, so we can do things like:
+
 ```gema
 x = (1, 2, 3);
 (a, b, c) = x;
@@ -64,6 +67,7 @@ d = 0;  # Note that this won't impact x, since automatic unpacking will always c
 ```
 
 With this data type, we can support a zip iterator:
+
 ```gema
 zipped = zip([1, 2, 3], range(1, 3));
 
@@ -77,6 +81,7 @@ zipped(0)  # Evaluates to (1, 1)
 All keys must be of the same type, and all values must be of the same type (type signature is `Map[K, V]`). (Open question, what types are allowed for keys? I think JS supports anything if we piggy-back on JS's `Map`, but we might want to limit it or have some concept of hashability?)
 
 Example usage
+
 ```gema
 # Construct maps with an array of key-value tuples
 m = map([("a", 1), ("b", 2)]);  # m has type Map[Str, Int]
@@ -88,6 +93,7 @@ get(m, "c")
 ### Sets
 
 Example usage
+
 ```gema
 mut s = set([1, 2, 3, 2]);  # s has type Set[Int]
 s += set([2, 3, 4]);  # takes the union
@@ -96,11 +102,9 @@ push(s, 4);
 contains(s, 3)  # true!
 ```
 
-
 ## Tentative: remove `:` from type annotations.
 
 The `:` that we have as part of our type annotations is not really needed--it's just an extra character to type. We could just have go-style type annotations like `func(a Int, b Float) Float { toFloat(a) + b }`
-
 
 ## Modules
 
@@ -117,15 +121,14 @@ exportedConstant = 11;
 exports(exportedFunction, ExportedStruct, ExportedTrait, exportedConstant)
 ```
 
-
 ## IO
 
 We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
 
-
 ## Pipe syntax
 
 It could be nice to pipe values into functions like
+
 ```gema
 func f(x: Int) { x + 1}
 1 | f  # equivalent to f(1)
@@ -133,16 +136,13 @@ func f(x: Int) { x + 1}
 
 This of course would only work for functions with one parameter.
 
-
 ## Make builtins behave like normal functions
 
 We already have this to some extent with the type conversion operations like `toStr`, but it is a bit awkward right now that we have a bunch of operations like `map`, `length`, `last`, etc. that look like functions and behave very similarly to functions but can't get overloaded.
 
-
 ## Tentative: Enums
 
 It might be nice to have enums, maybe similar to how it is handled in Rust.
-
 
 ## Proper handling of null/undefined values.
 
@@ -153,6 +153,7 @@ It is possible to get `undefined` values if we do out of bounds array or iterato
 If we have Rust-style enums, we could have a Maybe or Optional enum type; any expression that might give a null value would instead give a Maybe value. If we don't have enums like that, it could be reasonable to just make this a built-in type. `Maybe[Int]` would just mean a value that compiles to either a `BigInt` or `undefined`, and the `Maybe` syntax would just be a way for the type checker to force the user to check if the value is `undefined` or not.
 
 The syntax could look something like
+
 ```
 arr = [1, 2, 3];
 x = arr(1);  # this has type Maybe[Int], but it just compiles to x = arr[1n], no need to wrap it in anything in JS
@@ -161,6 +162,7 @@ unwrap(x, 0)  # converts to an Int, falling back on default value if x === undef
 ```
 
 We could maybe introduce some new operators:
+
 ```
 arr ! 1  # This is an unsafe access, for when the user knows the index is in bounds and doesn't want to bother with unwrapping
 arr(1) ? 0  # This is semantic sugar for unwrap(arr(1), 0)
@@ -168,7 +170,6 @@ arr(1) ??  # Abort the program if arr(1) is undefined
 ```
 
 I actually kind of like `!` as an unsafe call, so maybe we could use it more generally to denote an unsafe call, for example, replace `unsafeTrans(arr)` with `trans ! arr`. More speculatively, we could have a concept of an unsafe function with `!` as the syntax to call those functions. At the same time, it might make sense to introduce `$` as the equivalent safe call operator (would work the same way as just parenthesis calls but have different precedence).
-
 
 ## No type annotations for anonymous functions.
 
@@ -181,7 +182,6 @@ func sum(arr: Arr[Int]) {
 ```
 
 We can use the same annotated function syntax that we already have in place for non-anonymous functions when we're passing anonymous functions around like variables.
-
 
 We probably should also not allow anonymous functions in the top-level scope.
 
@@ -197,7 +197,6 @@ func sum(arr: Arr[Int]) {
     reduce(f, 0, arr)
 }
 ```
-
 
 ## Tentative: list comprehensions
 

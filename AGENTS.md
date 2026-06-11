@@ -72,6 +72,7 @@ Tests use Bun's built-in test runner (`bun:test`). Two test files in [`tests/`](
 - **Experimental features** (marked `test.todo`): repeated iterator reads, nested generic types, generic struct fields.
 
 ## Contribution guidelines
+
 - Run eslint (e.g. `bun run eslint`) before finalizing changes. Do your best to comply with its suggestions.
 - Run Prettier formatter (e.g. `bun run prettier . --write`) when finalizing any changes.
 - If you add notable new syntax or other features to the language, you can update the `README.md` and the code examples in the frontend sandbox to showcase the new language features.

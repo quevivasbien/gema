@@ -1,5 +1,15 @@
 // Built-in type names that cannot be used as type parameters or user-defined types
-const BUILTIN_TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Func", "Arr", "Iter", "MutArr", "Self"]);
+const BUILTIN_TYPE_NAMES = new Set([
+    "Int",
+    "Float",
+    "Str",
+    "Bool",
+    "Func",
+    "Arr",
+    "Iter",
+    "MutArr",
+    "Self",
+]);
 
 export function isBuiltinTypeName(name: string): boolean {
     return BUILTIN_TYPE_NAMES.has(name);

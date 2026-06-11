@@ -863,9 +863,7 @@ export class Assignment extends Expression {
 
             // Reassignment requires the variable to be mutable
             if (!sameBlockDef.isMutable) {
-                throw this.error(
-                    `cannot reassign non-mutable variable '${this.name}'`
-                );
+                throw this.error(`cannot reassign non-mutable variable '${this.name}'`);
             }
 
             // Reassignment must match the original type
@@ -892,9 +890,7 @@ export class Assignment extends Expression {
                 this.isReassignment = true;
 
                 if (!outerDef.isMutable) {
-                    throw this.error(
-                        `cannot reassign non-mutable variable '${this.name}'`
-                    );
+                    throw this.error(`cannot reassign non-mutable variable '${this.name}'`);
                 }
 
                 const assignType = this.value.type!;
@@ -2165,42 +2161,91 @@ function findCaller(
         const arg = argTypes[0];
         if (name === "last") {
             if (arg instanceof ArrayType || arg instanceof IterType || arg instanceof MutArrType) {
-                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], arg.innerType), rootType: arg.innerType } };
+                return {
+                    error: null,
+                    result: {
+                        referToByName: name,
+                        callerType: new FuncType([arg], arg.innerType),
+                        rootType: arg.innerType,
+                    },
+                };
             }
         }
         if (name === "length") {
             if (arg instanceof ArrayType || arg instanceof IterType || arg instanceof MutArrType) {
-                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], "Int"), rootType: "Int" } };
+                return {
+                    error: null,
+                    result: {
+                        referToByName: name,
+                        callerType: new FuncType([arg], "Int"),
+                        rootType: "Int",
+                    },
+                };
             }
         }
         if (name === "detrans") {
             if (arg instanceof MutArrType) {
                 const ret = new ArrayType(arg.innerType);
-                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], ret), rootType: ret } };
+                return {
+                    error: null,
+                    result: {
+                        referToByName: name,
+                        callerType: new FuncType([arg], ret),
+                        rootType: ret,
+                    },
+                };
             }
         }
         if (name === "trans") {
             if (arg instanceof ArrayType) {
                 const ret = new MutArrType(arg.innerType);
-                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], ret), rootType: ret } };
+                return {
+                    error: null,
+                    result: {
+                        referToByName: name,
+                        callerType: new FuncType([arg], ret),
+                        rootType: ret,
+                    },
+                };
             }
         }
         if (name === "unsafeTrans") {
             if (arg instanceof ArrayType) {
                 const ret = new MutArrType(arg.innerType);
-                return { error: null, result: { referToByName: name, callerType: new FuncType([arg], ret), rootType: ret } };
+                return {
+                    error: null,
+                    result: {
+                        referToByName: name,
+                        callerType: new FuncType([arg], ret),
+                        rootType: ret,
+                    },
+                };
             }
         }
     }
     if (argTypes.length === 2) {
         if (name === "push") {
             if (argTypes[0] instanceof MutArrType) {
-                return { error: null, result: { referToByName: name, callerType: new FuncType(argTypes, argTypes[0]), rootType: argTypes[0] } };
+                return {
+                    error: null,
+                    result: {
+                        referToByName: name,
+                        callerType: new FuncType(argTypes, argTypes[0]),
+                        rootType: argTypes[0],
+                    },
+                };
             }
         }
         if (name === "set") {
             if (argTypes[0] instanceof MutArrType) {
-                return { error: null, result: { referToByName: name, callerType: new FuncType(argTypes, argTypes[0].innerType), rootType: argTypes[0].innerType } };
+                return {
+                    error: null,
+                    result: {
+                        referToByName: name,
+                        callerType: new FuncType(argTypes, argTypes[0].innerType),
+                        rootType: argTypes[0].innerType,
+                    },
+                };
             }
         }
     }
@@ -2890,7 +2935,10 @@ export class DirectCall extends Expression {
                     arg.toJS(writer);
                 });
                 writer.write(")");
-            } else if (this.caller.type instanceof ArrayType || this.caller.type instanceof MutArrType) {
+            } else if (
+                this.caller.type instanceof ArrayType ||
+                this.caller.type instanceof MutArrType
+            ) {
                 this.args.forEach((arg, i) => {
                     writer.write("[");
                     arg.toJS(writer);
@@ -4152,9 +4200,7 @@ export class ForLoop extends Expression {
         } else if (this.iter.type === "Str") {
             innerType = "Str";
         } else {
-            throw this.error(
-                `cannot iterate over object of type ${this.iter.type}`
-            );
+            throw this.error(`cannot iterate over object of type ${this.iter.type}`);
         }
         // Cascade the body
         this.body.cascadeTypes([...ancestors, this]);
@@ -4304,9 +4350,7 @@ export class FieldAssignment extends Expression {
         }
         const field = structInfo.fields.find((f) => f.name === this.fieldName);
         if (!field) {
-            throw this.error(
-                `struct ${structInfo.name} has no field named "${this.fieldName}"`
-            );
+            throw this.error(`struct ${structInfo.name} has no field named "${this.fieldName}"`);
         }
         if (!field.mutable) {
             throw this.error(
