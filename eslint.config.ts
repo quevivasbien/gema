@@ -8,7 +8,6 @@ export default defineConfig([
         "node_modules/",
         "**/dist/**/*", // Ignores contents of dist/
         "**/build/**/*", // Ignores contents of build/
-        "**/static-site/**/*", // Static site deployment output
     ]),
     {
         files: ["**/*.{js,mjs,cjs,ts,mts,cts}"],
