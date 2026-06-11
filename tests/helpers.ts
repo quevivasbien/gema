@@ -2,7 +2,7 @@ import { expect } from "bun:test";
 import { parse } from "../src/parse";
 import { scan } from "../src/scan";
 import { writeJS } from "../src/write-js";
-import { resetRegistries } from "../src/ast";
+import { resetRegistries } from "../src/ast/index";
 
 /**
  * Parse + compile a Gema program, then eval the JS.

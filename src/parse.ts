@@ -1,4 +1,4 @@
-import * as AST from "./ast";
+import * as AST from "./ast/index";
 import { type Type, TemplateTypes, getType } from "./types";
 import { TokenType, KEYWORDS, type Token } from "./tokens";
 

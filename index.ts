@@ -1,7 +1,7 @@
 import { parse } from "./src/parse";
 import { scan } from "./src/scan";
 import { writeJS } from "./src/write-js";
-import { resetRegistries } from "./src/ast";
+import { resetRegistries } from "./src/ast/index";
 
 export { parse, scan, writeJS };
 

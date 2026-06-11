@@ -1,7 +1,7 @@
 import { bench, do_not_optimize, group, run } from "mitata";
 import { scan } from "../src/scan";
 import { parse } from "../src/parse";
-import { resetRegistries } from "../src/ast";
+import { resetRegistries } from "../src/ast/index";
 import { writeJS } from "../src/write-js";
 
 // ── Code samples ────────────────────────────────────────────────
