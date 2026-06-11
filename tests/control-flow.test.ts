@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { testCompile, testCompileError, testParse, testParseExpectError } from "./helpers";
+import { testCompile, testParseExpectError, testParse, testParseExpectError } from "./helpers";
 
 test("compile if expressions", () => {
     testCompile(`if true { 1 } else { 2 }`, 1n);
@@ -102,8 +102,8 @@ test("if-else: else-less if as final expression evaluates to null", () => {
 });
 
 test("if-else: error else-less if in expression context", () => {
-    testCompileError("x = if true { 1 }");
-    testCompileError("x = if false { 1 }");
+    testParseExpectError("x = if true { 1 }");
+    testParseExpectError("x = if false { 1 }");
 });
 
 test("if-else: regular if-else still works", () => {

@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { testCompile, testCompileError } from "./helpers";
+import { testCompile, testParseExpectError } from "./helpers";
 
 // ============================================================
 // Mutable arrays (MutArr[T])
@@ -96,7 +96,7 @@ test("mutarr: unsafeTrans shares the array", () => {
 
 test("mutarr: detransed array can be used normally", () => {
     testCompile(
-        `mutarr = trans([1, 2, 3]); arr = detrans(mutarr); @map(func(x: Int){ x + 1 }, arr)`,
+        `mutarr = trans([1, 2, 3]); arr = detrans(mutarr); map(func(x: Int){ x + 1 }, arr) | collect`,
         [2n, 3n, 4n]
     );
     testCompile(`mutarr = trans([1, 2, 3]); arr = detrans(mutarr); arr(0)`, 1n);
@@ -179,12 +179,12 @@ test("mutarr: pass mutarr into function and push", () => {
 // ── Use-after-detrans error ──
 
 test("mutarr: error use after detrans", () => {
-    testCompileError(`
+    testParseExpectError(`
         mutarr = trans([1, 2, 3]);
         arr = detrans(mutarr);
         push(mutarr, 4)
     `);
-    testCompileError(`
+    testParseExpectError(`
         mutarr = trans([1, 2, 3]);
         arr = detrans(mutarr);
         set(mutarr, 0, 99)
@@ -194,40 +194,40 @@ test("mutarr: error use after detrans", () => {
 // ── Error cases ──
 
 test("mutarr: error trans on non-array", () => {
-    testCompileError("trans(1)");
-    testCompileError('trans("hello")');
-    testCompileError("trans(true)");
+    testParseExpectError("trans(1)");
+    testParseExpectError('trans("hello")');
+    testParseExpectError("trans(true)");
 });
 
 test("mutarr: error unsafeTrans on non-array", () => {
-    testCompileError("unsafeTrans(1)");
+    testParseExpectError("unsafeTrans(1)");
 });
 
 test("mutarr: error detrans on non-mut-array", () => {
-    testCompileError("detrans([1, 2, 3])");
-    testCompileError("detrans(1)");
+    testParseExpectError("detrans([1, 2, 3])");
+    testParseExpectError("detrans(1)");
 });
 
 test("mutarr: error push on non-mut-array", () => {
-    testCompileError("push([1, 2], 3)");
+    testParseExpectError("push([1, 2], 3)");
 });
 
 test("mutarr: error set on non-mut-array", () => {
-    testCompileError("set([1, 2], 0, 99)");
+    testParseExpectError("set([1, 2], 0, 99)");
 });
 
 test("mutarr: error push type mismatch", () => {
-    testCompileError(`mutarr = trans([1, 2]); push(mutarr, "hello")`);
+    testParseExpectError(`mutarr = trans([1, 2]); push(mutarr, "hello")`);
 });
 
 test("mutarr: error set type mismatch", () => {
-    testCompileError(`mutarr = trans([1, 2]); set(mutarr, 0, "hello")`);
+    testParseExpectError(`mutarr = trans([1, 2]); set(mutarr, 0, "hello")`);
 });
 
 test("mutarr: error set non-integer index", () => {
-    testCompileError(`mutarr = trans([1, 2]); set(mutarr, "x", 99)`);
+    testParseExpectError(`mutarr = trans([1, 2]); set(mutarr, "x", 99)`);
 });
 
 test("mutarr: error trans on non-array variable", () => {
-    testCompileError("x = 1; trans(x)");
+    testParseExpectError("x = 1; trans(x)");
 });

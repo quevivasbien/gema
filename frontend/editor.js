@@ -29,7 +29,7 @@ sayHello("Gema")`,
     }
 };
 
-@map(factorial, range(0, 5))`,
+collect(map(factorial, range(0, 5)))`,
     },
     iterativeFactorial: {
         label: "Factorial (iterative)",
@@ -45,7 +45,7 @@ sayHello("Gema")`,
     }
 };
 
-@map(factorial, range(0, 5))`,
+collect(map(factorial, range(0, 5)))`,
     },
     arrays: {
         label: "Arrays & Indexing",
@@ -76,7 +76,7 @@ func add1(x: Int): Int {
 nums = range(1, 10);
 
 evens = filter(isEven, nums);
-plus1 = @map(add1, evens);
+plus1 = collect(map(add1, evens));
 
 sum = reduce(
     func(acc: Int, x: Int) { acc + x },
@@ -194,8 +194,8 @@ func toStr(arr: Iter[Bool]) {
 }
 
 grid = {
-    xs = @linspace(-1.75, 0.25, 19);
-    ys = @linspace(-1., 1., 19);
+    xs = collect(linspace(-1.75, 0.25, 19));
+    ys = collect(linspace(-1., 1., 19));
     concat(
         map(
             func(y: Float) {

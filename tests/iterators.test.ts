@@ -3,14 +3,14 @@ import { test } from "bun:test";
 import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 test("compile map iterator", () => {
-    testCompile(`@map(func(x: Int) { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
+    testCompile(`collect(map(func(x: Int) { x + 1 }, [1, 2, 3]))`, [2n, 3n, 4n]);
     testCompile(
         `
         func foo(x: Int): Int {
             x
         };
         
-        @map(foo, [1, 2, 3])
+        collect(map(foo[Int], [1, 2, 3]))
         `,
         [1n, 2n, 3n]
     );
@@ -24,7 +24,7 @@ test("compile map iterator", () => {
             map(add1, [1, 2, 3])
         );
 
-        @iter
+        collect(iter)
         `,
         [3n, 4n, 5n]
     );
@@ -32,7 +32,7 @@ test("compile map iterator", () => {
         `
         arr = ["hello", "there"];
         iter = map(arr, [1, 1, 0]);
-        @iter
+        collect(iter)
         `,
         ["there", "there", "hello"]
     );
@@ -41,11 +41,8 @@ test("compile map iterator", () => {
 test("compile filter iterator", () => {
     testCompile(
         `
-        func isEven(x: Int): Bool {
-            x % 2 == 0
-        };
-        iter = filter(isEven, [1, 2, 3, 4, 5]);
-        @iter
+        iter = filter(func(x: Int): Bool { x % 2 == 0 }, [1, 2, 3, 4, 5]);
+        collect(iter)
         `,
         [2n, 4n]
     );
@@ -66,10 +63,7 @@ test("compile reduce expression", () => {
     );
     testCompile(
         `
-        func add(x: Int, y: Int): Int {
-            x + y
-        };
-        reduce(add, 0, [1, 2, 3])
+        reduce(func(x: Int, y: Int): Int { x + y }, 0, [1, 2, 3])
         `,
         6n
     );
@@ -93,47 +87,47 @@ test("compile iterator indexed access", () => {
 
 test("compile take", () => {
     // take(n, iter) — first n elements
-    testCompile("@take(3, range(0, 5))", [0n, 1n, 2n]);
-    testCompile("@take(0, range(0, 5))", []);
-    testCompile("@take(2, [1, 2, 3, 4])", [1n, 2n]);
+    testCompile("collect(take(3, range(0, 5)))", [0n, 1n, 2n]);
+    testCompile("collect(take(0, range(0, 5)))", []);
+    testCompile("collect(take(2, [1, 2, 3, 4]))", [1n, 2n]);
     // Take more than available
-    testCompile("@take(10, range(0, 3))", [0n, 1n, 2n, 3n]);
+    testCompile("collect(take(10, range(0, 3)))", [0n, 1n, 2n, 3n]);
     // Chaining with other iterator ops
-    testCompile("@take(2, map(func(x: Int){ x * 2 }, [1, 2, 3, 4]))", [2n, 4n]);
+    testCompile("collect(take(2, map(func(x: Int){ x * 2 }, [1, 2, 3, 4])))", [2n, 4n]);
 });
 
 test("compile takeWhile", () => {
     // takeWhile(pred, iter) — elements while predicate is true
-    testCompile(`@takeWhile(func(x: Int): Bool { x < 3 }, range(0, 10))`, [0n, 1n, 2n]);
-    testCompile(`@takeWhile(func(x: Int): Bool { x < 3 }, [1, 2, 3, 4, 5])`, [1n, 2n]);
+    testCompile(`collect(takeWhile(func(x: Int): Bool { x < 3 }, range(0, 10)))`, [0n, 1n, 2n]);
+    testCompile(`collect(takeWhile(func(x: Int): Bool { x < 3 }, [1, 2, 3, 4, 5]))`, [1n, 2n]);
     // Predicate fails immediately
-    testCompile(`@takeWhile(func(x: Int): Bool { x > 5 }, [1, 2, 3])`, []);
+    testCompile(`collect(takeWhile(func(x: Int): Bool { x > 5 }, [1, 2, 3]))`, []);
 });
 
 test("compile drop", () => {
     // drop(n, iter) — skip first n elements
-    testCompile("@drop(2, range(0, 5))", [2n, 3n, 4n, 5n]);
-    testCompile("@drop(2, [1, 2, 3, 4])", [3n, 4n]);
-    testCompile("@drop(0, [1, 2, 3])", [1n, 2n, 3n]);
+    testCompile("collect(drop(2, range(0, 5)))", [2n, 3n, 4n, 5n]);
+    testCompile("collect(drop(2, [1, 2, 3, 4]))", [3n, 4n]);
+    testCompile("collect(drop(0, [1, 2, 3]))", [1n, 2n, 3n]);
     // Drop more than available
-    testCompile("@drop(10, range(0, 3))", []);
+    testCompile("collect(drop(10, range(0, 3)))", []);
 });
 
 test("compile dropWhile", () => {
     // dropWhile(pred, iter) — skip elements while predicate is true
-    testCompile(`@dropWhile(func(x: Int): Bool { x < 3 }, [1, 2, 3, 4, 5])`, [3n, 4n, 5n]);
-    testCompile(`@dropWhile(func(x: Int): Bool { x < 2 }, range(0, 5))`, [2n, 3n, 4n, 5n]);
+    testCompile(`collect(dropWhile(func(x: Int): Bool { x < 3 }, [1, 2, 3, 4, 5]))`, [3n, 4n, 5n]);
+    testCompile(`collect(dropWhile(func(x: Int): Bool { x < 2 }, range(0, 5)))`, [2n, 3n, 4n, 5n]);
     // Predicate fails immediately — nothing dropped
-    testCompile(`@dropWhile(func(x: Int): Bool { x > 5 }, [1, 2, 3])`, [1n, 2n, 3n]);
+    testCompile(`collect(dropWhile(func(x: Int): Bool { x > 5 }, [1, 2, 3]))`, [1n, 2n, 3n]);
 });
 
 test("compile iterate", () => {
     // iterate(f, start) — start, f(start), f(f(start)), ...
     const take5 = `take(5, iterate(func(x: Int): Int { x + 1 }, 0))`;
-    testCompile(`@${take5}`, [0n, 1n, 2n, 3n, 4n]);
+    testCompile(`collect(${take5})`, [0n, 1n, 2n, 3n, 4n]);
 
     const take3 = `take(3, iterate(func(x: Int): Int { x * 2 }, 1))`;
-    testCompile(`@${take3}`, [1n, 2n, 4n]);
+    testCompile(`collect(${take3})`, [1n, 2n, 4n]);
 });
 
 test("compile last", () => {
@@ -164,8 +158,8 @@ test("compile repeated use of iterator", () => {
         `
         x = range(1, 3);
 
-        @x;
-        @x
+        collect(x);
+        collect(x)
     `,
         [1n, 2n, 3n]
     );
@@ -174,8 +168,8 @@ test("compile repeated use of iterator", () => {
         x = range(1, 3);
         y = map(func(i: Int){ i + 1 }, x);
 
-        @x;
-        @y
+        collect(x);
+        collect(y)
     `,
         [2n, 3n, 4n]
     );
@@ -184,8 +178,8 @@ test("compile repeated use of iterator", () => {
         x = range(1, 3);
         y = map(func(i: Int){ i + 1 }, x);
 
-        @y;
-        @x
+        collect(y);
+        collect(x)
     `,
         [1n, 2n, 3n]
     );
@@ -302,7 +296,7 @@ test("parse filter iterator", () => {
         func myFilter(x: Int): Int {
             x + 1
         };
-        @filter(myFilter, [1, 2, 3])
+        collect(filter(myFilter, [1, 2, 3]))
     `);
 });
 
@@ -311,13 +305,13 @@ test("parse reduce expression", () => {
         func add(x: Int, y: Int): Int {
             x + y
         };
-        @filter(myFilter, [1., 2., 3.], 0)
+        collect(filter(myFilter, [1., 2., 3.], 0))
     `);
     testParseExpectError(`
         func add(x: Int, y: Int): Int {
             x + y
         };
-        @filter(myFilter, [1, 2, 3], false)
+        collect(filter(myFilter, [1, 2, 3], false))
     `);
 });
 

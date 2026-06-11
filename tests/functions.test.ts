@@ -167,8 +167,8 @@ test("compile generic function without return type annotation", () => {
 
 test("compile anonymous function with return type annotation", () => {
     testCompile(`func (x: Int): Int { x + 1 }(5)`, 6n);
-    testCompile(`@map(func (x: Int): Int { x + 1 }, [1, 2, 3])`, [2n, 3n, 4n]);
-    testCompile(`@filter(func (x: Int): Bool { x > 0 }, [1, 2, 3])`, [1n, 2n, 3n]);
+    testCompile(`collect(map(func (x: Int): Int { x + 1 }, [1, 2, 3]))`, [2n, 3n, 4n]);
+    testCompile(`collect(filter(func (x: Int): Bool { x > 0 }, [1, 2, 3]))`, [1n, 2n, 3n]);
     testCompile(`reduce(func (acc: Int, x: Int): Int { acc + x }, 0, [1, 2, 3])`, 6n);
     // Regular anonymous functions still work
     testCompile(`func (x: Int) { x + 1 }(5)`, 6n);
@@ -217,11 +217,11 @@ test("parse anonymous function with return type annotation", () => {
     testParse(`x = func (a: Int): Int { a }; x(5)`);
     // Anonymous function with return type used in map
     testParse(`
-        @map(func (x: Int): Int { x + 1 }, [1, 2, 3])
+        collect(map(func (x: Int): Int { x + 1 }, [1, 2, 3]))
     `);
     // Anonymous function with return type used in filter
     testParse(`
-        @filter(func (x: Int): Bool { x > 0 }, [1, 2, 3])
+        collect(filter(func (x: Int): Bool { x > 0 }, [1, 2, 3]))
     `);
     // Anonymous function with return type used in reduce
     testParse(`

@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { testCompile, testCompileError, testParse, testParseExpectError } from "./helpers";
+import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 test("compile variables", () => {
     testCompile(
@@ -80,29 +80,29 @@ test("mut: reassignment with expression", () => {
 // ── Non-mut cannot be reassigned ──
 
 test("mut: non-mut variable cannot be reassigned", () => {
-    testCompileError("x = 1; x = 2");
-    testCompileError("x = 1; x = x + 1");
-    testCompileError("x = true; x = false");
-    testCompileError('x = "a"; x = "b"');
-    testCompileError("x = 1.5; x = 2.5");
+    testParseExpectError("x = 1; x = 2");
+    testParseExpectError("x = 1; x = x + 1");
+    testParseExpectError("x = true; x = false");
+    testParseExpectError('x = "a"; x = "b"');
+    testParseExpectError("x = 1.5; x = 2.5");
 });
 
 // ── Type mismatch on mutable reassignment ──
 
 test("mut: type mismatch on reassignment errors", () => {
-    testCompileError("mut x = 1; x = true");
-    testCompileError("mut x = 1; x = 1.5");
-    testCompileError('mut x = 1; x = "hello"');
-    testCompileError("mut x = true; x = 1");
-    testCompileError("mut x = [1, 2]; x = [true, false]");
+    testParseExpectError("mut x = 1; x = true");
+    testParseExpectError("mut x = 1; x = 1.5");
+    testParseExpectError('mut x = 1; x = "hello"');
+    testParseExpectError("mut x = true; x = 1");
+    testParseExpectError("mut x = [1, 2]; x = [true, false]");
 });
 
 // ── Double declaration errors ──
 
 test("mut: double declaration errors", () => {
-    testCompileError("mut x = 1; mut x = 2");
-    testCompileError("mut x = 1; x = 2; mut x = 3");
-    testCompileError("x = 1; mut x = 2");
+    testParseExpectError("mut x = 1; mut x = 2");
+    testParseExpectError("mut x = 1; x = 2; mut x = 3");
+    testParseExpectError("x = 1; mut x = 2");
 });
 
 // ── Shadowing (like JS let) ──
@@ -142,7 +142,7 @@ test("mut: shadowing in separate sibling blocks", () => {
 
 // Shadowing from non-mut to mut is NOT allowed
 test("mut: cannot shadow with mut if outer is non-mut", () => {
-    testCompileError("x = 1; { mut x = 2 }");
+    testParseExpectError("x = 1; { mut x = 2 }");
 });
 
 // ── Mutable var in function body ──
@@ -301,7 +301,7 @@ test("mut: type must stay consistent across all branches", () => {
         2n
     );
     // Error: one branch tries to change type
-    testCompileError(`
+    testParseExpectError(`
         mut x = 1;
         if true {
             x = 2
@@ -315,7 +315,7 @@ test("mut: type must stay consistent across all branches", () => {
 // ── Edge: mut on declaration only, not on reassignment ──
 
 test("mut: mut keyword only valid on first declaration", () => {
-    testCompileError("mut x = 1; mut x = 2");
+    testParseExpectError("mut x = 1; mut x = 2");
     // Reassignment doesn't use 'mut' keyword
     testCompile("mut x = 1; x = 2; x", 2n);
 });
@@ -338,7 +338,7 @@ test("mut: inside deeply nested blocks", () => {
 });
 
 test("mut: inner block cannot reassign non-mut outer var", () => {
-    testCompileError(`
+    testParseExpectError(`
         x = 0;
         {
             x = 1
@@ -462,7 +462,7 @@ test("compound: float types", () => {
 
 test("compound: int += float promotes to float", () => {
     // x is Int, 1.5 is Float → x + 1.5 is Float → but reassigning Int with Float errors
-    testCompileError("mut x = 1; x += 1.5");
+    testParseExpectError("mut x = 1; x += 1.5");
 });
 
 // ── Compound on arrays (concatenation) ──
@@ -539,42 +539,42 @@ test("compound: reassign outer mut from nested block", () => {
 // ── Error: compound on non-mutable variable ──
 
 test("compound: error on non-mutable variable", () => {
-    testCompileError("x = 1; x += 1");
-    testCompileError("x = 10; x -= 5");
-    testCompileError("x = 3; x *= 2");
-    testCompileError("x = 10; x /= 2");
-    testCompileError("x = 10; x %= 3");
-    testCompileError("x = 2; x ^= 3");
+    testParseExpectError("x = 1; x += 1");
+    testParseExpectError("x = 10; x -= 5");
+    testParseExpectError("x = 3; x *= 2");
+    testParseExpectError("x = 10; x /= 2");
+    testParseExpectError("x = 10; x %= 3");
+    testParseExpectError("x = 2; x ^= 3");
 });
 
 // ── Error: type mismatch in compound ──
 
 test("compound: type mismatch errors", () => {
-    testCompileError("mut x = 1; x += true");
-    testCompileError("mut x = 1; x -= true");
-    testCompileError("mut x = true; x += 1");
-    testCompileError("mut x = 1; x *= true");
-    testCompileError('mut x = 1; x /= "hello"');
+    testParseExpectError("mut x = 1; x += true");
+    testParseExpectError("mut x = 1; x -= true");
+    testParseExpectError("mut x = true; x += 1");
+    testParseExpectError("mut x = 1; x *= true");
+    testParseExpectError('mut x = 1; x /= "hello"');
 });
 
 // ── Error: unsupported compound operators on non-numeric types ──
 
 test("compound: unsupported operator on string", () => {
-    testCompileError('mut s = "hello"; s -= "o"');
-    testCompileError('mut s = "hello"; s *= 2');
-    testCompileError('mut s = "hello"; s /= 2');
+    testParseExpectError('mut s = "hello"; s -= "o"');
+    testParseExpectError('mut s = "hello"; s *= 2');
+    testParseExpectError('mut s = "hello"; s /= 2');
 });
 
 // ── Error: compound as expression (compound is statement-only) ──
 
 test("compound: used in non-assignment context", () => {
     // x += 1 where x doesn't exist yet
-    testCompileError("x += 1");
+    testParseExpectError("x += 1");
 });
 
 // ── Edge: boolean logical operators NOT included ──
 
 test("compound: no and=/or= operators", () => {
-    testCompileError("mut x = true; x and= false");
-    testCompileError("mut x = true; x or= false");
+    testParseExpectError("mut x = true; x and= false");
+    testParseExpectError("mut x = true; x or= false");
 });

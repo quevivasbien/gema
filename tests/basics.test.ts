@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { testCompile, testCompileError, testParse, testParseExpectError } from "./helpers";
+import { testCompile, testParseExpectError, testParse, testParseExpectError } from "./helpers";
 
 test("compile literals", () => {
     testCompile(`1`, 1n);
@@ -240,6 +240,6 @@ test("pipe: pipe to last", () => {
 });
 
 test("pipe: error non-identifier RHS", () => {
-    testCompileError("1 | 2");
-    testCompileError("true | false");
+    testParseExpectError("1 | 2");
+    testParseExpectError("true | false");
 });

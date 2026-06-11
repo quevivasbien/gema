@@ -291,12 +291,7 @@ export class Unary extends Expression {
                 }
                 break;
         }
-        if (this.child.type instanceof IterType) {
-            if (this.operator === TokenType.At) {
-                this.type = new ArrayType(this.child.type.innerType);
-                return;
-            }
-        }
+        // Note: @ (At) prefix was removed. Use collect() instead.
         throw this.error(
             `cannot use token ${this.operator} on expression of type ${this.child.type}.`
         );
@@ -316,13 +311,6 @@ export class Unary extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        if (this.child.type instanceof IterType && this.operator === TokenType.At) {
-            writer.useBuiltin("__COLLECT__");
-            writer.write("__COLLECT__(");
-            this.child.toJS(writer);
-            writer.write(")");
-            return;
-        }
         writer.write(`(${this.operator}(`);
         this.child.toJS(writer);
         writer.write("))");
@@ -2011,6 +1999,13 @@ function findCaller(
         }
     }
 
+    // Check for iterator/array builtins (map, filter, reduce, etc.)
+    // Only reached if no user-defined function or trait dispatch matched.
+    const builtinResult = findBuiltin(name, argTypes);
+    if (builtinResult) {
+        return builtinResult;
+    }
+
     // Trait dispatch: if arg types are CustomTypes with trait bounds and the call name matches a trait method
     const traitCandidates: { traitName: string; selfType: Type }[] = [];
     for (const argType of argTypes) {
@@ -2108,100 +2103,6 @@ function findCaller(
         }
     }
 
-    // Check for keyword-based builtins (last, length, trans, push, set, etc.)
-    if (argTypes.length === 1) {
-        const arg = argTypes[0];
-        if (name === "last") {
-            if (arg instanceof ArrayType || arg instanceof IterType || arg instanceof MutArrType) {
-                return {
-                    error: null,
-                    result: {
-                        referToByName: name,
-                        callerType: new FuncType([arg], arg.innerType),
-                        rootType: arg.innerType,
-                    },
-                };
-            }
-        }
-        if (name === "length") {
-            if (arg instanceof ArrayType || arg instanceof IterType || arg instanceof MutArrType) {
-                return {
-                    error: null,
-                    result: {
-                        referToByName: name,
-                        callerType: new FuncType([arg], "Int"),
-                        rootType: "Int",
-                    },
-                };
-            }
-        }
-        if (name === "detrans") {
-            if (arg instanceof MutArrType) {
-                const ret = new ArrayType(arg.innerType);
-                return {
-                    error: null,
-                    result: {
-                        referToByName: name,
-                        callerType: new FuncType([arg], ret),
-                        rootType: ret,
-                    },
-                };
-            }
-        }
-        if (name === "trans") {
-            if (arg instanceof ArrayType) {
-                const ret = new MutArrType(arg.innerType);
-                return {
-                    error: null,
-                    result: {
-                        referToByName: name,
-                        callerType: new FuncType([arg], ret),
-                        rootType: ret,
-                    },
-                };
-            }
-        }
-        if (name === "unsafeTrans") {
-            if (arg instanceof ArrayType) {
-                const ret = new MutArrType(arg.innerType);
-                return {
-                    error: null,
-                    result: {
-                        referToByName: name,
-                        callerType: new FuncType([arg], ret),
-                        rootType: ret,
-                    },
-                };
-            }
-        }
-    }
-    if (argTypes.length === 2) {
-        if (name === "push") {
-            if (argTypes[0] instanceof MutArrType) {
-                return {
-                    error: null,
-                    result: {
-                        referToByName: name,
-                        callerType: new FuncType(argTypes, argTypes[0]),
-                        rootType: argTypes[0],
-                    },
-                };
-            }
-        }
-        if (name === "set") {
-            if (argTypes[0] instanceof MutArrType) {
-                return {
-                    error: null,
-                    result: {
-                        referToByName: name,
-                        callerType: new FuncType(argTypes, argTypes[0].innerType),
-                        rootType: argTypes[0].innerType,
-                    },
-                };
-            }
-        }
-    }
-
     return {
         error: `function ${name}[${argTypes.map((t) => t.toString()).join(", ")}: unknown] not found`,
         result: null,
@@ -2267,6 +2168,479 @@ function findTypeConversion(
     };
 }
 
+/**
+ * Look up a builtin function by name and argument types.
+ * Returns null if no builtin matches (letting findCaller fall through to "not found").
+ */
+/** Loose type comparison that allows type variables (non-concrete types) to match anything */
+function looseMatch(a: Type, b: Type): boolean {
+    if (a === b) return true;
+    // If either type is not concrete, allow the match (for generic function bodies)
+    if (!isConcreteType(a) || !isConcreteType(b)) return true;
+    return deepEquals(a, b);
+}
+
+function findBuiltin(
+    name: string,
+    argTypes: Type[]
+):
+    | {
+          error: null;
+          result: {
+              referToByName: string;
+              callerType: FuncType;
+              rootType: Type;
+              isBuiltin: true;
+              builtinKind: string;
+          };
+      }
+    | undefined {
+    switch (name) {
+        case "collect": {
+            if (argTypes.length !== 1) return undefined;
+            const inner = argTypes[0];
+            if (inner instanceof IterType) {
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "collect",
+                        callerType: new FuncType([inner], new ArrayType(inner.innerType)),
+                        rootType: new ArrayType(inner.innerType),
+                        isBuiltin: true,
+                        builtinKind: "collect",
+                    },
+                };
+            }
+            if (inner instanceof ArrayType || inner instanceof MutArrType) {
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "collect",
+                        callerType: new FuncType([inner], inner),
+                        rootType: inner,
+                        isBuiltin: true,
+                        builtinKind: "collect",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "map": {
+            if (argTypes.length !== 2) return undefined;
+            const [mapFirst, mapSecond] = argTypes;
+            // map(arr, indices) — array-as-index-mapping
+            if (mapFirst instanceof ArrayType || mapFirst instanceof MutArrType) {
+                if (
+                    !(
+                        mapSecond instanceof IterType ||
+                        mapSecond instanceof ArrayType ||
+                        mapSecond instanceof MutArrType
+                    )
+                )
+                    return undefined;
+                const secondInner =
+                    mapSecond instanceof IterType ? mapSecond.innerType : mapSecond.innerType;
+                if (secondInner !== "Int") return undefined;
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "map",
+                        callerType: new FuncType(
+                            [mapFirst, mapSecond],
+                            new IterType(mapFirst.innerType)
+                        ),
+                        rootType: new IterType(mapFirst.innerType),
+                        isBuiltin: true,
+                        builtinKind: "mapFromArray",
+                    },
+                };
+            }
+            if (!(mapFirst instanceof FuncType) || mapFirst.paramTypes.length !== 1)
+                return undefined;
+            if (
+                !(
+                    mapSecond instanceof IterType ||
+                    mapSecond instanceof ArrayType ||
+                    mapSecond instanceof MutArrType
+                )
+            )
+                return undefined;
+            const mapIterInner =
+                mapSecond instanceof IterType ? mapSecond.innerType : mapSecond.innerType;
+            if (!looseMatch(mapFirst.paramTypes[0], mapIterInner)) return undefined;
+            const mapOutputType = mapFirst.returnType;
+            return {
+                error: null,
+                result: {
+                    referToByName: "map",
+                    callerType: new FuncType([mapFirst, mapSecond], new IterType(mapOutputType)),
+                    rootType: new IterType(mapOutputType),
+                    isBuiltin: true,
+                    builtinKind: "map",
+                },
+            };
+        }
+        case "filter": {
+            if (argTypes.length !== 2) return undefined;
+            const [fFnType, fIterType] = argTypes;
+            if (!(fFnType instanceof FuncType) || fFnType.paramTypes.length !== 1) return undefined;
+            if (
+                !(
+                    fIterType instanceof IterType ||
+                    fIterType instanceof ArrayType ||
+                    fIterType instanceof MutArrType
+                )
+            )
+                return undefined;
+            const fIterInner =
+                fIterType instanceof IterType ? fIterType.innerType : fIterType.innerType;
+            if (!looseMatch(fFnType.paramTypes[0], fIterInner)) return undefined;
+            if (fFnType.returnType !== "Bool") return undefined;
+            return {
+                error: null,
+                result: {
+                    referToByName: "filter",
+                    callerType: new FuncType([fFnType, fIterType], new IterType(fIterInner)),
+                    rootType: new IterType(fIterInner),
+                    isBuiltin: true,
+                    builtinKind: "filter",
+                },
+            };
+        }
+        case "reduce": {
+            if (argTypes.length !== 3) return undefined;
+            const [rFnType, rInitType, rIterType] = argTypes;
+            if (!(rFnType instanceof FuncType) || rFnType.paramTypes.length !== 2) return undefined;
+            if (
+                !(
+                    rIterType instanceof IterType ||
+                    rIterType instanceof ArrayType ||
+                    rIterType instanceof MutArrType
+                )
+            )
+                return undefined;
+            const rIterInner =
+                rIterType instanceof IterType ? rIterType.innerType : rIterType.innerType;
+            if (!looseMatch(rFnType.paramTypes[0], rInitType)) return undefined;
+            if (!looseMatch(rFnType.paramTypes[1], rIterInner)) return undefined;
+            if (!looseMatch(rFnType.returnType, rInitType)) return undefined;
+            return {
+                error: null,
+                result: {
+                    referToByName: "reduce",
+                    callerType: new FuncType([rFnType, rInitType, rIterType], rInitType),
+                    rootType: rInitType,
+                    isBuiltin: true,
+                    builtinKind: "reduce",
+                },
+            };
+        }
+        case "range": {
+            if (argTypes.length !== 2 && argTypes.length !== 3) return undefined;
+            if (argTypes.some((t) => t !== "Int")) return undefined;
+            return {
+                error: null,
+                result: {
+                    referToByName: "range",
+                    callerType: new FuncType(argTypes, new IterType("Int")),
+                    rootType: new IterType("Int"),
+                    isBuiltin: true,
+                    builtinKind: "range",
+                },
+            };
+        }
+        case "iterate": {
+            if (argTypes.length !== 2) return undefined;
+            const [iFnType, iStartType] = argTypes;
+            if (!(iFnType instanceof FuncType) || iFnType.paramTypes.length !== 1) return undefined;
+            if (!looseMatch(iFnType.paramTypes[0], iStartType)) return undefined;
+            if (!looseMatch(iFnType.returnType, iStartType)) return undefined;
+            return {
+                error: null,
+                result: {
+                    referToByName: "iterate",
+                    callerType: new FuncType([iFnType, iStartType], new IterType(iStartType)),
+                    rootType: new IterType(iStartType),
+                    isBuiltin: true,
+                    builtinKind: "iterate",
+                },
+            };
+        }
+        case "last": {
+            if (argTypes.length !== 1) return undefined;
+            const lInner = argTypes[0];
+            if (
+                lInner instanceof IterType ||
+                lInner instanceof ArrayType ||
+                lInner instanceof MutArrType
+            ) {
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "last",
+                        callerType: new FuncType([lInner], lInner.innerType),
+                        rootType: lInner.innerType,
+                        isBuiltin: true,
+                        builtinKind: "last",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "length": {
+            if (argTypes.length !== 1) return undefined;
+            const lenInner = argTypes[0];
+            if (
+                lenInner instanceof IterType ||
+                lenInner instanceof ArrayType ||
+                lenInner instanceof MutArrType
+            ) {
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "length",
+                        callerType: new FuncType([lenInner], "Int"),
+                        rootType: "Int",
+                        isBuiltin: true,
+                        builtinKind: "length",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "take": {
+            if (argTypes.length !== 2) return undefined;
+            if (argTypes[0] !== "Int") return undefined;
+            const tInner = argTypes[1];
+            if (tInner instanceof IterType) {
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "take",
+                        callerType: new FuncType(
+                            [argTypes[0], tInner],
+                            new IterType(tInner.innerType)
+                        ),
+                        rootType: new IterType(tInner.innerType),
+                        isBuiltin: true,
+                        builtinKind: "take",
+                    },
+                };
+            }
+            if (tInner instanceof ArrayType || tInner instanceof MutArrType) {
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "take",
+                        callerType: new FuncType(
+                            [argTypes[0], tInner],
+                            new IterType(tInner.innerType)
+                        ),
+                        rootType: new IterType(tInner.innerType),
+                        isBuiltin: true,
+                        builtinKind: "take",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "drop": {
+            if (argTypes.length !== 2) return undefined;
+            if (argTypes[0] !== "Int") return undefined;
+            const dInner = argTypes[1];
+            if (dInner instanceof IterType) {
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "drop",
+                        callerType: new FuncType(
+                            [argTypes[0], dInner],
+                            new IterType(dInner.innerType)
+                        ),
+                        rootType: new IterType(dInner.innerType),
+                        isBuiltin: true,
+                        builtinKind: "drop",
+                    },
+                };
+            }
+            if (dInner instanceof ArrayType || dInner instanceof MutArrType) {
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "drop",
+                        callerType: new FuncType(
+                            [argTypes[0], dInner],
+                            new IterType(dInner.innerType)
+                        ),
+                        rootType: new IterType(dInner.innerType),
+                        isBuiltin: true,
+                        builtinKind: "drop",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "takeWhile": {
+            if (argTypes.length !== 2) return undefined;
+            const [twFnType, twIterType] = argTypes;
+            if (!(twFnType instanceof FuncType) || twFnType.paramTypes.length !== 1)
+                return undefined;
+            if (twFnType.returnType !== "Bool") return undefined;
+            if (twIterType instanceof IterType) {
+                if (!looseMatch(twFnType.paramTypes[0], twIterType.innerType)) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "takeWhile",
+                        callerType: new FuncType(
+                            [twFnType, twIterType],
+                            new IterType(twIterType.innerType)
+                        ),
+                        rootType: new IterType(twIterType.innerType),
+                        isBuiltin: true,
+                        builtinKind: "takeWhile",
+                    },
+                };
+            }
+            if (twIterType instanceof ArrayType || twIterType instanceof MutArrType) {
+                if (!looseMatch(twFnType.paramTypes[0], twIterType.innerType)) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "takeWhile",
+                        callerType: new FuncType(
+                            [twFnType, twIterType],
+                            new IterType(twIterType.innerType)
+                        ),
+                        rootType: new IterType(twIterType.innerType),
+                        isBuiltin: true,
+                        builtinKind: "takeWhile",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "dropWhile": {
+            if (argTypes.length !== 2) return undefined;
+            const [dwFnType, dwIterType] = argTypes;
+            if (!(dwFnType instanceof FuncType) || dwFnType.paramTypes.length !== 1)
+                return undefined;
+            if (dwFnType.returnType !== "Bool") return undefined;
+            if (dwIterType instanceof IterType) {
+                if (!looseMatch(dwFnType.paramTypes[0], dwIterType.innerType)) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "dropWhile",
+                        callerType: new FuncType(
+                            [dwFnType, dwIterType],
+                            new IterType(dwIterType.innerType)
+                        ),
+                        rootType: new IterType(dwIterType.innerType),
+                        isBuiltin: true,
+                        builtinKind: "dropWhile",
+                    },
+                };
+            }
+            if (dwIterType instanceof ArrayType || dwIterType instanceof MutArrType) {
+                if (!looseMatch(dwFnType.paramTypes[0], dwIterType.innerType)) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        referToByName: "dropWhile",
+                        callerType: new FuncType(
+                            [dwFnType, dwIterType],
+                            new IterType(dwIterType.innerType)
+                        ),
+                        rootType: new IterType(dwIterType.innerType),
+                        isBuiltin: true,
+                        builtinKind: "dropWhile",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "trans": {
+            if (argTypes.length !== 1) return undefined;
+            if (!(argTypes[0] instanceof ArrayType)) return undefined;
+            const mutResult = new MutArrType(argTypes[0].innerType);
+            return {
+                error: null,
+                result: {
+                    referToByName: "trans",
+                    callerType: new FuncType(argTypes, mutResult),
+                    rootType: mutResult,
+                    isBuiltin: true,
+                    builtinKind: "trans",
+                },
+            };
+        }
+        case "unsafeTrans": {
+            if (argTypes.length !== 1) return undefined;
+            if (!(argTypes[0] instanceof ArrayType)) return undefined;
+            const unsafeResult = new MutArrType(argTypes[0].innerType);
+            return {
+                error: null,
+                result: {
+                    referToByName: "unsafeTrans",
+                    callerType: new FuncType(argTypes, unsafeResult),
+                    rootType: unsafeResult,
+                    isBuiltin: true,
+                    builtinKind: "unsafeTrans",
+                },
+            };
+        }
+        case "detrans": {
+            if (argTypes.length !== 1) return undefined;
+            if (!(argTypes[0] instanceof MutArrType)) return undefined;
+            const detResult = new ArrayType(argTypes[0].innerType);
+            return {
+                error: null,
+                result: {
+                    referToByName: "detrans",
+                    callerType: new FuncType(argTypes, detResult),
+                    rootType: detResult,
+                    isBuiltin: true,
+                    builtinKind: "detrans",
+                },
+            };
+        }
+        case "push": {
+            if (argTypes.length !== 2) return undefined;
+            if (!(argTypes[0] instanceof MutArrType)) return undefined;
+            if (!looseMatch(argTypes[0].innerType, argTypes[1])) return undefined;
+            return {
+                error: null,
+                result: {
+                    referToByName: "push",
+                    callerType: new FuncType(argTypes, "Null"),
+                    rootType: "Null",
+                    isBuiltin: true,
+                    builtinKind: "push",
+                },
+            };
+        }
+        case "set": {
+            if (argTypes.length !== 3) return undefined;
+            if (!(argTypes[0] instanceof MutArrType)) return undefined;
+            if (argTypes[1] !== "Int") return undefined;
+            if (!looseMatch(argTypes[0].innerType, argTypes[2])) return undefined;
+            return {
+                error: null,
+                result: {
+                    referToByName: "set",
+                    callerType: new FuncType(argTypes, "Null"),
+                    rootType: "Null",
+                    isBuiltin: true,
+                    builtinKind: "set",
+                },
+            };
+        }
+        default:
+            return undefined;
+    }
+}
+
 export class Call extends Expression {
     name: string;
     args: Expression[];
@@ -2279,6 +2653,8 @@ export class Call extends Expression {
     isStringIndexing: boolean = false;
     isTypeConversion: boolean = false;
     conversionJsExpr: ((arg: string) => string) | null = null;
+    isBuiltin: boolean = false;
+    builtinKind: string = "";
 
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
@@ -2467,12 +2843,33 @@ export class Call extends Expression {
             }
             throw this.error(error);
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((result as any).isTypeConversion) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const convResult = result as any;
+        if (result.isTypeConversion) {
+            const convResult = result;
             this.isTypeConversion = true;
             this.conversionJsExpr = convResult.jsExpr;
+        }
+        if (result.isBuiltin) {
+            const builtinResult = result;
+            this.isBuiltin = true;
+            this.builtinKind = builtinResult.builtinKind;
+
+            // Track consumed variables for mutarr operations
+            if (this.builtinKind === "detrans") {
+                const detransArg = this.args[0];
+                if (detransArg instanceof Variable && detransArg.fullName) {
+                    markVarConsumed(detransArg.fullName);
+                }
+            }
+            if (this.builtinKind === "push" || this.builtinKind === "set") {
+                const mutarrArg = this.args[0];
+                if (mutarrArg instanceof Variable && mutarrArg.fullName) {
+                    if (isVarConsumed(mutarrArg.fullName)) {
+                        throw this.error(
+                            `cannot use variable '${mutarrArg.fullName}' after it was detrans'd`
+                        );
+                    }
+                }
+            }
         }
         this.referToByName = result.referToByName;
         this.callerType = result.callerType;
@@ -2600,57 +2997,195 @@ export class Call extends Expression {
             writer.write("]");
             return;
         }
-        if (this.callerType instanceof FuncType) {
-            // Check for keyword-based builtins that use specialized codegen
-            const keywordBuiltinMap: Record<string, string> = {
-                last: "__LAST__",
-                length: "__LENGTH__",
-                push: "__PUSH__",
-                set: "__SET__",
-            };
-            // Handle inlined cases (no builtin needed)
-            if (this.name === "trans") {
-                writer.write("[...");
-                this.args[0]?.toJS(writer);
-                writer.write("]");
-                return;
-            }
-            if (this.name === "unsafeTrans") {
-                // This is a no-op in JS
-                this.args[0]?.toJS(writer);
-                return;
-            }
-            if (this.name === "detrans") {
-                // This is a no-op in JS
-                this.args[0]?.toJS(writer);
-                return;
-            }
-            // Handle cases that use builtin functions
-            if (this.name in keywordBuiltinMap) {
-                const builtinName = keywordBuiltinMap[this.name];
-                // For length/last on arrays, use direct access instead of iterator
-                if (this.name === "length" && this.args[0]?.type instanceof ArrayType) {
-                    writer.write("BigInt(");
-                    this.args[0].toJS(writer);
-                    writer.write(".length)");
-                    return;
-                }
-                if (this.name === "last" && this.args[0]?.type instanceof ArrayType) {
-                    this.args[0].toJS(writer);
-                    writer.write("[");
-                    this.args[0].toJS(writer);
-                    writer.write(".length - 1]");
-                    return;
-                }
-                writer.useBuiltin(builtinName);
-                writer.write(`${builtinName}(`);
-                this.args.forEach((arg, i) => {
-                    if (i > 0) writer.write(", ");
+        if (this.isBuiltin) {
+            // Wrap array arguments with __ARRAYITER__ for iterator-based builtins
+            const wrapArg = (index: number): void => {
+                const arg = this.args[index];
+                if (arg && (arg.type instanceof ArrayType || arg.type instanceof MutArrType)) {
+                    writer.useBuiltin("__ARRAYITER__");
+                    writer.write("__ARRAYITER__(");
                     arg.toJS(writer);
-                });
-                writer.write(")");
-                return;
+                    writer.write(")");
+                } else {
+                    arg?.toJS(writer);
+                }
+            };
+            switch (this.builtinKind) {
+                case "collect": {
+                    writer.useBuiltin("__COLLECT__");
+                    writer.write("__COLLECT__(");
+                    wrapArg(0);
+                    writer.write(")");
+                    return;
+                }
+                case "map": {
+                    writer.useBuiltin("__MAPITER__");
+                    writer.write("__MAPITER__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArg(1);
+                    writer.write(")");
+                    return;
+                }
+                case "mapFromArray": {
+                    writer.useBuiltin("__ARRAYMAPITER__");
+                    writer.write("__ARRAYMAPITER__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArg(1);
+                    writer.write(")");
+                    return;
+                }
+                case "filter": {
+                    writer.useBuiltin("__FILTERITER__");
+                    writer.write("__FILTERITER__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArg(1);
+                    writer.write(")");
+                    return;
+                }
+                case "reduce": {
+                    writer.useBuiltin("__REDUCE__");
+                    writer.write("__REDUCE__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArg(2);
+                    writer.write(")");
+                    return;
+                }
+                case "range": {
+                    writer.useBuiltin("__RANGEITER__");
+                    writer.write("__RANGEITER__(");
+                    this.args.forEach((arg, i) => {
+                        if (i > 0) writer.write(", ");
+                        arg.toJS(writer);
+                    });
+                    writer.write(")");
+                    return;
+                }
+                case "iterate": {
+                    writer.useBuiltin("__ITERATEITER__");
+                    writer.write("__ITERATEITER__(");
+                    this.args.forEach((arg, i) => {
+                        if (i > 0) writer.write(", ");
+                        arg.toJS(writer);
+                    });
+                    writer.write(")");
+                    return;
+                }
+                case "last": {
+                    // For arrays, use direct index access
+                    if (
+                        this.args[0]?.type instanceof ArrayType ||
+                        this.args[0]?.type instanceof MutArrType
+                    ) {
+                        this.args[0].toJS(writer);
+                        writer.write("[");
+                        this.args[0].toJS(writer);
+                        writer.write(".length - 1]");
+                        return;
+                    }
+                    writer.useBuiltin("__LAST__");
+                    writer.write("__LAST__(");
+                    wrapArg(0);
+                    writer.write(")");
+                    return;
+                }
+                case "length": {
+                    // For arrays, use direct .length
+                    if (
+                        this.args[0]?.type instanceof ArrayType ||
+                        this.args[0]?.type instanceof MutArrType
+                    ) {
+                        writer.write("BigInt(");
+                        this.args[0].toJS(writer);
+                        writer.write(".length)");
+                        return;
+                    }
+                    writer.useBuiltin("__LENGTH__");
+                    writer.write("__LENGTH__(");
+                    wrapArg(0);
+                    writer.write(")");
+                    return;
+                }
+                case "take": {
+                    writer.useBuiltin("__TAKEITER__");
+                    writer.write("__TAKEITER__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArg(1);
+                    writer.write(")");
+                    return;
+                }
+                case "drop": {
+                    writer.useBuiltin("__DROPITER__");
+                    writer.write("__DROPITER__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArg(1);
+                    writer.write(")");
+                    return;
+                }
+                case "takeWhile": {
+                    writer.useBuiltin("__TAKEWHILEITER__");
+                    writer.write("__TAKEWHILEITER__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArg(1);
+                    writer.write(")");
+                    return;
+                }
+                case "dropWhile": {
+                    writer.useBuiltin("__DROPWHILEITER__");
+                    writer.write("__DROPWHILEITER__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArg(1);
+                    writer.write(")");
+                    return;
+                }
+                case "trans": {
+                    writer.write("[...");
+                    this.args[0]?.toJS(writer);
+                    writer.write("]");
+                    return;
+                }
+                case "unsafeTrans": {
+                    this.args[0]?.toJS(writer);
+                    return;
+                }
+                case "detrans": {
+                    this.args[0]?.toJS(writer);
+                    return;
+                }
+                case "push": {
+                    writer.useBuiltin("__PUSH__");
+                    writer.write("__PUSH__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                }
+                case "set": {
+                    writer.useBuiltin("__SET__");
+                    writer.write("__SET__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[2]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                }
+                default:
+                    throw new Error(`unknown builtin: ${this.builtinKind}`);
             }
+        }
+        if (this.callerType instanceof FuncType) {
             // Check if this is a struct constructor (call name matches a registered struct name)
             const structInfo =
                 this.type instanceof CustomType ? getStruct(this.type.name) : undefined;

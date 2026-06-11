@@ -77,8 +77,8 @@ func toStr(arr: Iter[Bool]) {
 }
 
 grid = {
-    xs = @linspace(-1.75, 0.25, 19);
-    ys = @linspace(-1., 1., 19);
+    xs = collect(linspace(-1.75, 0.25, 19));
+    ys = collect(linspace(-1., 1., 19));
     concat(
         map(
             func(y: Float) {
@@ -95,7 +95,7 @@ const PRIMES_SIEVE = `
 trait Any {}
 
 func fill(x: T, n: Int) where T is Any {
-  @take(n, iterate(func(ignore: T){ x }, x))
+  collect(take(n, iterate(func(ignore: T){ x }, x)))
 }
 
 func sieve(upto: Int) {
@@ -120,7 +120,7 @@ func sieve(upto: Int) {
 // ── Benchmark helpers ───────────────────────────────────────────
 
 /** Compile once, return a function that evals the compiled JS. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line collect(typescript)-eslint/no-explicit-any
 function makeRunner(code: string): () => any {
     resetRegistries();
     const tokens = scan(code);

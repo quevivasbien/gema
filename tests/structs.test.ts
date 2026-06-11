@@ -3,7 +3,7 @@ import { test } from "bun:test";
 import {
     requireIdenticalCompilation,
     testCompile,
-    testCompileError,
+    testParseExpectError,
     testParse,
     testParseExpectError,
 } from "./helpers";
@@ -72,7 +72,7 @@ test("compile functional operations with structs", () => {
         `
         struct P { p: Int }
 
-        @map(func (p: P) { p("p") }, [P(1), P(2)])
+        collect(map(func (p: P) { p("p") }, [P(1), P(2)]))
     `,
         [1n, 2n]
     );
@@ -82,10 +82,7 @@ test("compile reduce with structs", () => {
     testCompile(
         `
         struct P { p: Int };
-        func addP(a: P, b: P): P {
-            P(a("p") + b("p"))
-        };
-        result = reduce(addP, P(0), [P(1), P(2), P(3)]);
+        result = reduce(func(a: P, b: P): P { P(a("p") + b("p")) }, P(0), [P(1), P(2), P(3)]);
         result("p")
     `,
         6n
@@ -348,7 +345,7 @@ test("parse functional operations with structs", () => {
     testParse(`
         struct P { p: Int }
 
-        @map(func (p: P) { p("p") }, [P(1), P(2)])
+        collect(map(func (p: P) { p("p") }, [P(1), P(2)]))
     `);
 });
 
@@ -524,7 +521,7 @@ test("field: mutate field from nested block", () => {
 // ── Mut struct var does NOT make fields mutable ──
 
 test("field: mut var doesn't make non-mut field mutable", () => {
-    testCompileError(`
+    testParseExpectError(`
         struct S { x: Int };
         mut s = S(1);
         s.x = 2
@@ -534,7 +531,7 @@ test("field: mut var doesn't make non-mut field mutable", () => {
 // ── Error: assign to non-mut field ──
 
 test("field: error assigning to non-mutable field", () => {
-    testCompileError(`
+    testParseExpectError(`
         struct S { x: Int };
         s = S(1);
         s.x = 2
@@ -544,7 +541,7 @@ test("field: error assigning to non-mutable field", () => {
 // ── Error: assign to non-existent field ──
 
 test("field: error assigning to non-existent field", () => {
-    testCompileError(`
+    testParseExpectError(`
         struct S { mut x: Int };
         s = S(1);
         s.y = 2
@@ -554,7 +551,7 @@ test("field: error assigning to non-existent field", () => {
 // ── Error: type mismatch on field assignment ──
 
 test("field: error type mismatch on field assignment", () => {
-    testCompileError(`
+    testParseExpectError(`
         struct S { mut x: Int };
         s = S(1);
         s.x = true
@@ -562,7 +559,7 @@ test("field: error type mismatch on field assignment", () => {
 });
 
 test("field: error type mismatch on compound field assignment", () => {
-    testCompileError(`
+    testParseExpectError(`
         struct S { mut x: Int };
         s = S(1);
         s.x += true
@@ -572,7 +569,7 @@ test("field: error type mismatch on compound field assignment", () => {
 // ── Error: compound on non-mut field ──
 
 test("field: error compound on non-mutable field", () => {
-    testCompileError(`
+    testParseExpectError(`
         struct S { x: Int };
         s = S(1);
         s.x += 2
@@ -582,7 +579,7 @@ test("field: error compound on non-mutable field", () => {
 // ── Error: assign to field on non-struct type ──
 
 test("field: error assigning field on non-struct", () => {
-    testCompileError(`
+    testParseExpectError(`
         x = 1;
         x.y = 2
     `);
@@ -601,7 +598,7 @@ test("field: mixed mut and non-mut fields", () => {
         12n
     );
     // Non-mut field cannot be mutated
-    testCompileError(`
+    testParseExpectError(`
         struct HalfMut { mut x: Int, y: Int };
         q = HalfMut(1, 2);
         q.y = 20

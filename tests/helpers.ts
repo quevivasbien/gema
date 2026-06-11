@@ -22,16 +22,6 @@ export function testCompile(text: string, expectEqual: unknown) {
 }
 
 /**
- * Assert that a program produces one or more parse/type errors.
- */
-export function testCompileError(text: string) {
-    resetRegistries();
-    const tokens = scan(text);
-    const { errors } = parse(tokens);
-    expect(errors.length).toBeGreaterThan(0);
-}
-
-/**
  * Parse a program and assert no errors. Returns the AST.
  */
 export function testParse(text: string) {
