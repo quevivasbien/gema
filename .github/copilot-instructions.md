@@ -40,3 +40,4 @@ bun run server.ts        # Start dev server on port 3000
 - Run eslint (e.g. `bun run eslint`) and tsc (`bun tsc`) before finalizing changes. Do your best to comply with its suggestions. DO NOT use eslint-ignore without verifying it's okay with the user.
 - Run Prettier formatter (e.g. `bun run prettier . --write`) when finalizing any changes.
 - If you add notable new syntax or other features to the language, you can update the `README.md` and the code examples in the frontend sandbox to showcase the new language features.
+- Be conservative about adding new builtins to the BUILTINS in `src/builtins.ts`. If you can reasonably implement a new builtin operation inline instead of creating a new function, you should do that.

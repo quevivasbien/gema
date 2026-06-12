@@ -1,65 +1,8 @@
 # Roadmap for `gema` development
 
-## Tuples
+## Change tuple type signature from `Tuple[A, B, C, ...]` to `(A, B, C, ...)`
 
-We need some sort of data structure that (1) is both guaranteed to have a fixed length, (2) can hold multiple data types at the same time, and (3) doesn't require special declaration beforehand (so we can't just use structs for this purpose).
-
-Proposed syntax:
-
-```gema
-tup = (1, 2.0, "hello");  # Creates a Tuple[Int, Float, Str]
-first = tup(0);
-
-func getThreeTypes(x: Int): Tuple[Int, Float, Str] {
-    (x, toFloat(x), toStr(x))
-}
-```
-
-It would be nice to have automatic unpacking, so we can do things like:
-
-```gema
-x = (1, 2, 3);
-(a, b, c) = x;
-# Or, if we want to be able to mutate one of the resulting vars:
-(mut d, e, mut f) = x;
-d = 0;  # Note that this won't impact x, since automatic unpacking will always copy values.
-```
-
-With this data type, we can support a zip iterator:
-
-```gema
-zipped = zip([1, 2, 3], range(1, 3));
-
-zipped(0)  # Evaluates to (1, 1)
-```
-
-## Hash maps and sets
-
-### Maps
-
-All keys must be of the same type, and all values must be of the same type (type signature is `Map[K, V]`). (Open question, what types are allowed for keys? I think JS supports anything if we piggy-back on JS's `Map`, but we might want to limit it or have some concept of hashability?)
-
-Example usage
-
-```gema
-# Construct maps with an array of key-value tuples
-m = map([("a", 1), ("b", 2)]);  # m has type Map[Str, Int]
-
-set(m, "c", 3);
-m("c")
-```
-
-### Sets
-
-Example usage
-
-```gema
-mut s = set([1, 2, 3, 2]);  # s has type Set[Int]
-s += set([2, 3, 4]);  # takes the union
-s *= set([1, 3, 8]);  # takes the intersection
-push(s, 4);
-contains(s, 3)  # true!
-```
+This one is pretty self-explanatory -- it would make it a bit less clunky to work with tuples or do things like creating an empty `Dict`.
 
 ## Tentative: remove `:` from type annotations.
 
@@ -149,3 +92,8 @@ func sum(arr: Arr[Int]) {
 ## Tentative: list comprehensions
 
 List comprehensions are super helpful as a succinct map + zip + filter. Could be nice to have.
+
+
+## Language guide
+
+We should put together a comprehensive guide for the language.

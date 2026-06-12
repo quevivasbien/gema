@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { testParse, testCompile } from "./helpers";
+import { testParse, testCompile, requireIdenticalCompilation, testParseExpectError } from "./helpers";
 
 // ============================================================
 // Dict
@@ -8,6 +8,11 @@ import { testParse, testCompile } from "./helpers";
 
 test("Dict: basic", () => {
     testParse(`Dict([("a", 1), ("b", 2)])`);
+});
+
+test("Dict: create empty Dict", () => {
+    testParse(`Dict([]:Tuple[Int, Int])`);
+    testCompile(`d = Dict([]:Tuple[Int, Int]); d(1)`, undefined);
 });
 
 test("Dict: compile and access with numeric key", () => {
@@ -28,7 +33,52 @@ test("Dict: access missing key", () => {
     testCompile(`m = Dict([([1,2], 1),]); m([1,2])`, undefined);  // This should be undefined, since [1,2] is not actually the same object as the array that was used in the map
 });
 
-// TODO: Tests for mutable Dicts
+test.todo("MutDict: create mutable dict with trans", () => {
+    testParse(`m = trans(Dict[("a", 1),])`);
+    testParse(`d = Dict[("a", 1),]; trans(d)`);
+});
+
+test.todo("MutDict: create mutable dict with unsafeTrans", () => {
+    testParse(`m = unsafeTrans(Dict[("a", 1),])`);
+    testParse(`d = Dict[("a", 1),]; unsafeTrans(d)`);
+});
+
+test.todo("MutDict: add to a mutable dict", () => {
+    testCompile(`m = trans(Dict[("a", 1),]); put(m, "b", 2); m("b")`, 2n);
+    testCompile(`m = trans(Dict[("a", 1),]); put(m, "b", 2)("b")`, 2n);  // Put should evaluate to the new value of the MutDict
+});
+
+test.todo("MutDict: remove from a mutable dict", () => {
+    testCompile(`m = trans(Dict[("a", 1),]); remove(m, "a", 2)("a")`, undefined);
+    testCompile(`m = trans(Dict[("a", 1),]); put(m, "b", 2); m("b")`, 2n);
+});
+
+test.todo("MutDict: when using trans, mutating a mutable dict does not change the original", () => {
+    testCompile(`d = Dict[("a", 1),]; m = trans(d); remove(m, "a", 2); d("a")`, 1n);
+});
+
+test.todo("MutDict: when using unsafeTrans, mutating a mutable dict does change the original", () => {
+    testCompile(`d = Dict[("a", 1),]; m = unsafeTrans(d); remove(m, "a", 2); d("a")`, undefined);
+});
+
+test.todo("MutDict: detrans gives an immutable Dict", () => {
+    testCompile(`m = trans(Dict[("a", 1),]); d = detrans(m); d("a")`, 1n);
+    testParseExpectError(`m = trans(Dict[("a", 1),]); d = detrans(m); put(d, "b", 2)`);
+});
+
+test.todo("MutDict: cannot use after detrans", () => {
+    testParseExpectError(`m = trans(Dict[("a", 1),]); d = detrans(m); m("a")`);
+    testParseExpectError(`m = trans(Dict[("a", 1),]); d = detrans(m); put(m, "b", 2)`);
+    testParseExpectError(`m = trans(Dict[("a", 1),]); d = detrans(m); put(m, "b", 2)`);
+});
+
+test.todo("MutDict: unsafeTrans is a no-op", () => {
+    requireIdenticalCompilation(`unsafeTrans(Dict[("a", 1),])`, `Dict[("a", 1),])`);
+});
+
+test.todo("MutDict: detrans is a no-op", () => {
+    requireIdenticalCompilation(`detrans(trans(Dict[("a", 1),]))`, `trans(Dict[("a", 1),]))`);
+});
 
 // ============================================================
 // Set

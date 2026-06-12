@@ -33,6 +33,18 @@ test("nested tuple", () => {
     testCompile("t = (1, (2, 3)); t(1)(1)", 3n);
 });
 
+test("tuple: function with tuple parameter", () => {
+    testCompile(
+        `
+        func foo(t: Tuple[Int, Float, Str]) {
+            toStr(t(0)) + toStr(t(1)) + t(2)
+        }
+        foo((1, 2.0, "3"))
+        `,
+        "123"
+    );
+});
+
 // ============================================================
 // Tuple unpacking
 // ============================================================
@@ -121,3 +133,23 @@ test("zip with map", () => {
         [11n, 22n, 33n]
     );
 });
+
+// ============================================================
+// Tuples in other data types
+// ============================================================
+
+test("tuple: list of tuples", () => {
+    testCompile("x = [(1,2,3), (4,5,6)]; x(1)(1)", 5n);
+    testParseExpectError("x = [(1,2,3), (4,6)];");  // Can't have mismatching tuple types in the same array
+    testParseExpectError("x = [(1,2,3), (4,5,6.0)];");  // Can't have mismatching tuple types in the same array
+});
+
+test("tuple: operations on list of tuples", () => {
+    testCompile("x = trans([]:Tuple[Int]); push(x, (1,)); x(0)(0)", 1n);
+    testCompile("([]:Tuple[Int] + [(1,)])(0)(0)", 1n);
+    testCompile("([(1,)] + [(2,)])(1)(0)", 2n);
+});
+
+test("tuple: struct with tuple field", () => {
+    testCompile("struct P { p: Tuple[Float, Float] } P((1.0,2.0)).p(0)", 1.0);
+})

@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { testCompile, testParseExpectError } from "./helpers";
+import { testCompile, requireIdenticalCompilation, testParseExpectError } from "./helpers";
 
 // ============================================================
 // Mutable arrays (MutArr[T])
@@ -100,6 +100,19 @@ test("mutarr: detransed array can be used normally", () => {
         [2n, 3n, 4n]
     );
     testCompile(`mutarr = trans([1, 2, 3]); arr = detrans(mutarr); arr(0)`, 1n);
+});
+
+// ── unsafeTrans and detrans should both compile to no-ops ──
+test("mutarr: unsafeTrans is a no-op", () => {
+    requireIdenticalCompilation("unsafeTrans([1,2,3])", "[1,2,3]");
+    requireIdenticalCompilation("[1,2,3] | unsafeTrans", "[1,2,3]");
+    requireIdenticalCompilation("x = [1,2,3]; unsafeTrans(x)", "x = [1,2,3]; x");
+});
+
+test("mutarr: unsafeTrans and detrans are no-ops", () => {
+    requireIdenticalCompilation("detrans(unsafeTrans([1,2,3]))", "[1,2,3]");
+    requireIdenticalCompilation("x = trans([1,2,3]); detrans(x)", "x = trans([1,2,3]); x");
+    requireIdenticalCompilation("x = trans([1,2,3]); x | detrans", "x = trans([1,2,3]); x");
 });
 
 // ── Multiple operations chained ──
