@@ -4,8 +4,8 @@ import {
     IterType,
     MutArrType,
     TupleType,
-    HashMapType,
-    HashSetType,
+    DictType,
+    SetType,
     CustomType,
     type Type,
     type CallableType,
@@ -557,7 +557,7 @@ function findBuiltin(
                 },
             };
         }
-        case "set": {
+        case "put": {
             if (argTypes.length !== 3) return undefined;
             if (!(argTypes[0] instanceof MutArrType)) return undefined;
             if (argTypes[1] !== "Int") return undefined;
@@ -566,14 +566,14 @@ function findBuiltin(
                 error: null,
                 result: {
                     kind: "builtin",
-                    referToByName: "set",
+                    referToByName: "put",
                     callerType: new FuncType(argTypes, "Null"),
                     rootType: "Null",
-                    builtinKind: "set",
+                    builtinKind: "put",
                 },
             };
         }
-        case "hashMap": {
+        case "Dict": {
             if (argTypes.length !== 1) return undefined;
             const hmArg = argTypes[0];
             if (!(hmArg instanceof ArrayType)) return undefined;
@@ -584,14 +584,14 @@ function findBuiltin(
                 error: null,
                 result: {
                     kind: "builtin",
-                    referToByName: "hashMap",
-                    callerType: new FuncType(argTypes, new HashMapType(keyType, valueType)),
-                    rootType: new HashMapType(keyType, valueType),
-                    builtinKind: "hashMap",
+                    referToByName: "Dict",
+                    callerType: new FuncType(argTypes, new DictType(keyType, valueType)),
+                    rootType: new DictType(keyType, valueType),
+                    builtinKind: "Dict",
                 },
             };
         }
-        case "hashSet": {
+        case "Set": {
             if (argTypes.length !== 1) return undefined;
             const hsArg = argTypes[0];
             if (!(hsArg instanceof ArrayType)) return undefined;
@@ -599,17 +599,17 @@ function findBuiltin(
                 error: null,
                 result: {
                     kind: "builtin",
-                    referToByName: "hashSet",
-                    callerType: new FuncType(argTypes, new HashSetType(hsArg.innerType)),
-                    rootType: new HashSetType(hsArg.innerType),
-                    builtinKind: "hashSet",
+                    referToByName: "Set",
+                    callerType: new FuncType(argTypes, new SetType(hsArg.innerType)),
+                    rootType: new SetType(hsArg.innerType),
+                    builtinKind: "Set",
                 },
             };
         }
         case "contains": {
             if (argTypes.length !== 2) return undefined;
             const [cContainer, _cValue] = argTypes;
-            if (cContainer instanceof HashSetType) {
+            if (cContainer instanceof SetType) {
                 return {
                     error: null,
                     result: {
@@ -638,8 +638,8 @@ function findBuiltin(
         case "union": {
             if (argTypes.length !== 2) return undefined;
             if (
-                argTypes[0] instanceof HashSetType &&
-                argTypes[1] instanceof HashSetType &&
+                argTypes[0] instanceof SetType &&
+                argTypes[1] instanceof SetType &&
                 deepEquals(argTypes[0].innerType, argTypes[1].innerType)
             ) {
                 return {
@@ -658,8 +658,8 @@ function findBuiltin(
         case "intersect": {
             if (argTypes.length !== 2) return undefined;
             if (
-                argTypes[0] instanceof HashSetType &&
-                argTypes[1] instanceof HashSetType &&
+                argTypes[0] instanceof SetType &&
+                argTypes[1] instanceof SetType &&
                 deepEquals(argTypes[0].innerType, argTypes[1].innerType)
             ) {
                 return {
@@ -881,7 +881,7 @@ export function findCaller(
                             },
                         };
                     }
-                    if (varType instanceof HashMapType) {
+                    if (varType instanceof DictType) {
                         const incompatible = varType.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -974,7 +974,7 @@ export function findCaller(
                             },
                         };
                     }
-                    if (param.type instanceof HashMapType) {
+                    if (param.type instanceof DictType) {
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -1078,7 +1078,7 @@ export function findCaller(
                             },
                         };
                     }
-                    if (param.type instanceof HashMapType) {
+                    if (param.type instanceof DictType) {
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };

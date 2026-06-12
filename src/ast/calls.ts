@@ -5,11 +5,12 @@ import {
     IterType,
     MutArrType,
     TupleType,
-    HashMapType,
+    DictType,
     CustomType,
     FuncType,
     type Type,
     type CallableType,
+    SetType,
 } from "../types";
 import { Expression } from "./expression";
 import { Literal } from "./literals";
@@ -302,7 +303,7 @@ export class Call extends Expression {
                         markVarConsumed(detransArg.fullName);
                     }
                 }
-                if (this.builtinKind === "push" || this.builtinKind === "set") {
+                if (this.builtinKind === "push" || this.builtinKind === "put") {
                     const mutarrArg = this.args[0];
                     if (mutarrArg instanceof Variable && mutarrArg.fullName) {
                         if (isVarConsumed(mutarrArg.fullName)) {
@@ -618,9 +619,9 @@ export class Call extends Expression {
                     this.args[1]?.toJS(writer);
                     writer.write(")");
                     return;
-                case "set":
-                    writer.useBuiltin("__SET__");
-                    writer.write("__SET__(");
+                case "put":
+                    writer.useBuiltin("__PUT__");
+                    writer.write("__PUT__(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
@@ -628,41 +629,42 @@ export class Call extends Expression {
                     this.args[2]?.toJS(writer);
                     writer.write(")");
                     return;
-                case "hashMap":
-                    writer.useBuiltin("__HASHMAP__");
-                    writer.write("__HASHMAP__(");
+                case "Dict":
+                    writer.write("new Map(");
                     this.args[0]?.toJS(writer);
                     writer.write(")");
                     return;
-                case "hashSet":
-                    writer.useBuiltin("__HASHSET__");
-                    writer.write("__HASHSET__(");
+                case "Set":
+                    writer.write("new Set(");
                     this.args[0]?.toJS(writer);
                     writer.write(")");
                     return;
                 case "contains":
-                    writer.useBuiltin("__CONTAINS__");
-                    writer.write("__CONTAINS__(");
                     this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(")");
+                    if (this.args[0]?.type instanceof ArrayType || this.args[0]?.type instanceof MutArrType) {
+                        writer.write(".indexOf(");
+                        this.args[1]?.toJS(writer);
+                        writer.write(") !== -1");
+                    }
+                    else if (this.args[0]?.type instanceof SetType) {
+                        writer.write(".has(");
+                        this.args[1]?.toJS(writer);
+                        writer.write(")");
+                    }
                     return;
                 case "union":
-                    writer.useBuiltin("__UNION__");
-                    writer.write("__UNION__(");
+                    writer.write("new Set([...")
                     this.args[0]?.toJS(writer);
-                    writer.write(", ");
+                    writer.write(", ...");
                     this.args[1]?.toJS(writer);
-                    writer.write(")");
+                    writer.write("])");
                     return;
                 case "intersect":
-                    writer.useBuiltin("__INTERSECT__");
-                    writer.write("__INTERSECT__(");
+                    writer.write("new Set([...");
                     this.args[0]?.toJS(writer);
-                    writer.write(", ");
+                    writer.write("].filter(x => ");
                     this.args[1]?.toJS(writer);
-                    writer.write(")");
+                    writer.write(".has(x)))");
                     return;
                 default:
                     throw new Error(`unknown builtin: ${this.builtinKind}`);
@@ -730,17 +732,10 @@ export class Call extends Expression {
                 arg.toJS(writer);
                 writer.write("]");
             });
-        } else if (this.callerType instanceof HashMapType) {
+        } else if (this.callerType instanceof DictType) {
             writer.write(writer.safeName(this.referToByName));
             writer.write(".get(");
-            // Convert BigInt keys to Number for JS Map lookup
-            if (this.args[0]?.type === "Int") {
-                writer.write("Number(");
-                this.args[0].toJS(writer);
-                writer.write(")");
-            } else {
-                this.args[0]?.toJS(writer);
-            }
+            this.args[0]?.toJS(writer);
             writer.write(")");
         } else if (this.callerType instanceof ArrayType || this.callerType instanceof MutArrType) {
             writer.write(writer.safeName(this.referToByName));
@@ -873,12 +868,12 @@ export class DirectCall extends Expression {
             return;
         }
 
-        if (this.caller.type instanceof HashMapType) {
+        if (this.caller.type instanceof DictType) {
             this.args.forEach((arg, i) => {
                 arg.cascadeTypes([...ancestors, this]);
                 if (arg.type === null) {
                     throw this.error(
-                        `unable to resolve type of argument ${i + 1} in hash map access`
+                        `unable to resolve type of argument ${i + 1} in dict access`
                     );
                 }
             });
@@ -991,15 +986,9 @@ export class DirectCall extends Expression {
                     arg.toJS(writer);
                     writer.write("]");
                 });
-            } else if (this.caller.type instanceof HashMapType) {
+            } else if (this.caller.type instanceof DictType) {
                 writer.write(".get(");
-                if (this.args[0]?.type === "Int") {
-                    writer.write("Number(");
-                    this.args[0].toJS(writer);
-                    writer.write(")");
-                } else {
-                    this.args[0]?.toJS(writer);
-                }
+                this.args[0]?.toJS(writer);
                 writer.write(")");
             } else {
                 throw new Error(`unknown caller type: ${this.caller.type}`);

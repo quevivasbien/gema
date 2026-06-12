@@ -9,8 +9,8 @@ const BUILTIN_TYPE_NAMES = new Set([
     "Iter",
     "MutArr",
     "Tuple",
-    "HashMap",
-    "HashSet",
+    "Dict",
+    "Set",
     "Self",
 ]);
 
@@ -33,10 +33,10 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
         collectCustomTypeNames(type.innerType, names);
     } else if (type instanceof TupleType) {
         type.types.forEach((t) => collectCustomTypeNames(t, names));
-    } else if (type instanceof HashMapType) {
+    } else if (type instanceof DictType) {
         collectCustomTypeNames(type.keyType, names);
         collectCustomTypeNames(type.valueType, names);
-    } else if (type instanceof HashSetType) {
+    } else if (type instanceof SetType) {
         collectCustomTypeNames(type.innerType, names);
     }
 }
@@ -65,14 +65,14 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     if (type instanceof TupleType) {
         return new TupleType(type.types.map((t) => substituteTypeParams(t, bindings)));
     }
-    if (type instanceof HashMapType) {
-        return new HashMapType(
+    if (type instanceof DictType) {
+        return new DictType(
             substituteTypeParams(type.keyType, bindings),
             substituteTypeParams(type.valueType, bindings)
         );
     }
-    if (type instanceof HashSetType) {
-        return new HashSetType(substituteTypeParams(type.innerType, bindings));
+    if (type instanceof SetType) {
+        return new SetType(substituteTypeParams(type.innerType, bindings));
     }
     return type;
 }
@@ -171,30 +171,30 @@ export class TupleType {
     }
 }
 
-export class HashMapType {
+export class DictType {
     constructor(
         public keyType: Type,
         public valueType: Type
     ) {}
 
     toString(): string {
-        return `HashMap[${this.keyType}, ${this.valueType}]`;
+        return `Dict[${this.keyType}, ${this.valueType}]`;
     }
 
     checkIndicesCompatible(indexTypes: Type[]): string | null {
         if (indexTypes.length !== 1) {
-            return `hash map requires exactly one key, got ${indexTypes.length}`;
+            return `dict requires exactly one key, got ${indexTypes.length}`;
         }
         // Any type is allowed as a key
         return null;
     }
 }
 
-export class HashSetType {
+export class SetType {
     constructor(public innerType: Type) {}
 
     toString(): string {
-        return `HashSet[${this.innerType}]`;
+        return `Set[${this.innerType}]`;
     }
 }
 
@@ -230,12 +230,12 @@ export type Type =
     | IterType
     | MutArrType
     | TupleType
-    | HashMapType
-    | HashSetType
+    | DictType
+    | SetType
     | CustomType
     | "Self";
 
-export type CallableType = FuncType | ArrayType | IterType | MutArrType | TupleType | HashMapType;
+export type CallableType = FuncType | ArrayType | IterType | MutArrType | TupleType | DictType;
 
 export class TemplateTypes {
     constructor(
@@ -305,23 +305,23 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         }
         return new TupleType(templateTypes.types);
     }
-    if (typeName === "HashMap") {
+    if (typeName === "Dict") {
         if (templateTypes.types.length !== 2) {
-            throw new Error(`HashMap type requires exactly two template types (key and value)`);
+            throw new Error(`Dict type requires exactly two template types (key and value)`);
         }
         if (templateTypes.returnType !== null) {
-            throw new Error(`HashMap type cannot have a return type`);
+            throw new Error(`Dict type cannot have a return type`);
         }
-        return new HashMapType(templateTypes.types[0], templateTypes.types[1]);
+        return new DictType(templateTypes.types[0], templateTypes.types[1]);
     }
-    if (typeName === "HashSet") {
+    if (typeName === "Set") {
         if (templateTypes.types.length !== 1) {
-            throw new Error(`HashSet type requires a single template type (for the inner type)`);
+            throw new Error(`Set type requires a single template type (for the inner type)`);
         }
         if (templateTypes.returnType !== null) {
-            throw new Error(`HashSet type cannot have a return type`);
+            throw new Error(`Set type cannot have a return type`);
         }
-        return new HashSetType(templateTypes.types[0]);
+        return new SetType(templateTypes.types[0]);
     }
 
     return new CustomType(typeName);

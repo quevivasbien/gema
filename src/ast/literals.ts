@@ -23,7 +23,7 @@ export class Literal extends Expression {
     toJS(compiler: JSWriter): void {
         switch (this.type) {
             case "Int":
-                compiler.write(`BigInt(${this.value})`);
+                compiler.write(`${this.value}n`);
                 break;
             case "Float":
                 compiler.write(this.value);

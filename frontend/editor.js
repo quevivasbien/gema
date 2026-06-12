@@ -289,7 +289,7 @@ t(2)          # 3.0
 
 # Nested tuples
 nested = (1, (2, 3));
-nested(1)(0)  # 2
+nested(1)(0);  # 2
 
 # Tuple unpacking
 (a, b, c) = (10, 20, 30);
@@ -298,7 +298,7 @@ a + b + c      # 60
 # Unpacking from a function
 func point(): Tuple[Int, Int] { (3, 4) };
 (x, y) = point();
-x * x + y * y  # 25
+x * x + y * y;  # 25
 
 # ── Zip Iterator ─────────────────────────────────────
 
@@ -329,8 +329,8 @@ mutarr = trans([1, 2, 3]);
 push(mutarr, 4);
 push(mutarr, 5);
 
-# set(index, value) returns the new value
-set(mutarr, 0, 99);
+# put(index, value) returns the new value
+put(mutarr, 0, 99);
 
 # detrans() freezes back to a regular array
 arr = detrans(mutarr)   # [99, 2, 3, 4, 5]
@@ -338,7 +338,7 @@ arr = detrans(mutarr)   # [99, 2, 3, 4, 5]
 # unsafeTrans avoids the copy
 x = [1, 2, 3];
 y = unsafeTrans(x);
-set(y, 0, 99);
+put(y, 0, 99);
 x   # [99, 2, 3] — original was modified!`,
     },
 };

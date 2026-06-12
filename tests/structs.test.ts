@@ -681,3 +681,30 @@ test("field: mutable struct fields with keyword constructors", () => {
         2n
     );
 });
+
+
+test.todo("struct: allow overloading of struct constructor", () => {
+    testParse(
+        `
+        struct S {}
+
+        func S(s: Int) {
+        S()
+        }
+
+        S(1)
+        `
+    );
+    testCompile(
+        `
+        struct S { s: Int }
+
+        func S(s: Float) {
+            S(toInt(s))
+        }
+
+        S(1.0).s
+        `,
+        1n
+    );
+});

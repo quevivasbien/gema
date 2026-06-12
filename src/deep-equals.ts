@@ -5,8 +5,8 @@ import {
     MutArrType,
     FuncType,
     TupleType,
-    HashMapType,
-    HashSetType,
+    DictType,
+    SetType,
 } from "./types";
 
 /**
@@ -69,15 +69,15 @@ export function deepEquals(a: unknown, b: unknown): boolean {
         return true;
     }
 
-    // HashMapType
-    if (a instanceof HashMapType && b instanceof HashMapType) {
+    // DictType
+    if (a instanceof DictType && b instanceof DictType) {
         if (!deepEquals(a.keyType, b.keyType)) return false;
         if (!deepEquals(a.valueType, b.valueType)) return false;
         return true;
     }
 
-    // HashSetType
-    if (a instanceof HashSetType && b instanceof HashSetType) {
+    // SetType
+    if (a instanceof SetType && b instanceof SetType) {
         return deepEquals(a.innerType, b.innerType);
     }
 

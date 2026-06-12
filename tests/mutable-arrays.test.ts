@@ -47,7 +47,7 @@ test("mutarr: set element", () => {
     testCompile(
         `
         mutarr = trans([1, 2, 3]);
-        set(mutarr, 1, 99);
+        put(mutarr, 1, 99);
         detrans(mutarr)
         `,
         [1n, 99n, 3n]
@@ -55,7 +55,7 @@ test("mutarr: set element", () => {
 });
 
 test("mutarr: set returns new value", () => {
-    testCompile("mutarr = trans([1, 2, 3]); set(mutarr, 0, 99)", 99n);
+    testCompile("mutarr = trans([1, 2, 3]); put(mutarr, 0, 99)", 99n);
 });
 
 // ── Element access (indexing) ──
@@ -79,17 +79,17 @@ test("mutarr: last on MutArr", () => {
 
 test("mutarr: trans creates deep copy", () => {
     // Make a mutable copy, mutate it
-    testCompile(`x = [1, 2, 3]; y = trans(x); set(y, 0, 99); detrans(y)`, [99n, 2n, 3n]);
+    testCompile(`x = [1, 2, 3]; y = trans(x); put(y, 0, 99); detrans(y)`, [99n, 2n, 3n]);
     // Original should be unaffected
-    testCompile(`x = [1, 2, 3]; y = trans(x); set(y, 0, 99); x`, [1n, 2n, 3n]);
+    testCompile(`x = [1, 2, 3]; y = trans(x); put(y, 0, 99); x`, [1n, 2n, 3n]);
 });
 
 // ── unsafeTrans — no copy ──
 
 test("mutarr: unsafeTrans shares the array", () => {
-    testCompile(`x = [1, 2, 3]; y = unsafeTrans(x); set(y, 0, 99); detrans(y)`, [99n, 2n, 3n]);
+    testCompile(`x = [1, 2, 3]; y = unsafeTrans(x); put(y, 0, 99); detrans(y)`, [99n, 2n, 3n]);
     // With unsafeTrans, the original is also affected
-    testCompile(`x = [1, 2, 3]; y = unsafeTrans(x); set(y, 0, 99); x`, [99n, 2n, 3n]);
+    testCompile(`x = [1, 2, 3]; y = unsafeTrans(x); put(y, 0, 99); x`, [99n, 2n, 3n]);
 });
 
 // ── detrans then use as regular array ──
@@ -110,7 +110,7 @@ test("mutarr: push after set after push", () => {
         mutarr = trans([]:Int);
         push(mutarr, 1);
         push(mutarr, 2);
-        set(mutarr, 0, 99);
+        put(mutarr, 0, 99);
         push(mutarr, 3);
         detrans(mutarr)
         `,
@@ -124,7 +124,7 @@ test("mutarr: pass mutarr to function", () => {
     testCompile(
         `
         func addOne(mutarr: MutArr[Int]) {
-            set(mutarr, 0, mutarr(0) + 1)
+            put(mutarr, 0, mutarr(0) + 1)
         };
         mutarr = trans([1, 2, 3]);
         addOne(mutarr);
@@ -141,7 +141,7 @@ test("mutarr: mutate via nested block", () => {
         `
         mutarr = trans([1, 2, 3]);
         {
-            set(mutarr, 0, 99)
+            put(mutarr, 0, 99)
         };
         detrans(mutarr)
         `,
@@ -153,7 +153,7 @@ test("mutarr: mutate via closure", () => {
     testCompile(
         `
         mutarr = trans([1, 2, 3]);
-        f = func() { set(mutarr, 0, 99) };
+        f = func() { put(mutarr, 0, 99) };
         f();
         detrans(mutarr)
         `,
@@ -187,7 +187,7 @@ test("mutarr: error use after detrans", () => {
     testParseExpectError(`
         mutarr = trans([1, 2, 3]);
         arr = detrans(mutarr);
-        set(mutarr, 0, 99)
+        put(mutarr, 0, 99)
     `);
 });
 
@@ -213,7 +213,7 @@ test("mutarr: error push on non-mut-array", () => {
 });
 
 test("mutarr: error set on non-mut-array", () => {
-    testParseExpectError("set([1, 2], 0, 99)");
+    testParseExpectError("put([1, 2], 0, 99)");
 });
 
 test("mutarr: error push type mismatch", () => {
@@ -221,11 +221,11 @@ test("mutarr: error push type mismatch", () => {
 });
 
 test("mutarr: error set type mismatch", () => {
-    testParseExpectError(`mutarr = trans([1, 2]); set(mutarr, 0, "hello")`);
+    testParseExpectError(`mutarr = trans([1, 2]); put(mutarr, 0, "hello")`);
 });
 
 test("mutarr: error set non-integer index", () => {
-    testParseExpectError(`mutarr = trans([1, 2]); set(mutarr, "x", 99)`);
+    testParseExpectError(`mutarr = trans([1, 2]); put(mutarr, "x", 99)`);
 });
 
 test("mutarr: error trans on non-array variable", () => {
