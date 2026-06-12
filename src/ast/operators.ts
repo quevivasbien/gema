@@ -1,11 +1,6 @@
 import type { JSWriter } from "../write-js";
 import { TokenType, type Token } from "../tokens";
-import {
-    ArrayType,
-    CustomType,
-    IterType,
-    type Type,
-} from "../types";
+import { ArrayType, CustomType, IterType, type Type } from "../types";
 import { Expression } from "./expression";
 import { findCaller } from "./caller";
 

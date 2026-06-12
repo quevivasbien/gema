@@ -5,6 +5,9 @@ import {
     ArrayType,
     IterType,
     MutArrType,
+    TupleType,
+    HashMapType,
+    HashSetType,
     CustomType,
     type Type,
 } from "../types";
@@ -23,6 +26,15 @@ export function stripTraits(t: Type): Type {
     }
     if (t instanceof MutArrType) {
         return new MutArrType(stripTraits(t.innerType));
+    }
+    if (t instanceof TupleType) {
+        return new TupleType(t.types.map((tt) => stripTraits(tt)));
+    }
+    if (t instanceof HashMapType) {
+        return new HashMapType(stripTraits(t.keyType), stripTraits(t.valueType));
+    }
+    if (t instanceof HashSetType) {
+        return new HashSetType(stripTraits(t.innerType));
     }
     if (t instanceof FuncType) {
         return new FuncType(
@@ -47,6 +59,9 @@ export function isConcreteType(t: Type): boolean {
     if (t instanceof ArrayType) return isConcreteType(t.innerType);
     if (t instanceof IterType) return isConcreteType(t.innerType);
     if (t instanceof MutArrType) return isConcreteType(t.innerType);
+    if (t instanceof TupleType) return t.types.every((tt) => isConcreteType(tt));
+    if (t instanceof HashMapType) return isConcreteType(t.keyType) && isConcreteType(t.valueType);
+    if (t instanceof HashSetType) return isConcreteType(t.innerType);
     if (t instanceof FuncType)
         return t.paramTypes.every(isConcreteType) && isConcreteType(t.returnType);
     return true;

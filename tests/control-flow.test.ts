@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { testCompile, testParseExpectError, testParse, testParseExpectError } from "./helpers";
+import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 test("compile if expressions", () => {
     testCompile(`if true { 1 } else { 2 }`, 1n);

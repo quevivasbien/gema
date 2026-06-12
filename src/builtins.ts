@@ -326,4 +326,50 @@ function __ITERATEITER__(fn, start) {
     mutarr[idx] = val;
     return val;
 }`,
+    __ZIP__: `function __ZIP__(...iters) {
+    const iterators = iters.map((it) =>
+        typeof it.next === "function" ? it : __ARRAYITER__(it)
+    );
+    return new _ZIP_ITERATOR_(iterators);
+}
+class _ZIP_ITERATOR_ {
+    constructor(iterators) {
+        this.iterators = iterators;
+    }
+    next() {
+        const values = [];
+        for (const iter of this.iterators) {
+            const v = iter.next();
+            if (v === undefined) {
+                this.reset();
+                return undefined;
+            }
+            values.push(v);
+        }
+        return values;
+    }
+    reset() {
+        for (const iter of this.iterators) {
+            iter.reset();
+        }
+    }
+}`,
+    __HASHMAP__: `function __HASHMAP__(pairs) {
+    return new Map(pairs);
+}`,
+    __HASHSET__: `function __HASHSET__(elements) {
+    return new Set(elements);
+}`,
+    __CONTAINS__: `function __CONTAINS__(container, value) {
+    if (container instanceof Set) {
+        return container.has(value);
+    }
+    return container.indexOf(value) !== -1;
+}`,
+    __UNION__: `function __UNION__(a, b) {
+    return new Set([...a, ...b]);
+}`,
+    __INTERSECT__: `function __INTERSECT__(a, b) {
+    return new Set([...a].filter(x => b.has(x)));
+}`,
 };

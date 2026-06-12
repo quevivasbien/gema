@@ -1,9 +1,5 @@
 import type { Token } from "../tokens";
-import {
-    CustomType,
-    type Type,
-    type TemplateTypes,
-} from "../types";
+import { CustomType, type Type, type TemplateTypes } from "../types";
 import { Expression } from "./expression";
 import { registerTrait } from "./registries";
 import { paramTypesMatchArgTypes } from "./type-utils";

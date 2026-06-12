@@ -3,19 +3,19 @@ import {
     ArrayType,
     IterType,
     MutArrType,
+    TupleType,
+    HashMapType,
+    HashSetType,
     CustomType,
     type Type,
     type CallableType,
 } from "../types";
 import { getStruct, getTrait, findFunction } from "./registries";
 import { functionNameWithParamTypes } from "./caller-utils";
-import {
-    paramTypesMatchArgTypes,
-    collectTraitsForTypeParam,
-    looseMatch,
-} from "./type-utils";
+import { deepEquals } from "../deep-equals";
+import { paramTypesMatchArgTypes, collectTraitsForTypeParam, looseMatch } from "./type-utils";
 import type { Expression } from "./expression";
-import { Block, Function, Assignment } from "./nodes";
+import { Block, Function, Assignment, AnonymousFunction } from "./nodes";
 import { DropValue } from "./expression";
 
 // ── Discriminated union for findCaller results ──
@@ -573,6 +573,136 @@ function findBuiltin(
                 },
             };
         }
+        case "hashMap": {
+            if (argTypes.length !== 1) return undefined;
+            const hmArg = argTypes[0];
+            if (!(hmArg instanceof ArrayType)) return undefined;
+            if (!(hmArg.innerType instanceof TupleType)) return undefined;
+            if (hmArg.innerType.types.length !== 2) return undefined;
+            const [keyType, valueType] = hmArg.innerType.types;
+            return {
+                error: null,
+                result: {
+                    kind: "builtin",
+                    referToByName: "hashMap",
+                    callerType: new FuncType(argTypes, new HashMapType(keyType, valueType)),
+                    rootType: new HashMapType(keyType, valueType),
+                    builtinKind: "hashMap",
+                },
+            };
+        }
+        case "hashSet": {
+            if (argTypes.length !== 1) return undefined;
+            const hsArg = argTypes[0];
+            if (!(hsArg instanceof ArrayType)) return undefined;
+            return {
+                error: null,
+                result: {
+                    kind: "builtin",
+                    referToByName: "hashSet",
+                    callerType: new FuncType(argTypes, new HashSetType(hsArg.innerType)),
+                    rootType: new HashSetType(hsArg.innerType),
+                    builtinKind: "hashSet",
+                },
+            };
+        }
+        case "contains": {
+            if (argTypes.length !== 2) return undefined;
+            const [cContainer, _cValue] = argTypes;
+            if (cContainer instanceof HashSetType) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "contains",
+                        callerType: new FuncType(argTypes, "Bool"),
+                        rootType: "Bool",
+                        builtinKind: "contains",
+                    },
+                };
+            }
+            if (cContainer instanceof ArrayType) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "contains",
+                        callerType: new FuncType(argTypes, "Bool"),
+                        rootType: "Bool",
+                        builtinKind: "contains",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "union": {
+            if (argTypes.length !== 2) return undefined;
+            if (
+                argTypes[0] instanceof HashSetType &&
+                argTypes[1] instanceof HashSetType &&
+                deepEquals(argTypes[0].innerType, argTypes[1].innerType)
+            ) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "union",
+                        callerType: new FuncType(argTypes, argTypes[0]),
+                        rootType: argTypes[0],
+                        builtinKind: "union",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "intersect": {
+            if (argTypes.length !== 2) return undefined;
+            if (
+                argTypes[0] instanceof HashSetType &&
+                argTypes[1] instanceof HashSetType &&
+                deepEquals(argTypes[0].innerType, argTypes[1].innerType)
+            ) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "intersect",
+                        callerType: new FuncType(argTypes, argTypes[0]),
+                        rootType: argTypes[0],
+                        builtinKind: "intersect",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "zip": {
+            if (argTypes.length < 2) return undefined;
+            // All args must be iterable types
+            for (const t of argTypes) {
+                if (
+                    !(t instanceof IterType) &&
+                    !(t instanceof ArrayType) &&
+                    !(t instanceof MutArrType)
+                ) {
+                    return undefined;
+                }
+            }
+            const innerTypes: Type[] = argTypes.map((t) => {
+                if (t instanceof IterType) return t.innerType;
+                if (t instanceof ArrayType) return t.innerType;
+                return (t as MutArrType).innerType;
+            });
+            return {
+                error: null,
+                result: {
+                    kind: "builtin",
+                    referToByName: "zip",
+                    callerType: new FuncType(argTypes, new IterType(new TupleType(innerTypes))),
+                    rootType: new IterType(new TupleType(innerTypes)),
+                    builtinKind: "zip",
+                },
+            };
+        }
         default:
             return undefined;
     }
@@ -735,6 +865,37 @@ export function findCaller(
                             },
                         };
                     }
+                    if (varType instanceof TupleType) {
+                        const incompatible = varType.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        // For literal indices, the exact type will be resolved in Call.cascadeTypes
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: varType,
+                                rootType: varType.types.length > 0 ? varType.types[0] : "Null",
+                            },
+                        };
+                    }
+                    if (varType instanceof HashMapType) {
+                        const incompatible = varType.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: varType,
+                                rootType: varType.valueType,
+                            },
+                        };
+                    }
                     if (varType instanceof CustomType && getStruct(varType.name)) {
                         break;
                     }
@@ -797,6 +958,37 @@ export function findCaller(
                             },
                         };
                     }
+                    if (param.type instanceof TupleType) {
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType:
+                                    param.type.types.length > 0 ? param.type.types[0] : "Null",
+                            },
+                        };
+                    }
+                    if (param.type instanceof HashMapType) {
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: param.type.valueType,
+                            },
+                        };
+                    }
                     if (param.type instanceof CustomType && getStruct(param.type.name)) {
                         break;
                     }
@@ -819,6 +1011,99 @@ export function findCaller(
                         rootType: ancestor.returnType,
                     },
                 };
+            }
+        } else if (ancestor instanceof AnonymousFunction) {
+            for (const param of ancestor.params) {
+                if (param.name === name) {
+                    if (param.type instanceof FuncType) {
+                        if (!paramTypesMatchArgTypes(param.type.paramTypes, argTypes)) {
+                            return {
+                                error: `variable ${name} (parameter of anonymous function) has an incompatible type signature for this function call.`,
+                                result: null,
+                            };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: param.type.returnType,
+                            },
+                        };
+                    }
+                    if (param.type instanceof ArrayType) {
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: param.type.innerType,
+                            },
+                        };
+                    }
+                    if (param.type instanceof IterType || param.type instanceof MutArrType) {
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: param.type.innerType,
+                            },
+                        };
+                    }
+                    if (param.type instanceof TupleType) {
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType:
+                                    param.type.types.length > 0 ? param.type.types[0] : "Null",
+                            },
+                        };
+                    }
+                    if (param.type instanceof HashMapType) {
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: param.type.valueType,
+                            },
+                        };
+                    }
+                    if (param.type instanceof CustomType && getStruct(param.type.name)) {
+                        break;
+                    }
+                    if (param.type === "Str") {
+                        break;
+                    }
+                    return {
+                        error: `variable ${name} (parameter of anonymous function) is not a function.`,
+                        result: null,
+                    };
+                }
             }
         }
         lastAncestor = ancestor;

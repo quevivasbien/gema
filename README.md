@@ -239,3 +239,56 @@ y = unsafeTrans(x);
 set(y, 0, 99);
 x   # [99, 2, 3] — original is also modified!
 ```
+
+### Tuples
+
+```
+# Tuple literals group multiple values of different types
+t = (1, "hello", 3.0);
+
+# Index with a literal to access elements
+t(0)          # 1
+t(1)          # "hello"
+t(2)          # 3.0
+
+# Nested tuples
+nested = (1, (2, 3));
+nested(1)(0)   # 2
+
+# Tuple unpacking destructures into individual variables
+(a, b, c) = (10, 20, 30);
+a + b + c       # 60
+
+# Unpacking works with any tuple-valued expression
+func point(): Tuple[Int, Int] {
+    (3, 4)
+};
+(x, y) = point();
+x * x + y * y   # 25
+
+# Mutable bindings in unpacking
+(mut i, mut j) = (1, 2);
+i = i + j;
+i   # 3
+```
+
+### Zip iterator
+
+```
+# zip combines multiple iterables into an iterator of tuples
+zipped = zip([1, 2, 3], ["a", "b", "c"]);
+collect(zipped)   # [(1, "a"), (2, "b"), (3, "c")]
+
+# Stops at the shortest input
+collect(zip([1, 2], ["a", "b", "c"]))   # [(1, "a"), (2, "b")]
+
+# Three or more iterables
+collect(zip([1, 2], ["a", "b"], [true, false]))
+# [(1, "a", true), (2, "b", false)]
+
+# Combine with map and tuples
+collect(map(
+    func(pair: Tuple[Int, Int]) { pair(0) + pair(1) },
+    zip([1, 2, 3], [10, 20, 30])
+))   # [11, 22, 33]
+```

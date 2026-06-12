@@ -72,6 +72,7 @@ test("anonymous functions", () => {
         `,
         3n
     );
+    testParse("func(x:Arr[Int]){x(0)}");
 });
 
 test("allow calling non-variable objects", () => {

@@ -2,10 +2,8 @@ import { type TemplateTypes, type Type } from "../types";
 import type { Function } from "./nodes";
 
 // Global registry of trait definitions, keyed by trait name
-const traitRegistry: Map<
-    string,
-    { name: string; paramNames: string[]; types: TemplateTypes }[]
-> = new Map();
+const traitRegistry: Map<string, { name: string; paramNames: string[]; types: TemplateTypes }[]> =
+    new Map();
 
 export function registerTrait(
     name: string,

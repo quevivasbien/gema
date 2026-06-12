@@ -1,4 +1,13 @@
-import { CustomType, ArrayType, IterType, MutArrType, FuncType } from "./types";
+import {
+    CustomType,
+    ArrayType,
+    IterType,
+    MutArrType,
+    FuncType,
+    TupleType,
+    HashMapType,
+    HashSetType,
+} from "./types";
 
 /**
  * Structural deep equality for Gema's type system.
@@ -48,6 +57,27 @@ export function deepEquals(a: unknown, b: unknown): boolean {
 
     // MutArrType
     if (a instanceof MutArrType && b instanceof MutArrType) {
+        return deepEquals(a.innerType, b.innerType);
+    }
+
+    // TupleType
+    if (a instanceof TupleType && b instanceof TupleType) {
+        if (a.types.length !== b.types.length) return false;
+        for (let i = 0; i < a.types.length; i++) {
+            if (!deepEquals(a.types[i], b.types[i])) return false;
+        }
+        return true;
+    }
+
+    // HashMapType
+    if (a instanceof HashMapType && b instanceof HashMapType) {
+        if (!deepEquals(a.keyType, b.keyType)) return false;
+        if (!deepEquals(a.valueType, b.valueType)) return false;
+        return true;
+    }
+
+    // HashSetType
+    if (a instanceof HashSetType && b instanceof HashSetType) {
         return deepEquals(a.innerType, b.innerType);
     }
 

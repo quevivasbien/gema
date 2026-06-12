@@ -5,6 +5,7 @@ import {
     ArrayType,
     IterType,
     MutArrType,
+    TupleType,
     substituteTypeParams,
     isBuiltinTypeName,
     collectCustomTypeNames,
@@ -299,6 +300,130 @@ export class Break extends Expression {
     }
 }
 
+export class TupleLit extends Expression {
+    constructor(
+        startToken: Token,
+        public elements: Expression[]
+    ) {
+        super(startToken.line, startToken.col);
+        if (elements.length === 0) {
+            throw new Error("tuple must not be empty");
+        }
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        const types: Type[] = [];
+        for (let i = 0; i < this.elements.length; i++) {
+            this.elements[i].cascadeTypes([...ancestors, this]);
+            if (this.elements[i].type === null) {
+                throw this.error(`unable to resolve type of tuple element ${i + 1}`);
+            }
+            types.push(this.elements[i].type!);
+        }
+        this.type = new TupleType(types);
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new TupleLit(
+            { line: this.line, col: this.col, text: "(", type: TokenType.LParen },
+            this.elements.map((e) => e.clone(bindings))
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write("[");
+        this.elements.forEach((elem, i) => {
+            if (i > 0) writer.write(", ");
+            elem.toJS(writer);
+        });
+        writer.write("]");
+    }
+}
+
+export class TupleUnpack extends Expression {
+    bindings: { name: string; isMutable: boolean; fullName?: string }[];
+    source: Expression;
+
+    constructor(
+        startToken: Token,
+        bindings: { name: string; isMutable: boolean }[],
+        source: Expression
+    ) {
+        super(startToken.line, startToken.col);
+        this.bindings = bindings;
+        this.source = source;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.source.cascadeTypes([...ancestors, this]);
+        if (this.source.type === null) {
+            throw this.error("unable to resolve type of source expression");
+        }
+        if (!(this.source.type instanceof TupleType)) {
+            throw this.error(`cannot unpack non-tuple expression of type ${this.source.type}`);
+        }
+        if (this.source.type.types.length !== this.bindings.length) {
+            throw this.error(
+                `tuple has ${this.source.type.types.length} elements but unpacking into ${this.bindings.length} variables`
+            );
+        }
+        this.type = "Null";
+
+        // Declare each binding as a variable (like writing a = src[0]; b = src[1]; ...)
+        for (let i = 0; i < this.bindings.length; i++) {
+            const binding = this.bindings[i];
+            const elemType = this.source.type.types[i];
+
+            // Check for existing variable with same name (reassignment semantics)
+            const sameBlockDef = Assignment.findDefiningAssignment(binding.name, this, ancestors);
+            const outerDef = sameBlockDef
+                ? null
+                : Assignment.findOuterDefinition(binding.name, this, ancestors);
+
+            if (sameBlockDef !== null || outerDef !== null) {
+                const existingDef = sameBlockDef ?? outerDef!;
+                if (!existingDef.isMutable) {
+                    throw this.error(`cannot reassign non-mutable variable '${binding.name}'`);
+                }
+                if (!deepEquals(existingDef.type, elemType)) {
+                    throw this.error(
+                        `cannot assign value of type ${elemType} to variable '${binding.name}' of type ${existingDef.type}`
+                    );
+                }
+                binding.fullName = binding.name;
+            } else {
+                // New declaration
+                binding.fullName = binding.name;
+            }
+        }
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new TupleUnpack(
+            { line: this.line, col: this.col, text: "(", type: TokenType.LParen },
+            this.bindings.map((b) => ({ name: b.name, isMutable: b.isMutable })),
+            this.source.clone(bindings)
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        for (let i = 0; i < this.bindings.length; i++) {
+            const binding = this.bindings[i];
+            const safeName = writer.safeName(binding.name);
+
+            // Emit: let name; name = src[0];
+            writer.declareVariable(binding.name);
+            writer.write(`${safeName} = `);
+            this.source.toJS(writer);
+            writer.write(`[${i}]`);
+            if (i < this.bindings.length - 1) {
+                writer.write(";");
+                writer.newLine();
+            }
+        }
+    }
+}
+
 export class Variable extends Expression {
     name: string;
     templateTypes: TemplateTypes;
@@ -380,6 +505,18 @@ export class Variable extends Expression {
                         this.type = type;
                         this.fullName = this.name;
                         return;
+                    }
+                    // Check TupleUnpack bindings
+                    if (olderSibling instanceof TupleUnpack) {
+                        const binding = olderSibling.bindings.find((b) => b.name === this.name);
+                        if (binding) {
+                            const idx = olderSibling.bindings.indexOf(binding);
+                            if (olderSibling.source.type instanceof TupleType) {
+                                this.type = olderSibling.source.type.types[idx];
+                                this.fullName = this.name;
+                                return;
+                            }
+                        }
                     }
                     if (olderSibling instanceof DropValue) {
                         olderSibling = olderSibling.child;
@@ -521,7 +658,6 @@ export class Assignment extends Expression {
         startNode: Expression,
         ancestors: Expression[]
     ): { isMutable: boolean; type: Type } | null {
-
         let foundInnerBlock = false;
         let lastAncestor: Expression = startNode;
         for (let i = 0; i < ancestors.length; i++) {

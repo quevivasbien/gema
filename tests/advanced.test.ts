@@ -620,3 +620,8 @@ test("parse positional args still work in generic functions with traits", () => 
         lte(2, 3)
     `);
 });
+
+test("parse empty array in generic function", () => {
+    testParse("trait Any {} func foo(t: T) where T is Any { []: Int } foo(1)");
+    testParse("trait Any {} func foo(t: T) where T is Any { []: T } foo(1)");
+});

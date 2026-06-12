@@ -200,15 +200,43 @@ Object.values(TokenType).forEach((tokenType) => {
 });
 
 function parseGrouping(parser: Parser): AST.Expression {
-    const expr = parser.expression();
+    const startToken = parser.previous();
+    const first = parser.expression();
+
+    // Check for tuple: (expr, expr, ...)
+    if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+        const elements: AST.Expression[] = [];
+        if (first === null) {
+            return parser.error("expected expression in tuple");
+        }
+        elements.push(first);
+        parser.advance(); // consume comma
+
+        while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+            const elem = parser.expression();
+            if (elem === null) {
+                return parser.error("expected expression in tuple");
+            }
+            elements.push(elem);
+            if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+                parser.advance();
+            }
+        }
+        if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+            return parser.error("missing closing parenthesis after tuple");
+        }
+        parser.advance();
+        return parser.tryCreateASTExpression(() => new AST.TupleLit(startToken, elements));
+    }
+
     if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
         parser.error("missing closing parenthesis after expression.");
     }
     parser.advance();
-    if (expr === null) {
+    if (first === null) {
         return parser.error("expected expression in parentheses.");
     }
-    return expr;
+    return first;
 }
 
 function parseIfStatement(parser: Parser): AST.Expression {
@@ -938,6 +966,102 @@ class Parser {
     }
 
     assignment(): AST.Expression | null {
+        // Tuple unpacking: (a, b, mut c) = expr
+        // Only match if we see LParen followed by an Identifier (or mut) and eventually =.
+        // This avoids conflicting with parenthesized expressions like (1 + 2).
+        if (this.current().type === TokenType.LParen) {
+            // Peek ahead to see if this looks like a tuple unpacking pattern.
+            // A tuple unpacking must have at least one identifier (or mut + identifier)
+            // followed by either comma or = after the closing paren.
+            let offset = 1;
+            let seenComma = false;
+            let sawIdent = false;
+            let foundEq = false;
+            while (true) {
+                const t = this.peek(offset);
+                if (t === undefined) {
+                    break;
+                }
+                if (t.type === TokenType.RParen) {
+                    // Check if next after ')' is '='
+                    const afterParen = this.peek(offset + 1);
+                    if (afterParen?.type === TokenType.Equal && (sawIdent || seenComma)) {
+                        foundEq = true;
+                    }
+                    break;
+                }
+                if (t.type === TokenType.LParen) {
+                    // Skip nested parenthesized sub-pattern (e.g. (a, (b, c)) = ...)
+                    let depth = 1;
+                    let innerOffset = offset + 1;
+                    while (depth > 0) {
+                        const inner = this.peek(innerOffset);
+                        if (inner === undefined) break;
+                        if (inner.type === TokenType.LParen) depth++;
+                        else if (inner.type === TokenType.RParen) depth--;
+                        innerOffset++;
+                    }
+                    offset = innerOffset;
+                    continue;
+                }
+                if (t.type === TokenType.Identifier) {
+                    sawIdent = true;
+                } else if (t.type === TokenType.Mut) {
+                    // mut keyword is fine
+                } else if (t.type === TokenType.Comma) {
+                    seenComma = true;
+                } else {
+                    break; // Not a valid tuple unpacking pattern
+                }
+                offset++;
+            }
+            if (foundEq) {
+                // This IS a tuple unpacking. Parse it.
+                const startToken = this.current();
+                this.advance(); // skip '('
+                const bindings: { name: string; isMutable: boolean }[] = [];
+
+                while (!this.atEnd() && this.current().type !== TokenType.RParen) {
+                    let isMut = false;
+                    if (this.current().type === TokenType.Mut) {
+                        isMut = true;
+                        this.advance();
+                    }
+                    if (this.current().type !== TokenType.Identifier) {
+                        return this.error("expected variable name in tuple unpacking");
+                    }
+                    bindings.push({ name: this.current().text, isMutable: isMut });
+                    this.advance();
+                    if (this.current().type === TokenType.Comma) {
+                        this.advance();
+                    }
+                }
+                if (this.atEnd() || this.current().type !== TokenType.RParen) {
+                    return this.error("missing closing parenthesis in tuple unpacking");
+                }
+                this.advance(); // skip ')'
+
+                if (this.atEnd() || this.current().type !== TokenType.Equal) {
+                    return this.error("expected '=' after tuple unpacking pattern");
+                }
+                this.advance(); // skip '='
+
+                const rhs = this.parseWithPrecedence(Precedence.Assignment);
+                if (!rhs) {
+                    return this.error("Expected expression after = in tuple unpacking");
+                }
+                if (rhs instanceof AST.If && !rhs.hasElse) {
+                    return this.error(
+                        "if without else can only be used as a statement, not as an expression."
+                    );
+                }
+                return this.tryCreateASTExpression(
+                    () => new AST.TupleUnpack(startToken, bindings, rhs)
+                );
+            }
+            // Not a tuple unpacking; fall through to let parseGrouping handle it.
+        }
+
         let isMutable = false;
         // Check for optional 'mut' keyword before the variable name
         const afterMut =

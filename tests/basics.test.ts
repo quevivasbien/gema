@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { testCompile, testParseExpectError, testParse, testParseExpectError } from "./helpers";
+import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 test("compile literals", () => {
     testCompile(`1`, 1n);
@@ -242,4 +242,15 @@ test("pipe: pipe to last", () => {
 test("pipe: error non-identifier RHS", () => {
     testParseExpectError("1 | 2");
     testParseExpectError("true | false");
+});
+
+test("pipe: non-function callable RHS", () => {
+    testCompile("struct Point { x: Int } (2 | Point).x", 2n);
+    testCompile("x = [1,2,3]; 1 | x", 2n);
+});
+
+test.todo("pipe: anonymous RHS", () => {
+    testCompile("3 | (func(x: Int) { x + 1 })", 4n);
+    testCompile("3 | func(x: Int) { x + 1 }", 4n);
+    testCompile("1 | [0, 2, 4]", 2n);
 });

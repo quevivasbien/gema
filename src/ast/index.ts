@@ -24,10 +24,22 @@ export { Literal } from "./literals";
 export { Unary, Binary } from "./operators";
 
 // Nodes (variables, control flow, functions)
-export { Block, If, ForLoop, Break, Variable, Assignment, AnonymousFunction, Function } from "./nodes";
+export {
+    Block,
+    If,
+    ForLoop,
+    Break,
+    Variable,
+    Assignment,
+    AnonymousFunction,
+    Function,
+} from "./nodes";
 
 // Calls
 export { Call, DirectCall } from "./calls";
+
+// Tuples
+export { TupleLit, TupleUnpack } from "./nodes";
 
 // Structs and arrays
 export { ArrLit, StructDef, FieldAccess, FieldAssignment } from "./structs";

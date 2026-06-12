@@ -4,6 +4,8 @@ import {
     ArrayType,
     IterType,
     MutArrType,
+    TupleType,
+    HashMapType,
     CustomType,
     FuncType,
     type Type,
@@ -16,7 +18,6 @@ import { getStruct, isVarConsumed, markVarConsumed, findFunction } from "./regis
 import { findCaller } from "./caller";
 import { paramTypesMatchArgTypes } from "./type-utils";
 import { DropValue } from "./expression";
-
 
 // ── Helpers ──
 
@@ -318,6 +319,23 @@ export class Call extends Expression {
         this.callerType = result.callerType;
         this.type = result.rootType;
 
+        // Tuple literal index resolution: tup(0) → exact element type at index 0
+        if (
+            this.callerType instanceof TupleType &&
+            this.args.length === 1 &&
+            this.args[0] instanceof Literal &&
+            this.args[0].type === "Int"
+        ) {
+            const idx = parseInt(this.args[0].value, 10);
+            if (idx >= 0 && idx < this.callerType.types.length) {
+                this.type = this.callerType.types[idx];
+            } else {
+                throw this.error(
+                    `tuple index ${idx} out of bounds (length ${this.callerType.types.length})`
+                );
+            }
+        }
+
         // Keyword arg resolution via trait param names
         if (
             this.keywordArgs.length > 0 &&
@@ -500,6 +518,15 @@ export class Call extends Expression {
                     });
                     writer.write(")");
                     return;
+                case "zip":
+                    writer.useBuiltin("__ZIP__");
+                    writer.write("__ZIP__(");
+                    this.args.forEach((arg, i) => {
+                        if (i > 0) writer.write(", ");
+                        wrapArg(i);
+                    });
+                    writer.write(")");
+                    return;
                 case "iterate":
                     writer.useBuiltin("__ITERATEITER__");
                     writer.write("__ITERATEITER__(");
@@ -601,6 +628,42 @@ export class Call extends Expression {
                     this.args[2]?.toJS(writer);
                     writer.write(")");
                     return;
+                case "hashMap":
+                    writer.useBuiltin("__HASHMAP__");
+                    writer.write("__HASHMAP__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "hashSet":
+                    writer.useBuiltin("__HASHSET__");
+                    writer.write("__HASHSET__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "contains":
+                    writer.useBuiltin("__CONTAINS__");
+                    writer.write("__CONTAINS__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "union":
+                    writer.useBuiltin("__UNION__");
+                    writer.write("__UNION__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "intersect":
+                    writer.useBuiltin("__INTERSECT__");
+                    writer.write("__INTERSECT__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
                 default:
                     throw new Error(`unknown builtin: ${this.builtinKind}`);
             }
@@ -659,6 +722,25 @@ export class Call extends Expression {
                 }
                 arg.toJS(writer);
             });
+            writer.write(")");
+        } else if (this.callerType instanceof TupleType) {
+            writer.write(writer.safeName(this.referToByName));
+            this.args.forEach((arg) => {
+                writer.write("[");
+                arg.toJS(writer);
+                writer.write("]");
+            });
+        } else if (this.callerType instanceof HashMapType) {
+            writer.write(writer.safeName(this.referToByName));
+            writer.write(".get(");
+            // Convert BigInt keys to Number for JS Map lookup
+            if (this.args[0]?.type === "Int") {
+                writer.write("Number(");
+                this.args[0].toJS(writer);
+                writer.write(")");
+            } else {
+                this.args[0]?.toJS(writer);
+            }
             writer.write(")");
         } else if (this.callerType instanceof ArrayType || this.callerType instanceof MutArrType) {
             writer.write(writer.safeName(this.referToByName));
@@ -756,6 +838,60 @@ export class DirectCall extends Expression {
             return;
         }
 
+        if (this.caller.type instanceof TupleType) {
+            this.args.forEach((arg, i) => {
+                arg.cascadeTypes([...ancestors, this]);
+                if (arg.type === null) {
+                    throw this.error(
+                        `unable to resolve type of argument ${i + 1} in tuple index access`
+                    );
+                }
+            });
+            const incompatible = this.caller.type.checkIndicesCompatible(
+                this.args.map((arg) => arg.type as Type)
+            );
+            if (incompatible !== null) {
+                throw this.error(incompatible);
+            }
+            // Resolve the exact element type for literal indices
+            if (
+                this.args.length === 1 &&
+                this.args[0].type === "Int" &&
+                this.args[0] instanceof Literal &&
+                typeof this.args[0].value === "bigint"
+            ) {
+                const idx = Number(this.args[0].value);
+                if (idx < 0 || idx >= this.caller.type.types.length) {
+                    throw this.error(
+                        `tuple index ${idx} out of bounds (tuple has ${this.caller.type.types.length} elements)`
+                    );
+                }
+                this.type = this.caller.type.types[idx];
+            } else {
+                this.type = this.caller.type.types[0] ?? "Null";
+            }
+            return;
+        }
+
+        if (this.caller.type instanceof HashMapType) {
+            this.args.forEach((arg, i) => {
+                arg.cascadeTypes([...ancestors, this]);
+                if (arg.type === null) {
+                    throw this.error(
+                        `unable to resolve type of argument ${i + 1} in hash map access`
+                    );
+                }
+            });
+            const incompatible = this.caller.type.checkIndicesCompatible(
+                this.args.map((arg) => arg.type as Type)
+            );
+            if (incompatible !== null) {
+                throw this.error(incompatible);
+            }
+            this.type = this.caller.type.valueType;
+            return;
+        }
+
         // Struct field access: instance("fieldName")
         if (this.caller.type instanceof CustomType) {
             const structInfo = getStruct(this.caller.type.name);
@@ -811,9 +947,7 @@ export class DirectCall extends Expression {
             writer.write("]");
         } else if (this.caller.type instanceof CustomType && getStruct(this.caller.type.name)) {
             const fieldName =
-                this.args[0] instanceof Literal
-                    ? this.args[0].value.slice(1, -1)
-                    : "";
+                this.args[0] instanceof Literal ? this.args[0].value.slice(1, -1) : "";
             writer.write("(");
             this.caller.toJS(writer);
             writer.write(`).${fieldName}`);
@@ -851,6 +985,22 @@ export class DirectCall extends Expression {
                     arg.toJS(writer);
                     writer.write("]");
                 });
+            } else if (this.caller.type instanceof TupleType) {
+                this.args.forEach((arg) => {
+                    writer.write("[");
+                    arg.toJS(writer);
+                    writer.write("]");
+                });
+            } else if (this.caller.type instanceof HashMapType) {
+                writer.write(".get(");
+                if (this.args[0]?.type === "Int") {
+                    writer.write("Number(");
+                    this.args[0].toJS(writer);
+                    writer.write(")");
+                } else {
+                    this.args[0]?.toJS(writer);
+                }
+                writer.write(")");
             } else {
                 throw new Error(`unknown caller type: ${this.caller.type}`);
             }

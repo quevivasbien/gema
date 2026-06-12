@@ -8,6 +8,9 @@ const BUILTIN_TYPE_NAMES = new Set([
     "Arr",
     "Iter",
     "MutArr",
+    "Tuple",
+    "HashMap",
+    "HashSet",
     "Self",
 ]);
 
@@ -27,6 +30,13 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
     } else if (type instanceof IterType) {
         collectCustomTypeNames(type.innerType, names);
     } else if (type instanceof MutArrType) {
+        collectCustomTypeNames(type.innerType, names);
+    } else if (type instanceof TupleType) {
+        type.types.forEach((t) => collectCustomTypeNames(t, names));
+    } else if (type instanceof HashMapType) {
+        collectCustomTypeNames(type.keyType, names);
+        collectCustomTypeNames(type.valueType, names);
+    } else if (type instanceof HashSetType) {
         collectCustomTypeNames(type.innerType, names);
     }
 }
@@ -51,6 +61,18 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     }
     if (type instanceof MutArrType) {
         return new MutArrType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof TupleType) {
+        return new TupleType(type.types.map((t) => substituteTypeParams(t, bindings)));
+    }
+    if (type instanceof HashMapType) {
+        return new HashMapType(
+            substituteTypeParams(type.keyType, bindings),
+            substituteTypeParams(type.valueType, bindings)
+        );
+    }
+    if (type instanceof HashSetType) {
+        return new HashSetType(substituteTypeParams(type.innerType, bindings));
     }
     return type;
 }
@@ -127,6 +149,55 @@ export class MutArrType {
     }
 }
 
+export class TupleType {
+    constructor(public types: Type[]) {}
+
+    toString(): string {
+        return `Tuple[${this.types.join(", ")}]`;
+    }
+
+    get length(): number {
+        return this.types.length;
+    }
+
+    checkIndicesCompatible(indexTypes: Type[]): string | null {
+        if (indexTypes.length !== 1) {
+            return `tuple type requires exactly one index, got ${indexTypes.length}`;
+        }
+        if (indexTypes[0] !== "Int") {
+            return `tuple index must be of type Int`;
+        }
+        return null;
+    }
+}
+
+export class HashMapType {
+    constructor(
+        public keyType: Type,
+        public valueType: Type
+    ) {}
+
+    toString(): string {
+        return `HashMap[${this.keyType}, ${this.valueType}]`;
+    }
+
+    checkIndicesCompatible(indexTypes: Type[]): string | null {
+        if (indexTypes.length !== 1) {
+            return `hash map requires exactly one key, got ${indexTypes.length}`;
+        }
+        // Any type is allowed as a key
+        return null;
+    }
+}
+
+export class HashSetType {
+    constructor(public innerType: Type) {}
+
+    toString(): string {
+        return `HashSet[${this.innerType}]`;
+    }
+}
+
 export class CustomType {
     name: string;
     traits: string[];
@@ -157,10 +228,14 @@ export type Type =
     | FuncType
     | ArrayType
     | IterType
+    | MutArrType
+    | TupleType
+    | HashMapType
+    | HashSetType
     | CustomType
     | "Self";
 
-export type CallableType = FuncType | ArrayType | IterType | MutArrType;
+export type CallableType = FuncType | ArrayType | IterType | MutArrType | TupleType | HashMapType;
 
 export class TemplateTypes {
     constructor(
@@ -220,6 +295,33 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
             throw new Error(`MutArr type cannot have a return type`);
         }
         return new MutArrType(templateTypes.types[0]);
+    }
+    if (typeName === "Tuple") {
+        if (templateTypes.types.length < 1) {
+            throw new Error(`Tuple type requires at least one template type`);
+        }
+        if (templateTypes.returnType !== null) {
+            throw new Error(`Tuple type cannot have a return type`);
+        }
+        return new TupleType(templateTypes.types);
+    }
+    if (typeName === "HashMap") {
+        if (templateTypes.types.length !== 2) {
+            throw new Error(`HashMap type requires exactly two template types (key and value)`);
+        }
+        if (templateTypes.returnType !== null) {
+            throw new Error(`HashMap type cannot have a return type`);
+        }
+        return new HashMapType(templateTypes.types[0], templateTypes.types[1]);
+    }
+    if (typeName === "HashSet") {
+        if (templateTypes.types.length !== 1) {
+            throw new Error(`HashSet type requires a single template type (for the inner type)`);
+        }
+        if (templateTypes.returnType !== null) {
+            throw new Error(`HashSet type cannot have a return type`);
+        }
+        return new HashSetType(templateTypes.types[0]);
     }
 
     return new CustomType(typeName);

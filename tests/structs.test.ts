@@ -5,7 +5,6 @@ import {
     testCompile,
     testParseExpectError,
     testParse,
-    testParseExpectError,
 } from "./helpers";
 
 test("compile struct construction and field access", () => {

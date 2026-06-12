@@ -19,21 +19,23 @@ const PRESETS = {
 
 sayHello("Gema")`,
     },
-    recursiveFactorial: {
-        label: "Factorial (recursive)",
-        code: `func factorial(n: Int): Int {
+    factorial: {
+        label: "Factorial (3 ways)",
+        code: `# Compute the first 6 factorials three ways and show they match.
+
+# 1. Recursive
+func factRec(n: Int): Int {
     if (n <= 1) {
         1
     } else {
-        n * factorial(n - 1)
+        n * factRec(n - 1)
     }
 };
 
-collect(map(factorial, range(0, 5)))`,
-    },
-    iterativeFactorial: {
-        label: "Factorial (iterative)",
-        code: `func factorial(n: Int): Int {
+rec = collect(map(factRec[Int], range(0, 6)));
+
+# 2. Reduce (functional)
+func factReduce(n: Int): Int {
     if (n < 1) {
         1
     } else {
@@ -45,7 +47,26 @@ collect(map(factorial, range(0, 5)))`,
     }
 };
 
-collect(map(factorial, range(0, 5)))`,
+fld = collect(map(factReduce[Int], range(0, 6)));
+
+# 3. For loop (imperative)
+func factFor(n: Int): Int {
+    if (n < 1) {
+        1
+    } else {
+        mut result = 1;
+        for i = range(1, n) {
+            result = result * i
+        };
+        result
+    }
+};
+
+imp = collect(map(factFor[Int], range(0, 6)));
+
+# All three produce the same result
+rec == fld and fld == imp   # true
+`,
     },
     arrays: {
         label: "Arrays & Indexing",
@@ -254,6 +275,51 @@ mut a = Adder(3);
 a += Adder(4);
 a.val   # 7`,
     },
+    tuplesAndZip: {
+        label: "Tuples & Zip",
+        code: `# ── Tuples ──────────────────────────────────────────
+
+# Tuple literals group values of different types
+t = (1, "hello", 3.0);
+
+# Index with a literal to access elements
+t(0)          # 1
+t(1)          # "hello"
+t(2)          # 3.0
+
+# Nested tuples
+nested = (1, (2, 3));
+nested(1)(0)  # 2
+
+# Tuple unpacking
+(a, b, c) = (10, 20, 30);
+a + b + c      # 60
+
+# Unpacking from a function
+func point(): Tuple[Int, Int] { (3, 4) };
+(x, y) = point();
+x * x + y * y  # 25
+
+# ── Zip Iterator ─────────────────────────────────────
+
+# zip combines iterables into an iterator of tuples
+collect(zip([1, 2, 3], ["a", "b", "c"]))
+# [(1, "a"), (2, "b"), (3, "c")]
+
+# Stops at the shortest input
+collect(zip([1, 2], ["a", "b", "c"]))
+# [(1, "a"), (2, "b")]
+
+# Three or more iterables
+collect(zip([1, 2], ["a", "b"], [true, false]))
+# [(1, "a", true), (2, "b", false)]
+
+# Combine zip with map — tuple elements are accessed by index
+collect(map(
+    func(pair: Tuple[Int, Int]) { pair(0) + pair(1) },
+    zip([1, 2, 3], [10, 20, 30])
+))   # [11, 22, 33]`,
+    },
     mutableArrays: {
         label: "Mutable Arrays",
         code: `# trans() creates a mutable array (deep copy from Arr)
@@ -267,7 +333,7 @@ push(mutarr, 5);
 set(mutarr, 0, 99);
 
 # detrans() freezes back to a regular array
-detrans(mutarr)   # [99, 2, 3, 4, 5]
+arr = detrans(mutarr)   # [99, 2, 3, 4, 5]
 
 # unsafeTrans avoids the copy
 x = [1, 2, 3];

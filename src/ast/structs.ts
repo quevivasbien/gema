@@ -1,11 +1,7 @@
 import type { JSWriter } from "../write-js";
 import { TokenType, type Token } from "../tokens";
 import { deepEquals } from "../deep-equals";
-import {
-    ArrayType,
-    CustomType,
-    type Type,
-} from "../types";
+import { ArrayType, CustomType, substituteTypeParams, type Type } from "../types";
 import { Expression } from "./expression";
 import { getStruct, registerStruct } from "./registries";
 
@@ -42,9 +38,14 @@ export class ArrLit extends Expression {
     }
 
     clone(bindings?: Map<string, Type>): Expression {
+        const newInnerType =
+            this.innerType !== undefined && bindings
+                ? substituteTypeParams(this.innerType, bindings)
+                : this.innerType;
         return new ArrLit(
             { line: this.line, col: this.col, text: "[", type: TokenType.LBracket },
-            this.expressions.map((e) => e.clone(bindings))
+            this.expressions.map((e) => e.clone(bindings)),
+            newInnerType
         );
     }
 
