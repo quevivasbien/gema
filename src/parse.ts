@@ -57,6 +57,11 @@ PARSE_RULES[TokenType.Func] = {
     infix: null,
     precedence: Precedence.None,
 };
+PARSE_RULES[TokenType.Backslash] = {
+    prefix: parseLambda,
+    infix: null,
+    precedence: Precedence.None,
+};
 PARSE_RULES[TokenType.Trait] = {
     prefix: parseTrait,
     infix: null,
@@ -356,6 +361,31 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
     );
 }
 
+function parseLambda(parser: Parser): AST.Expression {
+    const rootToken = parser.previous(); // should be '\'
+    // Read param names as identifiers until '{', ',' separates them
+    const params: { name: string; type: Type }[] = [];
+    while (!parser.atEnd() && parser.current().type !== TokenType.LBrace) {
+        if (parser.current().type !== TokenType.Identifier) {
+            return parser.error("Expected parameter name after '\\'.");
+        }
+        const paramName = parser.current().text;
+        parser.advance();
+        params.push({ name: paramName, type: null as unknown as Type });
+        // Skip comma if present
+        if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+            parser.advance();
+        }
+    }
+    if (parser.atEnd()) {
+        return parser.error("Expected '{' after lambda parameters.");
+    }
+    parser.advance(); // advance past '{'
+    return parser.tryCreateASTExpression(
+        () => new AST.AnonymousFunction(rootToken, params, parser.block(), null)
+    );
+}
+
 function parseTrait(parser: Parser): AST.Expression {
     const rootToken = parser.previous(); // should be 'trait'
     if (parser.atEnd()) {
@@ -518,15 +548,40 @@ function parseExponentiation(parser: Parser, leftExpr: AST.Expression): AST.Expr
 }
 
 function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
-    // Right side must be an identifier or keyword (function/builtin name)
     if (parser.atEnd()) {
         return parser.error("Expected function name after '|'");
     }
     const tt = parser.current().type;
+
+    // Backslash lambda: 5 | \x { x + 1 }
+    if (tt === TokenType.Backslash) {
+        parser.advance();
+        const lambda = parseLambda(parser);
+        return new AST.DirectCall(lambda, [leftExpr]);
+    }
+
+    // func anonymous function: 5 | func(x: Int) { x + 1 }
+    if (tt === TokenType.Func) {
+        parser.advance();
+        const anonFn = parseAnonymousFunction(parser);
+        return new AST.DirectCall(anonFn, [leftExpr]);
+    }
+
+    // Parenthesized expression: 3 | (func(x: Int) { x + 1 })
+    if (tt === TokenType.LParen) {
+        parser.advance();
+        const expr = parser.expression();
+        if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+            return parser.error("Expected ')' after expression.");
+        }
+        parser.advance();
+        return new AST.DirectCall(expr, [leftExpr]);
+    }
+
+    // Existing: identifier or keyword function/builtin name
     if (tt !== TokenType.Identifier && !KEYWORDS.has(tt as string)) {
         return parser.error("Expected function name after '|'");
     }
-    // Create a synthetic Identifier token so Call accepts it
     const nameToken = {
         ...parser.current(),
         type: TokenType.Identifier as TokenType,

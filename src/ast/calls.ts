@@ -17,9 +17,16 @@ import {
 import { Expression } from "./expression";
 import { Literal } from "./literals";
 import { Variable, Function, AnonymousFunction, Assignment, Block } from "./nodes";
-import { getStruct, isVarConsumed, markVarConsumed, findFunction } from "./registries";
+import {
+    getStruct,
+    isVarConsumed,
+    markVarConsumed,
+    findFunction,
+    getAllMonomorphized,
+} from "./registries";
 import { findCaller } from "./caller";
 import { paramTypesMatchArgTypes } from "./type-utils";
+import { deepEquals } from "../deep-equals";
 import { DropValue } from "./expression";
 
 // ── Helpers ──
@@ -123,6 +130,9 @@ export class Call extends Expression {
     }
 
     cascadeTypes(ancestors: Expression[]): void {
+        // Pre-fill unresolved anonymous function params so findBuiltin can match them
+        this.prefillLambdaParams(ancestors);
+
         const positionalArgTypes = this.args.map((arg, i) => {
             arg.cascadeTypes([...ancestors, this]);
             if (arg.type === null) {
@@ -333,6 +343,13 @@ export class Call extends Expression {
         this.callerType = result.callerType;
         this.type = result.rootType;
 
+        // Fill unresolved anonymous function params using inferred types from context
+        if (this.callerType instanceof FuncType && this.isBuiltin) {
+            this.fillAnonFunctionParams(ancestors);
+        }
+
+        // Tuple literal index resolution: tup(0) → exact element type at index 0
+
         // Tuple literal index resolution: tup(0) → exact element type at index 0
         if (
             this.callerType instanceof TupleType &&
@@ -426,6 +443,227 @@ export class Call extends Expression {
                 if (allMatched && usedPositions.size === totalArgs) {
                     this.args = ordered;
                     this.keywordArgs = [];
+                }
+            }
+        }
+    }
+
+    /**
+     * Before the main cascade, pre-fill lambda params for known builtins by
+     * cascading the non-function args first to get their types.
+     */
+    private prefillLambdaParams(ancestors: Expression[]): void {
+        const anonFn = this.args[0];
+        if (!(anonFn instanceof AnonymousFunction) || !anonFn.needsInference) return;
+
+        // Cascade the non-function args first to resolve their types
+        for (let i = 1; i < this.args.length; i++) {
+            this.args[i].cascadeTypes([...ancestors, this]);
+        }
+
+        // Determine expected param types from the resolved args
+        let expectedParamTypes: Type[] | null = null;
+
+        if (
+            this.name === "reduce" &&
+            this.args.length >= 3 &&
+            this.args[1].type &&
+            this.args[2].type
+        ) {
+            const iterType = this.args[2].type;
+            const innerType =
+                iterType instanceof ArrayType ||
+                iterType instanceof IterType ||
+                iterType instanceof MutArrType
+                    ? iterType.innerType
+                    : iterType;
+            expectedParamTypes = [this.args[1].type, innerType];
+        } else if (this.name === "iterate" && this.args.length >= 2 && this.args[1].type) {
+            expectedParamTypes = [this.args[1].type];
+        } else if (
+            ["map", "filter", "takeWhile", "dropWhile"].includes(this.name) &&
+            this.args.length >= 2 &&
+            this.args[1].type
+        ) {
+            const iterType = this.args[1].type;
+            const innerType =
+                iterType instanceof ArrayType ||
+                iterType instanceof IterType ||
+                iterType instanceof MutArrType
+                    ? iterType.innerType
+                    : iterType;
+            expectedParamTypes = [innerType];
+        }
+
+        if (expectedParamTypes !== null) {
+            anonFn.fillParams(expectedParamTypes, ancestors);
+            return;
+        }
+
+        // Fallback: try to find a user-defined function by name in ancestor chain
+        // and extract the expected function param type from its first parameter.
+        const fnDef = this.findUserFunctionDef(
+            ancestors,
+            this.args.slice(1).map((a) => a.type as Type)
+        );
+        if (fnDef && fnDef.params.length > 0) {
+            const firstParamType = fnDef.params[0].type;
+            if (firstParamType instanceof FuncType && firstParamType.paramTypes.length > 0) {
+                anonFn.fillParams(firstParamType.paramTypes, ancestors);
+            }
+        }
+    }
+
+    /**
+     * Search ancestor chain for a Function definition matching this call's name,
+     * matching non-function args to narrow down overloads.
+     */
+    private findUserFunctionDef(
+        ancestors: Expression[],
+        otherArgTypes: Type[]
+    ): { params: { name: string; type: Type }[]; returnType: Type } | null {
+        let prevAncestor: Expression | null = null;
+        for (let i = ancestors.length - 1; i >= 0; i--) {
+            const ancestor = ancestors[i];
+            if (ancestor instanceof Block) {
+                const searchFor = prevAncestor ?? this;
+                const olderSiblings = ancestor.expressions.slice(
+                    0,
+                    ancestor.expressions.indexOf(searchFor)
+                );
+                for (let j = olderSiblings.length - 1; j >= 0; j--) {
+                    let sib = olderSiblings[j];
+                    while (sib instanceof DropValue) sib = sib.child;
+                    if (sib instanceof Function && sib.name === this.name && !sib.isGeneric) {
+                        // Check that other arg types match (skip the function arg)
+                        const fnParams = sib.params;
+                        if (fnParams.length - 1 === otherArgTypes.length) {
+                            let match = true;
+                            for (let k = 0; k < otherArgTypes.length; k++) {
+                                if (!deepEquals(otherArgTypes[k], fnParams[k + 1].type)) {
+                                    match = false;
+                                    break;
+                                }
+                            }
+                            if (match) return { params: fnParams, returnType: sib.returnType };
+                        }
+                    }
+                }
+            }
+            prevAncestor = ancestor;
+        }
+        // Generic functions: try monomorphized versions already cached
+        for (const [, fn] of getAllMonomorphized()) {
+            if (fn.name === this.name) {
+                const fnParams = fn.params;
+                if (fnParams.length - 1 === otherArgTypes.length) {
+                    let match = true;
+                    for (let k = 0; k < otherArgTypes.length; k++) {
+                        if (!deepEquals(otherArgTypes[k], fnParams[k + 1].type)) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) return { params: fnParams, returnType: fn.returnType };
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Fill unresolved anonymous function (lambda) params from the call context.
+     * Derives expected param types based on the builtin kind and non-function args.
+     */
+    private fillAnonFunctionParams(ancestors: Expression[]): void {
+        const anonFn = this.args[0];
+        if (!(anonFn instanceof AnonymousFunction) || !anonFn.needsInference) return;
+
+        let expectedParamTypes: Type[] | null = null;
+
+        // Determine expected param types from the builtin's semantics and other args
+        switch (this.builtinKind) {
+            case "map":
+            case "filter":
+            case "takeWhile":
+            case "dropWhile":
+            case "mapFromArray": {
+                // fn(param: innerType): ?
+                if (this.args.length >= 2 && this.args[1].type) {
+                    const iterType = this.args[1].type;
+                    const innerType =
+                        iterType instanceof ArrayType ||
+                        iterType instanceof IterType ||
+                        iterType instanceof MutArrType
+                            ? iterType.innerType
+                            : iterType;
+                    expectedParamTypes = [innerType];
+                }
+                break;
+            }
+            case "reduce": {
+                // fn(acc: initType, elem: innerType): ?
+                if (this.args.length >= 3 && this.args[2].type && this.args[1].type) {
+                    const iterType = this.args[2].type;
+                    const innerType =
+                        iterType instanceof ArrayType ||
+                        iterType instanceof IterType ||
+                        iterType instanceof MutArrType
+                            ? iterType.innerType
+                            : iterType;
+                    expectedParamTypes = [this.args[1].type, innerType];
+                }
+                break;
+            }
+            case "iterate": {
+                // fn(param: startType): startType
+                if (this.args.length >= 2 && this.args[1].type) {
+                    expectedParamTypes = [this.args[1].type];
+                }
+                break;
+            }
+        }
+
+        if (expectedParamTypes !== null) {
+            anonFn.fillParams(expectedParamTypes, ancestors);
+            // Re-resolve the call with the now-resolved function type
+            const resolvedArgTypes = this.args.map((arg) => arg.type as Type);
+            const { error, result } = findCaller(this, ancestors, this.name, resolvedArgTypes);
+            if (error === null) {
+                this.callerType = result.callerType;
+                this.type = result.rootType;
+                this.referToByName = result.referToByName;
+                if (result.kind === "builtin") {
+                    this.isBuiltin = true;
+                    this.builtinKind = result.builtinKind;
+                }
+                // Re-check consumed vars with resolved result
+                if (
+                    this.builtinKind === "detrans" ||
+                    this.builtinKind === "detransDict" ||
+                    this.builtinKind === "detransSet"
+                ) {
+                    const detransArg = this.args[0];
+                    if (detransArg instanceof Variable && detransArg.fullName) {
+                        markVarConsumed(detransArg.fullName);
+                    }
+                }
+                if (
+                    this.builtinKind === "push" ||
+                    this.builtinKind === "put" ||
+                    this.builtinKind === "putDict" ||
+                    this.builtinKind === "removeDict" ||
+                    this.builtinKind === "pushSet" ||
+                    this.builtinKind === "removeSet"
+                ) {
+                    const mutArg = this.args[0];
+                    if (mutArg instanceof Variable && mutArg.fullName) {
+                        if (isVarConsumed(mutArg.fullName)) {
+                            throw this.error(
+                                `cannot use variable '${mutArg.fullName}' after it was detrans'd`
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -848,6 +1086,24 @@ export class DirectCall extends Expression {
     }
 
     cascadeTypes(ancestors: Expression[]): void {
+        // If the caller is an unresolved anonymous function, infer params from call args first
+        if (this.caller instanceof AnonymousFunction && this.caller.needsInference) {
+            const argTypes = this.args.map((arg, i) => {
+                arg.cascadeTypes([...ancestors, this]);
+                if (arg.type === null) {
+                    throw this.error(
+                        `unable to resolve type of argument ${i + 1} in function call`
+                    );
+                }
+                return arg.type;
+            });
+            // Set anon function params from call arg types, then cascade the body
+            this.caller.fillParams(argTypes, ancestors);
+            this.callerType = this.caller.type;
+            this.type = this.callerType instanceof FuncType ? this.callerType.returnType : "Null";
+            return;
+        }
+
         this.caller.cascadeTypes(ancestors);
         if (this.caller.type === null) {
             throw this.error("unable to resolve type of call");

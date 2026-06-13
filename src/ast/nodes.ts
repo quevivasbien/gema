@@ -811,6 +811,8 @@ export class AnonymousFunction extends Expression {
     params: { name: string; type: Type }[];
     body: Block;
     returnType: Type | null;
+    /** Whether this function has unresolved (null) param types that need inference. */
+    needsInference: boolean = false;
 
     constructor(
         rootToken: Token,
@@ -825,9 +827,44 @@ export class AnonymousFunction extends Expression {
         this.params = params;
         this.body = body;
         this.returnType = returnType;
+        this.needsInference = params.some((p) => p.type === null);
+    }
+
+    /** Fill param types from an inferred signature, then cascade the body. */
+    fillParams(types: Type[], ancestors: Expression[]): void {
+        if (!this.needsInference) return;
+        for (let i = 0; i < this.params.length; i++) {
+            this.params[i].type = types[i] ?? this.params[i].type;
+        }
+        this.needsInference = false;
+        this.body.cascadeTypes([...ancestors, this]);
+        const bodyReturnType = this.body.type;
+        if (bodyReturnType === null) {
+            throw this.error(`unable to resolve return type of function.`);
+        }
+        if (this.returnType !== null && !deepEquals(bodyReturnType, this.returnType)) {
+            throw this.error(
+                `anonymous function body should return ${this.returnType}, but found ${bodyReturnType}`
+            );
+        }
+        this.type = new FuncType(
+            this.params.map((p) => p.type),
+            this.returnType ?? bodyReturnType
+        );
     }
 
     cascadeTypes(ancestors: Expression[]): void {
+        // If params have null types, set a placeholder FuncType and skip body cascade.
+        // fillParams() must be called by the enclosing context to provide real types.
+        if (this.needsInference) {
+            // Use a non-concrete placeholder type so looseMatch allows the match
+            const placeholder = new CustomType("__infer__");
+            this.type = new FuncType(
+                this.params.map(() => placeholder),
+                placeholder
+            );
+            return;
+        }
         this.body.cascadeTypes([...ancestors, this]);
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
@@ -849,7 +886,7 @@ export class AnonymousFunction extends Expression {
             { line: this.line, col: this.col, text: "func", type: TokenType.Func },
             this.params.map((p) => ({
                 name: p.name,
-                type: bindings ? substituteTypeParams(p.type, bindings) : p.type,
+                type: bindings && p.type !== null ? substituteTypeParams(p.type, bindings) : p.type,
             })),
             this.body.clone(bindings),
             this.returnType && bindings

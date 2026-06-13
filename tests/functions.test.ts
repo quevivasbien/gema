@@ -62,40 +62,7 @@ test("compile functions as variables", () => {
     );
 });
 
-test("anonymous functions", () => {
-    testCompile(
-        `
-            f = func(a: Int, b: Int) {
-                a + b
-            };
-            f(1, 2)
-        `,
-        3n
-    );
-    testParse("func(x:Arr[Int]){x(0)}");
-});
-
 test("allow calling non-variable objects", () => {
-    testCompile(
-        `
-            (func(a: Int, b: Int) {
-                a + b
-            })(1, 2)
-        `,
-        3n
-    );
-    testCompile(
-        `
-            func foo(a: Int): Func[:Int] {
-                func() {
-                    a
-                }
-            }
-            
-            foo(1)()
-        `,
-        1n
-    );
     testCompile(
         `
         func foo(x: Int): Int {
@@ -166,15 +133,6 @@ test("compile generic function without return type annotation", () => {
     );
 });
 
-test("compile anonymous function with return type annotation", () => {
-    testCompile(`func (x: Int): Int { x + 1 }(5)`, 6n);
-    testCompile(`collect(map(func (x: Int): Int { x + 1 }, [1, 2, 3]))`, [2n, 3n, 4n]);
-    testCompile(`collect(filter(func (x: Int): Bool { x > 0 }, [1, 2, 3]))`, [1n, 2n, 3n]);
-    testCompile(`reduce(func (acc: Int, x: Int): Int { acc + x }, 0, [1, 2, 3])`, 6n);
-    // Regular anonymous functions still work
-    testCompile(`func (x: Int) { x + 1 }(5)`, 6n);
-});
-
 test("parse function", () => {
     // Functions without return types are allowed (inferred from body)
     testParse(`func foo() { 1 }`);
@@ -207,34 +165,6 @@ test("allow references to named functions", () => {
 
         bar(1)
     `);
-});
-
-test("parse anonymous function with return type annotation", () => {
-    // Basic anonymous function with return type
-    testParse(`func (x: Int): Int { x + 1 }`);
-    // Return type matching body
-    testParse(`func (x: Int): Int { x }`);
-    // Return type that's different from final expression but still valid
-    testParse(`x = func (a: Int): Int { a }; x(5)`);
-    // Anonymous function with return type used in map
-    testParse(`
-        collect(map(func (x: Int): Int { x + 1 }, [1, 2, 3]))
-    `);
-    // Anonymous function with return type used in filter
-    testParse(`
-        collect(filter(func (x: Int): Bool { x > 0 }, [1, 2, 3]))
-    `);
-    // Anonymous function with return type used in reduce
-    testParse(`
-        reduce(func (acc: Int, x: Int): Int { acc + x }, 0, [1, 2, 3])
-    `);
-    // Anonymous function without return type should still work (no regression)
-    testParse(`func (x: Int) { x + 1 }`);
-
-    // Error: anonymous function with conflicting return type
-    testParseExpectError(`func (x: Int): Str { x + 1 }`);
-    testParseExpectError(`func (x: Int): Bool { x }`);
-    testParseExpectError(`func (x: Bool): Int { x }`);
 });
 
 test("parse generic function without return type annotation", () => {

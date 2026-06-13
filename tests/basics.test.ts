@@ -249,8 +249,15 @@ test("pipe: non-function callable RHS", () => {
     testCompile("x = [1,2,3]; 1 | x", 2n);
 });
 
-test.todo("pipe: anonymous RHS", () => {
+test("pipe: backslash RHS", () => {
+    testCompile("5 | \\x { x + 1 }", 6n);
+});
+
+test("pipe: func RHS", () => {
     testCompile("3 | (func(x: Int) { x + 1 })", 4n);
     testCompile("3 | func(x: Int) { x + 1 }", 4n);
+});
+
+test.todo("pipe: array RHS", () => {
     testCompile("1 | [0, 2, 4]", 2n);
 });

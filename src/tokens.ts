@@ -19,6 +19,7 @@ export enum TokenType {
     // Unary operators
     Bang = "!",
     At = "@",
+    Backslash = "\\",
     // Binary operators
     And = "and",
     Or = "or",

@@ -147,7 +147,7 @@ class Scanner {
         if (/^[0-9]$/.test(c)) {
             return this.readNumber();
         }
-        if (/^[A-Za-z]/.test(c)) {
+        if (/^[A-Za-z_]/.test(c)) {
             return this.readIdentifierOrKeyword();
         }
 
