@@ -621,7 +621,7 @@ function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     if (tt === TokenType.LParen) {
         parser.advance();
         const expr = parser.expression();
-        if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+        if (expr === null || parser.atEnd() || parser.current().type !== TokenType.RParen) {
             return parser.error("Expected ')' after expression.");
         }
         parser.advance();
@@ -656,12 +656,19 @@ function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
                 parser.advance();
                 parser.advance(); // skip '='
                 const kwValue = parser.expression();
+                if (kwValue === null) {
+                    return parser.error("Expected value for keyword argument.");
+                }
                 keywordArgs.push({ name: kwName, value: kwValue });
             } else {
                 if (seenKeyword) {
                     return parser.error("Cannot mix positional and keyword arguments.");
                 }
-                args.push(parser.expression());
+                const arg = parser.expression();
+                if (arg === null) {
+                    return parser.error("Expected expression.");
+                }
+                args.push(arg);
             }
             if (parser.atEnd()) {
                 return parser.error("Unterminated call.");

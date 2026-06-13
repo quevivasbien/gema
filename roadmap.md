@@ -67,76 +67,13 @@ arr(1) ??  # Abort the program if arr(1) is undefined -- this would require some
 
 I actually kind of like `!` as an unsafe call, so maybe we could use it more generally to denote an unsafe call, for example, replace `unsafeTrans(arr)` with `trans ! arr`. More speculatively, we could have a concept of an unsafe function with `!` as the syntax to call those functions. At the same time, it might make sense to introduce `$` as the equivalent safe call operator (would work the same way as just parenthesis calls but have different precedence).
 
-## No type annotations for anonymous functions.
-
-It should be possible to infer type signatures of anonymous functions from usage. If you try to use an anonymous function, and it's not possible to infer the type signature, that's when we get an error.
-
-```gema
-func sum(arr: Arr[Int]) {
-    reduce(func(acc, x){acc+x}, 0, arr)  # It's clear here that the anonymous function should have the signature Func[Int, Int]: Int
-}
-```
-
-We can use the same annotated function syntax that we already have in place for non-anonymous functions when we're passing anonymous functions around like variables.
-
-We probably should also not allow anonymous functions in the top-level scope.
-
-### An extension to this: completely different syntax
-
-We might want to change the syntax of anon functions so they're even less clunky to use.
-
-E.g., something like `(x, y, z) { x + y + z }` instead of `func(x, y, z) {x + y + z}` (the `func` shouldn't really be needed, since it's not legal to have a tuple right next to a curly brace block without a semicolon in between). Probably to make it even more clear that it's an anon function, we could use Haskell-like syntax and do something like `\x, y, z { x + y + z }` or Rust-like syntax like `|x, y, z| { x + y + z }`. We could also copy JS and do `(x, y, z) => { x + y + z }`, but I'd prefer to keep the number of chars required for this at a minimum, since this language is so heavily functional.
-
-```gema
-func sum(arr: Arr[Int]) {
-    f = \acc, x { acc + x };
-    reduce(f, 0, arr)
-}
-```
-
-## Slice indexing and syntactic sugar for ranges
-
-We should have a convenient notation for ranges:
-
-`a..b` is equivalent to `range(a, b)`. (Maybe we should drop the `range` syntax.) While we're at this, it would be useful to have a infinite range; the syntax for that would either be `(a..)` or `a..*`.
-
-We maybe should have a `step` builtin that changes the step size with which to step through an iterable (iterator or array). So then we would replace the current `range(a, b, step_size)` with `range(a, b) | step(step_size)`.
-
-A native implementation for `step` would be
-
-```gema
-trait Any {}
-
-func step(step_size: Int) where T is Any {
-    infrange = iterate(func(i: Int){i+1}, 0);
-    func(iter: Iter[T]) {
-        zipped = zip(infrange, iter);
-        map(
-            func(pair: Tuple[Int, T]){ pair(1) },
-            filter(
-                func(pair: Tuple[Int, T]){ pair(0) % step_size == 0 },
-                zipped
-            )
-        )
-    }
-}
-```
-
-though of course this would actually be implemented more efficiently in JS, with optimizations for some iterator types.
-
-In any case, we should also be able to index into arrays using integer iterators.
-
-The syntax `map(arr, iter)` is already supported, but this gives a (lazy) iterator to elements of `arr`.
-
-We should also have the syntax `arr(iter)` which will produce an array rather than an iterator. This should be optimized for the range iterator type so that `arr(a..b)` compiles to `arr.slice(a,b+1)` and `arr(a..*)` compiles to `arr.slice(a)`.
-
 ## 64-bit ndarray types based on JS's TypedArray
 
 TBD
 
 ## Tentative: list comprehensions
 
-List comprehensions are super helpful as a succinct map + zip + filter. Could be nice to have.
+List comprehensions are helpful as a succinct map + zip + filter. Could be nice to have.
 
 ## Tentative: currying
 
@@ -153,6 +90,10 @@ func foo(a: Int, b:Int) {
 ```
 
 It should be quite straightforward to infer the type of `*` here, so this could be shortened to just something like `13 | foo(1, *)`.
+
+## Return and continue keywords
+
+These would be helpful to avoid deeply nested control flow.
 
 ## Language guide
 

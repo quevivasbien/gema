@@ -1,8 +1,8 @@
 export const BUILTINS: Record<string, string> = {
-    __MOD__: `function __MOD__(a, b) {
+    $mod$: `function $mod$(a, b) {
     return ((a % b) + b) % b;
 }`,
-    __ARRAY_EQUAL__: `function __ARRAY_EQUAL__(a, b) {
+    $arrayEq$: `function $arrayEq$(a, b) {
     if (a.length !== b.length) {
         return false;
     }
@@ -13,7 +13,7 @@ export const BUILTINS: Record<string, string> = {
     }
     return true;
 }`,
-    __COLLECT__: `function __COLLECT__(iter) {
+    $collect$: `function $collect$(iter) {
     const out = [];
     while (true) {
         const value = iter.next();
@@ -25,7 +25,7 @@ export const BUILTINS: Record<string, string> = {
     }
     return out;
 }`,
-    __ARRAYITER__: `class _ARRAY_ITERATOR_ {
+    $arrayIter$: `class $ArrayIterator$ {
     constructor(array) {
         this.array = array;
         this.index = 0;
@@ -41,10 +41,10 @@ export const BUILTINS: Record<string, string> = {
         this.index = 0;
     }
 }
-function __ARRAYITER__(array) {
-    return new _ARRAY_ITERATOR_(array);
+function $arrayIter$(array) {
+    return new $ArrayIterator$(array);
 }`,
-    __RANGEITER__: `class _RANGE_ITERATOR_ {
+    $rangeIter$: `class $RangeIterator$ {
     constructor(start, end, step) {
         this.value = start;
         this.start = start;
@@ -64,10 +64,10 @@ function __ARRAYITER__(array) {
         this.value = this.start;
     }
 }
-function __RANGEITER__(start, end, step = 1n) {
-    return new _RANGE_ITERATOR_(start, end, step);
+function $rangeIter$(start, end, step = 1n) {
+    return new $RangeIterator$(start, end, step);
 }`,
-    __MAPITER__: `class _MAP_ITERATOR_ {
+    $mapIter$: `class $MapIterator$ {
     constructor(mapfn, innerIter) {
         this.mapfn = mapfn;
         this.innerIter = innerIter;
@@ -84,10 +84,10 @@ function __RANGEITER__(start, end, step = 1n) {
         this.innerIter.reset();
     }
 }
-function __MAPITER__(mapfn, innerIter) {
-    return new _MAP_ITERATOR_(mapfn, innerIter);
+function $mapIter$(mapfn, innerIter) {
+    return new $MapIterator$(mapfn, innerIter);
 }`,
-    __ARRAYMAPITER__: `class _ARRAY_MAP_ITERATOR_ {
+    $arrayMapIter$: `class _ARRAY$MapIterator$ {
     constructor(arr, innerIter) {
         this.arr = arr;
         this.innerIter = innerIter;
@@ -104,10 +104,10 @@ function __MAPITER__(mapfn, innerIter) {
         this.innerIter.reset();
     }
 }
-function __ARRAYMAPITER__(arr, innerIter) {
-    return new _ARRAY_MAP_ITERATOR_(arr, innerIter);
+function $arrayMapIter$(arr, innerIter) {
+    return new _ARRAY$MapIterator$(arr, innerIter);
 }`,
-    __FILTERITER__: `class _FILTER_ITERATOR_ {
+    $filterIter$: `class $FilterIterator$ {
     constructor(filterFn, innerIter) {
         this.filterFn = filterFn;
         this.innerIter = innerIter;
@@ -129,10 +129,10 @@ function __ARRAYMAPITER__(arr, innerIter) {
         this.innerIter.reset();
     }
 }
-function __FILTERITER__(filterFn, innerIter) {
-    return new _FILTER_ITERATOR_(filterFn, innerIter);
+function $filterIter$(filterFn, innerIter) {
+    return new $FilterIterator$(filterFn, innerIter);
 }`,
-    __REDUCE__: `function __REDUCE__(reduceFn, initValue, iter) {
+    $reduce$: `function $reduce$(reduceFn, initValue, iter) {
     let accumulated = initValue;
     while (true) {
         const value = iter.next();
@@ -144,7 +144,7 @@ function __FILTERITER__(filterFn, innerIter) {
     }
     return accumulated;
 }`,
-    __ITER_GET__: `function __ITER_GET__(iter, index) {
+    $iterGet$: `function $iterGet$(iter, index) {
     let count = 0n;
     while (true) {
         const value = iter.next();
@@ -159,7 +159,7 @@ function __FILTERITER__(filterFn, innerIter) {
         count++;
     }
 }`,
-    __TAKEITER__: `class _TAKE_ITERATOR_ {
+    $takeIter$: `class $TakeIterator$ {
     constructor(innerIter, count) {
         this.innerIter = innerIter;
         this.remaining = count;
@@ -183,10 +183,10 @@ function __FILTERITER__(filterFn, innerIter) {
         this.remaining = this.originalCount;
     }
 }
-function __TAKEITER__(count, iter) {
-    return new _TAKE_ITERATOR_(iter, count);
+function $takeIter$(count, iter) {
+    return new $TakeIterator$(iter, count);
 }`,
-    __TAKEWHILEITER__: `class _TAKEWHILE_ITERATOR_ {
+    $takeWhileIter$: `class $TakeWhileIterator$ {
     constructor(innerIter, pred) {
         this.innerIter = innerIter;
         this.pred = pred;
@@ -203,10 +203,10 @@ function __TAKEITER__(count, iter) {
         this.innerIter.reset();
     }
 }
-function __TAKEWHILEITER__(pred, iter) {
-    return new _TAKEWHILE_ITERATOR_(iter, pred);
+function $takeWhileIter$(pred, iter) {
+    return new $TakeWhileIterator$(iter, pred);
 }`,
-    __DROPITER__: `class _DROP_ITERATOR_ {
+    $dropIter$: `class $DropIterator$ {
     constructor(innerIter, count) {
         this.innerIter = innerIter;
         this.toSkip = count;
@@ -235,10 +235,10 @@ function __TAKEWHILEITER__(pred, iter) {
         this.dropping = true;
     }
 }
-function __DROPITER__(count, iter) {
-    return new _DROP_ITERATOR_(iter, count);
+function $dropIter$(count, iter) {
+    return new $DropIterator$(iter, count);
 }`,
-    __DROPWHILEITER__: `class _DROPWHILE_ITERATOR_ {
+    $dropWhileIter$: `class $DropWhileIterator$ {
     constructor(innerIter, pred) {
         this.innerIter = innerIter;
         this.pred = pred;
@@ -270,10 +270,10 @@ function __DROPITER__(count, iter) {
         this.dropping = true;
     }
 }
-function __DROPWHILEITER__(pred, iter) {
-    return new _DROPWHILE_ITERATOR_(iter, pred);
+function $dropWhileIter$(pred, iter) {
+    return new $DropWhileIterator$(iter, pred);
 }`,
-    __ITERATEITER__: `class _ITERATE_ITERATOR_ {
+    $iterateIter$: `class $IterateIterator$ {
     constructor(fn, start) {
         this.fn = fn;
         this.current = start;
@@ -293,10 +293,10 @@ function __DROPWHILEITER__(pred, iter) {
         this.first = true;
     }
 }
-function __ITERATEITER__(fn, start) {
-    return new _ITERATE_ITERATOR_(fn, start);
+function $iterateIter$(fn, start) {
+    return new $IterateIterator$(fn, start);
 }`,
-    __LAST__: `function __LAST__(iter) {
+    $last$: `function $last$(iter) {
     let lastValue;
     while (true) {
         const value = iter.next();
@@ -307,7 +307,7 @@ function __ITERATEITER__(fn, start) {
         lastValue = value;
     }
 }`,
-    __LENGTH__: `function __LENGTH__(iter) {
+    $length$: `function $length$(iter) {
     let count = 0n;
     while (true) {
         const value = iter.next();
@@ -318,31 +318,31 @@ function __ITERATEITER__(fn, start) {
         count++;
     }
 }`,
-    __PUSH__: `function __PUSH__(mutarr, val) {
+    $push$: `function $push$(mutarr, val) {
     mutarr.push(val);
     return mutarr;
 }`,
-    __PUT__: `function __PUT__(mutarr, idx, val) {
+    $put$: `function $put$(mutarr, idx, val) {
     mutarr[idx] = val;
     return val;
 }`,
-    __PUT_MUTDICT__: `function __PUT_MUTDICT__(mutdict, key, val) {
+    $putMutDict$: `function $putMutDict$(mutdict, key, val) {
     mutdict.set(key, val);
     return mutdict;
 }`,
-    __REMOVE_MUTDICT__: `function __REMOVE_MUTDICT__(mutdict, key) {
+    $removeMutDict$: `function $removeMutDict$(mutdict, key) {
     mutdict.delete(key);
     return mutdict;
 }`,
-    __PUSH_MUTSET__: `function __PUSH_MUTSET__(mutset, val) {
+    $pushMutSet$: `function $pushMutSet$(mutset, val) {
     mutset.add(val);
     return mutset;
 }`,
-    __REMOVE_MUTSET__: `function __REMOVE_MUTSET__(mutset, val) {
+    $removeMutSet$: `function $removeMutSet$(mutset, val) {
     mutset.delete(val);
     return mutset;
 }`,
-    __STEPITER__: `class _STEP_ITERATOR_ {
+    $stepIter$: `class $StepIterator$ {
     constructor(innerIter, stepSize) {
         this.innerIter = innerIter;
         this.stepSize = stepSize;
@@ -367,19 +367,19 @@ function __ITERATEITER__(fn, start) {
         this.count = 0n;
     }
 }
-function __STEPITER__(innerIter, stepSize) {
+function $stepIter$(innerIter, stepSize) {
     if (typeof innerIter.next !== "function") {
-        innerIter = __ARRAYITER__(innerIter);
+        innerIter = $arrayIter$(innerIter);
     }
-    return new _STEP_ITERATOR_(innerIter, stepSize);
+    return new $StepIterator$(innerIter, stepSize);
 }`,
-    __ZIP__: `function __ZIP__(...iters) {
+    $zip$: `function $zip$(...iters) {
     const iterators = iters.map((it) =>
-        typeof it.next === "function" ? it : __ARRAYITER__(it)
+        typeof it.next === "function" ? it : $arrayIter$(it)
     );
-    return new _ZIP_ITERATOR_(iterators);
+    return new $ZipIterator$(iterators);
 }
-class _ZIP_ITERATOR_ {
+class $ZipIterator$ {
     constructor(iterators) {
         this.iterators = iterators;
     }

@@ -56,7 +56,7 @@ export function safeJSName(name: string): string {
     const baseName = dollarIdx === -1 ? name : name.slice(0, dollarIdx);
     if (JS_RESERVED_WORDS.has(baseName)) {
         const suffix = dollarIdx === -1 ? "" : name.slice(dollarIdx);
-        return `_gema_${baseName}${suffix}`;
+        return `$${baseName}${suffix}`;
     }
     return name;
 }
@@ -88,9 +88,14 @@ export class JSWriter {
     indentLevel: number = 0;
     scope: Scope = new Scope();
     builtins: Set<string> = new Set();
+    nextUniqueId: number = 0;
 
     constructor(ast: AST.Expression) {
         this.ast = ast;
+    }
+
+    uniqueName(prefix: string): string {
+        return `${prefix}${this.nextUniqueId++}`;
     }
 
     newLine() {

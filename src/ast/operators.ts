@@ -256,8 +256,8 @@ export class Binary extends Expression {
                 writer.write(")");
                 return;
             } else if (this.operator === TokenType.EqualEqual) {
-                writer.useBuiltin("__ARRAY_EQUAL__");
-                writer.write("__ARRAY_EQUAL__(");
+                writer.useBuiltin("$arrayEq$");
+                writer.write("$arrayEq$(");
                 this.left.toJS(writer);
                 writer.write(", ");
                 this.right.toJS(writer);
@@ -273,8 +273,8 @@ export class Binary extends Expression {
             writer.write(")");
             return;
         } else if (this.operator === TokenType.Percent) {
-            writer.useBuiltin("__MOD__");
-            writer.write("__MOD__(");
+            writer.useBuiltin("$mod$");
+            writer.write("$mod$(");
             this.left.toJS(writer);
             writer.write(", ");
             this.right.toJS(writer);

@@ -179,3 +179,21 @@ test("for: for loop evaluates to null", () => {
         null
     );
 });
+
+test("for: repeated for loop with same iterating variable", () => {
+    // Iterating variable needs to not be declared in same scope as the rest of the block.
+    // 0..3 is inclusive of 3, so each loop iterates 4 times.
+    testCompile(
+        `
+        mut total = 0;
+        for i = 0..3 {
+            total += 1;
+        }
+        for i = 0..3 {
+            total += 1;
+        }
+        total
+        `,
+        8n
+    );
+});

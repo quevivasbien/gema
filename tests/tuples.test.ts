@@ -89,6 +89,33 @@ test("tuple unpacking error on type mismatch", () => {
     testParseExpectError("(a, b) = (1, 2, 3)");
 });
 
+test("tuple: unpack tuple within body of for loop", () => {
+    testCompile(
+        `
+        out = []:Int | trans;
+        for tup = zip(range(1,3), range(3,5)) {
+            (a, b) = tup;
+            push(out, a + b)
+        }
+        out
+        `,
+        [4n, 6n, 8n]
+    );
+});
+
+test.todo("tuple: unpack tuple in for loop declaration", () => {
+    testCompile(
+        `
+        out = []:Int | trans;
+        for (a, b) = zip(range(1,3), range(3,5)) {
+            push(out, a + b)
+        }
+        out
+        `,
+        [4n, 6n, 8n]
+    );
+});
+
 // ============================================================
 // Zip iterator
 // ============================================================

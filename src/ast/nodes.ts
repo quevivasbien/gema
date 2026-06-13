@@ -238,18 +238,18 @@ export class ForLoop extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        const iterVar = `_iter_${this.varName}`;
+        const iterVar = writer.uniqueName("$iter$");
         const safeIterVar = writer.safeName(iterVar);
         const safeVarName = writer.safeName(this.varName);
 
         if (this.iter.type instanceof ArrayType || this.iter.type instanceof MutArrType) {
-            writer.useBuiltin("__ARRAYITER__");
-            writer.write(`const ${safeIterVar} = __ARRAYITER__(`);
+            writer.useBuiltin("$arrayIter$");
+            writer.write(`const ${safeIterVar} = $arrayIter$(`);
             this.iter.toJS(writer);
             writer.write(");");
             writer.newLine();
         } else if (this.iter.type === "Str") {
-            writer.write(`const ${safeIterVar} = __ARRAYITER__(`);
+            writer.write(`const ${safeIterVar} = $arrayIter$(`);
             this.iter.toJS(writer);
             writer.write(`.split(""));`);
             writer.newLine();
@@ -278,7 +278,7 @@ export class ForLoop extends Expression {
         writer.newLine();
         writer.write("}");
         writer.newLine();
-        writer.write(`${safeIterVar}.reset();`);
+        writer.write(`${safeIterVar}.reset()`);
     }
 }
 
@@ -358,8 +358,8 @@ export class RangeIter extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.useBuiltin("__RANGEITER__");
-        writer.write("__RANGEITER__(");
+        writer.useBuiltin("$rangeIter$");
+        writer.write("$rangeIter$(");
         if (this.start !== null) {
             this.start.toJS(writer);
         } else {

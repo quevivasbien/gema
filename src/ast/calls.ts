@@ -730,8 +730,8 @@ export class Call extends Expression {
             const wrapArg = (index: number): void => {
                 const arg = this.args[index];
                 if (arg && (arg.type instanceof ArrayType || arg.type instanceof MutArrType)) {
-                    writer.useBuiltin("__ARRAYITER__");
-                    writer.write("__ARRAYITER__(");
+                    writer.useBuiltin("$arrayIter$");
+                    writer.write("$arrayIter$(");
                     arg.toJS(writer);
                     writer.write(")");
                 } else {
@@ -740,38 +740,38 @@ export class Call extends Expression {
             };
             switch (this.builtinKind) {
                 case "collect":
-                    writer.useBuiltin("__COLLECT__");
-                    writer.write("__COLLECT__(");
+                    writer.useBuiltin("$collect$");
+                    writer.write("$collect$(");
                     wrapArg(0);
                     writer.write(")");
                     return;
                 case "map":
-                    writer.useBuiltin("__MAPITER__");
-                    writer.write("__MAPITER__(");
+                    writer.useBuiltin("$mapIter$");
+                    writer.write("$mapIter$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "mapFromArray":
-                    writer.useBuiltin("__ARRAYMAPITER__");
-                    writer.write("__ARRAYMAPITER__(");
+                    writer.useBuiltin("$arrayMapIter$");
+                    writer.write("$arrayMapIter$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "filter":
-                    writer.useBuiltin("__FILTERITER__");
-                    writer.write("__FILTERITER__(");
+                    writer.useBuiltin("$filterIter$");
+                    writer.write("$filterIter$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "reduce":
-                    writer.useBuiltin("__REDUCE__");
-                    writer.write("__REDUCE__(");
+                    writer.useBuiltin("$reduce$");
+                    writer.write("$reduce$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
@@ -780,8 +780,8 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "range":
-                    writer.useBuiltin("__RANGEITER__");
-                    writer.write("__RANGEITER__(");
+                    writer.useBuiltin("$rangeIter$");
+                    writer.write("$rangeIter$(");
                     this.args.forEach((arg, i) => {
                         if (i > 0) writer.write(", ");
                         arg.toJS(writer);
@@ -789,8 +789,8 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "zip":
-                    writer.useBuiltin("__ZIP__");
-                    writer.write("__ZIP__(");
+                    writer.useBuiltin("$zip$");
+                    writer.write("$zip$(");
                     this.args.forEach((arg, i) => {
                         if (i > 0) writer.write(", ");
                         wrapArg(i);
@@ -798,16 +798,16 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "step":
-                    writer.useBuiltin("__STEPITER__");
-                    writer.write("__STEPITER__(");
+                    writer.useBuiltin("$stepIter$");
+                    writer.write("$stepIter$(");
                     wrapArg(0);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
                     writer.write(")");
                     return;
                 case "iterate":
-                    writer.useBuiltin("__ITERATEITER__");
-                    writer.write("__ITERATEITER__(");
+                    writer.useBuiltin("$iterateIter$");
+                    writer.write("$iterateIter$(");
                     this.args.forEach((arg, i) => {
                         if (i > 0) writer.write(", ");
                         arg.toJS(writer);
@@ -825,8 +825,8 @@ export class Call extends Expression {
                         writer.write(".length - 1]");
                         return;
                     }
-                    writer.useBuiltin("__LAST__");
-                    writer.write("__LAST__(");
+                    writer.useBuiltin("$last$");
+                    writer.write("$last$(");
                     wrapArg(0);
                     writer.write(")");
                     return;
@@ -840,38 +840,38 @@ export class Call extends Expression {
                         writer.write(".length)");
                         return;
                     }
-                    writer.useBuiltin("__LENGTH__");
-                    writer.write("__LENGTH__(");
+                    writer.useBuiltin("$length$");
+                    writer.write("$length$(");
                     wrapArg(0);
                     writer.write(")");
                     return;
                 case "take":
-                    writer.useBuiltin("__TAKEITER__");
-                    writer.write("__TAKEITER__(");
+                    writer.useBuiltin("$takeIter$");
+                    writer.write("$takeIter$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "drop":
-                    writer.useBuiltin("__DROPITER__");
-                    writer.write("__DROPITER__(");
+                    writer.useBuiltin("$dropIter$");
+                    writer.write("$dropIter$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "takeWhile":
-                    writer.useBuiltin("__TAKEWHILEITER__");
-                    writer.write("__TAKEWHILEITER__(");
+                    writer.useBuiltin("$takeWhileIter$");
+                    writer.write("$takeWhileIter$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "dropWhile":
-                    writer.useBuiltin("__DROPWHILEITER__");
-                    writer.write("__DROPWHILEITER__(");
+                    writer.useBuiltin("$dropWhileIter$");
+                    writer.write("$dropWhileIter$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
@@ -904,8 +904,8 @@ export class Call extends Expression {
                     return;
                 case "putDict":
                     // put on MutDict: set key/value and return MutDict for chaining
-                    writer.useBuiltin("__PUT_MUTDICT__");
-                    writer.write("__PUT_MUTDICT__(");
+                    writer.useBuiltin("$putMutDict$");
+                    writer.write("$putMutDict$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
@@ -915,8 +915,8 @@ export class Call extends Expression {
                     return;
                 case "removeDict":
                     // remove on MutDict: delete key and return MutDict for chaining
-                    writer.useBuiltin("__REMOVE_MUTDICT__");
-                    writer.write("__REMOVE_MUTDICT__(");
+                    writer.useBuiltin("$removeMutDict$");
+                    writer.write("$removeMutDict$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
@@ -938,8 +938,8 @@ export class Call extends Expression {
                     return;
                 case "pushSet":
                     // push on MutSet: add element and return MutSet for chaining
-                    writer.useBuiltin("__PUSH_MUTSET__");
-                    writer.write("__PUSH_MUTSET__(");
+                    writer.useBuiltin("$pushMutSet$");
+                    writer.write("$pushMutSet$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
@@ -947,24 +947,24 @@ export class Call extends Expression {
                     return;
                 case "removeSet":
                     // remove on MutSet: delete element and return MutSet for chaining
-                    writer.useBuiltin("__REMOVE_MUTSET__");
-                    writer.write("__REMOVE_MUTSET__(");
+                    writer.useBuiltin("$removeMutSet$");
+                    writer.write("$removeMutSet$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
                     writer.write(")");
                     return;
                 case "push":
-                    writer.useBuiltin("__PUSH__");
-                    writer.write("__PUSH__(");
+                    writer.useBuiltin("$push$");
+                    writer.write("$push$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
                     writer.write(")");
                     return;
                 case "put":
-                    writer.useBuiltin("__PUT__");
-                    writer.write("__PUT__(");
+                    writer.useBuiltin("$put$");
+                    writer.write("$put$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
@@ -1051,8 +1051,8 @@ export class Call extends Expression {
                         writer.write(", ");
                     }
                     if (iterParamIndices.includes(i)) {
-                        writer.useBuiltin("__ARRAYITER__");
-                        writer.write("__ARRAYITER__(");
+                        writer.useBuiltin("$arrayIter$");
+                        writer.write("$arrayIter$(");
                         arg.toJS(writer);
                         writer.write(")");
                     } else {
@@ -1062,8 +1062,8 @@ export class Call extends Expression {
                 writer.write(")");
             }
         } else if (this.callerType instanceof IterType) {
-            writer.useBuiltin("__ITER_GET__");
-            writer.write("__ITER_GET__(");
+            writer.useBuiltin("$iterGet$");
+            writer.write("$iterGet$(");
             writer.write(writer.safeName(this.referToByName));
             writer.write(", ");
             this.args.forEach((arg, i) => {
@@ -1130,6 +1130,7 @@ export class DirectCall extends Expression {
     caller: Expression;
     args: Expression[];
     keywordArgs: { name: string; value: Expression }[] = [];
+    callerType?: CallableType;
 
     constructor(caller: Expression, args: Expression[]) {
         super(caller.line, caller.col);
@@ -1151,7 +1152,7 @@ export class DirectCall extends Expression {
             });
             // Set anon function params from call arg types, then cascade the body
             this.caller.fillParams(argTypes, ancestors);
-            this.callerType = this.caller.type;
+            this.callerType = this.caller.type as CallableType;
             this.type = this.callerType instanceof FuncType ? this.callerType.returnType : "Null";
             return;
         }
@@ -1343,8 +1344,8 @@ export class DirectCall extends Expression {
             this.caller.toJS(writer);
             writer.write(`).${fieldName}`);
         } else if (this.caller.type instanceof IterType) {
-            writer.useBuiltin("__ITER_GET__");
-            writer.write("__ITER_GET__(");
+            writer.useBuiltin("$iterGet$");
+            writer.write("$iterGet$(");
             this.caller.toJS(writer);
             writer.write(", ");
             this.args.forEach((arg, i) => {
@@ -1376,8 +1377,8 @@ export class DirectCall extends Expression {
                         writer.write(", ");
                     }
                     if (iterParamIndices.includes(i)) {
-                        writer.useBuiltin("__ARRAYITER__");
-                        writer.write("__ARRAYITER__(");
+                        writer.useBuiltin("$arrayIter$");
+                        writer.write("$arrayIter$(");
                         arg.toJS(writer);
                         writer.write(")");
                     } else {
