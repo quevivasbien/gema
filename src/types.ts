@@ -41,6 +41,8 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
         collectCustomTypeNames(type.valueType, names);
     } else if (type instanceof SetType) {
         collectCustomTypeNames(type.innerType, names);
+    } else if (type instanceof MutSetType) {
+        collectCustomTypeNames(type.innerType, names);
     }
 }
 
@@ -82,6 +84,9 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     }
     if (type instanceof SetType) {
         return new SetType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof MutSetType) {
+        return new MutSetType(substituteTypeParams(type.innerType, bindings));
     }
     return type;
 }
@@ -226,6 +231,14 @@ export class SetType {
     }
 }
 
+export class MutSetType {
+    constructor(public innerType: Type) {}
+
+    toString(): string {
+        return `MutSet[${this.innerType}]`;
+    }
+}
+
 export class CustomType {
     name: string;
     traits: string[];
@@ -261,6 +274,7 @@ export type Type =
     | DictType
     | MutDictType
     | SetType
+    | MutSetType
     | CustomType
     | "Self";
 
@@ -271,7 +285,8 @@ export type CallableType =
     | MutArrType
     | TupleType
     | DictType
-    | MutDictType;
+    | MutDictType
+    | MutSetType;
 
 export class TemplateTypes {
     constructor(
@@ -369,6 +384,16 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
             throw new Error(`Set type cannot have a return type`);
         }
         return new SetType(templateTypes.types[0]);
+    }
+
+    if (typeName === "MutSet") {
+        if (templateTypes.types.length !== 1) {
+            throw new Error(`MutSet type requires a single template type (for the inner type)`);
+        }
+        if (templateTypes.returnType !== null) {
+            throw new Error(`MutSet type cannot have a return type`);
+        }
+        return new MutSetType(templateTypes.types[0]);
     }
 
     return new CustomType(typeName);

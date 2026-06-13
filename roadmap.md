@@ -89,11 +89,79 @@ func sum(arr: Arr[Int]) {
 }
 ```
 
+## Slice indexing and syntactic sugar for ranges
+
+We should have a convenient notation for ranges:
+
+`a..b` is equivalent to `range(a, b)`. (Maybe we should drop the `range` syntax.) While we're at this, it would be useful to have a infinite range; the syntax for that would either be `(a..)` or `a..*`.
+
+We maybe should have a `step` builtin that changes the step size with which to step through an iterable (iterator or array). So then we would replace the current `range(a, b, step_size)` with `range(a, b) | step(step_size)`.
+
+A native implementation for `step` would be
+
+```gema
+trait Any {}
+
+func step(step_size: Int) where T is Any {
+    infrange = iterate(func(i: Int){i+1}, 0);
+    func(iter: Iter[T]) {
+        zipped = zip(infrange, iter);
+        map(
+            func(pair: Tuple[Int, T]){ pair(1) },
+            filter(
+                func(pair: Tuple[Int, T]){ pair(0) % step_size == 0 },
+                zipped
+            )
+        )
+    }
+}
+```
+though of course this would actually be implemented more efficiently in JS, with optimizations for some iterator types.
+
+In any case, we should also be able to index into arrays using integer iterators.
+
+The syntax `map(arr, iter)` is already supported, but this gives a (lazy) iterator to elements of `arr`.
+
+We should also have the syntax `arr(iter)` which will produce an array rather than an iterator. This should be optimized for the range iterator type so that `arr(a..b)` compiles to `arr.slice(a,b+1)` and `arr(a..*)` compiles to `arr.slice(a)`.
+
+## 64-bit ndarray types based on JS's TypedArray
+
+TBD
+
 ## Tentative: list comprehensions
 
 List comprehensions are super helpful as a succinct map + zip + filter. Could be nice to have.
+
+## Tentative: currying
+
+Could be quite useful but possibly quite difficult to implement.
+
+Maybe a simpler feature that would have most of the utility would be something like some special character or other syntax in a function call that means that the function call should actually generate a closure that takes the variable masked by the special char, something like:
+```gema
+func foo(a: Int, b:Int) {
+    a + b
+}
+
+13 | foo(1, *Int)  # Would be equivalent to 13 | func(x:Int){foo(1, x)}
+```
+
+It should be quite straightforward to infer the type of `*` here, so this could be shortened to just something like `13 | foo(1, *)`. 
 
 
 ## Language guide
 
 We should put together a comprehensive guide for the language.
+
+
+## Optimizations
+
+When transing an expression that is not a variable, there is no need for a copy (it can be a no-op, behaving exactly like unsafeTrans);
+
+We can completely omit branches of the AST that do not operate on pre-existing mutable variables (or have other side effects) and are dropped.
+
+Lots of other room for improvement here.
+
+
+## More helpful error messages. There are still lots of cases where we emit very opaque error messages.
+
+Maybe the best way to chase these down is to just generate a bunch of slightly misformed code and examine the error messages.

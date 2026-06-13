@@ -54,6 +54,7 @@ test("MutDict: add to a mutable dict", () => {
 });
 
 test("MutDict: remove from a mutable dict", () => {
+    testCompile(`m = trans(Dict([("a", 1),])); remove(m, "a"); m("a")`, undefined);
     testCompile(`m = trans(Dict([("a", 1),])); remove(m, "a")("a")`, undefined); // Remove should return the MutDict
 });
 
@@ -111,50 +112,51 @@ test("Set: intersect", () => {
     testCompile("a = Set([1, 2, 3]); b = Set([2, 3, 4]); intersect(a, b)", new Set([2n, 3n]));
 });
 
-test.todo("MutSet: create mutable set with trans", () => {
+test("MutSet: create mutable set with trans", () => {
     testParse(`m = trans(Set([1, 2]))`);
-    testParse(`d = Set([1, 2]); trans(d)`);
+    testParse(`s = Set([1, 2]); trans(s)`);
 });
 
-test.todo("MutSet: create mutable set with unsafeTrans", () => {
+test("MutSet: create mutable set with unsafeTrans", () => {
     testParse(`m = unsafeTrans(Set([1, 2]))`);
-    testParse(`d = Set([1, 2]); unsafeTrans(d)`);
+    testParse(`s = Set([1, 2]); unsafeTrans(s)`);
 });
 
-test.todo("MutSet: add to a mutable set", () => {
+test("MutSet: add to a mutable set", () => {
     testCompile(`m = trans(Set([1, 2])); push(m, 3); contains(m, 3)`, true);
-    testCompile(`m = trans(Set([1, 2])); contains(push(m, 3), 2)`, true); // Push should evaluate to the new value of the MutSet
+    testCompile(`m = trans(Set([1, 2])); contains(push(m, 3), 2)`, true); // Push should return the MutSet itself (chainable)
 });
 
-test.todo("MutSet: remove from a mutable set", () => {
-    testCompile(`m = trans(Set([1, 2])); contains(remove(m, 2), `, undefined); // Remove should return the MutSet
+test("MutSet: remove from a mutable set", () => {
+    testCompile(`m = trans(Set([1, 2])); remove(m, 2); contains(m, 2)`, false);
+    testCompile(`m = trans(Set([1, 2])); contains(remove(m, 2) 2)`, false); // Remove should return the MutSet
 });
 
-test.todo("MutSet: when using trans, mutating a mutable set does not change the original", () => {
+test("MutSet: when using trans, mutating a mutable set does not change the original", () => {
     testCompile(`s = Set([1, 2]); m = trans(s); remove(m, 2); contains(s, 2)`, true);
 });
 
-test.todo("MutSet: when using unsafeTrans, mutating a mutable set does change the original", () => {
-    testCompile(`s = Set([1, 2]); m = unsafeTrans(s); remove(m, 2); contains(d, 2)`, false);
+test("MutSet: when using unsafeTrans, mutating a mutable set does change the original", () => {
+    testCompile(`s = Set([1, 2]); m = unsafeTrans(s); remove(m, 2); contains(s, 2)`, false);
 });
 
-test.todo("MutSet: detrans gives an immutable Set", () => {
+test("MutSet: detrans gives an immutable Set", () => {
     testCompile(`m = trans(Set([1, 2])); s = detrans(m); contains(s, 2)`, true);
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(s, 2)`);
 });
 
-test.todo("MutSet: cannot use after detrans", () => {
+test("MutSet: cannot use after detrans", () => {
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(m, 2)`);
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(m, 2)`);
+    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); remove(m, 2)`);
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); contains(m, 2)`); // Not even non-mutating operations are allowed
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); m2 = m;`);
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); m`); // Cannot even reference the variable
 });
 
-test.todo("MutSet: unsafeTrans is a no-op", () => {
-    requireIdenticalCompilation(`unsafeTrans(Set([1, 2]))`, `Set([1, 2]))`);
+test("MutSet: unsafeTrans is a no-op", () => {
+    requireIdenticalCompilation(`unsafeTrans(Set([1, 2]))`, `Set([1, 2])`);
 });
 
-test.todo("MutSet: detrans is a no-op", () => {
-    requireIdenticalCompilation(`detrans(trans(Set([1, 2])))`, `trans(Set([1, 2])))`);
+test("MutSet: detrans is a no-op", () => {
+    requireIdenticalCompilation(`detrans(trans(Set([1, 2])))`, `trans(Set([1, 2]))`);
 });

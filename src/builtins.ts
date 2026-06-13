@@ -334,6 +334,14 @@ function __ITERATEITER__(fn, start) {
     mutdict.delete(key);
     return mutdict;
 }`,
+    __PUSH_MUTSET__: `function __PUSH_MUTSET__(mutset, val) {
+    mutset.add(val);
+    return mutset;
+}`,
+    __REMOVE_MUTSET__: `function __REMOVE_MUTSET__(mutset, val) {
+    mutset.delete(val);
+    return mutset;
+}`,
     __ZIP__: `function __ZIP__(...iters) {
     const iterators = iters.map((it) =>
         typeof it.next === "function" ? it : __ARRAYITER__(it)

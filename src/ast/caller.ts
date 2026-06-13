@@ -7,6 +7,7 @@ import {
     DictType,
     SetType,
     MutDictType,
+    MutSetType,
     CustomType,
     type Type,
     type CallableType,
@@ -526,6 +527,19 @@ function findBuiltin(
                     },
                 };
             }
+            if (argTypes[0] instanceof SetType) {
+                const mutResult = new MutSetType(argTypes[0].innerType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "trans",
+                        callerType: new FuncType(argTypes, mutResult),
+                        rootType: mutResult,
+                        builtinKind: "transSet",
+                    },
+                };
+            }
             return undefined;
         }
         case "unsafeTrans": {
@@ -553,6 +567,19 @@ function findBuiltin(
                         callerType: new FuncType(argTypes, unsafeResult),
                         rootType: unsafeResult,
                         builtinKind: "unsafeTransDict",
+                    },
+                };
+            }
+            if (argTypes[0] instanceof SetType) {
+                const unsafeResult = new MutSetType(argTypes[0].innerType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "unsafeTrans",
+                        callerType: new FuncType(argTypes, unsafeResult),
+                        rootType: unsafeResult,
+                        builtinKind: "unsafeTransSet",
                     },
                 };
             }
@@ -586,22 +613,53 @@ function findBuiltin(
                     },
                 };
             }
+            if (argTypes[0] instanceof MutSetType) {
+                const detResult = new SetType(argTypes[0].innerType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "detrans",
+                        callerType: new FuncType(argTypes, detResult),
+                        rootType: detResult,
+                        builtinKind: "detransSet",
+                    },
+                };
+            }
             return undefined;
         }
         case "push": {
             if (argTypes.length !== 2) return undefined;
-            if (!(argTypes[0] instanceof MutArrType)) return undefined;
-            if (!looseMatch(argTypes[0].innerType, argTypes[1])) return undefined;
-            return {
-                error: null,
-                result: {
-                    kind: "builtin",
-                    referToByName: "push",
-                    callerType: new FuncType(argTypes, "Null"),
-                    rootType: "Null",
-                    builtinKind: "push",
-                },
-            };
+            // MutArr push: (mutarr, value) → Null
+            if (argTypes[0] instanceof MutArrType) {
+                if (!looseMatch(argTypes[0].innerType, argTypes[1])) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "push",
+                        callerType: new FuncType(argTypes, "Null"),
+                        rootType: "Null",
+                        builtinKind: "push",
+                    },
+                };
+            }
+            // MutSet push: (mutset, value) → MutSet (chainable)
+            if (argTypes[0] instanceof MutSetType) {
+                if (!looseMatch(argTypes[0].innerType, argTypes[1])) return undefined;
+                const mutsetResult = argTypes[0];
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "push",
+                        callerType: new FuncType(argTypes, mutsetResult),
+                        rootType: mutsetResult,
+                        builtinKind: "pushSet",
+                    },
+                };
+            }
+            return undefined;
         }
         case "put": {
             if (argTypes.length !== 3) return undefined;
@@ -638,18 +696,33 @@ function findBuiltin(
         }
         case "remove": {
             if (argTypes.length !== 2) return undefined;
-            if (!(argTypes[0] instanceof MutDictType)) return undefined;
-            const mutdictResult = argTypes[0];
-            return {
-                error: null,
-                result: {
-                    kind: "builtin",
-                    referToByName: "remove",
-                    callerType: new FuncType(argTypes, mutdictResult),
-                    rootType: mutdictResult,
-                    builtinKind: "removeDict",
-                },
-            };
+            if (argTypes[0] instanceof MutDictType) {
+                const mutdictResult = argTypes[0];
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "remove",
+                        callerType: new FuncType(argTypes, mutdictResult),
+                        rootType: mutdictResult,
+                        builtinKind: "removeDict",
+                    },
+                };
+            }
+            if (argTypes[0] instanceof MutSetType) {
+                const mutsetResult = argTypes[0];
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "remove",
+                        callerType: new FuncType(argTypes, mutsetResult),
+                        rootType: mutsetResult,
+                        builtinKind: "removeSet",
+                    },
+                };
+            }
+            return undefined;
         }
         case "Dict": {
             if (argTypes.length !== 1) return undefined;
@@ -687,7 +760,7 @@ function findBuiltin(
         case "contains": {
             if (argTypes.length !== 2) return undefined;
             const [cContainer, _cValue] = argTypes;
-            if (cContainer instanceof SetType) {
+            if (cContainer instanceof SetType || cContainer instanceof MutSetType) {
                 return {
                     error: null,
                     result: {

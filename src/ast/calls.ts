@@ -12,6 +12,7 @@ import {
     type Type,
     type CallableType,
     SetType,
+    MutSetType,
 } from "../types";
 import { Expression } from "./expression";
 import { Literal } from "./literals";
@@ -298,7 +299,11 @@ export class Call extends Expression {
                 this.isBuiltin = true;
                 this.builtinKind = result.builtinKind;
                 // Track consumed variables for mutable operations
-                if (this.builtinKind === "detrans" || this.builtinKind === "detransDict") {
+                if (
+                    this.builtinKind === "detrans" ||
+                    this.builtinKind === "detransDict" ||
+                    this.builtinKind === "detransSet"
+                ) {
                     const detransArg = this.args[0];
                     if (detransArg instanceof Variable && detransArg.fullName) {
                         markVarConsumed(detransArg.fullName);
@@ -308,7 +313,9 @@ export class Call extends Expression {
                     this.builtinKind === "push" ||
                     this.builtinKind === "put" ||
                     this.builtinKind === "putDict" ||
-                    this.builtinKind === "removeDict"
+                    this.builtinKind === "removeDict" ||
+                    this.builtinKind === "pushSet" ||
+                    this.builtinKind === "removeSet"
                 ) {
                     const mutArg = this.args[0];
                     if (mutArg instanceof Variable && mutArg.fullName) {
@@ -651,6 +658,38 @@ export class Call extends Expression {
                     this.args[1]?.toJS(writer);
                     writer.write(")");
                     return;
+                case "transSet":
+                    // trans on Set: copy elements into a new Set
+                    writer.write("new Set(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "unsafeTransSet":
+                    // unsafeTrans on Set: reuse same Set reference
+                    this.args[0]?.toJS(writer);
+                    return;
+                case "detransSet":
+                    // detrans on MutSet: return the Set as-is (Set is already mutable)
+                    this.args[0]?.toJS(writer);
+                    return;
+                case "pushSet":
+                    // push on MutSet: add element and return MutSet for chaining
+                    writer.useBuiltin("__PUSH_MUTSET__");
+                    writer.write("__PUSH_MUTSET__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "removeSet":
+                    // remove on MutSet: delete element and return MutSet for chaining
+                    writer.useBuiltin("__REMOVE_MUTSET__");
+                    writer.write("__REMOVE_MUTSET__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
                 case "push":
                     writer.useBuiltin("__PUSH__");
                     writer.write("__PUSH__(");
@@ -688,7 +727,10 @@ export class Call extends Expression {
                         writer.write(".indexOf(");
                         this.args[1]?.toJS(writer);
                         writer.write(") !== -1");
-                    } else if (this.args[0]?.type instanceof SetType) {
+                    } else if (
+                        this.args[0]?.type instanceof SetType ||
+                        this.args[0]?.type instanceof MutSetType
+                    ) {
                         writer.write(".has(");
                         this.args[1]?.toJS(writer);
                         writer.write(")");
