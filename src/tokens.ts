@@ -14,6 +14,7 @@ export enum TokenType {
     // Punctuation
     Comma = ",",
     Dot = ".",
+    DotDot = "..",
     Colon = ":",
     Semicolon = ";",
     // Unary operators

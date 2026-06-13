@@ -1,6 +1,11 @@
 import { test } from "bun:test";
 
-import { testCompile, testParse, testParseExpectError } from "./helpers";
+import {
+    testCompile,
+    testParse,
+    testParseExpectError,
+    requireIdenticalCompilation,
+} from "./helpers";
 
 test("compile map iterator", () => {
     testCompile(`collect(map(func(x: Int) { x + 1 }, [1, 2, 3]))`, [2n, 3n, 4n]);
@@ -324,4 +329,99 @@ test("parse fallback on functions with Iter params when calling with Arr", () =>
 
         toStr([false, true, false, true])
     `);
+});
+
+// ============================================================
+// Range syntax (..)
+// ============================================================
+
+test("range syntax: basic a..b", () => {
+    testParse("1..5");
+    testCompile("collect(1..5)", [1n, 2n, 3n, 4n, 5n]);
+    testCompile("collect(0..3)", [0n, 1n, 2n, 3n]);
+});
+
+test("range syntax: a..b inclusive matches range(a, b)", () => {
+    requireIdenticalCompilation("collect(1..5)", "collect(range(1, 5))");
+    requireIdenticalCompilation("collect(0..10)", "collect(range(0, 10))");
+});
+
+test("range syntax: a..b with expression bounds", () => {
+    testCompile("x = 2; collect(x..x + 2)", [2n, 3n, 4n]);
+});
+
+test("range syntax: precedence i..i*2+1", () => {
+    // Should parse as i..(i*2+1), not (i..i)*2+1
+    testCompile("i = 3; collect(i..i*2+1)", [3n, 4n, 5n, 6n, 7n]);
+});
+
+test("range syntax: empty ..b (from 0 to b)", () => {
+    testParse("..5");
+    testCompile("collect(..5)", [0n, 1n, 2n, 3n, 4n, 5n]);
+});
+
+test("range syntax: a.. (infinite from a, take n)", () => {
+    testParse("3..");
+    testCompile("collect(take(3, 3..))", [3n, 4n, 5n]);
+});
+
+test("range syntax: .. (infinite from 0, take n)", () => {
+    testParse("..");
+    testCompile("collect(take(3, ..))", [0n, 1n, 2n]);
+});
+
+test("range syntax: a..b in map/filter/reduce", () => {
+    testCompile("collect(map(\\x { x * 2 }, 1..3))", [2n, 4n, 6n]);
+    testCompile("collect(filter(\\x { x > 2 }, 1..5))", [3n, 4n, 5n]);
+    testCompile("reduce(\\acc, x { acc + x }, 0, 1..5)", 15n);
+});
+
+test("range syntax: a..b in pipe", () => {
+    testCompile("1..5 | collect", [1n, 2n, 3n, 4n, 5n]);
+    testCompile("1..5 | map(\\x { x * 2 }) | collect", [2n, 4n, 6n, 8n, 10n]);
+});
+
+test("range syntax: step(iter, stepSize)", () => {
+    testCompile("collect(step(1..10, 2))", [1n, 3n, 5n, 7n, 9n]);
+    testCompile("collect(step(0..10, 3))", [0n, 3n, 6n, 9n]);
+    testCompile("collect(step(range(0, 10), 3))", [0n, 3n, 6n, 9n]);
+});
+
+test("range syntax: error a..b where a > b", () => {
+    // Should produce empty range
+    testCompile("collect(5..1)", []);
+});
+
+// ============================================================
+// Array slicing with range syntax
+// ============================================================
+
+test("array slice: arr(a..b)", () => {
+    testCompile("arr = [0, 1, 2, 3, 4]; arr(1..3)", [1n, 2n, 3n]);
+    testCompile("arr = [10, 20, 30, 40]; arr(0..2)", [10n, 20n, 30n]);
+});
+
+test("array slice: arr(a..)", () => {
+    testCompile("arr = [0, 1, 2, 3]; arr(2..)", [2n, 3n]);
+    testCompile("arr = [10, 20]; arr(0..)", [10n, 20n]);
+    testCompile("arr = [1, 2, 3]; arr(5..)", []);
+});
+
+test("array slice: arr(..b)", () => {
+    testCompile("arr = [0, 1, 2, 3]; arr(..2)", [0n, 1n, 2n]);
+    testCompile("arr = [10, 20, 30]; arr(..0)", [10n]);
+});
+
+test("array slice: arr(..)", () => {
+    testCompile("arr = [0, 1, 2]; arr(..)", [0n, 1n, 2n]);
+});
+
+test("array slice: with mutarr", () => {
+    testCompile("arr = trans([0, 1, 2, 3]); arr(1..3)", [1n, 2n, 3n]);
+    testCompile("arr = trans([0, 1, 2]); arr(1..)", [1n, 2n]);
+});
+
+test("array slice: slice result of pipe", () => {
+    // Pipe into collect, then slice the result
+    testCompile("x = collect(1..5); x(1..3)", [2n, 3n, 4n]);
 });

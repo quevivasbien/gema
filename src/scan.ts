@@ -80,7 +80,11 @@ class Scanner {
         while (/^\d$/.test(this.text[this.index])) {
             this.index += 1;
         }
-        if (this.text[this.index] === ".") {
+        if (
+            this.text[this.index] === "." &&
+            this.text[this.index + 1] !== "." &&
+            this.text[this.index + 1] !== undefined
+        ) {
             this.index += 1;
             while (/^\d$/.test(this.text[this.index])) {
                 this.index += 1;
@@ -137,9 +141,15 @@ class Scanner {
                 return this.disambiguateTokens(c, nextChar, "=");
             } else if (c === "=") {
                 return this.disambiguateTokens(c, nextChar, "=");
+            } else if (c === "." && nextChar === ".") {
+                this.index += 1;
+                return this.makeToken("..");
             }
         }
-
+        // Handle single dot (field access)
+        if (c === ".") {
+            return this.makeToken(".");
+        }
         // Handle literals
         if (c === '"') {
             return this.readStringLiteral();

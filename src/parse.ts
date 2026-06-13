@@ -15,6 +15,7 @@ enum Precedence {
     Or,
     And,
     Equality,
+    Range,
     Comparison,
     Term,
     Factor,
@@ -125,6 +126,11 @@ PARSE_RULES[TokenType.Caret] = {
     prefix: null,
     infix: parseExponentiation,
     precedence: Precedence.Exponent,
+};
+PARSE_RULES[TokenType.DotDot] = {
+    prefix: parseRangePrefix,
+    infix: parseRange,
+    precedence: Precedence.Range,
 };
 PARSE_RULES[TokenType.And] = {
     prefix: null,
@@ -547,6 +553,50 @@ function parseExponentiation(parser: Parser, leftExpr: AST.Expression): AST.Expr
     return parser.tryCreateASTExpression(() => new AST.Binary(token, leftExpr, rightExpr));
 }
 
+function parseRange(parser: Parser, leftExpr: AST.Expression): AST.Expression {
+    const token = parser.previous(); // '..'
+    // Try to parse the end expression (may be absent for infinite range)
+    let endExpr: AST.Expression | null = null;
+    if (
+        !parser.atEnd() &&
+        parser.current().type !== TokenType.RParen &&
+        parser.current().type !== TokenType.Semicolon &&
+        parser.current().type !== TokenType.RBrace &&
+        parser.current().type !== TokenType.RBracket &&
+        parser.current().type !== TokenType.Comma &&
+        parser.current().type !== TokenType.Pipe &&
+        parser.current().type !== TokenType.Colon
+    ) {
+        endExpr = parser.parseWithPrecedence(Precedence.Range + 1);
+    }
+    return parser.tryCreateASTExpression(() => new AST.RangeIter(token, leftExpr, endExpr, null));
+}
+
+function parseRangePrefix(parser: Parser): AST.Expression {
+    const token = parser.previous(); // '..'
+    // Check for open-ended: just '..' with no following expression
+    if (
+        parser.atEnd() ||
+        parser.current().type === TokenType.RParen ||
+        parser.current().type === TokenType.Semicolon ||
+        parser.current().type === TokenType.RBrace ||
+        parser.current().type === TokenType.RBracket ||
+        parser.current().type === TokenType.Comma ||
+        parser.current().type === TokenType.Pipe ||
+        parser.current().type === TokenType.Colon
+    ) {
+        // No end expression specified — range from 0 to infinity
+        return parser.tryCreateASTExpression(() => new AST.RangeIter(token, null, null, null));
+    }
+    // Parse the end expression
+    const endExpr = parser.parseWithPrecedence(Precedence.Range + 1);
+    if (endExpr === null) {
+        return parser.error(`Expected expression after '..'.`);
+    }
+    // Start from 0, go to endExpr
+    return parser.tryCreateASTExpression(() => new AST.RangeIter(token, null, endExpr, null));
+}
+
 function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     if (parser.atEnd()) {
         return parser.error("Expected function name after '|'");
@@ -587,6 +637,51 @@ function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
         type: TokenType.Identifier as TokenType,
     };
     parser.advance();
+    // If followed by "(", parse call arguments and append the piped value as last arg
+    if (!parser.atEnd() && parser.current().type === TokenType.LParen) {
+        parser.advance();
+        const args: AST.Expression[] = [];
+        const keywordArgs: { name: string; value: AST.Expression }[] = [];
+        let seenKeyword = false;
+        while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+            if (
+                parser.current().type === TokenType.Identifier &&
+                parser.peek()?.type === TokenType.Equal
+            ) {
+                if (seenKeyword) {
+                    return parser.error("Duplicate keyword argument.");
+                }
+                seenKeyword = true;
+                const kwName = parser.current().text;
+                parser.advance();
+                parser.advance(); // skip '='
+                const kwValue = parser.expression();
+                keywordArgs.push({ name: kwName, value: kwValue });
+            } else {
+                if (seenKeyword) {
+                    return parser.error("Cannot mix positional and keyword arguments.");
+                }
+                args.push(parser.expression());
+            }
+            if (parser.atEnd()) {
+                return parser.error("Unterminated call.");
+            }
+            if (parser.current().type === TokenType.Comma) {
+                parser.advance();
+            }
+        }
+        if (parser.atEnd()) {
+            return parser.error("Unterminated call.");
+        }
+        parser.advance(); // advance past ')'
+        // Append the piped value as the last argument
+        args.push(leftExpr);
+        return parser.tryCreateASTExpression(() => {
+            const call = new AST.Call(nameToken, args);
+            call.keywordArgs = keywordArgs;
+            return call;
+        });
+    }
     return parser.tryCreateASTExpression(() => new AST.Call(nameToken, [leftExpr]));
 }
 

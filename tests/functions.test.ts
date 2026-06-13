@@ -218,7 +218,7 @@ test("parse generic function without return type annotation", () => {
     `);
 });
 
-test.todo("functions: a function that returns a function on an iterable", () => {
+test("functions: a function that returns a function on an iterable", () => {
     testCompile(
         `
         func makeGetter(i: Int) {

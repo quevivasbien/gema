@@ -16,7 +16,7 @@ import {
 } from "../types";
 import { Expression } from "./expression";
 import { Literal } from "./literals";
-import { Variable, Function, AnonymousFunction, Assignment, Block } from "./nodes";
+import { Variable, Function, AnonymousFunction, Assignment, Block, RangeIter } from "./nodes";
 import {
     getStruct,
     isVarConsumed,
@@ -453,39 +453,57 @@ export class Call extends Expression {
      * cascading the non-function args first to get their types.
      */
     private prefillLambdaParams(ancestors: Expression[]): void {
-        const anonFn = this.args[0];
-        if (!(anonFn instanceof AnonymousFunction) || !anonFn.needsInference) return;
+        // Find the anonymous function arg and the iterable arg
+        // Normal call: map(fn, iter) → fn at 0, iter at 1
+        // Pipe call: iter | map(fn) → iter at 0, fn at 1
+        let anonFn: AnonymousFunction | null = null;
+        let iterExpr: Expression | null = null;
 
-        // Cascade the non-function args first to resolve their types
-        for (let i = 1; i < this.args.length; i++) {
-            this.args[i].cascadeTypes([...ancestors, this]);
+        if (this.args[0] instanceof AnonymousFunction && this.args[0].needsInference) {
+            anonFn = this.args[0];
+            iterExpr = this.args.length >= 2 ? this.args[1] : null;
+        } else if (
+            this.args.length >= 2 &&
+            this.args[1] instanceof AnonymousFunction &&
+            this.args[1].needsInference
+        ) {
+            anonFn = this.args[1];
+            iterExpr = this.args[0];
+        }
+
+        if (!anonFn) return;
+
+        // Cascade the non-function args (everything except the anon function) first
+        for (let i = 0; i < this.args.length; i++) {
+            if (this.args[i] !== anonFn) {
+                this.args[i].cascadeTypes([...ancestors, this]);
+            }
         }
 
         // Determine expected param types from the resolved args
         let expectedParamTypes: Type[] | null = null;
 
-        if (
-            this.name === "reduce" &&
-            this.args.length >= 3 &&
-            this.args[1].type &&
-            this.args[2].type
-        ) {
-            const iterType = this.args[2].type;
-            const innerType =
-                iterType instanceof ArrayType ||
-                iterType instanceof IterType ||
-                iterType instanceof MutArrType
-                    ? iterType.innerType
-                    : iterType;
-            expectedParamTypes = [this.args[1].type, innerType];
-        } else if (this.name === "iterate" && this.args.length >= 2 && this.args[1].type) {
-            expectedParamTypes = [this.args[1].type];
+        if (this.name === "reduce" && iterExpr && this.args.length >= 3) {
+            // reduce(fn, init, iter): fn params are (initType, elemType)
+            const nonFnArgs = this.args.filter((a) => a !== anonFn);
+            if (nonFnArgs.length >= 2 && nonFnArgs[0].type && nonFnArgs[1].type) {
+                const iterType = nonFnArgs[1].type;
+                const innerType =
+                    iterType instanceof ArrayType ||
+                    iterType instanceof IterType ||
+                    iterType instanceof MutArrType
+                        ? iterType.innerType
+                        : iterType;
+                expectedParamTypes = [nonFnArgs[0].type, innerType];
+            }
+        } else if (this.name === "iterate" && iterExpr && iterExpr.type) {
+            expectedParamTypes = [iterExpr.type];
         } else if (
             ["map", "filter", "takeWhile", "dropWhile"].includes(this.name) &&
-            this.args.length >= 2 &&
-            this.args[1].type
+            iterExpr &&
+            iterExpr.type
         ) {
-            const iterType = this.args[1].type;
+            const iterType = iterExpr.type;
             const innerType =
                 iterType instanceof ArrayType ||
                 iterType instanceof IterType ||
@@ -779,6 +797,14 @@ export class Call extends Expression {
                     });
                     writer.write(")");
                     return;
+                case "step":
+                    writer.useBuiltin("__STEPITER__");
+                    writer.write("__STEPITER__(");
+                    wrapArg(0);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
                 case "iterate":
                     writer.useBuiltin("__ITERATEITER__");
                     writer.write("__ITERATEITER__(");
@@ -1061,11 +1087,37 @@ export class Call extends Expression {
             writer.write(")");
         } else if (this.callerType instanceof ArrayType || this.callerType instanceof MutArrType) {
             writer.write(writer.safeName(this.referToByName));
-            this.args.forEach((arg) => {
-                writer.write("[");
-                arg.toJS(writer);
-                writer.write("]");
-            });
+            if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
+                // Array slicing with range: arr(a..b) → arr.slice(a, b+1)
+                const range = this.args[0];
+                if (range.start !== null && range.end !== null) {
+                    // a..b: arr.slice(Number(a), Number(b) + 1)
+                    writer.write(".slice(Number(");
+                    range.start.toJS(writer);
+                    writer.write("), Number(");
+                    range.end.toJS(writer);
+                    writer.write(") + 1)");
+                } else if (range.start !== null && range.end === null) {
+                    // a..: arr.slice(Number(a))
+                    writer.write(".slice(Number(");
+                    range.start.toJS(writer);
+                    writer.write("))");
+                } else if (range.start === null && range.end !== null) {
+                    // ..b: arr.slice(0, Number(b) + 1)
+                    writer.write(".slice(0, Number(");
+                    range.end.toJS(writer);
+                    writer.write(") + 1)");
+                } else {
+                    // ..: arr.slice()
+                    writer.write(".slice()");
+                }
+            } else {
+                this.args.forEach((arg) => {
+                    writer.write("[");
+                    arg.toJS(writer);
+                    writer.write("]");
+                });
+            }
         } else {
             throw new Error(`unknown caller type: ${this.callerType}`);
         }
@@ -1127,6 +1179,12 @@ export class DirectCall extends Expression {
             return;
         }
         if (this.caller.type instanceof ArrayType || this.caller.type instanceof MutArrType) {
+            // Array slicing with range: arr(a..b) returns an array, not an element
+            if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
+                this.args[0].cascadeTypes([...ancestors, this]);
+                this.type = this.caller.type;
+                return;
+            }
             const incompatible = this.caller.type.checkIndicesCompatible(
                 this.args.map((arg) => arg.type as Type)
             );
@@ -1301,23 +1359,62 @@ export class DirectCall extends Expression {
             this.caller.toJS(writer);
             writer.write(")");
             if (this.caller.type instanceof FuncType) {
+                // Determine which args need Array→Iter conversion
+                const iterParamIndices: number[] = [];
+                const fnType = this.caller.type;
+                fnType.paramTypes.forEach((pt, i) => {
+                    if (pt instanceof IterType && i < this.args.length) {
+                        const argType = this.args[i].type;
+                        if (argType instanceof ArrayType) {
+                            iterParamIndices.push(i);
+                        }
+                    }
+                });
                 writer.write("(");
                 this.args.forEach((arg, i) => {
                     if (i > 0) {
                         writer.write(", ");
                     }
-                    arg.toJS(writer);
+                    if (iterParamIndices.includes(i)) {
+                        writer.useBuiltin("__ARRAYITER__");
+                        writer.write("__ARRAYITER__(");
+                        arg.toJS(writer);
+                        writer.write(")");
+                    } else {
+                        arg.toJS(writer);
+                    }
                 });
                 writer.write(")");
             } else if (
                 this.caller.type instanceof ArrayType ||
                 this.caller.type instanceof MutArrType
             ) {
-                this.args.forEach((arg) => {
-                    writer.write("[");
-                    arg.toJS(writer);
-                    writer.write("]");
-                });
+                if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
+                    const range = this.args[0];
+                    if (range.start !== null && range.end !== null) {
+                        writer.write(".slice(Number(");
+                        range.start.toJS(writer);
+                        writer.write("), Number(");
+                        range.end.toJS(writer);
+                        writer.write(") + 1)");
+                    } else if (range.start !== null && range.end === null) {
+                        writer.write(".slice(Number(");
+                        range.start.toJS(writer);
+                        writer.write("))");
+                    } else if (range.start === null && range.end !== null) {
+                        writer.write(".slice(0, Number(");
+                        range.end.toJS(writer);
+                        writer.write(") + 1)");
+                    } else {
+                        writer.write(".slice()");
+                    }
+                } else {
+                    this.args.forEach((arg) => {
+                        writer.write("[");
+                        arg.toJS(writer);
+                        writer.write("]");
+                    });
+                }
             } else if (this.caller.type instanceof TupleType) {
                 this.args.forEach((arg) => {
                     writer.write("[");

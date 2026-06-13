@@ -305,6 +305,29 @@ function findBuiltin(
                 },
             };
         }
+        case "step": {
+            if (argTypes.length !== 2) return undefined;
+            const [sIter, sStep] = argTypes;
+            if (sStep !== "Int") return undefined;
+            if (
+                sIter instanceof IterType ||
+                sIter instanceof ArrayType ||
+                sIter instanceof MutArrType
+            ) {
+                const sInner = sIter instanceof IterType ? sIter.innerType : sIter.innerType;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "step",
+                        callerType: new FuncType([sIter, sStep], new IterType(sInner)),
+                        rootType: new IterType(sInner),
+                        builtinKind: "step",
+                    },
+                };
+            }
+            return undefined;
+        }
         case "last": {
             if (argTypes.length !== 1) return undefined;
             const lInner = argTypes[0];
@@ -993,6 +1016,18 @@ export function findCaller(
                         };
                     }
                     if (varType instanceof ArrayType || varType instanceof MutArrType) {
+                        // Array slicing with range: arr(a..b) returns array
+                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
+                            return {
+                                error: null,
+                                result: {
+                                    kind: "variable",
+                                    referToByName: name,
+                                    callerType: varType,
+                                    rootType: varType,
+                                },
+                            };
+                        }
                         const incompatible = varType.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };

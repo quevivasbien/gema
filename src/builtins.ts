@@ -52,7 +52,7 @@ function __ARRAYITER__(array) {
         this.step = step;
     }
     next() {
-        if (this.step > 0 ? this.value > this.end : this.value < this.end) {
+        if (this.end !== undefined && (this.step > 0 ? this.value > this.end : this.value < this.end)) {
             this.reset();
             return undefined;
         }
@@ -341,6 +341,37 @@ function __ITERATEITER__(fn, start) {
     __REMOVE_MUTSET__: `function __REMOVE_MUTSET__(mutset, val) {
     mutset.delete(val);
     return mutset;
+}`,
+    __STEPITER__: `class _STEP_ITERATOR_ {
+    constructor(innerIter, stepSize) {
+        this.innerIter = innerIter;
+        this.stepSize = stepSize;
+        this.count = 0n;
+    }
+    next() {
+        while (true) {
+            const value = this.innerIter.next();
+            if (value === undefined) {
+                this.reset();
+                return undefined;
+            }
+            if (this.count % this.stepSize === 0n) {
+                this.count++;
+                return value;
+            }
+            this.count++;
+        }
+    }
+    reset() {
+        this.innerIter.reset();
+        this.count = 0n;
+    }
+}
+function __STEPITER__(innerIter, stepSize) {
+    if (typeof innerIter.next !== "function") {
+        innerIter = __ARRAYITER__(innerIter);
+    }
+    return new _STEP_ITERATOR_(innerIter, stepSize);
 }`,
     __ZIP__: `function __ZIP__(...iters) {
     const iterators = iters.map((it) =>

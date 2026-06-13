@@ -301,6 +301,84 @@ export class Break extends Expression {
     }
 }
 
+/**
+ * Range literal created by the `..` syntax.
+ * `a..b` → start=a, end=b (inclusive)
+ * `..b`  → start=null, end=b (from 0 to b)
+ * `a..`  → start=a, end=null (from a to infinity)
+ * `..`   → start=null, end=null (from 0 to infinity)
+ */
+export class RangeIter extends Expression {
+    start: Expression | null;
+    end: Expression | null;
+    step: Expression | null;
+
+    constructor(
+        startToken: Token,
+        start: Expression | null,
+        end: Expression | null,
+        step: Expression | null
+    ) {
+        super(startToken.line, startToken.col);
+        this.start = start;
+        this.end = end;
+        this.step = step;
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        if (this.start !== null) {
+            this.start.cascadeTypes(ancestors);
+            if (this.start.type !== "Int") {
+                throw this.error("range start must be an integer");
+            }
+        }
+        if (this.end !== null) {
+            this.end.cascadeTypes(ancestors);
+            if (this.end.type !== "Int") {
+                throw this.error("range end must be an integer");
+            }
+        }
+        if (this.step !== null) {
+            this.step.cascadeTypes(ancestors);
+            if (this.step.type !== "Int") {
+                throw this.error("range step must be an integer");
+            }
+        }
+
+        this.type = new IterType("Int");
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new RangeIter(
+            { line: this.line, col: this.col, text: "..", type: TokenType.DotDot },
+            this.start ? this.start.clone(bindings) : null,
+            this.end ? this.end.clone(bindings) : null,
+            this.step ? this.step.clone(bindings) : null
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.useBuiltin("__RANGEITER__");
+        writer.write("__RANGEITER__(");
+        if (this.start !== null) {
+            this.start.toJS(writer);
+        } else {
+            writer.write("0n");
+        }
+        writer.write(", ");
+        if (this.end !== null) {
+            this.end.toJS(writer);
+        } else {
+            writer.write("undefined");
+        }
+        if (this.step !== null) {
+            writer.write(", ");
+            this.step.toJS(writer);
+        }
+        writer.write(")");
+    }
+}
+
 export class TupleLit extends Expression {
     constructor(
         startToken: Token,
