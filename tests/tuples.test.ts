@@ -140,8 +140,8 @@ test("zip with map", () => {
 
 test("tuple: list of tuples", () => {
     testCompile("x = [(1,2,3), (4,5,6)]; x(1)(1)", 5n);
-    testParseExpectError("x = [(1,2,3), (4,6)];");  // Can't have mismatching tuple types in the same array
-    testParseExpectError("x = [(1,2,3), (4,5,6.0)];");  // Can't have mismatching tuple types in the same array
+    testParseExpectError("x = [(1,2,3), (4,6)];"); // Can't have mismatching tuple types in the same array
+    testParseExpectError("x = [(1,2,3), (4,5,6.0)];"); // Can't have mismatching tuple types in the same array
 });
 
 test("tuple: operations on list of tuples", () => {
@@ -152,4 +152,4 @@ test("tuple: operations on list of tuples", () => {
 
 test("tuple: struct with tuple field", () => {
     testCompile("struct P { p: Tuple[Float, Float] } P((1.0,2.0)).p(0)", 1.0);
-})
+});

@@ -11,7 +11,7 @@ import {
     type Type,
     type CallableType,
 } from "../types";
-import { getStruct, getTrait, findFunction } from "./registries";
+import { getStruct, getTrait, findFunction, isVarConsumed } from "./registries";
 import { functionNameWithParamTypes } from "./caller-utils";
 import { deepEquals } from "../deep-equals";
 import { paramTypesMatchArgTypes, collectTraitsForTypeParam, looseMatch } from "./type-utils";
@@ -895,6 +895,12 @@ export function findCaller(
 
                 // Variable-based callable (assignment)
                 if (olderSibling instanceof Assignment && olderSibling.name === name) {
+                    if (isVarConsumed(name)) {
+                        return {
+                            error: `cannot use variable '${name}' after it was detrans'd`,
+                            result: null,
+                        };
+                    }
                     const varType = olderSibling.value.type;
                     if (varType instanceof FuncType) {
                         if (!paramTypesMatchArgTypes(varType.paramTypes, argTypes)) {

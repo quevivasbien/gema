@@ -264,7 +264,14 @@ export type Type =
     | CustomType
     | "Self";
 
-export type CallableType = FuncType | ArrayType | IterType | MutArrType | TupleType | DictType | MutDictType;
+export type CallableType =
+    | FuncType
+    | ArrayType
+    | IterType
+    | MutArrType
+    | TupleType
+    | DictType
+    | MutDictType;
 
 export class TemplateTypes {
     constructor(

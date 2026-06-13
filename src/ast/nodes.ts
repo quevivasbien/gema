@@ -27,6 +27,7 @@ import {
     registerMonomorphized,
     getTrait,
     getStruct,
+    isVarConsumed,
 } from "./registries";
 
 export class Block extends Expression {
@@ -504,6 +505,11 @@ export class Variable extends Expression {
                     if (type !== null) {
                         this.type = type;
                         this.fullName = this.name;
+                        if (isVarConsumed(this.fullName)) {
+                            throw this.error(
+                                `cannot use variable '${this.fullName}' after it was detrans'd`
+                            );
+                        }
                         return;
                     }
                     // Check TupleUnpack bindings
@@ -514,6 +520,11 @@ export class Variable extends Expression {
                             if (olderSibling.source.type instanceof TupleType) {
                                 this.type = olderSibling.source.type.types[idx];
                                 this.fullName = this.name;
+                                if (isVarConsumed(this.fullName)) {
+                                    throw this.error(
+                                        `cannot use variable '${this.fullName}' after it was detrans'd`
+                                    );
+                                }
                                 return;
                             }
                         }

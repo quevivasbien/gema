@@ -192,7 +192,10 @@ export class Binary extends Expression {
                 this.type = ltype;
                 return;
             }
-            if (deepEquals(ltype.innerType, rtype.innerType) && this.operator === TokenType.EqualEqual) {
+            if (
+                deepEquals(ltype.innerType, rtype.innerType) &&
+                this.operator === TokenType.EqualEqual
+            ) {
                 this.type = "Bool";
                 return;
             }

@@ -304,7 +304,12 @@ export class Call extends Expression {
                         markVarConsumed(detransArg.fullName);
                     }
                 }
-                if (this.builtinKind === "push" || this.builtinKind === "put" || this.builtinKind === "putDict" || this.builtinKind === "removeDict") {
+                if (
+                    this.builtinKind === "push" ||
+                    this.builtinKind === "put" ||
+                    this.builtinKind === "putDict" ||
+                    this.builtinKind === "removeDict"
+                ) {
                     const mutArg = this.args[0];
                     if (mutArg instanceof Variable && mutArg.fullName) {
                         if (isVarConsumed(mutArg.fullName)) {
@@ -676,19 +681,21 @@ export class Call extends Expression {
                     return;
                 case "contains":
                     this.args[0]?.toJS(writer);
-                    if (this.args[0]?.type instanceof ArrayType || this.args[0]?.type instanceof MutArrType) {
+                    if (
+                        this.args[0]?.type instanceof ArrayType ||
+                        this.args[0]?.type instanceof MutArrType
+                    ) {
                         writer.write(".indexOf(");
                         this.args[1]?.toJS(writer);
                         writer.write(") !== -1");
-                    }
-                    else if (this.args[0]?.type instanceof SetType) {
+                    } else if (this.args[0]?.type instanceof SetType) {
                         writer.write(".has(");
                         this.args[1]?.toJS(writer);
                         writer.write(")");
                     }
                     return;
                 case "union":
-                    writer.write("new Set([...")
+                    writer.write("new Set([...");
                     this.args[0]?.toJS(writer);
                     writer.write(", ...");
                     this.args[1]?.toJS(writer);
@@ -907,9 +914,7 @@ export class DirectCall extends Expression {
             this.args.forEach((arg, i) => {
                 arg.cascadeTypes([...ancestors, this]);
                 if (arg.type === null) {
-                    throw this.error(
-                        `unable to resolve type of argument ${i + 1} in dict access`
-                    );
+                    throw this.error(`unable to resolve type of argument ${i + 1} in dict access`);
                 }
             });
             const incompatible = this.caller.type.checkIndicesCompatible(
@@ -1021,7 +1026,10 @@ export class DirectCall extends Expression {
                     arg.toJS(writer);
                     writer.write("]");
                 });
-            } else if (this.caller.type instanceof DictType || this.caller.type instanceof MutDictType) {
+            } else if (
+                this.caller.type instanceof DictType ||
+                this.caller.type instanceof MutDictType
+            ) {
                 writer.write(".get(");
                 this.args[0]?.toJS(writer);
                 writer.write(")");

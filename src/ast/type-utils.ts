@@ -119,10 +119,16 @@ export function collectTraitsForTypeParam(t: Type, typeParamName: string): strin
         return result;
     }
     if (t instanceof DictType) {
-        return [...collectTraitsForTypeParam(t.keyType, typeParamName), ...collectTraitsForTypeParam(t.valueType, typeParamName)];
+        return [
+            ...collectTraitsForTypeParam(t.keyType, typeParamName),
+            ...collectTraitsForTypeParam(t.valueType, typeParamName),
+        ];
     }
     if (t instanceof MutDictType) {
-        return [...collectTraitsForTypeParam(t.keyType, typeParamName), ...collectTraitsForTypeParam(t.valueType, typeParamName)];
+        return [
+            ...collectTraitsForTypeParam(t.keyType, typeParamName),
+            ...collectTraitsForTypeParam(t.valueType, typeParamName),
+        ];
     }
     return [];
 }

@@ -1,6 +1,11 @@
 import { test } from "bun:test";
 
-import { testParse, testCompile, requireIdenticalCompilation, testParseExpectError } from "./helpers";
+import {
+    testParse,
+    testCompile,
+    requireIdenticalCompilation,
+    testParseExpectError,
+} from "./helpers";
 
 // ============================================================
 // Dict
@@ -30,7 +35,7 @@ test("Dict: compile and access with non-numeric key", () => {
 
 test("Dict: access missing key", () => {
     testCompile(`m = Dict([("a", 1)]); m("x")`, undefined);
-    testCompile(`m = Dict([([1,2], 1),]); m([1,2])`, undefined);  // This should be undefined, since [1,2] is not actually the same object as the array that was used in the map
+    testCompile(`m = Dict([([1,2], 1),]); m([1,2])`, undefined); // This should be undefined, since [1,2] is not actually the same object as the array that was used in the map
 });
 
 test("MutDict: create mutable dict with trans", () => {
@@ -45,11 +50,11 @@ test("MutDict: create mutable dict with unsafeTrans", () => {
 
 test("MutDict: add to a mutable dict", () => {
     testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2); m("b")`, 2n);
-    testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2)("b")`, 2n);  // Put should return the MutDict itself (chainable)
+    testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2)("b")`, 2n); // Put should return the MutDict itself (chainable)
 });
 
 test("MutDict: remove from a mutable dict", () => {
-    testCompile(`m = trans(Dict([("a", 1),])); remove(m, "a")("a")`, undefined);  // Remove should return the MutDict
+    testCompile(`m = trans(Dict([("a", 1),])); remove(m, "a")("a")`, undefined); // Remove should return the MutDict
 });
 
 test("MutDict: when using trans, mutating a mutable dict does not change the original", () => {
@@ -65,11 +70,12 @@ test("MutDict: detrans gives an immutable Dict", () => {
     testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(d, "b", 2)`);
 });
 
-test("MutDict: cannot use put/remove after detrans", () => {
-    // Detrans still allows reading via indexing; only mutation ops are blocked
-    testCompile(`m = trans(Dict([("a", 1),])); d = detrans(m); m("a")`, 1n);
+test("MutDict: cannot use after detrans", () => {
     testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(m, "b", 2)`);
     testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); remove(m, "a")`);
+    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m("a")`); // Not even non-mutating operations are allowed
+    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m2 = m;`);
+    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m`); // Cannot even reference the variable
 });
 
 test("MutDict: unsafeTrans is a no-op", () => {
@@ -117,11 +123,11 @@ test.todo("MutSet: create mutable set with unsafeTrans", () => {
 
 test.todo("MutSet: add to a mutable set", () => {
     testCompile(`m = trans(Set([1, 2])); push(m, 3); contains(m, 3)`, true);
-    testCompile(`m = trans(Set([1, 2])); contains(push(m, 3), 2)`, true);  // Push should evaluate to the new value of the MutSet
+    testCompile(`m = trans(Set([1, 2])); contains(push(m, 3), 2)`, true); // Push should evaluate to the new value of the MutSet
 });
 
 test.todo("MutSet: remove from a mutable set", () => {
-    testCompile(`m = trans(Set([1, 2])); contains(remove(m, 2), `, undefined);  // Remove should return the MutSet
+    testCompile(`m = trans(Set([1, 2])); contains(remove(m, 2), `, undefined); // Remove should return the MutSet
 });
 
 test.todo("MutSet: when using trans, mutating a mutable set does not change the original", () => {
@@ -138,9 +144,11 @@ test.todo("MutSet: detrans gives an immutable Set", () => {
 });
 
 test.todo("MutSet: cannot use after detrans", () => {
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); contains(m, 2)`);
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(m, 2)`);
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(m, 2)`);
+    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); contains(m, 2)`); // Not even non-mutating operations are allowed
+    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); m2 = m;`);
+    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); m`); // Cannot even reference the variable
 });
 
 test.todo("MutSet: unsafeTrans is a no-op", () => {

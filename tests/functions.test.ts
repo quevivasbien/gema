@@ -325,5 +325,5 @@ test.todo("functions: generic function with generic type only in nested function
         makeGetter(1)([1,2,3])
         `,
         2n
-    )
+    );
 });

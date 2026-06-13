@@ -202,6 +202,21 @@ test("mutarr: error use after detrans", () => {
         arr = detrans(mutarr);
         put(mutarr, 0, 99)
     `);
+    testParseExpectError(`
+        mutarr = trans([1, 2, 3]);
+        arr = detrans(mutarr);
+        mutarr(0)
+    `); // not even non-mutating operations are allowed
+    testParseExpectError(`
+        mutarr = trans([1, 2, 3]);
+        arr = detrans(mutarr);
+        mutarr2 = mutarr;
+    `);
+    testParseExpectError(`
+        mutarr = trans([1, 2, 3]);
+        arr = detrans(mutarr);
+        mutarr
+    `); // cannot even reference the variable
 });
 
 // ── Error cases ──
