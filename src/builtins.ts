@@ -326,6 +326,14 @@ function __ITERATEITER__(fn, start) {
     mutarr[idx] = val;
     return val;
 }`,
+    __PUT_MUTDICT__: `function __PUT_MUTDICT__(mutdict, key, val) {
+    mutdict.set(key, val);
+    return mutdict;
+}`,
+    __REMOVE_MUTDICT__: `function __REMOVE_MUTDICT__(mutdict, key) {
+    mutdict.delete(key);
+    return mutdict;
+}`,
     __ZIP__: `function __ZIP__(...iters) {
     const iterators = iters.map((it) =>
         typeof it.next === "function" ? it : __ARRAYITER__(it)

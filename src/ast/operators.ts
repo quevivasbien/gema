@@ -3,6 +3,7 @@ import { TokenType, type Token } from "../tokens";
 import { ArrayType, CustomType, IterType, type Type } from "../types";
 import { Expression } from "./expression";
 import { findCaller } from "./caller";
+import { deepEquals } from "../deep-equals";
 
 // Operator overloading — maps TokenType to function names for user-defined types
 const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {
@@ -187,11 +188,11 @@ export class Binary extends Expression {
                 break;
         }
         if (ltype instanceof ArrayType && rtype instanceof ArrayType) {
-            if (ltype.innerType === rtype.innerType && this.operator === TokenType.Plus) {
+            if (deepEquals(ltype.innerType, rtype.innerType) && this.operator === TokenType.Plus) {
                 this.type = ltype;
                 return;
             }
-            if (ltype.innerType === rtype.innerType && this.operator === TokenType.EqualEqual) {
+            if (deepEquals(ltype.innerType, rtype.innerType) && this.operator === TokenType.EqualEqual) {
                 this.type = "Bool";
                 return;
             }

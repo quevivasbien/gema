@@ -6,6 +6,7 @@ import {
     MutArrType,
     TupleType,
     DictType,
+    MutDictType,
     CustomType,
     FuncType,
     type Type,
@@ -296,19 +297,19 @@ export class Call extends Expression {
             case "builtin":
                 this.isBuiltin = true;
                 this.builtinKind = result.builtinKind;
-                // Track consumed variables for mutarr operations
-                if (this.builtinKind === "detrans") {
+                // Track consumed variables for mutable operations
+                if (this.builtinKind === "detrans" || this.builtinKind === "detransDict") {
                     const detransArg = this.args[0];
                     if (detransArg instanceof Variable && detransArg.fullName) {
                         markVarConsumed(detransArg.fullName);
                     }
                 }
-                if (this.builtinKind === "push" || this.builtinKind === "put") {
-                    const mutarrArg = this.args[0];
-                    if (mutarrArg instanceof Variable && mutarrArg.fullName) {
-                        if (isVarConsumed(mutarrArg.fullName)) {
+                if (this.builtinKind === "push" || this.builtinKind === "put" || this.builtinKind === "putDict" || this.builtinKind === "removeDict") {
+                    const mutArg = this.args[0];
+                    if (mutArg instanceof Variable && mutArg.fullName) {
+                        if (isVarConsumed(mutArg.fullName)) {
                             throw this.error(
-                                `cannot use variable '${mutarrArg.fullName}' after it was detrans'd`
+                                `cannot use variable '${mutArg.fullName}' after it was detrans'd`
                             );
                         }
                     }
@@ -611,6 +612,40 @@ export class Call extends Expression {
                 case "detrans":
                     this.args[0]?.toJS(writer);
                     return;
+                case "transDict":
+                    // trans on Dict: copy entries into a new Map
+                    writer.write("new Map(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "unsafeTransDict":
+                    // unsafeTrans on Dict: reuse same Map reference
+                    this.args[0]?.toJS(writer);
+                    return;
+                case "detransDict":
+                    // detrans on MutDict: return the Map as-is (Map is already mutable)
+                    this.args[0]?.toJS(writer);
+                    return;
+                case "putDict":
+                    // put on MutDict: set key/value and return MutDict for chaining
+                    writer.useBuiltin("__PUT_MUTDICT__");
+                    writer.write("__PUT_MUTDICT__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[2]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "removeDict":
+                    // remove on MutDict: delete key and return MutDict for chaining
+                    writer.useBuiltin("__REMOVE_MUTDICT__");
+                    writer.write("__REMOVE_MUTDICT__(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
                 case "push":
                     writer.useBuiltin("__PUSH__");
                     writer.write("__PUSH__(");
@@ -732,7 +767,7 @@ export class Call extends Expression {
                 arg.toJS(writer);
                 writer.write("]");
             });
-        } else if (this.callerType instanceof DictType) {
+        } else if (this.callerType instanceof DictType || this.callerType instanceof MutDictType) {
             writer.write(writer.safeName(this.referToByName));
             writer.write(".get(");
             this.args[0]?.toJS(writer);
@@ -868,7 +903,7 @@ export class DirectCall extends Expression {
             return;
         }
 
-        if (this.caller.type instanceof DictType) {
+        if (this.caller.type instanceof DictType || this.caller.type instanceof MutDictType) {
             this.args.forEach((arg, i) => {
                 arg.cascadeTypes([...ancestors, this]);
                 if (arg.type === null) {
@@ -986,7 +1021,7 @@ export class DirectCall extends Expression {
                     arg.toJS(writer);
                     writer.write("]");
                 });
-            } else if (this.caller.type instanceof DictType) {
+            } else if (this.caller.type instanceof DictType || this.caller.type instanceof MutDictType) {
                 writer.write(".get(");
                 this.args[0]?.toJS(writer);
                 writer.write(")");

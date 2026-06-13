@@ -7,6 +7,7 @@ import {
     MutArrType,
     TupleType,
     DictType,
+    MutDictType,
     SetType,
     CustomType,
     type Type,
@@ -32,6 +33,9 @@ export function stripTraits(t: Type): Type {
     }
     if (t instanceof DictType) {
         return new DictType(stripTraits(t.keyType), stripTraits(t.valueType));
+    }
+    if (t instanceof MutDictType) {
+        return new MutDictType(stripTraits(t.keyType), stripTraits(t.valueType));
     }
     if (t instanceof SetType) {
         return new SetType(stripTraits(t.innerType));
@@ -61,6 +65,7 @@ export function isConcreteType(t: Type): boolean {
     if (t instanceof MutArrType) return isConcreteType(t.innerType);
     if (t instanceof TupleType) return t.types.every((tt) => isConcreteType(tt));
     if (t instanceof DictType) return isConcreteType(t.keyType) && isConcreteType(t.valueType);
+    if (t instanceof MutDictType) return isConcreteType(t.keyType) && isConcreteType(t.valueType);
     if (t instanceof SetType) return isConcreteType(t.innerType);
     if (t instanceof FuncType)
         return t.paramTypes.every(isConcreteType) && isConcreteType(t.returnType);
@@ -112,6 +117,12 @@ export function collectTraitsForTypeParam(t: Type, typeParamName: string): strin
         t.paramTypes.forEach((pt) => result.push(...collectTraitsForTypeParam(pt, typeParamName)));
         result.push(...collectTraitsForTypeParam(t.returnType, typeParamName));
         return result;
+    }
+    if (t instanceof DictType) {
+        return [...collectTraitsForTypeParam(t.keyType, typeParamName), ...collectTraitsForTypeParam(t.valueType, typeParamName)];
+    }
+    if (t instanceof MutDictType) {
+        return [...collectTraitsForTypeParam(t.keyType, typeParamName), ...collectTraitsForTypeParam(t.valueType, typeParamName)];
     }
     return [];
 }

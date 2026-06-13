@@ -6,6 +6,7 @@ import {
     TupleType,
     DictType,
     SetType,
+    MutDictType,
     CustomType,
     type Type,
     type CallableType,
@@ -499,48 +500,93 @@ function findBuiltin(
         }
         case "trans": {
             if (argTypes.length !== 1) return undefined;
-            if (!(argTypes[0] instanceof ArrayType)) return undefined;
-            const mutResult = new MutArrType(argTypes[0].innerType);
-            return {
-                error: null,
-                result: {
-                    kind: "builtin",
-                    referToByName: "trans",
-                    callerType: new FuncType(argTypes, mutResult),
-                    rootType: mutResult,
-                    builtinKind: "trans",
-                },
-            };
+            if (argTypes[0] instanceof ArrayType) {
+                const mutResult = new MutArrType(argTypes[0].innerType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "trans",
+                        callerType: new FuncType(argTypes, mutResult),
+                        rootType: mutResult,
+                        builtinKind: "trans",
+                    },
+                };
+            }
+            if (argTypes[0] instanceof DictType) {
+                const mutResult = new MutDictType(argTypes[0].keyType, argTypes[0].valueType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "trans",
+                        callerType: new FuncType(argTypes, mutResult),
+                        rootType: mutResult,
+                        builtinKind: "transDict",
+                    },
+                };
+            }
+            return undefined;
         }
         case "unsafeTrans": {
             if (argTypes.length !== 1) return undefined;
-            if (!(argTypes[0] instanceof ArrayType)) return undefined;
-            const unsafeResult = new MutArrType(argTypes[0].innerType);
-            return {
-                error: null,
-                result: {
-                    kind: "builtin",
-                    referToByName: "unsafeTrans",
-                    callerType: new FuncType(argTypes, unsafeResult),
-                    rootType: unsafeResult,
-                    builtinKind: "unsafeTrans",
-                },
-            };
+            if (argTypes[0] instanceof ArrayType) {
+                const unsafeResult = new MutArrType(argTypes[0].innerType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "unsafeTrans",
+                        callerType: new FuncType(argTypes, unsafeResult),
+                        rootType: unsafeResult,
+                        builtinKind: "unsafeTrans",
+                    },
+                };
+            }
+            if (argTypes[0] instanceof DictType) {
+                const unsafeResult = new MutDictType(argTypes[0].keyType, argTypes[0].valueType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "unsafeTrans",
+                        callerType: new FuncType(argTypes, unsafeResult),
+                        rootType: unsafeResult,
+                        builtinKind: "unsafeTransDict",
+                    },
+                };
+            }
+            return undefined;
         }
         case "detrans": {
             if (argTypes.length !== 1) return undefined;
-            if (!(argTypes[0] instanceof MutArrType)) return undefined;
-            const detResult = new ArrayType(argTypes[0].innerType);
-            return {
-                error: null,
-                result: {
-                    kind: "builtin",
-                    referToByName: "detrans",
-                    callerType: new FuncType(argTypes, detResult),
-                    rootType: detResult,
-                    builtinKind: "detrans",
-                },
-            };
+            if (argTypes[0] instanceof MutArrType) {
+                const detResult = new ArrayType(argTypes[0].innerType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "detrans",
+                        callerType: new FuncType(argTypes, detResult),
+                        rootType: detResult,
+                        builtinKind: "detrans",
+                    },
+                };
+            }
+            if (argTypes[0] instanceof MutDictType) {
+                const detResult = new DictType(argTypes[0].keyType, argTypes[0].valueType);
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "detrans",
+                        callerType: new FuncType(argTypes, detResult),
+                        rootType: detResult,
+                        builtinKind: "detransDict",
+                    },
+                };
+            }
+            return undefined;
         }
         case "push": {
             if (argTypes.length !== 2) return undefined;
@@ -559,17 +605,49 @@ function findBuiltin(
         }
         case "put": {
             if (argTypes.length !== 3) return undefined;
-            if (!(argTypes[0] instanceof MutArrType)) return undefined;
-            if (argTypes[1] !== "Int") return undefined;
-            if (!looseMatch(argTypes[0].innerType, argTypes[2])) return undefined;
+            // MutArr put: (mutarr, Int index, value) → Null
+            if (argTypes[0] instanceof MutArrType) {
+                if (argTypes[1] !== "Int") return undefined;
+                if (!looseMatch(argTypes[0].innerType, argTypes[2])) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "put",
+                        callerType: new FuncType(argTypes, "Null"),
+                        rootType: "Null",
+                        builtinKind: "put",
+                    },
+                };
+            }
+            // MutDict put: (mutdict, key, value) → MutDict (chainable)
+            if (argTypes[0] instanceof MutDictType) {
+                const mutdictResult = argTypes[0];
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "put",
+                        callerType: new FuncType(argTypes, mutdictResult),
+                        rootType: mutdictResult,
+                        builtinKind: "putDict",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "remove": {
+            if (argTypes.length !== 2) return undefined;
+            if (!(argTypes[0] instanceof MutDictType)) return undefined;
+            const mutdictResult = argTypes[0];
             return {
                 error: null,
                 result: {
                     kind: "builtin",
-                    referToByName: "put",
-                    callerType: new FuncType(argTypes, "Null"),
-                    rootType: "Null",
-                    builtinKind: "put",
+                    referToByName: "remove",
+                    callerType: new FuncType(argTypes, mutdictResult),
+                    rootType: mutdictResult,
+                    builtinKind: "removeDict",
                 },
             };
         }
@@ -881,7 +959,7 @@ export function findCaller(
                             },
                         };
                     }
-                    if (varType instanceof DictType) {
+                    if (varType instanceof DictType || varType instanceof MutDictType) {
                         const incompatible = varType.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -1078,7 +1156,7 @@ export function findCaller(
                             },
                         };
                     }
-                    if (param.type instanceof DictType) {
+                    if (param.type instanceof DictType || param.type instanceof MutDictType) {
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };

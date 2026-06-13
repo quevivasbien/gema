@@ -6,6 +6,7 @@ import {
     FuncType,
     TupleType,
     DictType,
+    MutDictType,
     SetType,
 } from "./types";
 
@@ -71,6 +72,13 @@ export function deepEquals(a: unknown, b: unknown): boolean {
 
     // DictType
     if (a instanceof DictType && b instanceof DictType) {
+        if (!deepEquals(a.keyType, b.keyType)) return false;
+        if (!deepEquals(a.valueType, b.valueType)) return false;
+        return true;
+    }
+
+    // MutDictType
+    if (a instanceof MutDictType && b instanceof MutDictType) {
         if (!deepEquals(a.keyType, b.keyType)) return false;
         if (!deepEquals(a.valueType, b.valueType)) return false;
         return true;

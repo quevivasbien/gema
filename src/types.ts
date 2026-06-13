@@ -36,6 +36,9 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
     } else if (type instanceof DictType) {
         collectCustomTypeNames(type.keyType, names);
         collectCustomTypeNames(type.valueType, names);
+    } else if (type instanceof MutDictType) {
+        collectCustomTypeNames(type.keyType, names);
+        collectCustomTypeNames(type.valueType, names);
     } else if (type instanceof SetType) {
         collectCustomTypeNames(type.innerType, names);
     }
@@ -67,6 +70,12 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     }
     if (type instanceof DictType) {
         return new DictType(
+            substituteTypeParams(type.keyType, bindings),
+            substituteTypeParams(type.valueType, bindings)
+        );
+    }
+    if (type instanceof MutDictType) {
+        return new MutDictType(
             substituteTypeParams(type.keyType, bindings),
             substituteTypeParams(type.valueType, bindings)
         );
@@ -190,6 +199,25 @@ export class DictType {
     }
 }
 
+export class MutDictType {
+    constructor(
+        public keyType: Type,
+        public valueType: Type
+    ) {}
+
+    toString(): string {
+        return `MutDict[${this.keyType}, ${this.valueType}]`;
+    }
+
+    checkIndicesCompatible(indexTypes: Type[]): string | null {
+        if (indexTypes.length !== 1) {
+            return `mutdict requires exactly one key, got ${indexTypes.length}`;
+        }
+        // Any type is allowed as a key
+        return null;
+    }
+}
+
 export class SetType {
     constructor(public innerType: Type) {}
 
@@ -231,11 +259,12 @@ export type Type =
     | MutArrType
     | TupleType
     | DictType
+    | MutDictType
     | SetType
     | CustomType
     | "Self";
 
-export type CallableType = FuncType | ArrayType | IterType | MutArrType | TupleType | DictType;
+export type CallableType = FuncType | ArrayType | IterType | MutArrType | TupleType | DictType | MutDictType;
 
 export class TemplateTypes {
     constructor(
@@ -314,6 +343,17 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         }
         return new DictType(templateTypes.types[0], templateTypes.types[1]);
     }
+
+    if (typeName === "MutDict") {
+        if (templateTypes.types.length !== 2) {
+            throw new Error(`MutDict type requires two template types (key type and value type)`);
+        }
+        if (templateTypes.returnType !== null) {
+            throw new Error(`MutDict type cannot have a return type`);
+        }
+        return new MutDictType(templateTypes.types[0], templateTypes.types[1]);
+    }
+
     if (typeName === "Set") {
         if (templateTypes.types.length !== 1) {
             throw new Error(`Set type requires a single template type (for the inner type)`);

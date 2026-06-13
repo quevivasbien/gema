@@ -287,3 +287,43 @@ test("parse generic function without return type annotation", () => {
         wrap(10)
     `);
 });
+
+test.todo("functions: a function that returns a function on an iterable", () => {
+    testCompile(
+        `
+        func makeGetter(i: Int) {
+            func(t: Iter[Int]) {
+                t(i)
+            }
+        }
+        makeGetter(1)(range(1, 3))
+        `,
+        2n
+    );
+    testCompile(
+        `
+        func makeGetter(i: Int) {
+            func(t: Iter[Int]) {
+                t(i)
+            }
+        }
+        makeGetter(1)([1,2,3])
+        `,
+        2n
+    );
+});
+
+test.todo("functions: generic function with generic type only in nested function signature", () => {
+    testCompile(
+        `
+        trait Any {}
+        func makeGetter(i: Int): Func[Iter[T]: T] where T is Any {
+            func(t: Iter[T]) {
+                t(i)
+            }
+        }
+        makeGetter(1)([1,2,3])
+        `,
+        2n
+    )
+});
