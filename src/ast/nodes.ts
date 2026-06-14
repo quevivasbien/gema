@@ -800,6 +800,10 @@ export class Assignment extends Expression {
         this.value.cascadeTypes([...ancestors, this]);
         this.type = this.isDropped ? "Null" : this.value.type;
 
+        if (this.value.type === "Null") {
+            throw this.error("cannot assign null value to variable");
+        }
+
         const sameBlockDef = Assignment.findDefiningAssignment(this.name, this, ancestors);
 
         if (sameBlockDef !== null) {

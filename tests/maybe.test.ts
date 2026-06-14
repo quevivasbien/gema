@@ -13,6 +13,28 @@ import { testCompile, testCompileExpectRuntimeError, testParse, testParseExpectE
 
 // ── Array/iterator access returns Maybe ───────────────────
 
+// ============================================================
+// Null prohibition — cannot assign null values to variables
+// ============================================================
+
+test("cannot assign null from dropped block", () => {
+    testParseExpectError("x = { 1; }");
+});
+
+test("cannot assign null from else-less if", () => {
+    testParseExpectError("x = if true { 1 }");
+});
+
+test("can use dropped statement on assignment", () => {
+    // The semicolon on the assignment itself is fine (x = 1;)
+    testCompile("x = 1; x", 1n);
+});
+
+test("can use else-less if as statement", () => {
+    // else-less if as a statement (not assigned) is fine
+    testCompile(`mut x = 0; if true { x = 5 }; x`, 5n);
+});
+
 test("array index out of bounds compiles but returns undefined", () => {
     // This should compile and run, returning undefined at runtime
     testCompile("[1, 2, 3](5)", undefined);
