@@ -11,6 +11,7 @@ const BUILTIN_TYPE_NAMES = new Set([
     "Tuple",
     "Dict",
     "Set",
+    "Maybe",
     "Self",
 ]);
 
@@ -42,6 +43,8 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
     } else if (type instanceof SetType) {
         collectCustomTypeNames(type.innerType, names);
     } else if (type instanceof MutSetType) {
+        collectCustomTypeNames(type.innerType, names);
+    } else if (type instanceof MaybeType) {
         collectCustomTypeNames(type.innerType, names);
     }
 }
@@ -88,6 +91,9 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     if (type instanceof MutSetType) {
         return new MutSetType(substituteTypeParams(type.innerType, bindings));
     }
+    if (type instanceof MaybeType) {
+        return new MaybeType(substituteTypeParams(type.innerType, bindings));
+    }
     return type;
 }
 
@@ -117,8 +123,11 @@ export class ArrayType {
     }
 
     checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== this.nDims()) {
-            return `incompatible number of array indices: expected ${this.nDims()}, got ${indexTypes.length}`;
+        if (indexTypes.length < 1) {
+            return "array access requires at least one index";
+        }
+        if (indexTypes.length > this.nDims()) {
+            return `incompatible number of array indices: expected at most ${this.nDims()}, got ${indexTypes.length}`;
         }
         if (indexTypes.some((type) => type !== "Int")) {
             return `array indices are not of type Int`;
@@ -239,6 +248,14 @@ export class MutSetType {
     }
 }
 
+export class MaybeType {
+    constructor(public innerType: Type) {}
+
+    toString(): string {
+        return `Maybe[${this.innerType}]`;
+    }
+}
+
 export class CustomType {
     name: string;
     traits: string[];
@@ -275,6 +292,7 @@ export type Type =
     | MutDictType
     | SetType
     | MutSetType
+    | MaybeType
     | CustomType
     | "Self";
 
@@ -394,6 +412,16 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
             throw new Error(`MutSet type cannot have a return type`);
         }
         return new MutSetType(templateTypes.types[0]);
+    }
+
+    if (typeName === "Maybe") {
+        if (templateTypes.types.length !== 1) {
+            throw new Error(`Maybe type requires a single template type (for the inner type)`);
+        }
+        if (templateTypes.returnType !== null) {
+            throw new Error(`Maybe type cannot have a return type`);
+        }
+        return new MaybeType(templateTypes.types[0]);
     }
 
     return new CustomType(typeName);

@@ -76,7 +76,7 @@ test("compile struct with multiple generic type params", () => {
             [a]
         };
         result = foo(Point(1, 2), Pair(3, 4));
-        result(0)("x")
+        result!(0)("x")
     `,
         1n
     );
@@ -500,7 +500,7 @@ test("parse keyword arguments for functions, with mixed types", () => {
     `);
     testParse(`
         func foo(x: Arr[Int], y: Int): Int {
-            x(0) + y
+            x!(0) + y
         }
         foo(y=1, x=[1, 2])
     `);

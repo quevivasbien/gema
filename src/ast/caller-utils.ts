@@ -1,5 +1,5 @@
 import { deepEquals } from "../deep-equals";
-import { FuncType, ArrayType, IterType, MutArrType, CustomType, type Type } from "../types";
+import { FuncType, ArrayType, IterType, MutArrType, MaybeType, CustomType, type Type } from "../types";
 import { getTrait, findFunction } from "./registries";
 import { typesMatchWithConversion } from "./type-utils";
 
@@ -12,6 +12,7 @@ export function typeToName(t: Type): string {
     if (t instanceof MutArrType) return `MutArr_${typeToName(t.innerType)}`;
     if (t instanceof FuncType)
         return `Func_${t.paramTypes.map(typeToName).join("_")}_${typeToName(t.returnType)}`;
+    if (t instanceof MaybeType) return `Maybe_${typeToName(t.innerType)}`;
     return "Null";
 }
 
@@ -73,6 +74,9 @@ function extractBindings(
                 return false;
         }
         return extractBindings(paramType.returnType, argType.returnType, typeParams, bindings);
+    }
+    if (paramType instanceof MaybeType && argType instanceof MaybeType) {
+        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
     }
     if (!typesMatchWithConversion(paramType, argType)) return false;
     return true;

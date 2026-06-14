@@ -27,6 +27,10 @@ exports(exportedFunction, ExportedStruct, ExportedTrait, exportedConstant)
 
 We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
 
+## JS Interoperability
+
+It would be really helpful to be able to have bindings to JS modules or libraries. This could serve as an easy way to build out a good standard library for the language.
+
 ## Tentative: Enums
 
 It might be nice to have enums, maybe similar to how it is handled in Rust.
@@ -64,6 +68,8 @@ arr ! 1  # This is an unsafe access, for when the user knows the index is in bou
 arr(1) ? 0  # This is semantic sugar for unwrap(arr(1), 0)
 arr(1) ??  # Abort the program if arr(1) is undefined -- this would require some sort of ability to panic that I don't think we have right now, so maybe should wait until later.
 ```
+
+### More speculative `!` as an unsafe call:
 
 I actually kind of like `!` as an unsafe call, so maybe we could use it more generally to denote an unsafe call, for example, replace `unsafeTrans(arr)` with `trans ! arr`. More speculatively, we could have a concept of an unsafe function with `!` as the syntax to call those functions. At the same time, it might make sense to introduce `$` as the equivalent safe call operator (would work the same way as just parenthesis calls but have different precedence).
 

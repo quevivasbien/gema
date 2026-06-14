@@ -166,15 +166,15 @@ test("zip with map", () => {
 // ============================================================
 
 test("tuple: list of tuples", () => {
-    testCompile("x = [(1,2,3), (4,5,6)]; x(1)(1)", 5n);
+    testCompile("x = [(1,2,3), (4,5,6)]; x!(1)(1)", 5n);
     testParseExpectError("x = [(1,2,3), (4,6)];"); // Can't have mismatching tuple types in the same array
     testParseExpectError("x = [(1,2,3), (4,5,6.0)];"); // Can't have mismatching tuple types in the same array
 });
 
 test("tuple: operations on list of tuples", () => {
-    testCompile("x = trans([]:Tuple[Int]); push(x, (1,)); x(0)(0)", 1n);
-    testCompile("([]:Tuple[Int] + [(1,)])(0)(0)", 1n);
-    testCompile("([(1,)] + [(2,)])(1)(0)", 2n);
+    testCompile("x = trans([]:Tuple[Int]); push(x, (1,)); x!(0)(0)", 1n);
+    testCompile("([]:Tuple[Int] + [(1,)])!(0)(0)", 1n);
+    testCompile("([(1,)] + [(2,)])!(1)(0)", 2n);
 });
 
 test("tuple: struct with tuple field", () => {

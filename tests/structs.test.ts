@@ -63,7 +63,7 @@ test("compile functional operations with structs", () => {
         struct P { p: Int }
 
         filtered = filter(func (p: P) { p("p") > 0 }, [P(-1), P(2)]);
-        filtered(0)("p")
+        filtered!(0)("p")
     `,
         2n
     );
@@ -339,7 +339,7 @@ test("parse functional operations with structs", () => {
         struct P { p: Int }
 
         filtered = filter(func (p: P) { p("p") > 0 }, [P(-1), P(2)]);
-        filtered(0)("p")
+        filtered!(0)("p")
     `);
     testParse(`
         struct P { p: Int }

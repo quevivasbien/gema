@@ -127,6 +127,11 @@ PARSE_RULES[TokenType.Caret] = {
     infix: parseExponentiation,
     precedence: Precedence.Exponent,
 };
+PARSE_RULES[TokenType.Bang] = {
+    prefix: parseUnary,
+    infix: parseUnsafeCall,
+    precedence: Precedence.Call,
+};
 PARSE_RULES[TokenType.DotDot] = {
     prefix: parseRangePrefix,
     infix: parseRange,
@@ -815,6 +820,36 @@ function parseDirectCall(parser: Parser, leftExpr: AST.Expression): AST.Expressi
     return parser.tryCreateASTExpression(() => {
         const call = new AST.DirectCall(leftExpr, args);
         call.keywordArgs = keywordArgs;
+        return call;
+    });
+}
+
+function parseUnsafeCall(parser: Parser, leftExpr: AST.Expression): AST.Expression {
+    // After parsing !, check for ( to make an unsafe call
+    if (parser.atEnd() || parser.current().type !== TokenType.LParen) {
+        return parser.error("Expected '(' after '!' for unsafe call.");
+    }
+    parser.advance(); // skip '('
+
+    const args: AST.Expression[] = [];
+    while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+        const arg = parser.expression();
+        if (arg === null) {
+            return parser.error("Unterminated unsafe call.");
+        }
+        args.push(arg);
+        if (parser.current().type === TokenType.Comma) {
+            parser.advance();
+        }
+    }
+    if (parser.atEnd()) {
+        return parser.error("Unterminated unsafe call.");
+    }
+    parser.advance(); // skip ')'
+
+    return parser.tryCreateASTExpression(() => {
+        const call = new AST.DirectCall(leftExpr, args);
+        call.isUnsafe = true;
         return call;
     });
 }

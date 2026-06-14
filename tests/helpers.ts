@@ -53,3 +53,11 @@ export function requireIdenticalCompilation(text1: string, text2: string) {
     const js2 = testCompile(text2, null);
     expect(js1).toEqual(js2);
 }
+
+/**
+ * Assert a program compiles successfully but throws a runtime error
+ */
+export function testCompileExpectRuntimeError(text: string, expectErrorMessage?: string) {
+    const js = testCompile(text, null);
+    expect(() => eval(js)).toThrow(expectErrorMessage)
+}

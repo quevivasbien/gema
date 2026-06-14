@@ -7,6 +7,7 @@ import {
     TupleType,
     DictType,
     MutDictType,
+    MaybeType,
     CustomType,
     FuncType,
     type Type,
@@ -982,6 +983,21 @@ export class Call extends Expression {
                     this.args[0]?.toJS(writer);
                     writer.write(")");
                     return;
+                case "unwrap":
+                    writer.useBuiltin("$unwrap$");
+                    writer.write("$unwrap$(");
+                    this.args.forEach((arg, i) => {
+                        if (i > 0) writer.write(", ");
+                        arg.toJS(writer);
+                    });
+                    writer.write(")");
+                    return;
+                case "isnone":
+                    writer.useBuiltin("$isnone$");
+                    writer.write("$isnone$(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
                 case "contains":
                     this.args[0]?.toJS(writer);
                     if (
@@ -1131,6 +1147,7 @@ export class DirectCall extends Expression {
     args: Expression[];
     keywordArgs: { name: string; value: Expression }[] = [];
     callerType?: CallableType;
+    isUnsafe: boolean = false;
 
     constructor(caller: Expression, args: Expression[]) {
         super(caller.line, caller.col);
@@ -1192,7 +1209,19 @@ export class DirectCall extends Expression {
             if (incompatible !== null) {
                 throw this.error(incompatible);
             }
-            this.type = this.caller.type.innerType;
+            // Resolve the inner type through the number of provided indices
+            // (partial indexing returns a sub-array)
+            let resolvedType: Type = this.caller.type;
+            for (let d = 0; d < this.args.length; d++) {
+                if (resolvedType instanceof ArrayType) {
+                    resolvedType = resolvedType.innerType;
+                } else if (resolvedType instanceof MutArrType) {
+                    resolvedType = resolvedType.innerType;
+                } else {
+                    break;
+                }
+            }
+            this.type = this.isUnsafe ? resolvedType : new MaybeType(resolvedType);
             return;
         }
         if (this.caller.type instanceof IterType) {
@@ -1208,7 +1237,7 @@ export class DirectCall extends Expression {
             if (incompatible !== null) {
                 throw this.error(incompatible);
             }
-            this.type = this.caller.type.innerType;
+            this.type = this.isUnsafe ? this.caller.type.innerType : new MaybeType(this.caller.type.innerType);
             return;
         }
         if (this.caller.type === "Str") {
@@ -1280,7 +1309,7 @@ export class DirectCall extends Expression {
             if (incompatible !== null) {
                 throw this.error(incompatible);
             }
-            this.type = this.caller.type.valueType;
+            this.type = this.isUnsafe ? this.caller.type.valueType : new MaybeType(this.caller.type.valueType);
             return;
         }
 

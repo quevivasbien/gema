@@ -401,4 +401,16 @@ class $ZipIterator$ {
         }
     }
 }`,
+    $unwrap$: `function $unwrap$(value, fallback) {
+    if (value === undefined) {
+        if (arguments.length === 1) {
+            throw new Error("Unwrapped on None without a fallback value");
+        }
+        return fallback;
+    }
+    return value;
+}`,
+    $isnone$: `function $isnone$(value) {
+    return value === undefined;
+}`,
 };

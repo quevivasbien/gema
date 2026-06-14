@@ -137,7 +137,7 @@ test("mutarr: pass mutarr to function", () => {
     testCompile(
         `
         func addOne(mutarr: MutArr[Int]) {
-            put(mutarr, 0, mutarr(0) + 1)
+            put(mutarr, 0, mutarr!(0) + 1)
         };
         mutarr = trans([1, 2, 3]);
         addOne(mutarr);

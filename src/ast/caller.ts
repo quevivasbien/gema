@@ -4,6 +4,7 @@ import {
     IterType,
     MutArrType,
     TupleType,
+    MaybeType,
     DictType,
     SetType,
     MutDictType,
@@ -877,6 +878,48 @@ function findBuiltin(
                 },
             };
         }
+        case "unwrap": {
+            if (argTypes.length < 1 || argTypes.length > 2) return undefined;
+            if (!(argTypes[0] instanceof MaybeType)) return undefined;
+            const innerType = argTypes[0].innerType;
+            if (argTypes.length === 2) {
+                if (!deepEquals(innerType, argTypes[1])) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "unwrap",
+                        callerType: new FuncType(argTypes, innerType),
+                        rootType: innerType,
+                        builtinKind: "unwrap",
+                    },
+                };
+            }
+            return {
+                error: null,
+                result: {
+                    kind: "builtin",
+                    referToByName: "unwrap",
+                    callerType: new FuncType(argTypes, innerType),
+                    rootType: innerType,
+                    builtinKind: "unwrap",
+                },
+            };
+        }
+        case "isnone": {
+            if (argTypes.length !== 1) return undefined;
+            if (!(argTypes[0] instanceof MaybeType)) return undefined;
+            return {
+                error: null,
+                result: {
+                    kind: "builtin",
+                    referToByName: "isnone",
+                    callerType: new FuncType(argTypes, "Bool"),
+                    rootType: "Bool",
+                    builtinKind: "isnone",
+                },
+            };
+        }
         default:
             return undefined;
     }
@@ -1038,7 +1081,7 @@ export function findCaller(
                                 kind: "variable",
                                 referToByName: name,
                                 callerType: varType,
-                                rootType: varType.innerType,
+                                rootType: new MaybeType(varType.innerType),
                             },
                         };
                     }
@@ -1053,7 +1096,7 @@ export function findCaller(
                                 kind: "variable",
                                 referToByName: name,
                                 callerType: varType,
-                                rootType: varType.innerType,
+                                rootType: new MaybeType(varType.innerType),
                             },
                         };
                     }
@@ -1084,7 +1127,7 @@ export function findCaller(
                                 kind: "variable",
                                 referToByName: name,
                                 callerType: varType,
-                                rootType: varType.valueType,
+                                rootType: new MaybeType(varType.valueType),
                             },
                         };
                     }
@@ -1131,7 +1174,7 @@ export function findCaller(
                                 kind: "variable",
                                 referToByName: name,
                                 callerType: param.type,
-                                rootType: param.type.innerType,
+                                rootType: new MaybeType(param.type.innerType),
                             },
                         };
                     }
@@ -1146,7 +1189,7 @@ export function findCaller(
                                 kind: "variable",
                                 referToByName: name,
                                 callerType: param.type,
-                                rootType: param.type.innerType,
+                                rootType: new MaybeType(param.type.innerType),
                             },
                         };
                     }
@@ -1235,7 +1278,7 @@ export function findCaller(
                                 kind: "variable",
                                 referToByName: name,
                                 callerType: param.type,
-                                rootType: param.type.innerType,
+                                rootType: new MaybeType(param.type.innerType),
                             },
                         };
                     }
@@ -1250,7 +1293,7 @@ export function findCaller(
                                 kind: "variable",
                                 referToByName: name,
                                 callerType: param.type,
-                                rootType: param.type.innerType,
+                                rootType: new MaybeType(param.type.innerType),
                             },
                         };
                     }

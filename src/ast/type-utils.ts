@@ -10,6 +10,7 @@ import {
     MutDictType,
     SetType,
     MutSetType,
+    MaybeType,
     CustomType,
     type Type,
 } from "../types";
@@ -44,6 +45,9 @@ export function stripTraits(t: Type): Type {
     if (t instanceof MutSetType) {
         return new MutSetType(stripTraits(t.innerType));
     }
+    if (t instanceof MaybeType) {
+        return new MaybeType(stripTraits(t.innerType));
+    }
     if (t instanceof FuncType) {
         return new FuncType(
             t.paramTypes.map((pt) => stripTraits(pt)),
@@ -72,6 +76,7 @@ export function isConcreteType(t: Type): boolean {
     if (t instanceof MutDictType) return isConcreteType(t.keyType) && isConcreteType(t.valueType);
     if (t instanceof SetType) return isConcreteType(t.innerType);
     if (t instanceof MutSetType) return isConcreteType(t.innerType);
+    if (t instanceof MaybeType) return isConcreteType(t.innerType);
     if (t instanceof FuncType)
         return t.paramTypes.every(isConcreteType) && isConcreteType(t.returnType);
     return true;
@@ -139,6 +144,9 @@ export function collectTraitsForTypeParam(t: Type, typeParamName: string): strin
         return collectTraitsForTypeParam(t.innerType, typeParamName);
     }
     if (t instanceof MutSetType) {
+        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    }
+    if (t instanceof MaybeType) {
         return collectTraitsForTypeParam(t.innerType, typeParamName);
     }
     return [];

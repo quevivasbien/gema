@@ -9,6 +9,7 @@ import {
     MutDictType,
     SetType,
     MutSetType,
+    MaybeType,
 } from "./types";
 
 /**
@@ -92,6 +93,11 @@ export function deepEquals(a: unknown, b: unknown): boolean {
 
     // MutSetType
     if (a instanceof MutSetType && b instanceof MutSetType) {
+        return deepEquals(a.innerType, b.innerType);
+    }
+
+    // MaybeType
+    if (a instanceof MaybeType && b instanceof MaybeType) {
         return deepEquals(a.innerType, b.innerType);
     }
 
