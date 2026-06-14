@@ -25,7 +25,7 @@ export function compile(source) {
                 runtimeError: null,
             };
         }
-        const js = writeJS(ast);
+        const js = writeJS(ast, { asMain: true });
         return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {
         return {

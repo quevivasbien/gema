@@ -83,7 +83,7 @@ class Scope {
 
 export class JSWriter {
     ast: AST.Expression;
-    outputLines: string[] = [];
+    // outputLines: string[] = [];
     currentLine: string = "";
     indentLevel: number = 0;
     scope: Scope = new Scope();
@@ -159,7 +159,7 @@ export class JSWriter {
         this.endScope();
     }
 
-    compile(): string {
+    compile(asMain: boolean = false): string {
         this.ast.toJS(this);
         this.newLine();
 
@@ -176,19 +176,25 @@ export class JSWriter {
         const globalVarDeclarations =
             globals.length === 0 ? "" : "// GLOBAL VARIABLES //\n" + globals.join("\n") + "\n\n";
 
-        return (
-            builtinFuncs +
-            globalVarDeclarations +
-            "// PROGRAM //\n" +
-            this.outputLines.join("\n") +
-            this.scope.lines.join("\n")
-        );
+        let mainProgram = this.scope.lines.join("\n");
+        // if we don't want to execute the program immediately (just define a main function, drop the final '()')
+        if (asMain) {
+            mainProgram = "const main = " + mainProgram.replace(/^\(/, "").replace(/\)\(\)$/g, ";");
+        }
+
+        return builtinFuncs + globalVarDeclarations + "// PROGRAM //\n" + mainProgram;
     }
 }
 
-export function writeJS(ast: AST.Expression, minify: boolean = true): string {
+export function writeJS(
+    ast: AST.Expression,
+    { asMain = false, minify = true }: { asMain: boolean; minify: boolean } = {
+        asMain: false,
+        minify: true,
+    }
+): string {
     const compiler = new JSWriter(ast);
-    let compiled = compiler.compile();
+    let compiled = compiler.compile(asMain);
     if (minify) {
         compiled = compiled
             .split("\n")
@@ -200,6 +206,8 @@ export function writeJS(ast: AST.Expression, minify: boolean = true): string {
                 if (trimmed === "") return false;
                 return true;
             })
+            // Remove duplicated semicolons
+            .map((line) => line.replaceAll(/;+/g, ";"))
             .join("\n");
     }
     return compiled;

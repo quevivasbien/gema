@@ -363,26 +363,22 @@ function createEditor(parent) {
 
 // ── Worker pool (singleton) ─────────────────────────────────────
 
-let workerInstance = null;
-
-/** Get or create the sandboxed execution Worker. */
-function getWorker() {
-    if (workerInstance) return workerInstance;
-    // Create the Worker inline via Blob URL — no separate file needed at runtime.
-    // eval() is safe inside a Worker because Workers have no DOM access.
-    const blob = new Blob(
-        [
-            `self.onmessage=function(e){
-        const js=e.data.js;
-        if(typeof js!=="string"){self.postMessage({runtimeError:"No JS code provided."});return}
-        try{const r=eval(js);self.postMessage({result:String(r)})}
-        catch(err){self.postMessage({runtimeError:err instanceof Error?err.message:String(err)})}
-      }`,
-        ],
-        { type: "application/javascript" }
-    );
-    workerInstance = new Worker(URL.createObjectURL(blob));
-    return workerInstance;
+function getWorker(js) {
+    const workerPayload = `${js}
+try {
+    const result = main();
+    if (typeof postMessage !== 'undefined') {
+        postMessage({ status: 'success', data: result });
+    }
+} catch (err) {
+    if (typeof postMessage !== 'undefined') {
+        postMessage({ status: 'error', data: err.message });
+    }
+}`;
+    console.log("payload:", workerPayload);
+    const blob = new Blob([workerPayload], { type: "application/javascript" });
+    const workerURL = URL.createObjectURL(blob);
+    return new Worker(workerURL);
 }
 
 /** Display error lines by highlighting them in the editor. */
@@ -448,30 +444,32 @@ async function runCode(view) {
         jsContent.classList.remove("collapsed");
 
         // Step 2: Execute in a sandboxed Worker
-        const result = await new Promise((resolve, reject) => {
-            const worker = getWorker();
-            const onMessage = (e) => {
-                worker.removeEventListener("message", onMessage);
-                worker.removeEventListener("error", onError);
-                resolve(e.data);
+        new Promise((resolve, reject) => {
+            const worker = getWorker(compiled.js);
+            worker.onmessage = (event) => {
+                console.log("Got result from worker:", event.data);
+                const { status, data } = event.data;
+                if (status === "success") {
+                    console.log("Result from worker:", data);
+                    resolve(data);
+                } else {
+                    console.error("Error inside worker:", data);
+                    reject(data);
+                }
+                worker.terminate();
             };
-            const onError = (err) => {
-                worker.removeEventListener("message", onMessage);
-                worker.removeEventListener("error", onError);
-                reject(err);
-            };
-            worker.addEventListener("message", onMessage);
-            worker.addEventListener("error", onError);
-            worker.postMessage({ js: compiled.js });
-        });
-
-        if (result.runtimeError) {
-            outputEl.innerText = `Runtime error: ${result.runtimeError}`;
-            outputEl.className = "output-panel output-error";
-        } else {
-            outputEl.innerText = result.result;
-            outputEl.className = "output-panel output-success";
-        }
+        }).then(
+            // onfulfilled
+            (result) => {
+                outputEl.innerText = result;
+                outputEl.className = "output-panel output-success";
+            },
+            // onrejected
+            (error) => {
+                outputEl.innerText = `Runtime error: ${error}`;
+                outputEl.className = "output-panel output-error";
+            }
+        );
     } catch (err) {
         outputEl.innerText = `Execution failed: ${err.message}`;
         outputEl.className = "output-panel output-error";
