@@ -4,12 +4,14 @@
     "scripts": {
         "build:frontend": "bun build frontend/editor.js --minify --outfile=frontend/dist/bundle.js && bun build --minify frontend/worker-entry.js --outfile=frontend/dist/worker.js",
         "dev": "bun run server.ts",
+        "deploy": "bun gh-pages -d frontend",
         "bench": "bun run benchmarks/compile.bench.ts && bun run benchmarks/runtime.bench.ts"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
         "@types/bun": "latest",
         "eslint": "^10.4.1",
+        "gh-pages": "^6.3.0",
         "globals": "^17.6.0",
         "jiti": "^2.7.0",
         "mitata": "^1.0.34",

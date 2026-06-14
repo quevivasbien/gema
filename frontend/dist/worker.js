@@ -1,1 +1,0 @@
-self.onmessage=function(e){let js=e.data.js;if(typeof js!=="string"){self.postMessage({runtimeError:"No JS code provided to worker."});return}try{let result=eval(js);self.postMessage({result:String(result)})}catch(f){self.postMessage({runtimeError:f instanceof Error?f.message:String(f)})}};
