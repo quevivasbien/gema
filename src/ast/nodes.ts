@@ -222,8 +222,6 @@ export class ForLoop extends Expression {
             _innerType = this.iter.type.innerType;
         } else if (this.iter.type instanceof MutArrType) {
             _innerType = this.iter.type.innerType;
-        } else if (this.iter.type === "Str") {
-            _innerType = "Str";
         } else {
             throw this.error(`cannot iterate over object of type ${this.iter.type}`);
         }
@@ -245,15 +243,10 @@ export class ForLoop extends Expression {
         const safeVarName = writer.safeName(this.varName);
 
         if (this.iter.type instanceof ArrayType || this.iter.type instanceof MutArrType) {
-            writer.useBuiltin("$arrayIter$");
-            writer.write(`const ${safeIterVar} = $arrayIter$(`);
+            writer.useBuiltin("$ArrayIterator$");
+            writer.write(`const ${safeIterVar} = new $ArrayIterator$(`);
             this.iter.toJS(writer);
             writer.write(");");
-            writer.newLine();
-        } else if (this.iter.type === "Str") {
-            writer.write(`const ${safeIterVar} = $arrayIter$(`);
-            this.iter.toJS(writer);
-            writer.write(`.split(""));`);
             writer.newLine();
         } else {
             writer.write(`const ${safeIterVar} = `);
@@ -360,8 +353,8 @@ export class RangeIter extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.useBuiltin("$rangeIter$");
-        writer.write("$rangeIter$(");
+        writer.useBuiltin("$RangeIterator$");
+        writer.write("new $RangeIterator$(");
         if (this.start !== null) {
             this.start.toJS(writer);
         } else {

@@ -153,6 +153,30 @@ test("for: for loop over array", () => {
     );
 });
 
+test("for: for loop over string", () => {
+    testParseExpectError(
+        `
+        mut total = 0;
+        for i = "hello" {
+            total += 1
+        };
+        sum
+        `
+    );
+});
+
+test("for: for loop over numeric type", () => {
+    testParseExpectError(
+        `
+        mut total = 0;
+        for i = 1 {
+            total += 1
+        };
+        sum
+        `
+    );
+});
+
 test("for: for loop with break", () => {
     testCompile(
         `

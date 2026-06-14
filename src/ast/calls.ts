@@ -731,8 +731,8 @@ export class Call extends Expression {
             const wrapArg = (index: number): void => {
                 const arg = this.args[index];
                 if (arg && (arg.type instanceof ArrayType || arg.type instanceof MutArrType)) {
-                    writer.useBuiltin("$arrayIter$");
-                    writer.write("$arrayIter$(");
+                    writer.useBuiltin("$ArrayIterator$");
+                    writer.write("new $ArrayIterator$(");
                     arg.toJS(writer);
                     writer.write(")");
                 } else {
@@ -747,24 +747,24 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "map":
-                    writer.useBuiltin("$mapIter$");
-                    writer.write("$mapIter$(");
+                    writer.useBuiltin("$MapIterator$");
+                    writer.write("new $MapIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "mapFromArray":
-                    writer.useBuiltin("$arrayMapIter$");
-                    writer.write("$arrayMapIter$(");
+                    writer.useBuiltin("$ArrayMapIterator$");
+                    writer.write("new $ArrayMapIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "filter":
-                    writer.useBuiltin("$filterIter$");
-                    writer.write("$filterIter$(");
+                    writer.useBuiltin("$FilterIterator$");
+                    writer.write("new $FilterIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
@@ -781,8 +781,8 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "range":
-                    writer.useBuiltin("$rangeIter$");
-                    writer.write("$rangeIter$(");
+                    writer.useBuiltin("$RangeIterator$");
+                    writer.write("new $RangeIterator$(");
                     this.args.forEach((arg, i) => {
                         if (i > 0) writer.write(", ");
                         arg.toJS(writer);
@@ -799,16 +799,16 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "step":
-                    writer.useBuiltin("$stepIter$");
-                    writer.write("$stepIter$(");
+                    writer.useBuiltin("$StepIterator$");
+                    writer.write("new $StepIterator$(");
                     wrapArg(0);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
                     writer.write(")");
                     return;
                 case "iterate":
-                    writer.useBuiltin("$iterateIter$");
-                    writer.write("$iterateIter$(");
+                    writer.useBuiltin("$IterateIterator$");
+                    writer.write("new $IterateIterator$(");
                     this.args.forEach((arg, i) => {
                         if (i > 0) writer.write(", ");
                         arg.toJS(writer);
@@ -847,32 +847,32 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "take":
-                    writer.useBuiltin("$takeIter$");
-                    writer.write("$takeIter$(");
+                    writer.useBuiltin("$TakeIterator$");
+                    writer.write("new $TakeIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "drop":
-                    writer.useBuiltin("$dropIter$");
-                    writer.write("$dropIter$(");
+                    writer.useBuiltin("$DropIterator$");
+                    writer.write("new $DropIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "takeWhile":
-                    writer.useBuiltin("$takeWhileIter$");
-                    writer.write("$takeWhileIter$(");
+                    writer.useBuiltin("$TakeWhileIterator$");
+                    writer.write("new $TakeWhileIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
                     writer.write(")");
                     return;
                 case "dropWhile":
-                    writer.useBuiltin("$dropWhileIter$");
-                    writer.write("$dropWhileIter$(");
+                    writer.useBuiltin("$DropWhileIterator$");
+                    writer.write("new $DropWhileIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
                     wrapArg(1);
@@ -1065,8 +1065,8 @@ export class Call extends Expression {
                         writer.write(", ");
                     }
                     if (iterParamIndices.includes(i)) {
-                        writer.useBuiltin("$arrayIter$");
-                        writer.write("$arrayIter$(");
+                        writer.useBuiltin("$ArrayIterator$");
+                        writer.write("new $ArrayIterator$(");
                         arg.toJS(writer);
                         writer.write(")");
                     } else {
@@ -1408,8 +1408,8 @@ export class DirectCall extends Expression {
                         writer.write(", ");
                     }
                     if (iterParamIndices.includes(i)) {
-                        writer.useBuiltin("$arrayIter$");
-                        writer.write("$arrayIter$(");
+                        writer.useBuiltin("$ArrayIterator$");
+                        writer.write("new $ArrayIterator$(");
                         arg.toJS(writer);
                         writer.write(")");
                     } else {

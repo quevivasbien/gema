@@ -25,7 +25,7 @@ export const BUILTINS: Record<string, string> = {
     }
     return out;
 }`,
-    $arrayIter$: `class $ArrayIterator$ {
+    $ArrayIterator$: `class $ArrayIterator$ {
     constructor(array) {
         this.array = array;
         this.index = 0;
@@ -40,12 +40,9 @@ export const BUILTINS: Record<string, string> = {
     reset() {
         this.index = 0;
     }
-}
-function $arrayIter$(array) {
-    return new $ArrayIterator$(array);
 }`,
-    $rangeIter$: `class $RangeIterator$ {
-    constructor(start, end, step) {
+    $RangeIterator$: `class $RangeIterator$ {
+    constructor(start, end, step=1n) {
         this.value = start;
         this.start = start;
         this.end = end;
@@ -63,11 +60,8 @@ function $arrayIter$(array) {
     reset() {
         this.value = this.start;
     }
-}
-function $rangeIter$(start, end, step = 1n) {
-    return new $RangeIterator$(start, end, step);
 }`,
-    $mapIter$: `class $MapIterator$ {
+    $MapIterator$: `class $MapIterator$ {
     constructor(mapfn, innerIter) {
         this.mapfn = mapfn;
         this.innerIter = innerIter;
@@ -83,11 +77,8 @@ function $rangeIter$(start, end, step = 1n) {
     reset() {
         this.innerIter.reset();
     }
-}
-function $mapIter$(mapfn, innerIter) {
-    return new $MapIterator$(mapfn, innerIter);
 }`,
-    $arrayMapIter$: `class _ARRAY$MapIterator$ {
+    $ArrayMapIterator$: `class $ArrayMapIterator$ {
     constructor(arr, innerIter) {
         this.arr = arr;
         this.innerIter = innerIter;
@@ -103,11 +94,8 @@ function $mapIter$(mapfn, innerIter) {
     reset() {
         this.innerIter.reset();
     }
-}
-function $arrayMapIter$(arr, innerIter) {
-    return new _ARRAY$MapIterator$(arr, innerIter);
 }`,
-    $filterIter$: `class $FilterIterator$ {
+    $FilterIterator$: `class $FilterIterator$ {
     constructor(filterFn, innerIter) {
         this.filterFn = filterFn;
         this.innerIter = innerIter;
@@ -128,9 +116,6 @@ function $arrayMapIter$(arr, innerIter) {
     reset() {
         this.innerIter.reset();
     }
-}
-function $filterIter$(filterFn, innerIter) {
-    return new $FilterIterator$(filterFn, innerIter);
 }`,
     $reduce$: `function $reduce$(reduceFn, initValue, iter) {
     let accumulated = initValue;
@@ -159,10 +144,10 @@ function $filterIter$(filterFn, innerIter) {
         count++;
     }
 }`,
-    $takeIter$: `class $TakeIterator$ {
-    constructor(innerIter, count) {
-        this.innerIter = innerIter;
+    $TakeIterator$: `class $TakeIterator$ {
+    constructor(count, innerIter) {
         this.remaining = count;
+        this.innerIter = innerIter;
         this.originalCount = count;
     }
     next() {
@@ -182,14 +167,11 @@ function $filterIter$(filterFn, innerIter) {
         this.innerIter.reset();
         this.remaining = this.originalCount;
     }
-}
-function $takeIter$(count, iter) {
-    return new $TakeIterator$(iter, count);
 }`,
-    $takeWhileIter$: `class $TakeWhileIterator$ {
-    constructor(innerIter, pred) {
-        this.innerIter = innerIter;
+    $TakeWhileIterator$: `class $TakeWhileIterator$ {
+    constructor(pred, innerIter) {
         this.pred = pred;
+        this.innerIter = innerIter;
     }
     next() {
         const value = this.innerIter.next();
@@ -202,14 +184,11 @@ function $takeIter$(count, iter) {
     reset() {
         this.innerIter.reset();
     }
-}
-function $takeWhileIter$(pred, iter) {
-    return new $TakeWhileIterator$(iter, pred);
 }`,
-    $dropIter$: `class $DropIterator$ {
-    constructor(innerIter, count) {
-        this.innerIter = innerIter;
+    $DropIterator$: `class $DropIterator$ {
+    constructor(count, innerIter) {
         this.toSkip = count;
+        this.innerIter = innerIter;
         this.dropping = true;
     }
     next() {
@@ -234,14 +213,11 @@ function $takeWhileIter$(pred, iter) {
         this.innerIter.reset();
         this.dropping = true;
     }
-}
-function $dropIter$(count, iter) {
-    return new $DropIterator$(iter, count);
 }`,
-    $dropWhileIter$: `class $DropWhileIterator$ {
-    constructor(innerIter, pred) {
-        this.innerIter = innerIter;
+    $DropWhileIterator$: `class $DropWhileIterator$ {
+    constructor(pred, innerIter) {
         this.pred = pred;
+        this.innerIter = innerIter;
         this.dropping = true;
     }
     next() {
@@ -269,11 +245,8 @@ function $dropIter$(count, iter) {
         this.innerIter.reset();
         this.dropping = true;
     }
-}
-function $dropWhileIter$(pred, iter) {
-    return new $DropWhileIterator$(iter, pred);
 }`,
-    $iterateIter$: `class $IterateIterator$ {
+    $IterateIterator$: `class $IterateIterator$ {
     constructor(fn, start) {
         this.fn = fn;
         this.current = start;
@@ -292,9 +265,6 @@ function $dropWhileIter$(pred, iter) {
         this.current = this.start;
         this.first = true;
     }
-}
-function $iterateIter$(fn, start) {
-    return new $IterateIterator$(fn, start);
 }`,
     $last$: `function $last$(iter) {
     let lastValue;
@@ -342,7 +312,7 @@ function $iterateIter$(fn, start) {
     mutset.delete(val);
     return mutset;
 }`,
-    $stepIter$: `class $StepIterator$ {
+    $StepIterator$: `class $StepIterator$ {
     constructor(innerIter, stepSize) {
         this.innerIter = innerIter;
         this.stepSize = stepSize;
@@ -366,12 +336,6 @@ function $iterateIter$(fn, start) {
         this.innerIter.reset();
         this.count = 0n;
     }
-}
-function $stepIter$(innerIter, stepSize) {
-    if (typeof innerIter.next !== "function") {
-        innerIter = $arrayIter$(innerIter);
-    }
-    return new $StepIterator$(innerIter, stepSize);
 }`,
     $zip$: `function $zip$(...iters) {
     const iterators = iters.map((it) =>

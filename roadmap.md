@@ -71,15 +71,13 @@ These would be helpful to avoid deeply nested control flow.
 
 Plus operator on iterators of the same type should concatenate them.
 
-## Language guide
-
-We should put together a comprehensive guide for the language.
-
 ## Optimizations
 
 When transing an expression that is not a variable, there is no need for a copy (it can be a no-op, behaving exactly like unsafeTrans);
 
 We can completely omit branches of the AST that do not operate on pre-existing mutable variables (or have other side effects) and are dropped.
+
+Optimizations for StepIterator: can be made more efficient when stepping over ranges or arrays.
 
 Lots of other room for improvement here.
 
