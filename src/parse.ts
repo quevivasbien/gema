@@ -1444,20 +1444,6 @@ class Parser {
             return expr;
         }
 
-        // If-without-else is statement-only — enforce dropping
-        if (expr instanceof AST.If && !expr.hasElse) {
-            if (this.current().type === TokenType.Semicolon) {
-                this.advance();
-                return new AST.DropValue(expr);
-            }
-            if (this.current().type === TokenType.RBrace) {
-                return new AST.DropValue(expr);
-            }
-            return this.error(
-                "if without else can only be used as a statement, not as an expression."
-            );
-        }
-
         if (this.current().type === TokenType.Semicolon) {
             this.advance();
             return new AST.DropValue(expr);

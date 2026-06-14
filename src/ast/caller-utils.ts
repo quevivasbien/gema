@@ -1,5 +1,13 @@
 import { deepEquals } from "../deep-equals";
-import { FuncType, ArrayType, IterType, MutArrType, MaybeType, CustomType, type Type } from "../types";
+import {
+    FuncType,
+    ArrayType,
+    IterType,
+    MutArrType,
+    MaybeType,
+    CustomType,
+    type Type,
+} from "../types";
 import { getTrait, findFunction } from "./registries";
 import { typesMatchWithConversion } from "./type-utils";
 

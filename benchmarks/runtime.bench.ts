@@ -120,8 +120,7 @@ func sieve(upto: Int) {
 // ── Benchmark helpers ───────────────────────────────────────────
 
 /** Compile once, return a function that evals the compiled JS. */
-// eslint-disable-next-line collect(typescript)-eslint/no-explicit-any
-function makeRunner(code: string): () => any {
+function makeRunner(code: string) {
     resetRegistries();
     const tokens = scan(code);
     const { ast } = parse(tokens);

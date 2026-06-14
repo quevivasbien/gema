@@ -77,6 +77,19 @@ export function markVarConsumed(name: string): void {
     consumedVars.set(name, true);
 }
 
+/** Snapshot the current consumedVars state (for scoping around function bodies). */
+export function saveConsumedVars(): Map<string, boolean> {
+    return new Map(consumedVars);
+}
+
+/** Restore consumedVars to a prior snapshot. */
+export function restoreConsumedVars(snapshot: Map<string, boolean>): void {
+    consumedVars.clear();
+    for (const [k, v] of snapshot) {
+        consumedVars.set(k, v);
+    }
+}
+
 // Reset all global registries (useful between tests)
 export function resetRegistries(): void {
     traitRegistry.clear();

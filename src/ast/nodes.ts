@@ -28,6 +28,8 @@ import {
     getTrait,
     getStruct,
     isVarConsumed,
+    saveConsumedVars,
+    restoreConsumedVars,
 } from "./registries";
 
 export class Block extends Expression {
@@ -1098,7 +1100,11 @@ export class Function extends Expression {
             this.body.cascadeTypes([...ancestors, this]);
             return;
         }
+        // Save/restore consumedVars so detrans inside function bodies doesn't
+        // leak consumed status to outer scopes
+        const savedConsumed = saveConsumedVars();
         this.body.cascadeTypes([...ancestors, this]);
+        restoreConsumedVars(savedConsumed);
 
         if (this.returnType === "Null" && this.body.type !== null && this.body.type !== "Null") {
             this.returnType = this.body.type;

@@ -59,5 +59,5 @@ export function requireIdenticalCompilation(text1: string, text2: string) {
  */
 export function testCompileExpectRuntimeError(text: string, expectErrorMessage?: string) {
     const js = testCompile(text, null);
-    expect(() => eval(js)).toThrow(expectErrorMessage)
+    expect(() => eval(js)).toThrow(expectErrorMessage);
 }

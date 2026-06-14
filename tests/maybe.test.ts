@@ -1,6 +1,11 @@
 import { test } from "bun:test";
 
-import { testCompile, testCompileExpectRuntimeError, testParse, testParseExpectError } from "./helpers";
+import {
+    testCompile,
+    testCompileExpectRuntimeError,
+    testParse,
+    testParseExpectError,
+} from "./helpers";
 
 // ============================================================
 // Maybe type — handling undefined values
@@ -76,7 +81,7 @@ test("unwrap with default on multi-dimensional access", () => {
 });
 
 test("unwrap with default type mismatch errors", () => {
-    testParseExpectError("unwrap([1, 2](0), \"hello\")");
+    testParseExpectError('unwrap([1, 2](0), "hello")');
 });
 
 // ── unwrap without default (abort) ────────────────────────
@@ -87,7 +92,10 @@ test("unwrap without default returns value when in bounds", () => {
 
 test("unwrap without default throws when out of bounds", () => {
     // Expect a runtime error/throw
-    testCompileExpectRuntimeError("unwrap([1, 2, 3](99))", "Unwrapped on None without a fallback value");
+    testCompileExpectRuntimeError(
+        "unwrap([1, 2, 3](99))",
+        "Unwrapped on None without a fallback value"
+    );
 });
 
 // ── isnone ────────────────────────────────────────────────
@@ -144,14 +152,16 @@ test("calling function that returns Maybe requires unwrap", () => {
 });
 
 test("unwrap on function returning Maybe", () => {
-    testCompile(`
+    testCompile(
+        `
         func safeHead(arr: Arr[Int]): Maybe[Int] {
             arr(0)
         };
         unwrap(safeHead([10, 20, 30]), -1)
-    `, 10n);
+    `,
+        10n
+    );
 });
-
 
 // ── Maybe as function parameter type ─────────────────────────
 

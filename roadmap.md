@@ -27,6 +27,10 @@ exports(exportedFunction, ExportedStruct, ExportedTrait, exportedConstant)
 
 We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
 
+## Error handling
+
+I think my preferred way to do this would be to have a `Result` type, like in Rust. We could also have a `panic` builtin that aborts the program with an error message.
+
 ## JS Interoperability
 
 It would be really helpful to be able to have bindings to JS modules or libraries. This could serve as an easy way to build out a good standard library for the language.
@@ -34,44 +38,6 @@ It would be really helpful to be able to have bindings to JS modules or librarie
 ## Tentative: Enums
 
 It might be nice to have enums, maybe similar to how it is handled in Rust.
-
-## Proper handling of null/undefined values.
-
-### Nulls
-
-It's possible to get null values with things like `x = { 1; };`. We probably should try to disallow these patterns (it's okay to have statements that aren't expressions, but being able to assign variables to them makes little sense). Right now it's not intended to be able to return a null value from a function, but it is technically possible, and it could make sense to do so given that we now support mutable variables (so we could have functions that are just meant to mutate something).
-
-Here are the rules I would like to enforce:
-
-- It should never be possible to set a variable equal to a null value
-- Non-anonymous function declarations, struct and trait definitions are all technically null, so we shouldn't be able to assign variables to them (I think this might already be the case, but let's check).
-
-### `undefined` values
-
-It is possible to get `undefined` values if we do out of bounds array or iterator access or try to use an empty iterator. This is not possible to prohibit at compile time.
-
-The fix I want here is to have a built-in `Maybe` type. `Maybe[Int]` would just mean a value that compiles to either a `BigInt` or `undefined`, and the `Maybe` syntax would just be a way for the type checker to force the user to check if the value is `undefined` or not.
-
-The syntax could look something like
-
-```
-arr = [1, 2, 3];
-x = arr(1);  # this has type Maybe[Int], but it just compiles to x = arr[1n], no need to wrap it in anything in JS
-x + 1  # not allowed! can't add a Maybe[Int] to an Int
-unwrap(x, 0)  # converts to an Int, falling back on default value if x === undefined, analogous to Rust's unwrap_or_else
-```
-
-We could maybe introduce some new operators:
-
-```
-arr ! 1  # This is an unsafe access, for when the user knows the index is in bounds and doesn't want to bother with unwrapping
-arr(1) ? 0  # This is semantic sugar for unwrap(arr(1), 0)
-arr(1) ??  # Abort the program if arr(1) is undefined -- this would require some sort of ability to panic that I don't think we have right now, so maybe should wait until later.
-```
-
-### More speculative `!` as an unsafe call:
-
-I actually kind of like `!` as an unsafe call, so maybe we could use it more generally to denote an unsafe call, for example, replace `unsafeTrans(arr)` with `trans ! arr`. More speculatively, we could have a concept of an unsafe function with `!` as the syntax to call those functions. At the same time, it might make sense to introduce `$` as the equivalent safe call operator (would work the same way as just parenthesis calls but have different precedence).
 
 ## 64-bit ndarray types based on JS's TypedArray
 
@@ -100,6 +66,10 @@ It should be quite straightforward to infer the type of `*` here, so this could 
 ## Return and continue keywords
 
 These would be helpful to avoid deeply nested control flow.
+
+## Concatenate iterators
+
+Plus operator on iterators of the same type should concatenate them.
 
 ## Language guide
 

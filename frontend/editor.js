@@ -11,189 +11,232 @@ import { indentWithTab } from "@codemirror/commands";
 // ── Presets ──────────────────────────────────────────────────────
 
 const PRESETS = {
-    hello: {
-        label: "Hello World",
-        code: `func sayHello(name: Str): Str {
-    "Hello from " + name + "!"
+    blank: {
+        label: "Blank",
+        code: `# Write your code here, or choose a preset above`,
+    },
+    fizzbuzz: {
+        label: "FizzBuzz",
+        code: `# Classic FizzBuzz: print Fizz for multiples of 3,
+# Buzz for multiples of 5, FizzBuzz for both.
+
+func fizzbuzz(n: Int): Str {
+    if (n % 15 == 0) {
+        "FizzBuzz"
+    } else if (n % 3 == 0) {
+        "Fizz"
+    } else if (n % 5 == 0) {
+        "Buzz"
+    } else {
+        toStr(n)
+    }
 };
 
-sayHello("Gema")`,
+# Apply to range 1..20, collect into array
+1..20 | map(fizzbuzz[Int]) | collect`,
     },
-    factorial: {
-        label: "Factorial (3 ways)",
-        code: `# Compute the first 6 factorials three ways and show they match.
+    fibonacci: {
+        label: "Fibonacci",
+        code: `# Fibonacci sequence shown three ways
 
 # 1. Recursive
-func factRec(n: Int): Int {
-    if (n <= 1) {
-        1
-    } else {
-        n * factRec(n - 1)
-    }
+func fibRec(n: Int): Int {
+    if (n <= 1) { n }
+    else { fibRec(n - 1) + fibRec(n - 2) }
 };
 
-rec = collect(map(factRec[Int], range(0, 6)));
+# 2. With iterate
+# iterate(fn, start) produces: start, fn(start), fn(fn(start)), ...
+# We iterate a pair (a,b) → (b, a+b) to generate Fibonacci
+fibs = iterate(\\pair { (pair(1), pair(0) + pair(1)) }, (0, 1))
+       | map(\\p { p(0) })
+       | take(10)
+       | collect;
 
-# 2. Reduce (functional)
-func factReduce(n: Int): Int {
-    if (n < 1) {
-        1
-    } else {
-        reduce(
-            func(acc: Int, x: Int) { acc * x },
-            1,
-            range(1, n)
-        )
-    }
-};
-
-fld = collect(map(factReduce[Int], range(0, 6)));
-
-# 3. For loop (imperative)
-func factFor(n: Int): Int {
-    if (n < 1) {
-        1
-    } else {
-        mut result = 1;
-        for i = range(1, n) {
-            result = result * i
+# 3. Imperative with mutable vars
+func fibLoop(n: Int): Int {
+    if (n <= 1) { n }
+    else {
+        mut a = 0;
+        mut b = 1;
+        for i = 2..n {
+            next = a + b;
+            a = b;
+            b = next
         };
-        result
+        b
     }
 };
 
-imp = collect(map(factFor[Int], range(0, 6)));
+loop10 = 0..9 | map(fibLoop[Int]) | collect;
 
-# All three produce the same result
-rec == fld and fld == imp   # true
-`,
+# All produce the same sequence
+[fibRec(9), fibs(9) | unwrap, loop10(9) | unwrap]   # all 34`,
     },
-    arrays: {
-        label: "Arrays & Indexing",
-        code: `# Array creation, concatenation, and indexing
-x = [1, 2, 3];
-y = [4, 5, 6];
+    quicksort: {
+        label: "Quicksort",
+        code: `# Quicksort using functional style
+func quicksort(arr: Arr[Int]): Arr[Int] {
+    if (length(arr) <= 1) {
+        arr
+    } else {
+        pivot = arr!(0);
+        rest = arr(1..);
+        left = collect(filter(\\x { x <= pivot }, rest));
+        right = collect(filter(\\x { x > pivot }, rest));
+        quicksort(left) + [pivot] + quicksort(right)
+    }
+};
 
-# Concatenation
-z = x + y;
-
-# Multi-dimensional indexing
-matrix = [[1, 2], [3, 4]];
-
-# Results
-z       # [1, 2, 3, 4, 5, 6]
-matrix(0, 1)   # 2`,
+unsorted = [3, 7, 8, 5, 2, 1, 9, 5, 4];
+quicksort(unsorted)   # [1, 2, 3, 4, 5, 5, 7, 8, 9]`,
     },
-    mapFilterReduce: {
-        label: "Map / Filter / Reduce",
-        code: `func isEven(x: Int): Bool {
-    x % 2 == 0
+    sieve: {
+        label: "Sieve of Eratosthenes",
+        code: `# Sieve of Eratosthenes using mutable arrays
+
+func sieve(n: Int): Arr[Int] {
+    mut isPrime = map(\\_ { true} 0..n) | collect | trans;
+    put(isPrime, 0, false);
+    put(isPrime, 1, false);
+
+    for i = (2..) {
+        if i * i > n { break; }
+        if (isPrime(i) | unwrap) {
+            for j = step((i * 2)..n, i) {
+                put(isPrime, j, false)
+            }
+        }
+    };
+
+    (0..n) | filter(\\x { isPrime(x) | unwrap }) | collect
 };
 
-func add1(x: Int): Int {
-    x + 1
-};
-
-nums = range(1, 10);
-
-evens = filter(isEven, nums);
-plus1 = collect(map(add1, evens));
-
-sum = reduce(
-    func(acc: Int, x: Int) { acc + x },
-    0,
-    plus1
-);
-
-sum   # 30 (sum of even numbers 1-10, each +1)`,
+sieve(50)   # primes up to 50`,
     },
-    structs: {
-        label: "Struct Types",
-        code: `struct Point {
-    x: Float,
-    y: Float
+    fbpipeline: {
+        label: "Functional Pipeline",
+        code: `# A functional pipeline: compute sum of squares of even
+# numbers from 1..100, using pipe and lambdas.
+
+result = 1..100
+    | filter(\\x { x % 2 == 0 })    # keep evens
+    | map(\\x { x * x })              # square them
+    | reduce(\\acc, x { acc + x }, 0) # sum
+
+# Same thing expressed more concisely:
+result2 = reduce(\\acc, x {
+    if x % 2 == 0 { acc + x * x } else { acc }
+}, 0, 1..100);
+
+result == result2   # true (both are 171700)`,
+    },
+    primeFactors: {
+        label: "Prime Factorization",
+        code: `# Prime factorization using recursion and iteration
+
+func smallestFactor(n: Int): Int {
+    if (n % 2 == 0) { 2 }
+    else {
+        factors = (3..)
+            | takeWhile(\\x { x * x <= n})
+            | filter(\\x { n % x == 0 });
+        unwrap(factors(0), n)
+    }
 };
 
-func taxicab(a: Point, b: Point): Float {
-    (b.x - a.x) + (b.y - a.y)
+func factors(n: Int): Arr[Int] {
+    if (n <= 1) { []:Int }
+    else {
+        sf = smallestFactor(n);
+        [sf] + factors(n / sf)
+    }
 };
 
-taxicab(Point(8.0, 7.0), Point(-2.0, 2.0))  # -15.0`,
+factors(84)   # [2, 2, 3, 7]`,
+    },
+    wordCount: {
+        label: "Word Frequency",
+        code: `# Count word frequencies using Dict and functional combinators
+
+# Sample text as an array of words
+words = ["the", "quick", "brown", "fox", "jumps", "over",
+         "the", "lazy", "dog", "the", "fox"];
+
+# Build a frequency dict manually
+func countWords(words: Arr[Str]): Dict[Str, Int] {
+    freq = trans(Dict([]:Tuple[Str, Int]));
+    for w = words {
+        count = freq(w);
+        put(freq, w, (if isnone(count) { 0 } else { unwrap(count) }) + 1)
+    };
+    detrans(freq)
+};
+
+freq = countWords(words);
+
+# Access individual frequencies
+(
+  freq("the") | unwrap,   # 3
+  freq("fox") | unwrap,   # 2
+)`,
     },
     generics: {
         label: "Generic Functions",
-        code: `trait Concatenatable {
+        code: `# Generic functions with trait bounds — concatenate in reverse
+
+trait Concatenatable {
   concat[(a: Self, b: Self): Self],
 }
 
+# Generic: works with any Concatenatable type
 func tacnoc(a: T, b: T): T where T is Concatenatable {
   concat(b, a)
 }
 
-# Implement Concatenatable for strings
-func concat(a: Str, b: Str) {
-  a + b
-}
+# Implement for strings
+func concat(a: Str, b: Str) { a + b };
+tacnoc("hello", "there")                     # "therehello"
 
-tacnoc("hello", "there")  # "therehello"
-
-# Implement Concatenatable for integers
+# Implement for integers (digit concatenation)
 func concat(a: Int, b: Int) {
   func getNDigits(x: Int, n: Int): Int {
     if x <= 0 { n }
     else { getNDigits(x / 10, n + 1) }
-  }
-  a*10^getNDigits(b, 0) + b
-}
+  };
+  a * 10 ^ getNDigits(b, 0) + b
+};
+tacnoc(123, 45)                              # 45123
 
-tacnoc(123, 45)  # 45123
-
-# Implement Concatenatable for a custom type
+# Implement for a struct
 struct Pair { first: Int, second: Int }
-
 func concat(a: Pair, b: Pair) {
   Pair(concat(a.first, b.first), concat(a.second, b.second))
-}
-
-# To help us view the result
+};
 func toStr(p: Pair) {
   "(" + toStr(p.first) + ", " + toStr(p.second) + ")"
-}
-
-toStr(tacnoc(Pair(1, 2), Pair(34, 56)))  # (341, 562)`,
-    },
-    typeConversion: {
-        label: "Type Conversions",
-        code: `# Built-in type conversion functions
-x = 42;
-
-toStr(x)        # "42"
-toFloat(x)      # 42.0
-toBool(x)       # true
-
-# String indexing
-msg = "gema";
-msg(0)          # "g"
-msg(1)          # "e"`,
+};
+toStr(tacnoc(Pair(1, 2), Pair(34, 56)))      # (341, 562)`,
     },
     mandelbrot: {
         label: "Mandelbrot set",
-        code: `struct Complex {
-    re: Float,
-    im: Float,
+        code: `# ASCII Mandelbrot set visualization
+struct Complex { re: Float, im: Float }
+
+func add(a: Complex, b: Complex): Complex {
+    Complex(a.re + b.re, a.im + b.im)
 }
 
-func abs(z: Complex): Float {
-    z.re * z.re + z.im * z.im
+func mul(z: Complex, c: Complex): Complex {
+    Complex(c.re + z.re * z.re - z.im * z.im,
+            c.im + 2.0 * z.re * z.im)
 }
+
+func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }
 
 func mandelIter(z: Complex, c: Complex, i: Int): Bool {
-    if (i <= 0) { abs(z) < 4.0 }
-    else {
-        re = c.re + z.re * z.re - z.im * z.im;
-        im = c.im + 2.0 * z.re * z.im;
-        mandelIter(Complex(re, im), c, i-1)
-    }
+    if (i <= 0) { abs2(z) < 4.0 }
+    else { mandelIter(mul(z, c), c, i - 1) }
 }
 
 func isMandel(c: Complex): Bool {
@@ -202,44 +245,30 @@ func isMandel(c: Complex): Bool {
 
 func linspace(a: Float, b: Float, n: Int): Iter[Float] {
     step = (b - a) / toFloat(n - 1);
-    map(func(i: Int) { a + step * toFloat(i) }, range(0, n - 1))
+    map(\\i { a + step * toFloat(i) }, 0..(n - 1))
 }
 
 func concat(strs: Iter[Str]) {
-    reduce(func(acc:Str, x:Str){acc+x}, "", strs)
+    reduce(\\acc, x { acc + x }, "", strs)
 }
 
 func toStr(arr: Iter[Bool]) {
-    strs = map(func(x: Bool){ if x { "*" } else { " " }}, arr);
+    strs = map(\\x { if x { "*" } else { " " } }, arr);
     concat(strs) + "\\n"
 }
 
-grid = {
-    xs = collect(linspace(-1.75, 0.25, 19));
-    ys = collect(linspace(-1., 1., 19));
-    concat(
-        map(
-            func(y: Float) {
-                toStr(map(func(x: Float){ isMandel(Complex(x, y)) }, xs))
-            },
-            ys
-        )
-    )
-};
-
+grid = concat(map(\\y {
+    xs = collect(linspace(-1.75, 0.25, 39));
+    toStr(map(\\x { isMandel(Complex(x, y)) }, xs))
+}, collect(linspace(-1., 1., 39))));
 grid
 `,
     },
-    mutableVars: {
-        label: "Mutable Variables",
-        code: `# Mutable variables with reassignment and compound ops
+    counter: {
+        label: "Closures & State",
+        code: `# Closures capture mutable variables by reference,
+# enabling stateful function objects.
 
-mut counter = 0;
-counter = counter + 1;   # 1
-counter += 2;            # 3 (compound +=)
-counter *= 3;            # 9 (compound *=)
-
-# Closures capture mutable vars by reference
 func makeCounter(): Func[:Int] {
     mut count = 0;
     func() { count = count + 1; count }
@@ -247,99 +276,22 @@ func makeCounter(): Func[:Int] {
 
 a = makeCounter();
 b = makeCounter();
-[a(), a(), b(), b()]   # [1, 2, 1, 2]`,
-    },
-    mutableStructs: {
-        label: "Mutable Struct Fields",
-        code: `# Struct fields can be declared mutable
-struct Point {
-    mut x: Int,
-    mut y: Int,
+indep_state = [a(), a(), b(), b()];   # [1, 2, 1, 2] — independent state
+
+# Higher-order: a function that takes a predicate
+# and returns a filtered counter
+func makeFilteredCounter(pred: Func[Int: Bool]): Func[:Int] {
+    mut count = 0;
+    func() {
+        count = count + 1;
+        if pred(count) { count } else { 0 }
+    }
 };
 
-p = Point(1, 2);
-p.x = 10;       # Field mutation
-p.y += 5;       # Compound field assignment
-p.x + p.y       # 15
+evens = makeFilteredCounter(\\x { x % 2 == 0 });
+mutating_state = [evens(), evens(), evens()];   # [0, 2, 0]
 
-# Operator overloading still works with mutability
-struct Adder {
-    mut val: Int,
-};
-
-func add(a: Adder, b: Adder): Adder {
-    Adder(a.val + b.val)
-};
-
-mut a = Adder(3);
-a += Adder(4);
-a.val   # 7`,
-    },
-    tuplesAndZip: {
-        label: "Tuples & Zip",
-        code: `# ── Tuples ──────────────────────────────────────────
-
-# Tuple literals group values of different types
-t = (1, "hello", 3.0);
-
-# Index with a literal to access elements
-t(0)          # 1
-t(1)          # "hello"
-t(2)          # 3.0
-
-# Nested tuples
-nested = (1, (2, 3));
-nested(1)(0);  # 2
-
-# Tuple unpacking
-(a, b, c) = (10, 20, 30);
-a + b + c      # 60
-
-# Unpacking from a function
-func point(): Tuple[Int, Int] { (3, 4) };
-(x, y) = point();
-x * x + y * y;  # 25
-
-# ── Zip Iterator ─────────────────────────────────────
-
-# zip combines iterables into an iterator of tuples
-collect(zip([1, 2, 3], ["a", "b", "c"]))
-# [(1, "a"), (2, "b"), (3, "c")]
-
-# Stops at the shortest input
-collect(zip([1, 2], ["a", "b", "c"]))
-# [(1, "a"), (2, "b")]
-
-# Three or more iterables
-collect(zip([1, 2], ["a", "b"], [true, false]))
-# [(1, "a", true), (2, "b", false)]
-
-# Combine zip with map — tuple elements are accessed by index
-collect(map(
-    func(pair: Tuple[Int, Int]) { pair(0) + pair(1) },
-    zip([1, 2, 3], [10, 20, 30])
-))   # [11, 22, 33]`,
-    },
-    mutableArrays: {
-        label: "Mutable Arrays",
-        code: `# trans() creates a mutable array (deep copy from Arr)
-mutarr = trans([1, 2, 3]);
-
-# push returns the array (chainable)
-push(mutarr, 4);
-push(mutarr, 5);
-
-# put(index, value) returns the new value
-put(mutarr, 0, 99);
-
-# detrans() freezes back to a regular array
-arr = detrans(mutarr)   # [99, 2, 3, 4, 5]
-
-# unsafeTrans avoids the copy
-x = [1, 2, 3];
-y = unsafeTrans(x);
-put(y, 0, 99);
-x   # [99, 2, 3] — original was modified!`,
+(indep_state, mutating_state)`,
     },
 };
 
@@ -377,7 +329,7 @@ const errorField = StateField.define({
 // ── Editor setup ────────────────────────────────────────────────
 
 function createEditor(parent) {
-    const startPreset = "hello";
+    const startPreset = Object.keys(PRESETS)[0];
 
     const view = new EditorView({
         doc: PRESETS[startPreset].code,
@@ -543,7 +495,7 @@ function setupPresets(view) {
         select.appendChild(opt);
     }
 
-    select.value = "hello";
+    select.value = Object.keys(PRESETS)[0];
     select.addEventListener("change", () => {
         const code = PRESETS[select.value]?.code;
         if (!code) return;

@@ -410,7 +410,4 @@ class $ZipIterator$ {
     }
     return value;
 }`,
-    $isnone$: `function $isnone$(value) {
-    return value === undefined;
-}`,
 };

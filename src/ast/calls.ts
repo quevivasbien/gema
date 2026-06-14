@@ -993,10 +993,8 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "isnone":
-                    writer.useBuiltin("$isnone$");
-                    writer.write("$isnone$(");
                     this.args[0]?.toJS(writer);
-                    writer.write(")");
+                    writer.write("=== undefined");
                     return;
                 case "contains":
                     this.args[0]?.toJS(writer);
@@ -1237,7 +1235,9 @@ export class DirectCall extends Expression {
             if (incompatible !== null) {
                 throw this.error(incompatible);
             }
-            this.type = this.isUnsafe ? this.caller.type.innerType : new MaybeType(this.caller.type.innerType);
+            this.type = this.isUnsafe
+                ? this.caller.type.innerType
+                : new MaybeType(this.caller.type.innerType);
             return;
         }
         if (this.caller.type === "Str") {
@@ -1309,7 +1309,9 @@ export class DirectCall extends Expression {
             if (incompatible !== null) {
                 throw this.error(incompatible);
             }
-            this.type = this.isUnsafe ? this.caller.type.valueType : new MaybeType(this.caller.type.valueType);
+            this.type = this.isUnsafe
+                ? this.caller.type.valueType
+                : new MaybeType(this.caller.type.valueType);
             return;
         }
 

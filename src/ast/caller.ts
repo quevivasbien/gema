@@ -342,8 +342,8 @@ function findBuiltin(
                     result: {
                         kind: "builtin",
                         referToByName: "last",
-                        callerType: new FuncType([lInner], lInner.innerType),
-                        rootType: lInner.innerType,
+                        callerType: new FuncType([lInner], new MaybeType(lInner.innerType)),
+                        rootType: new MaybeType(lInner.innerType),
                         builtinKind: "last",
                     },
                 };
@@ -960,9 +960,49 @@ export function findCaller(
         };
     }
 
-    // First try direct match by fullName
+    // Check if a local variable with this name shadows any global function.
+    // Variable assignments and function params take priority over globally
+    // registered functions.
+    let scanAncestor: Expression = root;
+    let hasLocalVar = false;
+    localVarCheck: for (let i = 0; i < ancestors.length; i++) {
+        const ancestor = ancestors[ancestors.length - i - 1];
+        if (ancestor instanceof Block) {
+            const olderSiblings = ancestor.expressions.slice(
+                0,
+                ancestor.expressions.indexOf(scanAncestor)
+            );
+            for (let j = 0; j < olderSiblings.length; j++) {
+                let olderSibling = olderSiblings[olderSiblings.length - j - 1];
+                while (olderSibling instanceof DropValue) {
+                    olderSibling = olderSibling.child;
+                }
+                if (olderSibling instanceof Assignment && olderSibling.name === name) {
+                    hasLocalVar = true;
+                    break localVarCheck;
+                }
+            }
+        } else if (ancestor instanceof Function) {
+            for (const param of ancestor.params) {
+                if (param.name === name) {
+                    hasLocalVar = true;
+                    break localVarCheck;
+                }
+            }
+        } else if (ancestor instanceof AnonymousFunction) {
+            for (const param of ancestor.params) {
+                if (param.name === name) {
+                    hasLocalVar = true;
+                    break localVarCheck;
+                }
+            }
+        }
+        scanAncestor = ancestor;
+    }
+
+    // First try direct match by fullName (skip if a local variable shadows)
     const fullName = functionNameWithParamTypes(name, argTypes);
-    const foundFn = findFunction(fullName);
+    const foundFn = !hasLocalVar ? findFunction(fullName) : undefined;
     if (foundFn) {
         return {
             error: null,
@@ -1164,6 +1204,18 @@ export function findCaller(
                         };
                     }
                     if (param.type instanceof ArrayType) {
+                        // Array slicing with range: arr(a..b) returns array
+                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
+                            return {
+                                error: null,
+                                result: {
+                                    kind: "variable",
+                                    referToByName: name,
+                                    callerType: param.type,
+                                    rootType: param.type,
+                                },
+                            };
+                        }
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -1178,7 +1230,34 @@ export function findCaller(
                             },
                         };
                     }
-                    if (param.type instanceof IterType || param.type instanceof MutArrType) {
+                    if (param.type instanceof MutArrType) {
+                        // Array slicing with range: arr(a..b) returns array
+                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
+                            return {
+                                error: null,
+                                result: {
+                                    kind: "variable",
+                                    referToByName: name,
+                                    callerType: param.type,
+                                    rootType: param.type,
+                                },
+                            };
+                        }
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: new MaybeType(param.type.innerType),
+                            },
+                        };
+                    }
+                    if (param.type instanceof IterType) {
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -1268,6 +1347,18 @@ export function findCaller(
                         };
                     }
                     if (param.type instanceof ArrayType) {
+                        // Array slicing with range: arr(a..b) returns array
+                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
+                            return {
+                                error: null,
+                                result: {
+                                    kind: "variable",
+                                    referToByName: name,
+                                    callerType: param.type,
+                                    rootType: param.type,
+                                },
+                            };
+                        }
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
@@ -1282,7 +1373,34 @@ export function findCaller(
                             },
                         };
                     }
-                    if (param.type instanceof IterType || param.type instanceof MutArrType) {
+                    if (param.type instanceof MutArrType) {
+                        // Array slicing with range: arr(a..b) returns array
+                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
+                            return {
+                                error: null,
+                                result: {
+                                    kind: "variable",
+                                    referToByName: name,
+                                    callerType: param.type,
+                                    rootType: param.type,
+                                },
+                            };
+                        }
+                        const incompatible = param.type.checkIndicesCompatible(argTypes);
+                        if (incompatible !== null) {
+                            return { error: incompatible, result: null };
+                        }
+                        return {
+                            error: null,
+                            result: {
+                                kind: "variable",
+                                referToByName: name,
+                                callerType: param.type,
+                                rootType: new MaybeType(param.type.innerType),
+                            },
+                        };
+                    }
+                    if (param.type instanceof IterType) {
                         const incompatible = param.type.checkIndicesCompatible(argTypes);
                         if (incompatible !== null) {
                             return { error: incompatible, result: null };
