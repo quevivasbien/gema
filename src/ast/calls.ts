@@ -728,7 +728,8 @@ export class Call extends Expression {
             return;
         }
         if (this.isBuiltin) {
-            const wrapArg = (index: number): void => {
+            // Helper to convert arrays to iterators if we use them where an iterator is expected
+            const wrapArrayToIter = (index: number): void => {
                 const arg = this.args[index];
                 if (arg && (arg.type instanceof ArrayType || arg.type instanceof MutArrType)) {
                     writer.useBuiltin("$ArrayIterator$");
@@ -743,7 +744,7 @@ export class Call extends Expression {
                 case "collect":
                     writer.useBuiltin("$collect$");
                     writer.write("$collect$(");
-                    wrapArg(0);
+                    wrapArrayToIter(0);
                     writer.write(")");
                     return;
                 case "map":
@@ -751,7 +752,7 @@ export class Call extends Expression {
                     writer.write("new $MapIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
-                    wrapArg(1);
+                    wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "mapFromArray":
@@ -759,7 +760,7 @@ export class Call extends Expression {
                     writer.write("new $ArrayMapIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
-                    wrapArg(1);
+                    wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "filter":
@@ -767,7 +768,7 @@ export class Call extends Expression {
                     writer.write("new $FilterIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
-                    wrapArg(1);
+                    wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "reduce":
@@ -777,7 +778,7 @@ export class Call extends Expression {
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
                     writer.write(", ");
-                    wrapArg(2);
+                    wrapArrayToIter(2);
                     writer.write(")");
                     return;
                 case "range":
@@ -790,18 +791,18 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "zip":
-                    writer.useBuiltin("$zip$");
-                    writer.write("$zip$(");
+                    writer.useBuiltin("$ZipIterator$");
+                    writer.write("new $ZipIterator$(");
                     this.args.forEach((arg, i) => {
                         if (i > 0) writer.write(", ");
-                        wrapArg(i);
+                        wrapArrayToIter(i);
                     });
                     writer.write(")");
                     return;
                 case "step":
                     writer.useBuiltin("$StepIterator$");
                     writer.write("new $StepIterator$(");
-                    wrapArg(0);
+                    wrapArrayToIter(0);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
                     writer.write(")");
@@ -828,7 +829,7 @@ export class Call extends Expression {
                     }
                     writer.useBuiltin("$last$");
                     writer.write("$last$(");
-                    wrapArg(0);
+                    wrapArrayToIter(0);
                     writer.write(")");
                     return;
                 case "length":
@@ -843,7 +844,7 @@ export class Call extends Expression {
                     }
                     writer.useBuiltin("$length$");
                     writer.write("$length$(");
-                    wrapArg(0);
+                    wrapArrayToIter(0);
                     writer.write(")");
                     return;
                 case "take":
@@ -851,7 +852,7 @@ export class Call extends Expression {
                     writer.write("new $TakeIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
-                    wrapArg(1);
+                    wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "drop":
@@ -859,7 +860,7 @@ export class Call extends Expression {
                     writer.write("new $DropIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
-                    wrapArg(1);
+                    wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "takeWhile":
@@ -867,7 +868,7 @@ export class Call extends Expression {
                     writer.write("new $TakeWhileIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
-                    wrapArg(1);
+                    wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "dropWhile":
@@ -875,7 +876,7 @@ export class Call extends Expression {
                     writer.write("new $DropWhileIterator$(");
                     this.args[0]?.toJS(writer);
                     writer.write(", ");
-                    wrapArg(1);
+                    wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "trans":
@@ -984,13 +985,19 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "unwrap":
-                    writer.useBuiltin("$unwrap$");
-                    writer.write("$unwrap$(");
-                    this.args.forEach((arg, i) => {
-                        if (i > 0) writer.write(", ");
-                        arg.toJS(writer);
-                    });
-                    writer.write(")");
+                    if (this.args.length === 1) {
+                        writer.useBuiltin("$unwrapNoFallback$");
+                        writer.write("$unwrapNoFallback$(");
+                        this.args[0].toJS(writer);
+                        writer.write(")");
+                    } else {
+                        writer.useBuiltin("$unwrapWithFallback$");
+                        writer.write("$unwrapWithFallback$(");
+                        this.args[0].toJS(writer);
+                        writer.write(", ");
+                        this.args[1].toJS(writer);
+                        writer.write(")");
+                    }
                     return;
                 case "isnone":
                     this.args[0]?.toJS(writer);

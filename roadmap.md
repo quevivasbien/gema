@@ -81,6 +81,10 @@ We can completely omit branches of the AST that do not operate on pre-existing m
 
 Optimizations for StepIterator: can be made more efficient when stepping over ranges or arrays.
 
+Small gain: if iterators are dropped, they don't need to reset.
+
+When chaining some operations, there are some efficiency improvements to be made. For example, arr1 + arr2 + arr3 would probably be more efficiently compiled as `[...arr1, ...arr2, ...arr3]` instead of `arr1.concat(arr2).concat(arr3)`.
+
 Lots of other room for improvement here.
 
 ## More helpful error messages. There are still lots of cases where we emit very opaque error messages.

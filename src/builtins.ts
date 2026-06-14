@@ -1,4 +1,5 @@
 export const BUILTINS: Record<string, string> = {
+    // ── Math helpers ──
     $mod$: `function $mod$(a, b) {
     return ((a % b) + b) % b;
 }`,
@@ -13,18 +14,9 @@ export const BUILTINS: Record<string, string> = {
     }
     return true;
 }`,
-    $collect$: `function $collect$(iter) {
-    const out = [];
-    while (true) {
-        const value = iter.next();
-        if (value === undefined) {
-            iter.reset();
-            break;
-        }
-        out.push(value);
-    }
-    return out;
-}`,
+
+    // ── Iterator classes ──
+    // Base iterator that wraps an array
     $ArrayIterator$: `class $ArrayIterator$ {
     constructor(array) {
         this.array = array;
@@ -41,6 +33,7 @@ export const BUILTINS: Record<string, string> = {
         this.index = 0;
     }
 }`,
+    // Numeric range: start..end with optional step
     $RangeIterator$: `class $RangeIterator$ {
     constructor(start, end, step=1n) {
         this.value = start;
@@ -61,6 +54,34 @@ export const BUILTINS: Record<string, string> = {
         this.value = this.start;
     }
 }`,
+    $ConcatIterator$: `class $ConcatIterator$ {
+    constructor(iter1, iter2) {
+        this.iter1 = iter1;
+        this.iter2 = iter2;
+        this.currentIter = 0;
+    }
+    next() {
+        if (this.currentIter === 0) {
+            const value = this.iter1.next();
+            if (value === undefined) {
+                this.currentIter++;
+                return this.next();
+            }
+            return value;
+        }
+        const value = this.iter2.next();
+        if (value === undefined) {
+            this.reset();
+        }
+        return value;
+    }
+    reset() {
+        this.currentIter = 0;
+        this.iter1.reset();
+        this.iter2.reset();
+    }
+}`,
+    // Transforms each element via a mapping function
     $MapIterator$: `class $MapIterator$ {
     constructor(mapfn, innerIter) {
         this.mapfn = mapfn;
@@ -78,6 +99,7 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
     }
 }`,
+    // Map via array index lookup (arr.map(indexIter))
     $ArrayMapIterator$: `class $ArrayMapIterator$ {
     constructor(arr, innerIter) {
         this.arr = arr;
@@ -95,6 +117,7 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
     }
 }`,
+    // Filters elements by predicate
     $FilterIterator$: `class $FilterIterator$ {
     constructor(filterFn, innerIter) {
         this.filterFn = filterFn;
@@ -117,33 +140,7 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
     }
 }`,
-    $reduce$: `function $reduce$(reduceFn, initValue, iter) {
-    let accumulated = initValue;
-    while (true) {
-        const value = iter.next();
-        if (value === undefined) {
-            iter.reset();
-            break;
-        }
-        accumulated = reduceFn(accumulated, value);
-    }
-    return accumulated;
-}`,
-    $iterGet$: `function $iterGet$(iter, index) {
-    let count = 0n;
-    while (true) {
-        const value = iter.next();
-        if (value === undefined) {
-            iter.reset();
-            return undefined;
-        }
-        if (count === index) {
-            iter.reset();
-            return value;
-        }
-        count++;
-    }
-}`,
+    // Takes the first N elements
     $TakeIterator$: `class $TakeIterator$ {
     constructor(count, innerIter) {
         this.remaining = count;
@@ -168,6 +165,7 @@ export const BUILTINS: Record<string, string> = {
         this.remaining = this.originalCount;
     }
 }`,
+    // Takes elements while predicate holds
     $TakeWhileIterator$: `class $TakeWhileIterator$ {
     constructor(pred, innerIter) {
         this.pred = pred;
@@ -185,6 +183,7 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
     }
 }`,
+    // Skips the first N elements
     $DropIterator$: `class $DropIterator$ {
     constructor(count, innerIter) {
         this.toSkip = count;
@@ -214,6 +213,7 @@ export const BUILTINS: Record<string, string> = {
         this.dropping = true;
     }
 }`,
+    // Skips elements while predicate holds
     $DropWhileIterator$: `class $DropWhileIterator$ {
     constructor(pred, innerIter) {
         this.pred = pred;
@@ -246,6 +246,7 @@ export const BUILTINS: Record<string, string> = {
         this.dropping = true;
     }
 }`,
+    // Repeatedly applies fn: iterate(fn, start) → start, fn(start), fn(fn(start)), …
     $IterateIterator$: `class $IterateIterator$ {
     constructor(fn, start) {
         this.fn = fn;
@@ -266,52 +267,7 @@ export const BUILTINS: Record<string, string> = {
         this.first = true;
     }
 }`,
-    $last$: `function $last$(iter) {
-    let lastValue;
-    while (true) {
-        const value = iter.next();
-        if (value === undefined) {
-            iter.reset();
-            return lastValue;
-        }
-        lastValue = value;
-    }
-}`,
-    $length$: `function $length$(iter) {
-    let count = 0n;
-    while (true) {
-        const value = iter.next();
-        if (value === undefined) {
-            iter.reset();
-            return count;
-        }
-        count++;
-    }
-}`,
-    $push$: `function $push$(mutarr, val) {
-    mutarr.push(val);
-    return mutarr;
-}`,
-    $put$: `function $put$(mutarr, idx, val) {
-    mutarr[idx] = val;
-    return val;
-}`,
-    $putMutDict$: `function $putMutDict$(mutdict, key, val) {
-    mutdict.set(key, val);
-    return mutdict;
-}`,
-    $removeMutDict$: `function $removeMutDict$(mutdict, key) {
-    mutdict.delete(key);
-    return mutdict;
-}`,
-    $pushMutSet$: `function $pushMutSet$(mutset, val) {
-    mutset.add(val);
-    return mutset;
-}`,
-    $removeMutSet$: `function $removeMutSet$(mutset, val) {
-    mutset.delete(val);
-    return mutset;
-}`,
+    // Yields every stepSize-th element from an iterator
     $StepIterator$: `class $StepIterator$ {
     constructor(innerIter, stepSize) {
         this.innerIter = innerIter;
@@ -337,14 +293,9 @@ export const BUILTINS: Record<string, string> = {
         this.count = 0n;
     }
 }`,
-    $zip$: `function $zip$(...iters) {
-    const iterators = iters.map((it) =>
-        typeof it.next === "function" ? it : $arrayIter$(it)
-    );
-    return new $ZipIterator$(iterators);
-}
-class $ZipIterator$ {
-    constructor(iterators) {
+    // Zips multiple iterators together, yielding arrays of values
+    $ZipIterator$: `class $ZipIterator$ {
+    constructor(...iterators) {
         this.iterators = iterators;
     }
     next() {
@@ -365,12 +316,123 @@ class $ZipIterator$ {
         }
     }
 }`,
-    $unwrap$: `function $unwrap$(value, fallback) {
-    if (value === undefined) {
-        if (arguments.length === 1) {
-            throw new Error("Unwrapped on None without a fallback value");
+
+    // ── Iterator terminal operations ──
+    // Collect an iterator into an array
+    $collect$: `function $collect$(iter) {
+    const out = [];
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            iter.reset();
+            break;
         }
+        out.push(value);
+    }
+    return out;
+}`,
+    // Left-fold: reduce(fn, init, iter)
+    $reduce$: `function $reduce$(reduceFn, initValue, iter) {
+    let accumulated = initValue;
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            iter.reset();
+            break;
+        }
+        accumulated = reduceFn(accumulated, value);
+    }
+    return accumulated;
+}`,
+    // Indexed access into an iterator
+    $iterGet$: `function $iterGet$(iter, index) {
+    let count = 0n;
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            iter.reset();
+            return undefined;
+        }
+        if (count === index) {
+            iter.reset();
+            return value;
+        }
+        count++;
+    }
+}`,
+    // Last element (undefined if empty)
+    $last$: `function $last$(iter) {
+    let lastValue;
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            iter.reset();
+            return lastValue;
+        }
+        lastValue = value;
+    }
+}`,
+    // Number of elements
+    $length$: `function $length$(iter) {
+    let count = 0n;
+    while (true) {
+        const value = iter.next();
+        if (value === undefined) {
+            iter.reset();
+            return count;
+        }
+        count++;
+    }
+}`,
+
+    // ── Mutable array operations ──
+    // arr.push(val)
+    $push$: `function $push$(mutarr, val) {
+    mutarr.push(val);
+    return mutarr;
+}`,
+    // arr[idx] = val
+    $put$: `function $put$(mutarr, idx, val) {
+    mutarr[idx] = val;
+    return val;
+}`,
+
+    // ── Mutable dict operations ──
+    // dict.set(key, val)
+    $putMutDict$: `function $putMutDict$(mutdict, key, val) {
+    mutdict.set(key, val);
+    return mutdict;
+}`,
+    // dict.delete(key)
+    $removeMutDict$: `function $removeMutDict$(mutdict, key) {
+    mutdict.delete(key);
+    return mutdict;
+}`,
+
+    // ── Mutable set operations ──
+    // set.add(val)
+    $pushMutSet$: `function $pushMutSet$(mutset, val) {
+    mutset.add(val);
+    return mutset;
+}`,
+    // set.delete(val)
+    $removeMutSet$: `function $removeMutSet$(mutset, val) {
+    mutset.delete(val);
+    return mutset;
+}`,
+
+    // ── Maybe / None handling ──
+    // Unwrap a Maybe value; returns the value or fallback (throws if no fallback)
+    $unwrapWithFallback$: `function $unwrapWithFallback$(value, fallback) {
+    if (value === undefined) {
         return fallback;
+    }
+    return value;
+}`,
+    // Unwrap a Maybe value; returns the value or fallback (throws if no fallback)
+    $unwrapNoFallback$: `function $unwrapNoFallback$(value, fallback) {
+    if (value === undefined) {
+        throw new Error("Unwrapped on None without a fallback value");
     }
     return value;
 }`,

@@ -200,6 +200,15 @@ export class Binary extends Expression {
                 return;
             }
         }
+        if (
+            ltype instanceof IterType &&
+            (rtype instanceof IterType || rtype instanceof ArrayType)
+        ) {
+            if (deepEquals(ltype.innerType, rtype.innerType) && this.operator === TokenType.Plus) {
+                this.type = ltype;
+                return;
+            }
+        }
 
         // Try operator overloading for user-defined types
         if (
@@ -248,12 +257,14 @@ export class Binary extends Expression {
             writer.write(")");
             return;
         }
-        if (this.left.type instanceof ArrayType) {
+        // Handle + for arrays (array concatenation)
+        if (this.left.type instanceof ArrayType && this.right.type instanceof ArrayType) {
             if (this.operator === TokenType.Plus) {
+                writer.write("[...");
                 this.left.toJS(writer);
-                writer.write(".concat(");
+                writer.write(", ...");
                 this.right.toJS(writer);
-                writer.write(")");
+                writer.write("]");
                 return;
             } else if (this.operator === TokenType.EqualEqual) {
                 writer.useBuiltin("$arrayEq$");
@@ -262,6 +273,32 @@ export class Binary extends Expression {
                 writer.write(", ");
                 this.right.toJS(writer);
                 writer.write(")");
+                return;
+            }
+        }
+        // Handle + for iterators (iterator concatenation)
+        if (this.left.type instanceof IterType || this.right.type instanceof IterType) {
+            if (this.operator === TokenType.Plus) {
+                writer.useBuiltin("$ConcatIterator$");
+                writer.write("new $ConcatIterator$(");
+                if (this.left.type instanceof ArrayType) {
+                    writer.useBuiltin("$ArrayIterator$");
+                    writer.write("new $ArrayIterator$(");
+                    this.left.toJS(writer);
+                    writer.write("), ");
+                } else {
+                    this.left.toJS(writer);
+                    writer.write(", ");
+                }
+                if (this.right.type instanceof ArrayType) {
+                    writer.useBuiltin("$ArrayIterator$");
+                    writer.write("new $ArrayIterator$(");
+                    this.right.toJS(writer);
+                    writer.write("))");
+                } else {
+                    this.right.toJS(writer);
+                    writer.write(")");
+                }
                 return;
             }
         }
