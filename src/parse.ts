@@ -374,26 +374,54 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
 
 function parseLambda(parser: Parser): AST.Expression {
     const rootToken = parser.previous(); // should be '\'
-    // Read param names as identifiers until '{', ',' separates them
+    // Read param names as identifiers, separated by ','
+    // Go until we get either a non-identifier, two identifiers with ',' separating them, or '{'
     const params: { name: string; type: Type }[] = [];
-    while (!parser.atEnd() && parser.current().type !== TokenType.LBrace) {
+    while (!parser.atEnd() && parser.current().type === TokenType.Identifier) {
         if (parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected parameter name after '\\'.");
         }
         const paramName = parser.current().text;
         parser.advance();
         params.push({ name: paramName, type: null as unknown as Type });
-        // Skip comma if present
-        if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
-            parser.advance();
+        // Stop consuming params if we run out of tokens or don't see a comma to indicate more params
+        if (parser.atEnd() || parser.current().type !== TokenType.Comma) {
+            break;
         }
+        // Consume comma
+        parser.advance();
     }
     if (parser.atEnd()) {
-        return parser.error("Expected '{' after lambda parameters.");
+        return parser.error("Expected function body after lambda parameters.");
     }
-    parser.advance(); // advance past '{'
+    // Case when curly brace-enclosed block follows
+    if (parser.current().type === TokenType.LBrace) {
+        parser.advance(); // advance past '{'
+        return parser.tryCreateASTExpression(
+            () => new AST.AnonymousFunction(rootToken, params, parser.block(), null)
+        );
+    }
+    // Otherwise, assume the following expression is the function body (no braces).
+    // Parse at Pipe+1 precedence so | and similar low-precedence operators
+    // bind to the outer expression rather than the lambda body.
+    const bodyExpr = parser.parseWithPrecedence(Precedence.Pipe + 1);
+    if (bodyExpr === null) {
+        return parser.error("Expected expression after lambda parameters.");
+    }
+    const blockToken = {
+        line: rootToken.line,
+        col: rootToken.col,
+        text: "{",
+        type: TokenType.LBrace,
+    };
     return parser.tryCreateASTExpression(
-        () => new AST.AnonymousFunction(rootToken, params, parser.block(), null)
+        () =>
+            new AST.AnonymousFunction(
+                rootToken,
+                params,
+                new AST.Block(blockToken, [bodyExpr]),
+                null
+            )
     );
 }
 

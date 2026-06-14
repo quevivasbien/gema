@@ -138,8 +138,20 @@ test("anon: backslash basic", () => {
     testCompile("(\\x { x + 1 })(5)", 6n);
 });
 
+test("anon: backslash with no braces", () => {
+    testCompile("(\\x x)(5)", 5n);
+});
+
 test("anon: backslash multiple params", () => {
     testCompile("(\\a, b { a + b })(3, 4)", 7n);
+});
+
+test("anon: backslash multiple params, missing comma", () => {
+    testParseExpectError("(\\a b { a + b })(3, 4)");
+});
+
+test("anon: backslash multiple params, no curly braces", () => {
+    testCompile("(\\a, b  a + b)(3, 4)", 7n);
 });
 
 test("anon: backslash zero params", () => {
@@ -183,7 +195,63 @@ test("anon: backslash in pipe", () => {
     testCompile("5 | \\x { x + 1 }", 6n);
 });
 
-test("anon: backslash in pipe with func syntax", () => {
+test("anon: backslash in pipe, bare function call with no braces", () => {
+    // Function with single param
+    testCompile(
+        `
+        func foo(x: Int) { x + 1}
+        1  | \\x foo(x)
+        `,
+        2n
+    );
+    // Function with multiple params
+    testCompile(
+        `
+        func foo(x: Int, y: Int) { x + y }
+        1  | \\x foo(x, 1)
+        `,
+        2n
+    );
+});
+
+test("anon: backslash in chained pipe", () => {
+    // Function with single param
+    testCompile(
+        `
+        func foo(x: Int) { x + 1}
+        1  | \\x foo(x) | \\x foo(x)
+        `,
+        3n
+    );
+    // Function with multiple params
+    testCompile(
+        `
+        func foo(x: Int, y: Int) { x + y }
+        1  | \\x foo(x, 1) | \\x foo(x, 2)
+        `,
+        4n
+    );
+});
+
+test("anon: pipe into map", () => {
+    testCompile(
+        `
+        func foo(x: Int) { x + 1 }
+        [1,2,3]  | \\x map(foo[Int], x) | collect
+        `,
+        [2n, 3n, 4n]
+    );
+    // Chained pipe
+    testCompile(
+        `
+        func foo(x: Int) { x + 1 }
+        [1,2,3]  | \\x map(foo[Int], x) | \\x map(foo[Int], x) | collect
+        `,
+        [3n, 4n, 5n]
+    );
+});
+
+test("anon: pipe with func syntax", () => {
     // Pipe with existing func syntax (parenthesized and bare)
     testCompile("3 | (func(x: Int) { x + 1 })", 4n);
     testCompile("3 | func(x: Int) { x + 1 }", 4n);

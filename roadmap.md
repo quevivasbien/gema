@@ -63,6 +63,8 @@ func foo(a: Int, b:Int) {
 
 It should be quite straightforward to infer the type of `*` here, so this could be shortened to just something like `13 | foo(1, *)`.
 
+Note: this will be less important now that we have succinct lambda functions. `13 | \x foo(1, x)` is already quite concise.
+
 ## Return and continue keywords
 
 These would be helpful to avoid deeply nested control flow.
