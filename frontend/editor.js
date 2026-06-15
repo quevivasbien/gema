@@ -2,7 +2,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { gema } from "./gema-language.js";
 import { keymap, Decoration } from "@codemirror/view";
-import { compile } from "./compiler.js";
+import { compile } from "../src/compiler.ts";
 /* global document, window, Worker */
 
 import { Prec, StateEffect, StateField } from "@codemirror/state";
@@ -76,20 +76,21 @@ loop10 = 0..9 | map(fibLoop[Int]) | collect;
     quicksort: {
         label: "Quicksort",
         code: `# Quicksort using functional style
-func quicksort(arr: Arr[Int]): Arr[Int] {
-    if (length(arr) <= 1) {
-        arr
+func quicksort(iter: Iter[Int]): Iter[Int] {
+    first = iter(0);
+    if isnone(first){
+        iter
     } else {
-        pivot = arr!(0);
-        rest = arr(1..);
-        left = collect(filter(\\x { x <= pivot }, rest));
-        right = collect(filter(\\x { x > pivot }, rest));
+        pivot = unwrap(first);
+        rest = (drop(1, iter));
+        left = filter(\\x { x <= pivot }, rest);
+        right = filter(\\x { x > pivot }, rest);
         quicksort(left) + [pivot] + quicksort(right)
     }
 };
 
-unsorted = [3, 7, 8, 5, 2, 1, 9, 5, 4];
-quicksort(unsorted)   # [1, 2, 3, 4, 5, 5, 7, 8, 9]`,
+unsorted = [3, 7, 8, 5, 2, 1, 9, 6, 4];
+quicksort(unsorted) | collect   # [1, 2, 3, 4, 5, 6, 7, 8, 9]`,
     },
     sieve: {
         label: "Sieve of Eratosthenes",
@@ -168,7 +169,7 @@ func countWords(words: Arr[Str]): Dict[Str, Int] {
     freq = trans(Dict([]:Tuple[Str, Int]));
     for w = words {
         count = freq(w);
-        put(freq, w, (if isnone(count) { 0 } else { unwrap(count) }) + 1)
+        pucompilet(freq, w, (if isnone(count) { 0 } else { unwrap(count) }) + 1)
     };
     detrans(freq)
 };
@@ -430,7 +431,7 @@ async function runCode(view) {
 
     try {
         // Step 1: Compile (runs in main thread — pure string manipulation, safe)
-        const compiled = compile(code);
+        const compiled = compile(code, "inline");
 
         if (compiled.errors && compiled.errors.length > 0) {
             displayErrors(view, compiled.errors, code);

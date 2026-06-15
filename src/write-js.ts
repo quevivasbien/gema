@@ -159,7 +159,7 @@ export class JSWriter {
         this.endScope();
     }
 
-    compile(asMain: boolean = false): string {
+    compile(mode: "immediate" | "inline" | "export"): string {
         this.ast.toJS(this);
         this.newLine();
 
@@ -167,10 +167,10 @@ export class JSWriter {
             this.builtins.size === 0
                 ? ""
                 : "// BUILTINS //\n" +
-                  Array.from(this.builtins)
-                      .map((name) => BUILTINS[name])
-                      .join("\n") +
-                  "\n\n";
+                Array.from(this.builtins)
+                    .map((name) => BUILTINS[name])
+                    .join("\n") +
+                "\n\n";
 
         const globals = this.scope.getDeclarations();
         const globalVarDeclarations =
@@ -178,8 +178,8 @@ export class JSWriter {
 
         let mainProgram = this.scope.lines.join("\n");
         // if we don't want to execute the program immediately (just define a main function, drop the final '()')
-        if (asMain) {
-            mainProgram = "const main = " + mainProgram.replace(/^\(/, "").replace(/\)\(\)$/g, ";");
+        if (mode !== "immediate") {
+            mainProgram = `${mode == 'export' ? "export " : ""}const main = ` + mainProgram.replace(/^\(/, "").replace(/\)\(\)$/g, ";");
         }
 
         return builtinFuncs + globalVarDeclarations + "// PROGRAM //\n" + mainProgram;
@@ -188,13 +188,11 @@ export class JSWriter {
 
 export function writeJS(
     ast: AST.Expression,
-    { asMain = false, minify = true }: { asMain: boolean; minify: boolean } = {
-        asMain: false,
-        minify: true,
-    }
+    mode: "immediate" | "inline" | "export" = "immediate",
+    minify: boolean = true,
 ): string {
     const compiler = new JSWriter(ast);
-    let compiled = compiler.compile(asMain);
+    let compiled = compiler.compile(mode);
     if (minify) {
         compiled = compiled
             .split("\n")

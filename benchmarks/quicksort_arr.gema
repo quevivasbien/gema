@@ -1,0 +1,16 @@
+func quicksort(arr: Arr[Int]): Arr[Int] {
+    if (length(arr) <= 1) {
+        arr
+    } else {
+        pivot = arr!(0);
+        rest = arr(1..);
+        left = collect(filter(\x { x <= pivot }, rest));
+        right = collect(filter(\x { x > pivot }, rest));
+        quicksort(left) + [pivot] + quicksort(right)
+    }
+};
+
+n = 1000;
+prime = 2179;
+r = (1..n) | collect | \x map(\i {x((i*prime) % n) | unwrap}, 1..n) | collect;
+quicksort(r)

@@ -1,0 +1,17 @@
+func quicksort(arr: Iter[Int]): Iter[Int] {
+    first = arr(0);
+    if isnone(first){
+        arr
+    } else {
+        pivot = unwrap(first);
+        rest = (drop(1, arr));
+        left = filter(\x { x <= pivot }, rest);
+        right = filter(\x { x > pivot }, rest);
+        quicksort(left) + [pivot] + quicksort(right)
+    }
+};
+
+n = 1000;
+prime = 2179;
+r = (1..n) | collect | \x map(\i {x((i*prime) % n) | unwrap}, 1..n) | collect;
+quicksort(r) | collect

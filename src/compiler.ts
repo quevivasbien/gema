@@ -1,14 +1,14 @@
-import { scan } from "../src/scan";
-import { parse } from "../src/parse";
-import { writeJS } from "../src/write-js";
-import { resetRegistries } from "../src/ast";
+import { scan } from "./scan";
+import { parse } from "./parse";
+import { writeJS } from "./write-js";
+import { resetRegistries } from "./ast";
 
 /**
  * Compile Gema source code to JavaScript.
  * Returns the compiled JS and any compile-time errors.
  * Does NOT execute the code — that's handled by the Web Worker.
  */
-export function compile(source) {
+export function compile(source: string, mode: "immediate" | "inline" | "export", minify: boolean = true) {
     resetRegistries();
     try {
         const tokens = scan(source);
@@ -25,7 +25,7 @@ export function compile(source) {
                 runtimeError: null,
             };
         }
-        const js = writeJS(ast, { asMain: true });
+        const js = writeJS(ast, mode, minify);
         return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {
         return {

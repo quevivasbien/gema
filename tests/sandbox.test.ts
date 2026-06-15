@@ -94,21 +94,22 @@ loop10 = 0..9 | map(fibLoop[Int]) | collect;
 test("sandbox: Quicksort", () => {
     testCompile(
         `# Quicksort using functional style
-func quicksort(arr: Arr[Int]): Arr[Int] {
-    if (length(arr) <= 1) {
-        arr
+func quicksort(iter: Iter[Int]): Iter[Int] {
+    first = iter(0);
+    if isnone(first){
+        iter
     } else {
-        pivot = arr!(0);
-        rest = arr(1..);
-        left = collect(filter(\\x { x <= pivot }, rest));
-        right = collect(filter(\\x { x > pivot }, rest));
+        pivot = unwrap(first);
+        rest = (drop(1, iter));
+        left = filter(\\x { x <= pivot }, rest);
+        right = filter(\\x { x > pivot }, rest);
         quicksort(left) + [pivot] + quicksort(right)
     }
 };
 
-unsorted = [3, 7, 8, 5, 2, 1, 9, 5, 4];
-quicksort(unsorted)   # [1, 2, 3, 4, 5, 5, 7, 8, 9]`,
-        [1n, 2n, 3n, 4n, 5n, 5n, 7n, 8n, 9n]
+unsorted = [3, 7, 8, 5, 2, 1, 9, 6, 4];
+quicksort(unsorted) | collect   # [1, 2, 3, 4, 5, 6, 7, 8, 9]`,
+        [1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n]
     );
 });
 
