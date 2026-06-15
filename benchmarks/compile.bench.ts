@@ -19,16 +19,6 @@ function compileCode(code: string): string {
     return writeJS(ast);
 }
 
-function scanOnly(code: string): ReturnType<typeof scan> {
-    return scan(code);
-}
-
-function parseOnly(code: string): void {
-    resetRegistries();
-    const tokens = scan(code);
-    parse(tokens);
-}
-
 group("compile", () => {
     bench("mandelbrot", () => do_not_optimize(compileCode(MANDELBROT)));
     bench("primes sieve", () => do_not_optimize(compileCode(PRIMES_SIEVE)));

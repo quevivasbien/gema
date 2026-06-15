@@ -217,3 +217,24 @@ test("unsafe call on variable", () => {
 test("unsafe call out of bounds still returns undefined at runtime", () => {
     testCompile("[1, 2, 3]!(5)", undefined);
 });
+
+test("unsafe call in map iterator", () => {
+    testCompile(
+        `
+        n = 5;
+        p = 4;
+        x = 1..n | collect;
+        map(func(i: Int){x!((i*p) % n)}, 1..n) | collect
+        `,
+        [5n, 4n, 3n, 2n, 1n]
+    );
+    testCompile(
+        `
+        n = 5;
+        p = 4;
+        x = 1..n | collect;
+        map(\\i x!((i*p) % n), 1..n) | collect
+        `,
+        [5n, 4n, 3n, 2n, 1n]
+    );
+});

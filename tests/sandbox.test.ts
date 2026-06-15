@@ -118,7 +118,7 @@ test("sandbox: Sieve of Eratosthenes", () => {
         `# Sieve of Eratosthenes using mutable arrays
 
 func sieve(n: Int): Arr[Int] {
-    mut isPrime = map(\\_ { true} 0..n) | collect | trans;
+    mut isPrime = map(\\_ true, 0..n) | collect | trans;
     put(isPrime, 0, false);
     put(isPrime, 1, false);
 

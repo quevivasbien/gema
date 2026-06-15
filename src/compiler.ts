@@ -8,7 +8,11 @@ import { resetRegistries } from "./ast";
  * Returns the compiled JS and any compile-time errors.
  * Does NOT execute the code — that's handled by the Web Worker.
  */
-export function compile(source: string, mode: "immediate" | "inline" | "export", minify: boolean = true) {
+export function compile(
+    source: string,
+    mode: "immediate" | "inline" | "export",
+    minify: boolean = true
+) {
     resetRegistries();
     try {
         const tokens = scan(source);

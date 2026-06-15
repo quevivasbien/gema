@@ -167,10 +167,10 @@ export class JSWriter {
             this.builtins.size === 0
                 ? ""
                 : "// BUILTINS //\n" +
-                Array.from(this.builtins)
-                    .map((name) => BUILTINS[name])
-                    .join("\n") +
-                "\n\n";
+                  Array.from(this.builtins)
+                      .map((name) => BUILTINS[name])
+                      .join("\n") +
+                  "\n\n";
 
         const globals = this.scope.getDeclarations();
         const globalVarDeclarations =
@@ -179,7 +179,9 @@ export class JSWriter {
         let mainProgram = this.scope.lines.join("\n");
         // if we don't want to execute the program immediately (just define a main function, drop the final '()')
         if (mode !== "immediate") {
-            mainProgram = `${mode == 'export' ? "export " : ""}const main = ` + mainProgram.replace(/^\(/, "").replace(/\)\(\)$/g, ";");
+            mainProgram =
+                `${mode == "export" ? "export " : ""}const main = ` +
+                mainProgram.replace(/^\(/, "").replace(/\)\(\)$/g, ";");
         }
 
         return builtinFuncs + globalVarDeclarations + "// PROGRAM //\n" + mainProgram;
@@ -189,7 +191,7 @@ export class JSWriter {
 export function writeJS(
     ast: AST.Expression,
     mode: "immediate" | "inline" | "export" = "immediate",
-    minify: boolean = true,
+    minify: boolean = true
 ): string {
     const compiler = new JSWriter(ast);
     let compiled = compiler.compile(mode);

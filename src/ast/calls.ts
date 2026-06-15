@@ -1001,7 +1001,7 @@ export class Call extends Expression {
                     return;
                 case "isnone":
                     this.args[0]?.toJS(writer);
-                    writer.write("=== undefined");
+                    writer.write(" === undefined");
                     return;
                 case "contains":
                     this.args[0]?.toJS(writer);
@@ -1208,6 +1208,13 @@ export class DirectCall extends Expression {
                 this.type = this.caller.type;
                 return;
             }
+            // Cascade args first so their types are resolved before checking compatibility
+            this.args.forEach((arg, i) => {
+                arg.cascadeTypes([...ancestors, this]);
+                if (arg.type === null) {
+                    throw this.error(`unable to resolve type of argument ${i + 1} in array access`);
+                }
+            });
             const incompatible = this.caller.type.checkIndicesCompatible(
                 this.args.map((arg) => arg.type as Type)
             );

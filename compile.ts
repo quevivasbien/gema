@@ -102,7 +102,9 @@ if (values.minify) {
 
     const minifiedCode = transpiler.transformSync(compiledCode);
 
-    console.log(`Reduced output size from ${compiledCode.length} to ${minifiedCode.length} characters`);
+    console.log(
+        `Reduced output size from ${compiledCode.length} to ${minifiedCode.length} characters`
+    );
     compiledCode = minifiedCode;
 }
 
