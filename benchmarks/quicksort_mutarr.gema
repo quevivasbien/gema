@@ -1,0 +1,44 @@
+func quicksortRecursion(arr: MutArr[Int], start_idx: Int, end_idx: Int) {
+  if start_idx < end_idx {
+    pivot = arr!(start_idx);
+    mut i = start_idx + 1;
+    mut j = end_idx;
+    for _ = (..) {
+      # If arr(i) < pivot, swap it with the previous element (which will be the pivot)
+      if arr!(i) < pivot {
+        temp = arr!(i);
+        put(arr, i, arr!(i-1));
+        put(arr, i-1, temp);
+        i += 1;
+      }
+      # Otherwise, it needs to get swapped with the next position on the right
+      else {
+        temp = arr!(i);
+        put(arr, i, arr!(j));
+        put(arr, j, temp);
+        j -= 1;
+      }
+      if i >= j {
+        break;
+      }
+    }
+    # Pivot will end up with index i - 1
+    # So arr(start_idx..i-2) will be LHS, and arr(i..end_idx) will be RHS
+    if i - 2 > start_idx {
+      quicksortRecursion(arr, start_idx, i-2);
+    }
+    if end_idx > i {
+      quicksortRecursion(arr, i, end_idx);
+    }
+  };
+}
+
+func quicksort(arr: MutArr[Int]): MutArr[Int] {
+    quicksortRecursion(arr, 0, length(arr)-1);
+    arr
+};
+
+n = 1000;
+prime = 2179;
+arr = (1..n) | collect | \x map(\i {x((i*prime) % n) | unwrap}, 1..n) | collect | unsafeTrans;
+quicksort(arr)

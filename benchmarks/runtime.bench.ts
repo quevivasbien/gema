@@ -4,6 +4,7 @@ import { main as mandelbrot } from "./compiled/mandelbrot.js";
 import { main as primes_sieve } from "./compiled/primes_sieve.js";
 import { main as quicksort_iter } from "./compiled/quicksort_iter.js";
 import { main as quicksort_arr } from "./compiled/quicksort_arr.js";
+import { main as quicksort_mutarr } from "./compiled/quicksort_mutarr.js";
 
 group("run", () => {
     bench("mandelbrot", () => do_not_optimize(mandelbrot()));
@@ -14,6 +15,8 @@ group("run", () => {
     bench("quicksort_iter optimized", () => quicksort_iter());
     bench("quicksort_arr", () => do_not_optimize(quicksort_arr()));
     bench("quicksort_arr optimized", () => quicksort_arr());
+    bench("quicksort_mutarr", () => do_not_optimize(quicksort_mutarr()));
+    bench("quicksort_mutarr optimized", () => quicksort_mutarr());
 });
 
 await run();
