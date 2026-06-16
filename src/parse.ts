@@ -1159,10 +1159,6 @@ class Parser {
             this.error("Expected expression after =");
             return null;
         }
-        if (rhs instanceof AST.If && !rhs.hasElse) {
-            this.error("if without else can only be used as a statement, not as an expression.");
-            return null;
-        }
 
         let value: AST.Expression = rhs;
         if (isCompound && compoundOp) {
@@ -1270,13 +1266,14 @@ class Parser {
                 if (!rhs) {
                     return this.error("Expected expression after = in tuple unpacking");
                 }
-                if (rhs instanceof AST.If && !rhs.hasElse) {
-                    return this.error(
-                        "if without else can only be used as a statement, not as an expression."
-                    );
+
+                let isDropped = false;
+                if (!this.atEnd() && this.current().type === TokenType.Semicolon) {
+                    this.advance();
+                    isDropped = true;
                 }
                 return this.tryCreateASTExpression(
-                    () => new AST.TupleUnpack(startToken, bindings, rhs)
+                    () => new AST.TupleUnpack(startToken, bindings, rhs, isDropped)
                 );
             }
             // Not a tuple unpacking; fall through to let parseGrouping handle it.
@@ -1307,11 +1304,6 @@ class Parser {
         const rhs = this.parseWithPrecedence(Precedence.Assignment);
         if (!rhs) {
             return this.error("Expected expression after =");
-        }
-        if (rhs instanceof AST.If && !rhs.hasElse) {
-            return this.error(
-                "if without else can only be used as a statement, not as an expression."
-            );
         }
 
         let value: AST.Expression = rhs;

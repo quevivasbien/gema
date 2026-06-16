@@ -1,5 +1,32 @@
 # Roadmap for `gema` development
 
+## Improve string ops
+
+Strings can be indexed (though unwrapping is not implemented in this case) but not sliced. We should bring strings to parity with arrays in this respect.
+
+Something like this should work already but gives a weird runtime error:
+
+```
+func sum(xs: Iter[Int]) {
+  reduce(\acc, x {acc + x}, 0, xs)
+}
+
+# Gema has arbitrary-precision integers, so this is somewhat trivial
+numbers | sum | toStr | \x map(\i x(i), 0..9)
+```
+
+`length` and `last` should also work on strings.
+
+It would also be convenient if there was an easy way to convert a string to an array or to an iterator. Maybe builtin `toArr` and/or `toIter` functions.
+
+Ideally would have some support for basic ops like:
+
+- fstring
+- string split
+- string search
+- string replace
+- regular expressions?
+
 ## Change tuple type signature from `Tuple[A, B, C, ...]` to `(A, B, C, ...)`
 
 This one is pretty self-explanatory -- it would make it a bit less clunky to work with tuples or do things like creating an empty `Dict`.
@@ -84,6 +111,10 @@ Optimizations for StepIterator: can be made more efficient when stepping over ra
 Small gain: if iterators are dropped, they don't need to reset.
 
 When chaining some operations, there are some efficiency improvements to be made. For example, arr1 + arr2 + arr3 would probably be more efficiently compiled as `[...arr1, ...arr2, ...arr3]` instead of `arr1.concat(arr2).concat(arr3)`.
+
+For loops on ranges could be made more efficient if iterated var is not actually used.
+
+If a block expression gets dropped, it doesn't need to be an IIFE.
 
 Lots of other room for improvement here.
 

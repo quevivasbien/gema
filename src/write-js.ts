@@ -83,7 +83,6 @@ class Scope {
 
 export class JSWriter {
     ast: AST.Expression;
-    // outputLines: string[] = [];
     currentLine: string = "";
     indentLevel: number = 0;
     scope: Scope = new Scope();
@@ -172,10 +171,6 @@ export class JSWriter {
                       .join("\n") +
                   "\n\n";
 
-        const globals = this.scope.getDeclarations();
-        const globalVarDeclarations =
-            globals.length === 0 ? "" : "// GLOBAL VARIABLES //\n" + globals.join("\n") + "\n\n";
-
         let mainProgram = this.scope.lines.join("\n");
         // if we don't want to execute the program immediately (just define a main function, drop the final '()')
         if (mode !== "immediate") {
@@ -184,7 +179,7 @@ export class JSWriter {
                 mainProgram.replace(/^\(/, "").replace(/\)\(\)$/g, ";");
         }
 
-        return builtinFuncs + globalVarDeclarations + "// PROGRAM //\n" + mainProgram;
+        return builtinFuncs + "// PROGRAM //\n" + mainProgram;
     }
 }
 

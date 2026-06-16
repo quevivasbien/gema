@@ -169,7 +169,7 @@ func countWords(words: Arr[Str]): Dict[Str, Int] {
     freq = trans(Dict([]:Tuple[Str, Int]));
     for w = words {
         count = freq(w);
-        pucompilet(freq, w, (if isnone(count) { 0 } else { unwrap(count) }) + 1)
+        put(freq, w, (if isnone(count) { 0 } else { unwrap(count) }) + 1)
     };
     detrans(freq)
 };

@@ -65,6 +65,29 @@ test("tuple unpacking with mut", () => {
     testCompile('x = (1, "hello"); (a, mut b) = x; b = "bye"; b', "bye");
 });
 
+test("tuple unpacking as expression", () => {
+    // Tuple unpacking expressions should evaluate to the tuple
+    testCompile('(a, b) = (1, "hello")', [1n, "hello"]);
+    testCompile('(a, b) = (1, "hello")', [1n, "hello"]);
+    testCompile('(mut a, mut b) = (1, "hello")', [1n, "hello"]);
+});
+
+test("assign variable equal to tuple unpacking", () => {
+    // Tuple unpacking expressions should evaluate to the tuple
+    testCompile('x = {(a, b) = (1, "hello")}', [1n, "hello"]);
+    testCompile('x = {(a, b) = (1, "hello")}; x', [1n, "hello"]);
+});
+
+test("dropped tuple unpacking", () => {
+    testCompile("(a, b) = (1, 2);", null);
+});
+
+test("reassign var in tuple unpacking", () => {
+    testCompile("mut x = 1; (x, y) = (2, 3); x", 2n);
+    testCompile("mut x = 1; { (x, y) = (2, 3) }; x", 2n);
+    testParseExpectError("x = 1; (x, y) = (2, 3); x");
+});
+
 test("tuple unpacking three elements", () => {
     testCompile("(a, b, c) = (1, 2, 3); a + b + c", 6n);
 });

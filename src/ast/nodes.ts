@@ -68,7 +68,8 @@ export class Block extends Expression {
         const lastExpr = this.expressions[this.expressions.length - 1];
         if (
             lastExpr instanceof DropValue ||
-            (lastExpr instanceof Assignment && lastExpr.isDropped)
+            (lastExpr instanceof Assignment && lastExpr.isDropped) ||
+            (lastExpr instanceof TupleUnpack && lastExpr.isDropped)
         ) {
             lastExpr.toJS(writer);
             writer.write(";");
@@ -415,17 +416,20 @@ export class TupleLit extends Expression {
 }
 
 export class TupleUnpack extends Expression {
-    bindings: { name: string; isMutable: boolean; fullName?: string }[];
+    bindings: { name: string; isMutable: boolean; isReassignment: boolean; fullName?: string }[];
     source: Expression;
+    isDropped: boolean;
 
     constructor(
         startToken: Token,
         bindings: { name: string; isMutable: boolean }[],
-        source: Expression
+        source: Expression,
+        isDropped: boolean
     ) {
         super(startToken.line, startToken.col);
-        this.bindings = bindings;
+        this.bindings = bindings.map((b) => ({ ...b, isReassignment: false }));
         this.source = source;
+        this.isDropped = isDropped;
     }
 
     cascadeTypes(ancestors: Expression[]): void {
@@ -441,9 +445,9 @@ export class TupleUnpack extends Expression {
                 `tuple has ${this.source.type.types.length} elements but unpacking into ${this.bindings.length} variables`
             );
         }
-        this.type = "Null";
+        this.type = this.isDropped ? "Null" : this.source.type;
 
-        // Declare each binding as a variable (like writing a = src[0]; b = src[1]; ...)
+        // Resolve each binding — either reassign an existing variable or declare a new one
         for (let i = 0; i < this.bindings.length; i++) {
             const binding = this.bindings[i];
             const elemType = this.source.type.types[i];
@@ -465,9 +469,11 @@ export class TupleUnpack extends Expression {
                     );
                 }
                 binding.fullName = binding.name;
+                binding.isReassignment = true;
             } else {
                 // New declaration
                 binding.fullName = binding.name;
+                binding.isReassignment = false;
             }
         }
     }
@@ -476,24 +482,41 @@ export class TupleUnpack extends Expression {
         return new TupleUnpack(
             { line: this.line, col: this.col, text: "(", type: TokenType.LParen },
             this.bindings.map((b) => ({ name: b.name, isMutable: b.isMutable })),
-            this.source.clone(bindings)
+            this.source.clone(bindings),
+            this.isDropped
         );
     }
 
     toJS(writer: JSWriter): void {
-        for (let i = 0; i < this.bindings.length; i++) {
-            const binding = this.bindings[i];
-            const safeName = writer.safeName(binding.name);
-
-            // Emit: let name; name = src[0];
-            writer.declareVariable(binding.name);
-            writer.write(`${safeName} = `);
-            this.source.toJS(writer);
-            writer.write(`[${i}]`);
-            if (i < this.bindings.length - 1) {
-                writer.write(";");
-                writer.newLine();
+        // If dropped, emit [a, b] = source
+        if (this.isDropped) {
+            writer.write("[");
+            for (let i = 0; i < this.bindings.length; i++) {
+                const binding = this.bindings[i];
+                if (!binding.isReassignment) {
+                    writer.declareVariable(binding.name);
+                }
+                const safeName = writer.safeName(binding.name);
+                writer.write(`${safeName}${i == this.bindings.length - 1 ? "] = " : ","}`);
             }
+            this.source.toJS(writer);
+        }
+        // If not dropped, use a comma expression so TupleUnpack evaluates to the source tuple.
+        // Emit: ($tup = source, a = $tup[0], b = $tup[1], $tup)
+        else {
+            const tmpName = writer.uniqueName("$tup$");
+            writer.declareVariable(tmpName);
+            writer.write(`(${tmpName} = `);
+            this.source.toJS(writer);
+            for (let i = 0; i < this.bindings.length; i++) {
+                const binding = this.bindings[i];
+                if (!binding.isReassignment) {
+                    writer.declareVariable(binding.name);
+                }
+                const safeName = writer.safeName(binding.name);
+                writer.write(`, ${safeName} = ${tmpName}[${i}]`);
+            }
+            writer.write(`, ${tmpName})`);
         }
     }
 }
@@ -730,6 +753,17 @@ export class Assignment extends Expression {
                             type: olderSibling.value.type!,
                         };
                     }
+                    // Also check TupleUnpack definitions
+                    if (olderSibling instanceof TupleUnpack) {
+                        const binding = olderSibling.bindings.find((b) => b.name === name);
+                        if (binding && olderSibling.source.type instanceof TupleType) {
+                            const idx = olderSibling.bindings.indexOf(binding);
+                            return {
+                                isMutable: binding.isMutable,
+                                type: olderSibling.source.type.types[idx],
+                            };
+                        }
+                    }
                 }
                 return null;
             }
@@ -771,6 +805,17 @@ export class Assignment extends Expression {
                             isMutable: olderSibling.isMutable,
                             type: olderSibling.value.type!,
                         };
+                    }
+                    // Also check TupleUnpack definitions
+                    if (olderSibling instanceof TupleUnpack) {
+                        const binding = olderSibling.bindings.find((b) => b.name === name);
+                        if (binding && olderSibling.source.type instanceof TupleType) {
+                            const idx = olderSibling.bindings.indexOf(binding);
+                            return {
+                                isMutable: binding.isMutable,
+                                type: olderSibling.source.type.types[idx],
+                            };
+                        }
                     }
                 }
             } else if (ancestor instanceof Function) {
@@ -871,14 +916,13 @@ export class Assignment extends Expression {
                 writer.write(`; return ${safeName}; })()`);
             }
         } else {
-            writer.declareVariable(this.name);
             if (this.isDropped) {
-                writer.write(`${safeName} = `);
+                writer.write(`${this.isMutable ? "let" : "const"} ${safeName} = `);
                 this.value.toJS(writer);
             } else {
-                writer.write(`(() => { ${safeName} = `);
+                writer.declareVariable(this.name);
+                writer.write(`${safeName} = `);
                 this.value.toJS(writer);
-                writer.write(`; return ${safeName}; })()`);
             }
         }
     }
