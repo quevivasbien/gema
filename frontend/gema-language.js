@@ -1,5 +1,4 @@
-import { StreamLanguage, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { tags } from "@lezer/highlight";
+import { StreamLanguage } from "@codemirror/language";
 
 const KEYWORDS = new Set([
     "and",
@@ -11,8 +10,7 @@ const KEYWORDS = new Set([
     "is",
     "if",
     "else",
-    "true",
-    "false",
+    "for",
 ]);
 
 const TYPE_NAMES = new Set([
@@ -76,10 +74,10 @@ const gemaStreamParser = StreamLanguage.define({
         // Numbers (Int and Float)
         if (/[0-9]/.test(ch)) {
             stream.eatWhile(/[0-9]/);
-            if (stream.peek() === ".") {
-                stream.next();
+            // Check for float (1.5) vs range start (1..) — peek ahead without consuming
+            if (stream.peek() === "." && stream.string.charAt(stream.pos + 1) !== ".") {
+                stream.next(); // consume the dot
                 stream.eatWhile(/[0-9]/);
-                return "number";
             }
             return "number";
         }
@@ -88,6 +86,7 @@ const gemaStreamParser = StreamLanguage.define({
         if (/[A-Za-z_]/.test(ch)) {
             stream.eatWhile(/[A-Za-z0-9_]/);
             const word = stream.current();
+            if (word === "true" || word === "false") return "number";
             if (KEYWORDS.has(word)) return "keyword";
             if (TYPE_NAMES.has(word)) return "typeName";
             return "variable";
@@ -95,10 +94,18 @@ const gemaStreamParser = StreamLanguage.define({
 
         // Operators and punctuation — consume one or two characters
         stream.next();
-        if (["!", ">", "<", "=", "%", "^"].includes(ch) && stream.peek() === "=") {
-            stream.next();
+        if (ch === "." && stream.peek() === ".") {
+            stream.next(); // consume second dot for ..
+        } else if (
+            ["!", ">", "<", "=", "+", "-", "*", "/", "%", "^"].includes(ch) &&
+            stream.peek() === "="
+        ) {
+            stream.next(); // consume = for compound/compare operators
         }
         return "operator";
+    },
+    languageData: {
+        commentTokens: { line: "#" },
     },
 });
 
