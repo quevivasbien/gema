@@ -26,7 +26,7 @@ func linspace(a: Float, b: Float, n: Int): Iter[Float] {
 }
 
 func concat(strs: Iter[Str]) {
-    reduce(\acc, x { acc + x }, "", strs)
+    reduce(\(acc, x) { acc + x }, "", strs)
 }
 
 func toStr(arr: Iter[Bool]) {

@@ -1,7 +1,7 @@
 trait Any {}
 
 func fill(x: T, n: Int) where T is Any {
-  map(\i x, 0..n-1) | collect
+  map(\_ x, 0..n-1) | collect
 }
 
 func sieve(upto: Int) {

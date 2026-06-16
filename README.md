@@ -78,7 +78,7 @@ f(10, 20)  # → 30
 # Lambda syntax (backslash — types inferred from context)
 map(\x { x + 1 }, [1, 2, 3])     # → iter of [2, 3, 4]
 filter(\x { x > 2 }, [1, 2, 3, 4])  # → iter of [3, 4]
-reduce(\acc, x { acc + x }, 0, [1, 2, 3])  # → 6
+reduce(\(acc, x) { acc + x }, 0, [1, 2, 3])  # → 6
 
 # Keyword arguments — args can be named in any order
 func greet(name: Str, greeting: Str): Str {

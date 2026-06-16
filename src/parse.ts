@@ -374,23 +374,36 @@ function parseAnonymousFunction(parser: Parser): AST.Expression {
 
 function parseLambda(parser: Parser): AST.Expression {
     const rootToken = parser.previous(); // should be '\'
-    // Read param names as identifiers, separated by ','
-    // Go until we get either a non-identifier, two identifiers with ',' separating them, or '{'
     const params: { name: string; type: Type }[] = [];
-    while (!parser.atEnd() && parser.current().type === TokenType.Identifier) {
-        if (parser.current().type !== TokenType.Identifier) {
-            return parser.error("Expected parameter name after '\\'.");
+
+    // Parenthesized params: \(x, y) { body }
+    if (!parser.atEnd() && parser.current().type === TokenType.LParen) {
+        parser.advance(); // skip '('
+        while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
+            if (parser.current().type !== TokenType.Identifier) {
+                return parser.error("Expected parameter name after '\\'.");
+            }
+            const paramName = parser.current().text;
+            parser.advance();
+            params.push({ name: paramName, type: null as unknown as Type });
+            if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+                parser.advance();
+            }
         }
+        if (parser.atEnd()) {
+            return parser.error("Unterminated lambda parameter list.");
+        }
+        parser.advance(); // skip ')'
+    }
+    // Single param without parens: \x { body }
+    else if (!parser.atEnd() && parser.current().type === TokenType.Identifier) {
         const paramName = parser.current().text;
         parser.advance();
         params.push({ name: paramName, type: null as unknown as Type });
-        // Stop consuming params if we run out of tokens or don't see a comma to indicate more params
-        if (parser.atEnd() || parser.current().type !== TokenType.Comma) {
-            break;
-        }
-        // Consume comma
-        parser.advance();
     }
+    // Zero params: \ { body }
+    // — params stays empty, body parsing follows below
+
     if (parser.atEnd()) {
         return parser.error("Expected function body after lambda parameters.");
     }

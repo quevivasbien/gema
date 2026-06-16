@@ -123,10 +123,10 @@ sieve(50)   # primes up to 50`,
 result = 1..100
     | filter(\\x { x % 2 == 0 })    # keep evens
     | map(\\x { x * x })              # square them
-    | reduce(\\acc, x { acc + x }, 0) # sum
+    | reduce(\\(acc, x) { acc + x }, 0) # sum
 
 # Same thing expressed more concisely:
-result2 = reduce(\\acc, x {
+result2 = reduce(\\(acc, x) {
     if x % 2 == 0 { acc + x * x } else { acc }
 }, 0, 1..100);
 
@@ -250,7 +250,7 @@ func linspace(a: Float, b: Float, n: Int): Iter[Float] {
 }
 
 func concat(strs: Iter[Str]) {
-    reduce(\\acc, x { acc + x }, "", strs)
+    reduce(\\(acc, x) { acc + x }, "", strs)
 }
 
 func toStr(arr: Iter[Bool]) {
@@ -376,7 +376,7 @@ function safeStringify(value, seen = new Set()) {
     if (value === null) return "null";
     if (value === undefined) return "undefined";
     const type = typeof value;
-    if (type === "string") return JSON.stringify(value);
+    if (type === "string") return value;
     if (type === "number" || type === "boolean" || type === "bigint" || type === "symbol")
         return value.toString();
     if (type === "function") {

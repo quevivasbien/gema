@@ -213,6 +213,7 @@ body {
     background: var(--bg-editor);
     color: var(--text-primary);
     min-height: 40px;
+    flex: 1;
     overflow: auto;
 }
 
@@ -240,9 +241,10 @@ body {
 }
 
 .result-section-body {
+    display: flex;
+    flex-direction: column;
     flex: 1;
     min-height: 0;
-    position: relative;
 }
 
 .result-section-body.collapsed {

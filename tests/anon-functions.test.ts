@@ -143,7 +143,7 @@ test("anon: backslash with no braces", () => {
 });
 
 test("anon: backslash multiple params", () => {
-    testCompile("(\\a, b { a + b })(3, 4)", 7n);
+    testCompile("(\\(a, b) { a + b })(3, 4)", 7n);
 });
 
 test("anon: backslash multiple params, missing comma", () => {
@@ -151,7 +151,7 @@ test("anon: backslash multiple params, missing comma", () => {
 });
 
 test("anon: backslash multiple params, no curly braces", () => {
-    testCompile("(\\a, b  a + b)(3, 4)", 7n);
+    testCompile("(\\(a, b)  a + b)(3, 4)", 7n);
 });
 
 test("anon: backslash zero params", () => {
@@ -167,7 +167,7 @@ test("anon: backslash in filter", () => {
 });
 
 test("anon: backslash in reduce", () => {
-    testCompile("reduce(\\acc, x { acc + x }, 0, [1, 2, 3])", 6n);
+    testCompile("reduce(\\(acc, x) { acc + x }, 0, [1, 2, 3])", 6n);
 });
 
 test("anon: backslash in takeWhile", () => {
@@ -262,7 +262,7 @@ test("anon: backslash inside generic function body", () => {
         `
         trait Any {}
         func length(arr: Iter[T]): Int where T is Any {
-            reduce(\\acc, x { acc + 1 }, 0, arr)
+            reduce(\\(acc, x) { acc + 1 }, 0, arr)
         };
         length([10, 20, 30])
     `,
@@ -289,8 +289,8 @@ test("anon: inference — filter deduces param type", () => {
 });
 
 test("anon: inference — reduce deduces acc and element types", () => {
-    testCompile("reduce(\\acc, x { acc + x }, 0, [1, 2, 3])", 6n);
-    testCompile('reduce(\\acc, x { acc + x }, "", ["a", "b", "c"])', "abc");
+    testCompile("reduce(\\(acc, x) { acc + x }, 0, [1, 2, 3])", 6n);
+    testCompile('reduce(\\(acc, x) { acc + x }, "", ["a", "b", "c"])', "abc");
 });
 
 test("anon: inference — iterate deduces param/return type from start", () => {
@@ -298,7 +298,7 @@ test("anon: inference — iterate deduces param/return type from start", () => {
 });
 
 test("anon: inference — from direct call args", () => {
-    testCompile("(\\x, y { x + y })(10, 20)", 30n);
+    testCompile("(\\(x, y) { x + y })(10, 20)", 30n);
 });
 
 test("anon: inference — return type flows to caller", () => {

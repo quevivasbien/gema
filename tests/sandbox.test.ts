@@ -147,10 +147,10 @@ test("sandbox: Functional pipeline", () => {
 result = 1..100
     | filter(\\x { x % 2 == 0 })    # keep evens
     | map(\\x { x * x })              # square them
-    | reduce(\\acc, x { acc + x }, 0) # sum
+    | reduce(\\(acc, x) { acc + x }, 0) # sum
 
 # Same thing expressed more concisely:
-result2 = reduce(\\acc, x {
+result2 = reduce(\\(acc, x) {
     if x % 2 == 0 { acc + x * x } else { acc }
 }, 0, 1..100);
 

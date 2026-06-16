@@ -373,7 +373,7 @@ test("range syntax: .. (infinite from 0, take n)", () => {
 test("range syntax: a..b in map/filter/reduce", () => {
     testCompile("collect(map(\\x { x * 2 }, 1..3))", [2n, 4n, 6n]);
     testCompile("collect(filter(\\x { x > 2 }, 1..5))", [3n, 4n, 5n]);
-    testCompile("reduce(\\acc, x { acc + x }, 0, 1..5)", 15n);
+    testCompile("reduce(\\(acc, x) { acc + x }, 0, 1..5)", 15n);
 });
 
 test("range syntax: a..b in pipe", () => {
