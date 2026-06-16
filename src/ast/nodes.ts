@@ -66,10 +66,17 @@ export class Block extends Expression {
             writer.newLine();
         }
         const lastExpr = this.expressions[this.expressions.length - 1];
+        Block.returnLastExpr(lastExpr, writer);
+        writer.endScope();
+        writer.write(")()");
+    }
+
+    static returnLastExpr(lastExpr: Expression, writer: JSWriter) {
         if (
             lastExpr instanceof DropValue ||
             (lastExpr instanceof Assignment && lastExpr.isDropped) ||
-            (lastExpr instanceof TupleUnpack && lastExpr.isDropped)
+            (lastExpr instanceof TupleUnpack && lastExpr.isDropped) ||
+            (lastExpr instanceof If && !lastExpr.hasElse)
         ) {
             lastExpr.toJS(writer);
             writer.write(";");
@@ -80,8 +87,6 @@ export class Block extends Expression {
             lastExpr.toJS(writer);
             writer.write(";");
         }
-        writer.endScope();
-        writer.write(")()");
     }
 }
 
@@ -189,7 +194,6 @@ export class If extends Expression {
                 writer.beginScope();
                 branch.expressions.forEach((expr) => {
                     expr.toJS(writer);
-                    writer.write(";");
                     writer.newLine();
                 });
                 writer.endScope();
@@ -1027,19 +1031,7 @@ export class AnonymousFunction extends Expression {
             writer.newLine();
         });
         const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-        if (
-            lastExpr instanceof DropValue ||
-            (lastExpr instanceof Assignment && lastExpr.isDropped)
-        ) {
-            lastExpr.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-            writer.write("return null;");
-        } else {
-            writer.write("return ");
-            lastExpr.toJS(writer);
-            writer.write(";");
-        }
+        Block.returnLastExpr(lastExpr, writer);
         writer.endFunction();
     }
 }
@@ -1302,19 +1294,7 @@ export class Function extends Expression {
             writer.newLine();
         });
         const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-        if (
-            lastExpr instanceof DropValue ||
-            (lastExpr instanceof Assignment && lastExpr.isDropped)
-        ) {
-            lastExpr.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-            writer.write("return null;");
-        } else {
-            writer.write("return ");
-            lastExpr.toJS(writer);
-            writer.write(";");
-        }
+        Block.returnLastExpr(lastExpr, writer);
         writer.endFunction();
     }
 }

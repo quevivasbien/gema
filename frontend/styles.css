@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Google+Sans+Code:ital,wght,MONO@0,300..800,1;1,300..800,1&family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap");
 
 /* ── Reset & base ─────────────────────────────────────────────── */
 
@@ -25,7 +25,7 @@
     --error-text: #f48771;
     --error-line-bg: rgba(244, 135, 113, 0.1);
     --success-text: #6a9955;
-    --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+    --font-mono: "Google Sans Code", monospace;
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --radius: 6px;
     --header-height: 56px;
@@ -38,6 +38,11 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
     overflow: hidden;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
 }
 
 /* ── Header & toolbar ─────────────────────────────────────────── */
@@ -132,15 +137,17 @@ body {
 
 .app-main {
     display: flex;
-    flex-direction: column;
-    height: calc(100vh - var(--header-height));
+    flex-direction: row;
+    flex: 1;
+    min-height: 0;
     padding: 12px;
     gap: 12px;
 }
 
 .editor-panel {
-    flex: 1;
+    flex: 3;
     min-height: 200px;
+    min-width: 0;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
@@ -156,8 +163,9 @@ body {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    flex-shrink: 0;
-    max-height: 45%;
+    flex: 2;
+    min-width: 0;
+    max-height: none;
 }
 
 .result-section {
@@ -205,7 +213,6 @@ body {
     background: var(--bg-editor);
     color: var(--text-primary);
     min-height: 40px;
-    max-height: 200px;
     overflow: auto;
 }
 
@@ -217,13 +224,34 @@ body {
     color: var(--success-text);
 }
 
-.js-output {
-    color: var(--text-secondary);
-    max-height: 300px;
+.result-section-flex {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
 }
 
-.js-panel-content.collapsed {
+.result-section-flex.collapsed {
+    flex: 0 0 auto;
+    height: auto;
+}
+
+.result-section-body {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+.result-section-body.collapsed {
     display: none;
+}
+
+.js-output {
+    color: var(--text-secondary);
+    max-height: none;
 }
 
 /* ── Error line highlighting in CodeMirror ────────────────────── */
@@ -233,6 +261,38 @@ body {
 }
 
 /* ── Responsive ───────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .app-main {
+        flex-direction: column;
+        padding: 8px;
+        gap: 8px;
+    }
+
+    .editor-panel {
+        flex: 1;
+        min-height: 200px;
+    }
+
+    .results-panel {
+        flex: 1;
+        max-height: none;
+        min-height: 0;
+    }
+
+    .result-section-flex {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .result-section-flex.collapsed {
+        flex: none;
+    }
+
+    .result-section-body {
+        min-height: 0;
+    }
+}
 
 @media (max-width: 640px) {
     .app-header {
@@ -250,14 +310,5 @@ body {
     #select-preset {
         min-width: 140px;
         font-size: 0.8rem;
-    }
-
-    .app-main {
-        padding: 8px;
-        gap: 8px;
-    }
-
-    .results-panel {
-        max-height: 50%;
     }
 }

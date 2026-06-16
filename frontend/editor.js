@@ -353,6 +353,12 @@ function createEditor(parent) {
             errorField,
             EditorView.theme({
                 "&": { height: "100%" },
+                ".cm-content": {
+                    fontFamily: "'Google Sans Code', monospace",
+                    fontWeight: 500,
+                    padding: "12px 0",
+                },
+                ".cm-line": { padding: "0 12px" },
                 ".cm-scroller": { overflow: "auto" },
             }),
         ],
@@ -366,8 +372,37 @@ function createEditor(parent) {
 
 function getWorker(js) {
     const workerPayload = `${js}
+function safeStringify(value, seen = new Set()) {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    const type = typeof value;
+    if (type === "string") return JSON.stringify(value);
+    if (type === "number" || type === "boolean" || type === "bigint" || type === "symbol")
+        return value.toString();
+    if (type === "function") {
+        const name = value.name ? \` \${value.name}\` : " (anonymous)";
+        return \`[Function\${name}]\`;
+    }
+    if (seen.has(value)) return "[Circular Reference]";
+    seen.add(value);
+    if (Array.isArray(value)) {
+        const elements = value.map(item => safeStringify(item, seen));
+        return \`[\${elements.join(", ")}]\`;
+    }
+    try {
+        const keys = Object.keys(value);
+        if (keys.length === 0) return "{}";
+        const properties = keys.map(key => {
+            return \`"\${key}": \${safeStringify(value[key], seen)}\`;
+        });
+        return \`{ \${properties.join(", ")} }\`;
+    } catch (e) {
+        // Fallback for objects with weird getters or prototypes (like Host objects)
+        return \`[Object \${value.constructor ? value.constructor.name : "Unknown"}]\`;
+    }
+}
 try {
-    const result = main();
+    const result = safeStringify(main());
     if (typeof postMessage !== 'undefined') {
         postMessage({ status: 'success', data: result });
     }
@@ -532,13 +567,58 @@ document.addEventListener("DOMContentLoaded", () => {
         runBtn.addEventListener("click", () => runCode(view));
     }
 
-    // Toggle compiled JS visibility — header stays visible, content toggles
+    // Toggle panes: each takes half the space by default; collapsing one
+    // makes the other fill the full area. You cannot collapse the last
+    // visible pane — the other must be expanded first.
+    const outputSection = document.getElementById("output-section");
+    const jsSection = document.getElementById("js-section");
+    const outputHeader = document.getElementById("output-header");
+    const outputContent = document.getElementById("output-content");
     const jsHeader = document.getElementById("js-panel-header");
     const jsContent = document.getElementById("js-panel-content");
+
+    function toggleOutput() {
+        if (outputContent.classList.contains("collapsed")) {
+            // Output is hidden — expand to 50/50
+            outputContent.classList.remove("collapsed");
+            outputSection.classList.remove("collapsed");
+        } else if (jsContent.classList.contains("collapsed")) {
+            // Output is visible, JS is hidden — swap: hide output, show JS
+            outputContent.classList.add("collapsed");
+            outputSection.classList.add("collapsed");
+            jsContent.classList.remove("collapsed");
+            jsSection.classList.remove("collapsed");
+        } else {
+            // Both visible — collapse output, JS fills the space
+            outputContent.classList.add("collapsed");
+            outputSection.classList.add("collapsed");
+        }
+    }
+
+    function toggleJs() {
+        if (jsContent.classList.contains("collapsed")) {
+            // JS is hidden — expand to 50/50
+            jsContent.classList.remove("collapsed");
+            jsSection.classList.remove("collapsed");
+        } else if (outputContent.classList.contains("collapsed")) {
+            // JS is visible, output is hidden — swap: hide JS, show output
+            jsContent.classList.add("collapsed");
+            jsSection.classList.add("collapsed");
+            outputContent.classList.remove("collapsed");
+            outputSection.classList.remove("collapsed");
+        } else {
+            // Both visible — collapse JS, output fills the space
+            jsContent.classList.add("collapsed");
+            jsSection.classList.add("collapsed");
+        }
+    }
+
+    if (outputHeader) {
+        outputHeader.addEventListener("click", toggleOutput);
+    }
+
     if (jsHeader && jsContent) {
-        jsHeader.addEventListener("click", () => {
-            jsContent.classList.toggle("collapsed");
-        });
+        jsHeader.addEventListener("click", toggleJs);
     }
 
     // Expose for debugging

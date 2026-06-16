@@ -11,15 +11,25 @@ const KEYWORDS = new Set([
     "is",
     "if",
     "else",
-    "range",
-    "map",
-    "reduce",
-    "filter",
     "true",
     "false",
 ]);
 
-const TYPE_NAMES = new Set(["Int", "Float", "Str", "Bool", "Func", "Arr", "Iter", "Self"]);
+const TYPE_NAMES = new Set([
+    "Int",
+    "Float",
+    "Str",
+    "Bool",
+    "Func",
+    "Arr",
+    "MutArr",
+    "Iter",
+    "Self",
+    "Dict",
+    "MutDict",
+    "Set",
+    "MutSet",
+]);
 
 // A very simple parser for use in syntax highlighting
 const gemaStreamParser = StreamLanguage.define({
@@ -85,23 +95,13 @@ const gemaStreamParser = StreamLanguage.define({
 
         // Operators and punctuation — consume one or two characters
         stream.next();
-        if (["!", ">", "<", "="].includes(ch) && stream.peek() === "=") {
+        if (["!", ">", "<", "=", "%", "^"].includes(ch) && stream.peek() === "=") {
             stream.next();
         }
         return "operator";
     },
 });
 
-const gemaHighlightStyle = HighlightStyle.define([
-    { tag: tags.typeName, color: "#4ec9b0" },
-    { tag: tags.keyword, color: "#569cd6" },
-    { tag: tags.comment, color: "#6a9955" },
-    { tag: tags.string, color: "#ce9178" },
-    { tag: tags.number, color: "#b5cea8" },
-    { tag: tags.operator, color: "#d4d4d4" },
-    { tag: tags.variableName, color: "#9cdcfe" },
-]);
-
 export function gema() {
-    return [gemaStreamParser, syntaxHighlighting(gemaHighlightStyle)];
+    return [gemaStreamParser];
 }
