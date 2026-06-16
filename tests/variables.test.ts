@@ -23,19 +23,32 @@ test("compile variables", () => {
 
 test("parse variable assignment", () => {
     testParse(`
-        x = 1.22
-        y = { 1.23 }
-        z = 3.13;
+        x = 1.22;
+        y = { 1.23 };
+        z = 3.13
     `);
-    testParseExpectError(`x = 1.0; x = 1;`);
-    testParseExpectError(`x = y = 2`);
-    testParseExpectError(`x = y = 2;`);
+    testParseExpectError(`x = 1.0; x = 1`);
+    testParseExpectError(`x = 2;`);  // Semicolon discards value
+});
+
+test("variable assignment within parentheses", () => {
+    testCompile("(x = 1)", 1n);
+    testCompile("(x = 1); x", 1n);
+});
+
+test("chained variable assignment", () => {
+    testCompile("x = y = 2", 2n);
+    testCompile("x = (y = 2)", 2n);
+    testCompile("x = (y = 2); (x, y)", [2n, 2n]);
+    testCompile("x = y = 2; (x, y)", [2n, 2n]);
+    testParseExpectError("(x = y) = 2");
+
 });
 
 test("parse mutable variable reassignment", () => {
-    testParse(`mut x = 1; x = 2;`);
-    testParse(`mut x = 1.22; x = 3.;`);
-    testParseExpectError(`x = 1; x = 2;`);
+    testParse(`mut x = 1; x = 2`);
+    testParse(`mut x = 1.22; x = 3.; x`);
+    testParseExpectError(`x = 1; x = 2; x`);
 });
 
 // ============================================================

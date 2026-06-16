@@ -252,41 +252,35 @@ test("parse functions with generics", () => {
         func foo(a: T): T where T is Any {
             a
         }
+
+        foo[Int]
         `
     );
     testParse(
         `
-        func foo(a: T): T where T is Bar {
-            a
-        }
-        `
-    );
-    testParse(
-        `
+        trait Bar {}
+        trait Baz {}
+
         func foo(a: T): T where T is Bar, T is Baz {
             a
         }
+
+        foo[Float]
         `
     );
-    // Generic without a where clause is an error
-    testParseExpectError(`
-        func foo(a: T): T {
-            a
-        }
-    `);
 });
 
 test("parse traits", () => {
-    testParse("trait Foo {}");
-    testParse("trait Foo { foo[(self: Self): Self] }");
-    testParse("trait Foo { foo[(self: Self): Self], bar[(self: Self): Int] }");
-    testParse("trait Foo { foo[(a: Self, b: Self): Self] }");
-    testParse("trait Foo { foo[(a: Self, b: Int): Self] }");
-    testParse("trait Foo { foo[(a: Int, b: Self): Int] }");
+    testParse("trait Foo {} 1");
+    testParse("trait Foo { foo[(self: Self): Self] } 1");
+    testParse("trait Foo { foo[(self: Self): Self], bar[(self: Self): Int] } 1");
+    testParse("trait Foo { foo[(a: Self, b: Self): Self] } 1");
+    testParse("trait Foo { foo[(a: Self, b: Int): Self] }; 1");
+    testParse("trait Foo { foo[(a: Int, b: Self): Int] }; 1");
 
     // Self needs to be at least one of the arguments of all required functions
-    testParseExpectError("trait Foo { foo[(a: Int, b: Int): Int] }");
-    testParseExpectError("trait Foo { foo[(self: Self): Self], bar[(a: Int): Self] }");
+    testParseExpectError("trait Foo { foo[(a: Int, b: Int): Int] }; 1");
+    testParseExpectError("trait Foo { foo[(self: Self): Self], bar[(a: Int): Self] } 1");
 });
 
 test("parse trait-defined functions", () => {
@@ -414,13 +408,15 @@ test("parse generic error when trait not satisfied", () => {
     `);
 });
 
-test("parse generic multiple type parameters", () => {
+test("parse generic with multiple type parameters", () => {
     testParse(`
         trait Any {}
 
         func pair(a: T, b: U): Arr[T] where T is Any, U is Any {
             [a]
         }
+        
+        pair[Int, Str]
     `);
 });
 

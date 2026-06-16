@@ -29,7 +29,7 @@ test("compile binary expressions", () => {
 test("compile block", () => {
     testCompile(`{ 1 }`, 1n);
     testCompile(`1 + { 1 }`, 2n);
-    testCompile(`{ 1; }`, null);
+    testParseExpectError(`{ 1; }`);
     testCompile(
         `
             (-32 / 4) % { 1 + 2 } 

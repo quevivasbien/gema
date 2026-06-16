@@ -79,7 +79,7 @@ test("assign variable equal to tuple unpacking", () => {
 });
 
 test("dropped tuple unpacking", () => {
-    testCompile("(a, b) = (1, 2);", null);
+    testParseExpectError("(a, b) = (1, 2);");  // Cannot end program on a dropped value
 });
 
 test("reassign var in tuple unpacking", () => {

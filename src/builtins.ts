@@ -394,7 +394,7 @@ export const BUILTINS: Record<string, string> = {
     // arr[idx] = val
     $put$: `function $put$(mutarr, idx, val) {
     mutarr[idx] = val;
-    return val;
+    return mutarr;
 }`,
 
     // ── Mutable dict operations ──

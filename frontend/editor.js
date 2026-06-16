@@ -355,6 +355,7 @@ function createEditor(parent) {
                 "&": { height: "100%" },
                 ".cm-content": {
                     fontFamily: "'Google Sans Code', monospace",
+                    fontSize: "12px",
                     fontWeight: 500,
                     padding: "12px 0",
                 },
@@ -397,7 +398,6 @@ function safeStringify(value, seen = new Set()) {
         });
         return \`{ \${properties.join(", ")} }\`;
     } catch (e) {
-        // Fallback for objects with weird getters or prototypes (like Host objects)
         return \`[Object \${value.constructor ? value.constructor.name : "Unknown"}]\`;
     }
 }
@@ -411,7 +411,6 @@ try {
         postMessage({ status: 'error', data: err.message });
     }
 }`;
-    console.log("payload:", workerPayload);
     const blob = new Blob([workerPayload], { type: "application/javascript" });
     const workerURL = URL.createObjectURL(blob);
     return new Worker(workerURL);
@@ -483,10 +482,8 @@ async function runCode(view) {
         new Promise((resolve, reject) => {
             const worker = getWorker(compiled.js);
             worker.onmessage = (event) => {
-                console.log("Got result from worker:", event.data);
                 const { status, data } = event.data;
                 if (status === "success") {
-                    console.log("Result from worker:", data);
                     resolve(data);
                 } else {
                     console.error("Error inside worker:", data);

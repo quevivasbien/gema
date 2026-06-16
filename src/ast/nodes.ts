@@ -58,35 +58,35 @@ export class Block extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.write("(() => ");
+        const lastExpr = this.expressions[this.expressions.length - 1];
+        const shouldReturn = Block.lastExprShouldReturn(lastExpr);
+        if (shouldReturn) {
+            writer.write("(() => ");
+        }
         writer.beginScope();
         for (const expression of this.expressions.slice(0, -1)) {
             expression.toJS(writer);
             writer.write(";");
             writer.newLine();
         }
-        const lastExpr = this.expressions[this.expressions.length - 1];
-        Block.returnLastExpr(lastExpr, writer);
+        if (shouldReturn) {
+            writer.write("return ");
+        }
+        lastExpr.toJS(writer);
+        writer.write(";");
         writer.endScope();
-        writer.write(")()");
+        if (shouldReturn) {
+            writer.write(")()");
+        }
     }
 
-    static returnLastExpr(lastExpr: Expression, writer: JSWriter) {
-        if (
+    static lastExprShouldReturn(lastExpr: Expression): boolean {
+        return !(
             lastExpr instanceof DropValue ||
             (lastExpr instanceof Assignment && lastExpr.isDropped) ||
             (lastExpr instanceof TupleUnpack && lastExpr.isDropped) ||
             (lastExpr instanceof If && !lastExpr.hasElse)
-        ) {
-            lastExpr.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-            writer.write("return null;");
-        } else {
-            writer.write("return ");
-            lastExpr.toJS(writer);
-            writer.write(";");
-        }
+        );
     }
 }
 
@@ -546,6 +546,7 @@ export class Variable extends Expression {
 
     setTypeWithTemplateTypes(ancestors: Expression[]): void {
         this.fullName = functionNameWithParamTypes(this.name, this.templateTypes?.types ?? []);
+        // Check global registry first (for non-generic or already-monomorphized functions)
         const registered = findFunction(this.fullName);
         if (registered) {
             this.type = registered.getFuncType();
@@ -568,9 +569,24 @@ export class Variable extends Expression {
                 if (olderSibling instanceof DropValue) {
                     olderSibling = olderSibling.child;
                 }
+                // Exact match on fullName (non-generic or already monomorphized)
                 if (olderSibling instanceof Function && olderSibling.fullName === this.fullName) {
                     this.type = olderSibling.getFuncType();
                     return;
+                }
+                // Generic function match — attempt monomorphization
+                if (
+                    olderSibling instanceof Function &&
+                    olderSibling.name === this.name &&
+                    olderSibling.isGeneric
+                ) {
+                    const argTypes = this.templateTypes?.types ?? [];
+                    const result = olderSibling.monomorphize(argTypes, ancestors);
+                    if (result !== null) {
+                        this.fullName = result.fullName;
+                        this.type = result.funcType;
+                        return;
+                    }
                 }
             }
             prevAncestor = ancestor;
@@ -581,6 +597,19 @@ export class Variable extends Expression {
     resolveAssignment(e: Expression): Type | null {
         if (e instanceof Assignment && e.name === this.name) {
             return e.value.type;
+        }
+        return null;
+    }
+
+    /** Recursively search an expression tree for an Assignment with the given name,
+     *  e.g. to find `y` inside `Assignment(x, Assignment(y, 2))`. */
+    private findNestedAssignment(expr: Expression, name: string): Type | null {
+        if (expr instanceof Assignment) {
+            if (expr.name === name) return expr.value.type;
+            return this.findNestedAssignment(expr.value, name);
+        }
+        if (expr instanceof DropValue) {
+            return this.findNestedAssignment(expr.child, name);
         }
         return null;
     }
@@ -611,6 +640,36 @@ export class Variable extends Expression {
                             );
                         }
                         return;
+                    }
+                    // Check inside DropValue or non-matching Assignment for nested
+                    // assignments (e.g. x = (y = 2); (x, y) — y is nested in x's value)
+                    if (olderSibling instanceof DropValue) {
+                        olderSibling = olderSibling.child;
+                        const innerType = this.resolveAssignment(olderSibling);
+                        if (innerType !== null) {
+                            this.type = innerType;
+                            this.fullName = this.name;
+                            if (isVarConsumed(this.fullName)) {
+                                throw this.error(
+                                    `cannot use variable '${this.fullName}' after it was detrans'd`
+                                );
+                            }
+                            return;
+                        }
+                    }
+                    // For a non-matching Assignment, check its value for nested assignments
+                    if (olderSibling instanceof Assignment && olderSibling.name !== this.name) {
+                        const nested = this.findNestedAssignment(olderSibling.value, this.name);
+                        if (nested !== null) {
+                            this.type = nested;
+                            this.fullName = this.name;
+                            if (isVarConsumed(this.fullName)) {
+                                throw this.error(
+                                    `cannot use variable '${this.fullName}' after it was detrans'd`
+                                );
+                            }
+                            return;
+                        }
                     }
                     // Check TupleUnpack bindings
                     if (olderSibling instanceof TupleUnpack) {
@@ -747,6 +806,8 @@ export class Assignment extends Expression {
                     let olderSibling = olderSiblings[j];
                     if (olderSibling instanceof DropValue) {
                         olderSibling = olderSibling.child;
+                        // Don't match self (startNode nested inside DropValue)
+                        if (olderSibling === startNode) continue;
                     }
                     if (olderSibling instanceof Assignment && olderSibling.name === name) {
                         if (olderSibling.isReassignment) {
@@ -800,6 +861,8 @@ export class Assignment extends Expression {
                     let olderSibling = olderSiblings[j];
                     if (olderSibling instanceof DropValue) {
                         olderSibling = olderSibling.child;
+                        // Don't match self (startNode nested inside DropValue)
+                        if (olderSibling === startNode) continue;
                     }
                     if (olderSibling instanceof Assignment && olderSibling.name === name) {
                         if (olderSibling.isReassignment) {
@@ -1031,7 +1094,11 @@ export class AnonymousFunction extends Expression {
             writer.newLine();
         });
         const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-        Block.returnLastExpr(lastExpr, writer);
+        if (Block.lastExprShouldReturn(lastExpr)) {
+            writer.write("return ");
+        }
+        lastExpr.toJS(writer);
+        writer.write(";");
         writer.endFunction();
     }
 }
@@ -1294,7 +1361,11 @@ export class Function extends Expression {
             writer.newLine();
         });
         const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-        Block.returnLastExpr(lastExpr, writer);
+        if (Block.lastExprShouldReturn(lastExpr)) {
+            writer.write("return ");
+        }
+        lastExpr.toJS(writer);
+        writer.write(";");
         writer.endFunction();
     }
 }

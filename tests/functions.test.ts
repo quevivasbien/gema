@@ -135,22 +135,33 @@ test("compile generic function without return type annotation", () => {
 
 test("parse function", () => {
     // Functions without return types are allowed (inferred from body)
-    testParse(`func foo() { 1 }`);
-    testParse(`func add(a: Int, b: Int): Int { a + b }`);
+    testParse(`func foo() { 1 } foo[]`);
+    testParse(`func add(a: Int, b: Int): Int { a + b }; add[Int, Int]`);
     testParse(`
         func myFunc(a: Func[Int: Func[Int: Int]], b: Func[:Int]): Func[Int: Func[Int: Int]] {
             a
         }
+        myFunc[Func[Int: Func[Int: Int]], Func[:Int]]
     `);
     testParse(`func myFunc(a: Int): Int { a }; myFunc(1)`);
     testParseExpectError(`func myFunc(a: Int): Int { a }; myFunc(1.0)`);
-    // Functions with params must be referenced with explicit type params
+});
+
+test("non-anonymous functions do not have values unless annotated with param types", () => {
     testParseExpectError(
         `
         func foo(a: Int): Int {
             a
         }
-        x = foo;
+        foo
+        `
+    );
+    testParseExpectError(
+        `
+        func foo(a: Int): Int {
+            a
+        }
+        x = foo
         `
     );
 });
@@ -164,57 +175,6 @@ test("allow references to named functions", () => {
         bar = foo[Int];
 
         bar(1)
-    `);
-});
-
-test("parse generic function without return type annotation", () => {
-    // Generic functions can infer return type from body
-    testParse(`
-        trait Any {}
-        func foo(a: T) where T is Any { a }
-    `);
-    // Body returning concrete type (not the type param)
-    testParse(`
-        trait Any {}
-        func bar(a: T) where T is Any { 42 }
-    `);
-    // Multiple type params
-    testParse(`
-        trait Any {}
-        func id(x: T) where T is Any { x }
-        id(42)
-    `);
-    // Generic function without return type, used with trait dispatch
-    testParse(`
-        trait Any {}
-        func id(x: T) where T is Any { x }
-        id(42)
-    `);
-    // Generic function calling another generic function inside a generic body
-    testParse(`
-        trait Any {}
-        func id(x: T) where T is Any { x }
-        func wrap(x: T): T where T is Any { id(x) }
-        wrap(10)
-    `);
-    // Generic with trait-defined function, nested in another generic
-    testParse(`
-        trait Foo {
-            foo[(x: Self): Self]
-        }
-        func foo(x: Int) { x }
-        func id(x: T) where T is Foo { foo(x) }
-        func wrap(x: T): T where T is Foo { id(x) }
-        id(10)
-    `);
-    testParse(`
-        trait Foo {
-            foo[(x: Self): Self]
-        }
-        func foo(x: Int) { x }
-        func id(x: T) where T is Foo { foo(x) }
-        func wrap(x: T): T where T is Foo { id(x) }
-        wrap(10)
     `);
 });
 

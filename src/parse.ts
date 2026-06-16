@@ -245,6 +245,32 @@ function parseGrouping(parser: Parser): AST.Expression {
         return parser.tryCreateASTExpression(() => new AST.TupleLit(startToken, elements));
     }
 
+    // Parenthesized assignment: (y = 2)
+    if (
+        first instanceof AST.Variable &&
+        !parser.atEnd() &&
+        parser.current().type === TokenType.Equal
+    ) {
+        parser.advance(); // skip '='
+        const rhs = parser.parseWithPrecedence(Precedence.Assignment);
+        if (rhs === null) {
+            return parser.error("Expected expression after =");
+        }
+        if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+            return parser.error("missing closing parenthesis after assignment.");
+        }
+        parser.advance(); // skip ')'
+        return parser.tryCreateASTExpression(() => {
+            const varToken = {
+                line: startToken.line,
+                col: startToken.col,
+                text: (first as AST.Variable).name,
+                type: TokenType.Identifier,
+            };
+            return new AST.Assignment(varToken, rhs, false, false);
+        });
+    }
+
     if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
         parser.error("missing closing parenthesis after expression.");
     }
@@ -752,14 +778,11 @@ function parseVariable(parser: Parser): AST.Expression {
         // This is a function (or similar) call
         return parseCall(parser);
     }
-    if (parser.atEnd() || parser.current().type !== TokenType.Equal) {
-        // Assume variable is already defined
-        const variableToken = parser.previous();
-        // Get template types if there are any attached
-        const templateTypes = parser.getTemplateTypes();
-        return parser.tryCreateASTExpression(() => new AST.Variable(variableToken, templateTypes));
-    }
-    return parser.error("variable assignments are not allowed within expressions.");
+    // Assume variable is already defined
+    const variableToken = parser.previous();
+    // Get template types if there are any attached
+    const templateTypes = parser.getTemplateTypes();
+    return parser.tryCreateASTExpression(() => new AST.Variable(variableToken, templateTypes));
 }
 
 function parseCall(parser: Parser): AST.Expression {
@@ -1314,7 +1337,17 @@ class Parser {
         const compoundOp = isCompound ? Parser.COMPOUND_OPS[nextType!] : null;
         this.advance(2); // skip Identifier and = or += etc.
 
-        const rhs = this.parseWithPrecedence(Precedence.Assignment);
+        // Try chained assignment (x = y = 2) first, fall back to expression.
+        let rhs = this.assignment();
+        if (rhs instanceof AST.Assignment && rhs.isDropped) {
+            // The recursive call consumed a semicolon that belongs to the outer
+            // assignment. Undrop the inner assignment so the semicolon is not
+            // consumed twice and the inner assignment is treated as an expression.
+            rhs.isDropped = false;
+        }
+        if (rhs === null) {
+            rhs = this.parseWithPrecedence(Precedence.Assignment);
+        }
         if (!rhs) {
             return this.error("Expected expression after =");
         }
@@ -1570,6 +1603,14 @@ export function parse(tokens: Token[]): { ast: AST.Expression; errors: ParseErro
                 });
             }
         }
+    }
+    if (block.type === "Null") {
+        parser.errors.push({
+            line: tokens[tokens.length - 1].line,
+            col: tokens[tokens.length - 1].col,
+            message:
+                "Top-level expression cannot have Null type (program cannot end with a value-less statement, including any statement concluded with a semicolon)",
+        });
     }
     return { ast: block, errors: parser.errors };
 }

@@ -54,8 +54,8 @@ test("mutarr: set element", () => {
     );
 });
 
-test("mutarr: set returns new value", () => {
-    testCompile("mutarr = trans([1, 2, 3]); put(mutarr, 0, 99)", 99n);
+test("mutarr: put returns mutarr", () => {
+    testCompile("mutarr = trans([1, 2, 3]); put(mutarr, 0, 99)", [99n, 2n, 3n]);
 });
 
 // ── Element access (indexing) ──

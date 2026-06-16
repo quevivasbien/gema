@@ -209,7 +209,6 @@ body {
     font-size: 0.85rem;
     line-height: 1.6;
     white-space: pre-wrap;
-    word-break: break-all;
     background: var(--bg-editor);
     color: var(--text-primary);
     min-height: 40px;

@@ -139,6 +139,7 @@ test("function returning Maybe", () => {
         func safeHead(arr: Arr[Int]): Maybe[Int] {
             arr(0)
         }
+        safeHead[Arr[Int]]
     `);
 });
 

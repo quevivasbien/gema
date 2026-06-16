@@ -687,31 +687,32 @@ function findBuiltin(
         }
         case "put": {
             if (argTypes.length !== 3) return undefined;
-            // MutArr put: (mutarr, Int index, value) → Null
+            // MutArr put: (mutarr, Int index, value) → MutArr (chainable)
             if (argTypes[0] instanceof MutArrType) {
                 if (argTypes[1] !== "Int") return undefined;
                 if (!looseMatch(argTypes[0].innerType, argTypes[2])) return undefined;
+                const mutArrResult = argTypes[0];
                 return {
                     error: null,
                     result: {
                         kind: "builtin",
                         referToByName: "put",
-                        callerType: new FuncType(argTypes, "Null"),
-                        rootType: "Null",
+                        callerType: new FuncType(argTypes, mutArrResult),
+                        rootType: mutArrResult,
                         builtinKind: "put",
                     },
                 };
             }
             // MutDict put: (mutdict, key, value) → MutDict (chainable)
             if (argTypes[0] instanceof MutDictType) {
-                const mutdictResult = argTypes[0];
+                const mutDictResult = argTypes[0];
                 return {
                     error: null,
                     result: {
                         kind: "builtin",
                         referToByName: "put",
-                        callerType: new FuncType(argTypes, mutdictResult),
-                        rootType: mutdictResult,
+                        callerType: new FuncType(argTypes, mutDictResult),
+                        rootType: mutDictResult,
                         builtinKind: "putDict",
                     },
                 };

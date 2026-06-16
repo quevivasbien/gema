@@ -38,7 +38,8 @@ test("compile if expressions", () => {
 test("parse if", () => {
     testParse(`if true { 1 } else { 2 }`);
     testParseExpectError(`if 1 { 1 } else { 2 }`);
-    testParse(`if true { 1 }`); // else-less if is now valid (evaluates to null)
+    testParseExpectError(`if true { 1 }`); // else-less if is value-less
+    testParse(`if true { 1 }; 1`);
     testParseExpectError(`if true { 1 } else { 2.0 }`);
     testParse(`x = 10; if x < 0 { 1 } else if x > 10 { 2 } else { 3 }`);
 });
@@ -87,17 +88,6 @@ test("if-else: else-less if with else-if chain still works", () => {
         x
         `,
         20n
-    );
-});
-
-test("if-else: else-less if as final expression evaluates to null", () => {
-    testCompile(
-        `
-        if false {
-            1
-        }
-        `,
-        null
     );
 });
 
@@ -194,13 +184,19 @@ test("for: for loop with break", () => {
 });
 
 test("for: for loop evaluates to null", () => {
-    testCompile(
+    testParseExpectError(
         `
         for i = [1, 2, 3] {
             i
         }
-        `,
-        null
+        `
+    );
+    testParseExpectError(
+        `
+        x = {for i = [1, 2, 3] {
+            i
+        }}
+        `
     );
 });
 

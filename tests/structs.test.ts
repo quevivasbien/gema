@@ -193,14 +193,23 @@ test("parse struct definition", () => {
             x: Int,
             y: Int
         }
+        Point(1,2)
     `);
     testParse(`
         struct Empty {
         }
+        Empty()
     `);
     testParseExpectError(`
         struct Point {
             x
+        }
+        Point(1)
+    `);
+    // Struct definition on its own is valueless, cannot terminate the program
+    testParseExpectError(`
+        struct Point {
+            x: Int
         }
     `);
 });
