@@ -105,3 +105,15 @@ test("array slice: slice result of pipe", () => {
     // Pipe into collect, then slice the result
     testCompile("x = collect(1..5); x(1..3)", [2n, 3n, 4n]);
 });
+
+test("array: contains", () => {
+    testCompile("contains([1, 2, 3], 2)", true);
+    testCompile("contains([1, 2, 3], 4)", false);
+    testCompile('contains(["a", "b"], "c")', false);
+});
+
+test("array: find", () => {
+    testCompile("unwrap(find([10, 20, 30], 20))", 1n);
+    testCompile("isnone(find([1, 2, 3], 99))", true);
+    testCompile('unwrap(find(["a", "b", "c"], "a"))', 0n);
+});

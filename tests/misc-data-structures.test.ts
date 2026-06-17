@@ -38,6 +38,13 @@ test("Dict: access missing key", () => {
     testCompile(`m = Dict([([1,2], 1),]); m([1,2])`, undefined); // This should be undefined, since [1,2] is not actually the same object as the array that was used in the map
 });
 
+test("Dict: contains", () => {
+    testCompile("m = Dict([(1,1)]); contains(m, 1)", true);
+    testCompile("m = Dict([(1,1)]); contains(m, 2)", false);
+    testCompile('m = Dict([("a",1)]); contains(m, "a")', true);
+    testParseExpectError('m = Dict([("a",1)]); contains(m, 1)');
+});
+
 test("MutDict: create mutable dict with trans", () => {
     testParse(`m = trans(Dict([("a", 1),]))`);
     testParse(`d = Dict([("a", 1),]); trans(d)`);
@@ -85,6 +92,13 @@ test("MutDict: unsafeTrans is a no-op", () => {
 
 test("MutDict: detrans is a no-op", () => {
     requireIdenticalCompilation(`detrans(trans(Dict([("a", 1),])))`, `trans(Dict([("a", 1),]))`);
+});
+
+test("MutDict: contains", () => {
+    testCompile("m = Dict([(1,1)]) | trans; contains(m, 1)", true);
+    testCompile("m = Dict([(1,1)]) | trans; contains(m, 2)", false);
+    testCompile('m = Dict([("a",1)]) | trans; contains(m, "a")', true);
+    testParseExpectError('m = Dict([("a",1)]) | trans; contains(m, 1)');
 });
 
 // ============================================================

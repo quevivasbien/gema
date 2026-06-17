@@ -259,3 +259,15 @@ test("mutarr: error set non-integer index", () => {
 test("mutarr: error trans on non-array variable", () => {
     testParseExpectError("x = 1; trans(x)");
 });
+
+test("mutarray: contains", () => {
+    testCompile("contains([1, 2, 3] | trans, 2)", true);
+    testCompile("contains([1, 2, 3] | trans, 4)", false);
+    testCompile('contains(["a", "b"] | trans, "c")', false);
+});
+
+test("mutarray: find", () => {
+    testCompile("unwrap(find([10, 20, 30] | trans, 20))", 1n);
+    testCompile("isnone(find([1, 2, 3] | trans, 99))", true);
+    testCompile('unwrap(find(["a", "b", "c"] | trans, "a"))', 0n);
+});

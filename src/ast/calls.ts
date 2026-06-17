@@ -291,7 +291,7 @@ export class Call extends Expression {
             if (allArgTypes.length === 1 && allArgTypes[0] === "Int") {
                 const stringVarType = findStringTypedVariable(this, ancestors, this.name);
                 if (stringVarType !== null) {
-                    this.type = "Str";
+                    this.type = new MaybeType("Str");
                     this.referToByName = this.name;
                     this.isStringIndexing = true;
                     return;
@@ -736,6 +736,12 @@ export class Call extends Expression {
                     writer.write("new $ArrayIterator$(");
                     arg.toJS(writer);
                     writer.write(")");
+                } else if (arg && arg.type === "Str") {
+                    // Convert string to array iterator by splitting into characters
+                    writer.useBuiltin("$ArrayIterator$");
+                    writer.write("new $ArrayIterator$(");
+                    arg.toJS(writer);
+                    writer.write('.split(""))');
                 } else {
                     arg?.toJS(writer);
                 }
@@ -827,6 +833,12 @@ export class Call extends Expression {
                         writer.write(".length - 1]");
                         return;
                     }
+                    if (this.args[0]?.type === "Str") {
+                        writer.write("(() => { const s = ");
+                        this.args[0].toJS(writer);
+                        writer.write("; return s.length > 0 ? s[s.length - 1] : undefined; })()");
+                        return;
+                    }
                     writer.useBuiltin("$last$");
                     writer.write("$last$(");
                     wrapArrayToIter(0);
@@ -837,6 +849,12 @@ export class Call extends Expression {
                         this.args[0]?.type instanceof ArrayType ||
                         this.args[0]?.type instanceof MutArrType
                     ) {
+                        writer.write("BigInt(");
+                        this.args[0].toJS(writer);
+                        writer.write(".length)");
+                        return;
+                    }
+                    if (this.args[0]?.type === "Str") {
                         writer.write("BigInt(");
                         this.args[0].toJS(writer);
                         writer.write(".length)");
@@ -1004,22 +1022,71 @@ export class Call extends Expression {
                     writer.write(" === undefined");
                     return;
                 case "contains":
-                    this.args[0]?.toJS(writer);
                     if (
                         this.args[0]?.type instanceof ArrayType ||
                         this.args[0]?.type instanceof MutArrType
                     ) {
+                        this.args[0]?.toJS(writer);
                         writer.write(".indexOf(");
                         this.args[1]?.toJS(writer);
                         writer.write(") !== -1");
                     } else if (
                         this.args[0]?.type instanceof SetType ||
-                        this.args[0]?.type instanceof MutSetType
+                        this.args[0]?.type instanceof MutSetType ||
+                        this.args[0]?.type instanceof DictType ||
+                        this.args[0]?.type instanceof MutDictType
                     ) {
+                        this.args[0]?.toJS(writer);
                         writer.write(".has(");
                         this.args[1]?.toJS(writer);
                         writer.write(")");
+                    } else if (this.args[0]?.type === "Str") {
+                        this.args[0]?.toJS(writer);
+                        writer.write(".includes(");
+                        this.args[1]?.toJS(writer);
+                        writer.write(")");
+                    } else if (this.args[0]?.type instanceof IterType) {
+                        writer.useBuiltin("$contains$");
+                        writer.write("$contains$(");
+                        this.args[0].toJS(writer);
+                        writer.write(", ");
+                        this.args[1]?.toJS(writer);
+                        writer.write(")");
                     }
+                    return;
+                case "find":
+                    if (
+                        this.args[0]?.type instanceof ArrayType ||
+                        this.args[0]?.type instanceof MutArrType ||
+                        this.args[0]?.type === "Str"
+                    ) {
+                        writer.write("(() => { const _i = ");
+                        this.args[0]?.toJS(writer);
+                        writer.write(".indexOf(");
+                        this.args[1]?.toJS(writer);
+                        writer.write("); return _i === -1 ? undefined : BigInt(_i); })()");
+                    } else if (this.args[0]?.type instanceof IterType) {
+                        writer.useBuiltin("$find$");
+                        writer.write("$find$(");
+                        this.args[0].toJS(writer);
+                        writer.write(", ");
+                        this.args[1]?.toJS(writer);
+                        writer.write(")");
+                    }
+                    return;
+                case "split":
+                    this.args[0]?.toJS(writer);
+                    writer.write(".split(");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "replace":
+                    this.args[0]?.toJS(writer);
+                    writer.write(".replaceAll(");
+                    this.args[1]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[2]?.toJS(writer);
+                    writer.write(")");
                     return;
                 case "union":
                     writer.write("new Set([...");
@@ -1255,6 +1322,12 @@ export class DirectCall extends Expression {
             return;
         }
         if (this.caller.type === "Str") {
+            // String slicing with range: str(a..b) returns a substring
+            if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
+                this.args[0].cascadeTypes([...ancestors, this]);
+                this.type = "Str";
+                return;
+            }
             this.args.forEach((arg, i) => {
                 arg.cascadeTypes([...ancestors, this]);
                 if (arg.type === null) {
@@ -1271,7 +1344,7 @@ export class DirectCall extends Expression {
             if (this.args[0].type !== "Int") {
                 throw this.error(`string index must be of type Int`);
             }
-            this.type = "Str";
+            this.type = this.isUnsafe ? "Str" : new MaybeType("Str");
             return;
         }
 
@@ -1378,10 +1451,37 @@ export class DirectCall extends Expression {
 
     toJS(writer: JSWriter): void {
         if (this.caller.type === "Str") {
-            this.caller.toJS(writer);
-            writer.write("[");
-            this.args[0].toJS(writer);
-            writer.write("]");
+            if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
+                // String slicing with a..b, a.., ..b, ..
+                const range = this.args[0] as RangeIter;
+                this.caller.toJS(writer);
+                writer.write(".slice(");
+                if (range.start !== null) {
+                    writer.write("Number(");
+                    range.start.toJS(writer);
+                    writer.write(")");
+                } else {
+                    writer.write("0");
+                }
+                if (range.end !== null) {
+                    writer.write(", Number(");
+                    range.end.toJS(writer);
+                    writer.write(") + 1");
+                }
+                writer.write(")");
+            } else if (this.isUnsafe) {
+                this.caller.toJS(writer);
+                writer.write("[");
+                this.args[0].toJS(writer);
+                writer.write("]");
+            } else {
+                // Maybe-wrapped string index: str[i] returns undefined if out of bounds
+                writer.write("(() => { const _s = ");
+                this.caller.toJS(writer);
+                writer.write("; const _i = Number(");
+                this.args[0].toJS(writer);
+                writer.write("); return _i >= 0 && _i < _s.length ? _s[_i] : undefined; })()");
+            }
         } else if (this.caller.type instanceof CustomType && getStruct(this.caller.type.name)) {
             const fieldName =
                 this.args[0] instanceof Literal ? this.args[0].value.slice(1, -1) : "";

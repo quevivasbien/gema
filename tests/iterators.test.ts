@@ -404,3 +404,13 @@ test("iterator concatenation with + operator, one side is array", () => {
     // Arr plus Iter is not legal -- intended pattern is to collect the RHS first to get an array or swap order if you do want an iterator
     testParseExpectError("[0, 1, 2] + (0..2) | collect");
 });
+
+test("iter: contains", () => {
+    testCompile("contains(range(0, 5), 3)", true);
+    testCompile("contains(range(0, 5), 99)", false);
+});
+
+test("iter: find", () => {
+    testCompile("unwrap(find(1..5, 3))", 2n);
+    testCompile("isnone(find(1..5, 99))", true);
+});

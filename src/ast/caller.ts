@@ -163,6 +163,18 @@ function findBuiltin(
                     },
                 };
             }
+            if (inner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "collect",
+                        callerType: new FuncType([inner], new ArrayType("Str")),
+                        rootType: new ArrayType("Str"),
+                        builtinKind: "collect",
+                    },
+                };
+            }
             return undefined;
         }
         case "map": {
@@ -195,6 +207,27 @@ function findBuiltin(
                     },
                 };
             }
+            // Str → Iter[Str] conversion
+            if (
+                mapFirst instanceof FuncType &&
+                mapFirst.paramTypes.length === 1 &&
+                mapSecond === "Str"
+            ) {
+                if (!looseMatch(mapFirst.paramTypes[0], "Str")) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "map",
+                        callerType: new FuncType(
+                            [mapFirst, mapSecond],
+                            new IterType(mapFirst.returnType)
+                        ),
+                        rootType: new IterType(mapFirst.returnType),
+                        builtinKind: "map",
+                    },
+                };
+            }
             if (!(mapFirst instanceof FuncType) || mapFirst.paramTypes.length !== 1)
                 return undefined;
             if (
@@ -224,6 +257,20 @@ function findBuiltin(
             if (argTypes.length !== 2) return undefined;
             const [fFnType, fIterType] = argTypes;
             if (!(fFnType instanceof FuncType) || fFnType.paramTypes.length !== 1) return undefined;
+            if (fIterType === "Str") {
+                if (!looseMatch(fFnType.paramTypes[0], "Str")) return undefined;
+                if (fFnType.returnType !== "Bool") return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "filter",
+                        callerType: new FuncType([fFnType, fIterType], new IterType("Str")),
+                        rootType: new IterType("Str"),
+                        builtinKind: "filter",
+                    },
+                };
+            }
             if (
                 !(
                     fIterType instanceof IterType ||
@@ -251,6 +298,20 @@ function findBuiltin(
             if (argTypes.length !== 3) return undefined;
             const [rFnType, rInitType, rIterType] = argTypes;
             if (!(rFnType instanceof FuncType) || rFnType.paramTypes.length !== 2) return undefined;
+            if (rIterType === "Str") {
+                if (!looseMatch(rFnType.paramTypes[0], rInitType)) return undefined;
+                if (!looseMatch(rFnType.paramTypes[1], "Str")) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "reduce",
+                        callerType: new FuncType([rFnType, rInitType, rIterType], rInitType),
+                        rootType: rInitType,
+                        builtinKind: "reduce",
+                    },
+                };
+            }
             if (
                 !(
                     rIterType instanceof IterType ||
@@ -327,6 +388,18 @@ function findBuiltin(
                     },
                 };
             }
+            if (sIter === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "step",
+                        callerType: new FuncType([sIter, sStep], new IterType("Str")),
+                        rootType: new IterType("Str"),
+                        builtinKind: "step",
+                    },
+                };
+            }
             return undefined;
         }
         case "last": {
@@ -348,6 +421,18 @@ function findBuiltin(
                     },
                 };
             }
+            if (lInner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "last",
+                        callerType: new FuncType([lInner], new MaybeType("Str")),
+                        rootType: new MaybeType("Str"),
+                        builtinKind: "last",
+                    },
+                };
+            }
             return undefined;
         }
         case "length": {
@@ -358,6 +443,18 @@ function findBuiltin(
                 lenInner instanceof ArrayType ||
                 lenInner instanceof MutArrType
             ) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "length",
+                        callerType: new FuncType([lenInner], "Int"),
+                        rootType: "Int",
+                        builtinKind: "length",
+                    },
+                };
+            }
+            if (lenInner === "Str") {
                 return {
                     error: null,
                     result: {
@@ -405,6 +502,18 @@ function findBuiltin(
                     },
                 };
             }
+            if (tInner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "take",
+                        callerType: new FuncType([argTypes[0], tInner], new IterType("Str")),
+                        rootType: new IterType("Str"),
+                        builtinKind: "take",
+                    },
+                };
+            }
             return undefined;
         }
         case "drop": {
@@ -437,6 +546,18 @@ function findBuiltin(
                             new IterType(dInner.innerType)
                         ),
                         rootType: new IterType(dInner.innerType),
+                        builtinKind: "drop",
+                    },
+                };
+            }
+            if (dInner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "drop",
+                        callerType: new FuncType([argTypes[0], dInner], new IterType("Str")),
+                        rootType: new IterType("Str"),
                         builtinKind: "drop",
                     },
                 };
@@ -481,6 +602,19 @@ function findBuiltin(
                     },
                 };
             }
+            if (twIterType === "Str") {
+                if (!looseMatch(twFnType.paramTypes[0], "Str")) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "takeWhile",
+                        callerType: new FuncType([twFnType, twIterType], new IterType("Str")),
+                        rootType: new IterType("Str"),
+                        builtinKind: "takeWhile",
+                    },
+                };
+            }
             return undefined;
         }
         case "dropWhile": {
@@ -517,6 +651,19 @@ function findBuiltin(
                             new IterType(dwIterType.innerType)
                         ),
                         rootType: new IterType(dwIterType.innerType),
+                        builtinKind: "dropWhile",
+                    },
+                };
+            }
+            if (dwIterType === "Str") {
+                if (!looseMatch(dwFnType.paramTypes[0], "Str")) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "dropWhile",
+                        callerType: new FuncType([dwFnType, dwIterType], new IterType("Str")),
+                        rootType: new IterType("Str"),
                         builtinKind: "dropWhile",
                     },
                 };
@@ -784,8 +931,15 @@ function findBuiltin(
         }
         case "contains": {
             if (argTypes.length !== 2) return undefined;
-            const [cContainer, _cValue] = argTypes;
-            if (cContainer instanceof SetType || cContainer instanceof MutSetType) {
+            const [cContainer, cValue] = argTypes;
+            if (
+                cContainer instanceof SetType ||
+                cContainer instanceof MutSetType ||
+                cContainer instanceof ArrayType ||
+                cContainer instanceof MutArrType ||
+                cContainer instanceof IterType
+            ) {
+                if (cValue !== cContainer.innerType) return undefined;
                 return {
                     error: null,
                     result: {
@@ -797,7 +951,8 @@ function findBuiltin(
                     },
                 };
             }
-            if (cContainer instanceof ArrayType) {
+            if (cContainer instanceof DictType || cContainer instanceof MutDictType) {
+                if (cValue !== cContainer.keyType) return undefined;
                 return {
                     error: null,
                     result: {
@@ -806,6 +961,94 @@ function findBuiltin(
                         callerType: new FuncType(argTypes, "Bool"),
                         rootType: "Bool",
                         builtinKind: "contains",
+                    },
+                };
+            }
+            if (cContainer === "Str") {
+                if (cValue !== "Str") return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "contains",
+                        callerType: new FuncType(argTypes, "Bool"),
+                        rootType: "Bool",
+                        builtinKind: "contains",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "find": {
+            if (argTypes.length !== 2) return undefined;
+            const [fContainer, fValue] = argTypes;
+            if (fContainer instanceof ArrayType || fContainer instanceof MutArrType) {
+                if (!deepEquals(fContainer.innerType, fValue)) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "find",
+                        callerType: new FuncType(argTypes, new MaybeType("Int")),
+                        rootType: new MaybeType("Int"),
+                        builtinKind: "find",
+                    },
+                };
+            }
+            if (fContainer instanceof IterType) {
+                if (!deepEquals(fContainer.innerType, fValue)) return undefined;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "find",
+                        callerType: new FuncType(argTypes, new MaybeType("Int")),
+                        rootType: new MaybeType("Int"),
+                        builtinKind: "find",
+                    },
+                };
+            }
+            if (fContainer === "Str" && fValue === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "find",
+                        callerType: new FuncType(argTypes, new MaybeType("Int")),
+                        rootType: new MaybeType("Int"),
+                        builtinKind: "find",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "split": {
+            if (argTypes.length !== 2) return undefined;
+            if (argTypes[0] === "Str" && argTypes[1] === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "split",
+                        callerType: new FuncType(argTypes, new ArrayType("Str")),
+                        rootType: new ArrayType("Str"),
+                        builtinKind: "split",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "replace": {
+            if (argTypes.length !== 3) return undefined;
+            if (argTypes[0] === "Str" && argTypes[1] === "Str" && argTypes[2] === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "replace",
+                        callerType: new FuncType(argTypes, "Str"),
+                        rootType: "Str",
+                        builtinKind: "replace",
                     },
                 };
             }
@@ -858,7 +1101,8 @@ function findBuiltin(
                 if (
                     !(t instanceof IterType) &&
                     !(t instanceof ArrayType) &&
-                    !(t instanceof MutArrType)
+                    !(t instanceof MutArrType) &&
+                    t !== "Str"
                 ) {
                     return undefined;
                 }
@@ -866,7 +1110,8 @@ function findBuiltin(
             const innerTypes: Type[] = argTypes.map((t) => {
                 if (t instanceof IterType) return t.innerType;
                 if (t instanceof ArrayType) return t.innerType;
-                return (t as MutArrType).innerType;
+                if (t instanceof MutArrType) return t.innerType;
+                return "Str";
             });
             return {
                 error: null,

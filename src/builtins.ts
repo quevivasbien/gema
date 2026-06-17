@@ -385,6 +385,32 @@ export const BUILTINS: Record<string, string> = {
     }
 }`,
 
+    // ── Iterator search helpers ──
+    // contains(iter, value) — check if value exists in iterator
+    $contains$: `function $contains$(iter, value) {
+    while (true) {
+        const v = iter.next();
+        if (v === undefined) {
+            iter.reset();
+            return false;
+        }
+        if (v === value) return true;
+    }
+}`,
+    // find(iter, value) — find index of value in iterator (returns undefined if not found)
+    $find$: `function $find$(iter, value) {
+    let idx = 0n;
+    while (true) {
+        const v = iter.next();
+        if (v === undefined) {
+            iter.reset();
+            return undefined;
+        }
+        if (v === value) return idx;
+        idx++;
+    }
+}`,
+
     // ── Mutable array operations ──
     // arr.push(val)
     $push$: `function $push$(mutarr, val) {

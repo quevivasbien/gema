@@ -28,7 +28,7 @@ test("parse variable assignment", () => {
         z = 3.13
     `);
     testParseExpectError(`x = 1.0; x = 1`);
-    testParseExpectError(`x = 2;`);  // Semicolon discards value
+    testParseExpectError(`x = 2;`); // Semicolon discards value
 });
 
 test("variable assignment within parentheses", () => {
@@ -42,7 +42,6 @@ test("chained variable assignment", () => {
     testCompile("x = (y = 2); (x, y)", [2n, 2n]);
     testCompile("x = y = 2; (x, y)", [2n, 2n]);
     testParseExpectError("(x = y) = 2");
-
 });
 
 test("parse mutable variable reassignment", () => {
