@@ -447,6 +447,22 @@ export const BUILTINS: Record<string, string> = {
     return mutset;
 }`,
 
+    // ── Control flow sentinel classes ──
+    // Used for Gema `return` — thrown to unwind IIFEs and caught at function boundary
+    $Return$: `class $Return$ {
+    constructor(value) {
+        this.value = value;
+    }
+}`,
+    // Used for Gema `continue` — thrown to unwind IIFEs and caught at loop boundary
+    $Continue$: `class $Continue$ {
+    constructor() {}
+}`,
+    // Used for Gema `break` — thrown to unwind IIFEs and caught at loop boundary
+    $Break$: `class $Break$ {
+    constructor() {}
+}`,
+
     // ── Maybe / None handling ──
     // Unwrap a Maybe value; returns the value or fallback (throws if no fallback)
     $unwrapWithFallback$: `function $unwrapWithFallback$(value, fallback) {

@@ -62,6 +62,7 @@ export class Block extends Expression {
         const shouldReturn = Block.lastExprShouldReturn(lastExpr);
         if (shouldReturn) {
             writer.write("(() => ");
+            writer.iifeDepth++;
         }
         writer.beginScope();
         for (const expression of this.expressions.slice(0, -1)) {
@@ -76,16 +77,27 @@ export class Block extends Expression {
         writer.write(";");
         writer.endScope();
         if (shouldReturn) {
+            writer.iifeDepth--;
             writer.write(")()");
         }
     }
 
     static lastExprShouldReturn(lastExpr: Expression): boolean {
+        // Recurse through nested blocks to check if the ultimate last expression
+        // is a value-producing expression or a control flow node.
+        if (lastExpr instanceof Block) {
+            return Block.lastExprShouldReturn(
+                lastExpr.expressions[lastExpr.expressions.length - 1]
+            );
+        }
         return !(
             lastExpr instanceof DropValue ||
             (lastExpr instanceof Assignment && lastExpr.isDropped) ||
             (lastExpr instanceof TupleUnpack && lastExpr.isDropped) ||
-            (lastExpr instanceof If && !lastExpr.hasElse)
+            (lastExpr instanceof If && !lastExpr.hasElse) ||
+            lastExpr instanceof Break ||
+            lastExpr instanceof Continue ||
+            lastExpr instanceof Return
         );
     }
 }
@@ -120,6 +132,12 @@ export class If extends Expression {
         this.hasElse = hasElse;
     }
 
+    /** Check if a block's last expression is a control flow node (Break/Continue/Return) */
+    static branchEndsInControlFlow(branch: Block): boolean {
+        const last = branch.expressions[branch.expressions.length - 1];
+        return last instanceof Break || last instanceof Continue || last instanceof Return;
+    }
+
     cascadeTypes(ancestors: Expression[]): void {
         this.elseBranch.cascadeTypes([...ancestors, this]);
 
@@ -129,13 +147,21 @@ export class If extends Expression {
                 throw this.error(`condition must be boolean, but found ${condition.type}`);
             }
             branch.cascadeTypes([...ancestors, this]);
-            if (this.hasElse && !deepEquals(this.elseBranch.type, branch.type)) {
-                throw this.error(
-                    `all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`
-                );
+            if (
+                this.hasElse &&
+                !If.branchEndsInControlFlow(branch) &&
+                !If.branchEndsInControlFlow(this.elseBranch)
+            ) {
+                if (!deepEquals(this.elseBranch.type, branch.type)) {
+                    throw this.error(
+                        `all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`
+                    );
+                }
             }
         });
 
+        // Determine the type from branches (control flow branches still carry their
+        // inner value's type via Return/Continue's transparent type propagation)
         this.type = this.hasElse ? this.elseBranch.type : "Null";
     }
 
@@ -155,6 +181,7 @@ export class If extends Expression {
     toJS(writer: JSWriter): void {
         if (this.hasElse) {
             writer.write("(() => {");
+            writer.iifeDepth++;
             writer.indentIn();
             writer.newLine();
             this.conditionalBranches.forEach(({ condition, branch }) => {
@@ -163,7 +190,7 @@ export class If extends Expression {
                 writer.write(") ");
                 writer.beginScope();
                 branch.expressions.forEach((expr, i) => {
-                    if (i === branch.expressions.length - 1) {
+                    if (i === branch.expressions.length - 1 && Block.lastExprShouldReturn(expr)) {
                         writer.write("return ");
                     }
                     expr.toJS(writer);
@@ -175,7 +202,10 @@ export class If extends Expression {
             });
             writer.beginScope();
             this.elseBranch.expressions.forEach((expr, i) => {
-                if (i === this.elseBranch!.expressions.length - 1) {
+                if (
+                    i === this.elseBranch!.expressions.length - 1 &&
+                    Block.lastExprShouldReturn(expr)
+                ) {
                     writer.write("return ");
                 }
                 expr.toJS(writer);
@@ -185,6 +215,7 @@ export class If extends Expression {
             writer.endScope();
             writer.indentOut();
             writer.newLine();
+            writer.iifeDepth--;
             writer.write("})()");
         } else {
             this.conditionalBranches.forEach(({ condition, branch }) => {
@@ -242,6 +273,40 @@ export class ForLoop extends Expression {
         );
     }
 
+    /** Check if a break/continue inside this loop's body is inside an IIFE (needs exception) */
+    static needsTryCatchForBody(expr: Expression, inIIFE: boolean): boolean {
+        if (expr instanceof Break || expr instanceof Continue) return inIIFE;
+        if (expr instanceof DropValue) {
+            return ForLoop.needsTryCatchForBody(expr.child, inIIFE);
+        }
+        if (expr instanceof Block) {
+            const childInIIFE = inIIFE || Block.lastExprShouldReturn(expr);
+            return expr.expressions.some((e) => ForLoop.needsTryCatchForBody(e, childInIIFE));
+        }
+        if (expr instanceof If) {
+            const childInIIFE = inIIFE || expr.hasElse;
+            return (
+                expr.conditionalBranches.some((b) =>
+                    ForLoop.needsTryCatchForBody(b.branch, childInIIFE)
+                ) || ForLoop.needsTryCatchForBody(expr.elseBranch, childInIIFE)
+            );
+        }
+        if (expr instanceof ForLoop) {
+            return false; // break/continue in nested loops are handled by that loop
+        }
+        // Recurse into common wrapper nodes (Assignment, etc.)
+        if (expr && typeof expr === "object") {
+            const wrapperProps = ["child", "value"];
+            for (const key of wrapperProps) {
+                const child = (expr as any)[key];
+                if (child && typeof child === "object" && child.constructor?.name) {
+                    if (ForLoop.needsTryCatchForBody(child, inIIFE)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
     toJS(writer: JSWriter): void {
         const iterVar = writer.uniqueName("$iter$");
         const safeIterVar = writer.safeName(iterVar);
@@ -268,12 +333,36 @@ export class ForLoop extends Expression {
         writer.write(`if (${safeVarName} === undefined) break;`);
         writer.newLine();
 
+        const needsTry = ForLoop.needsTryCatchForBody(this.body, false);
+        if (needsTry) {
+            writer.useBuiltin("$Continue$");
+            writer.useBuiltin("$Break$");
+            writer.write("try {");
+            writer.indentIn();
+            writer.newLine();
+        }
+
         this.body.expressions.forEach((expr) => {
             expr.toJS(writer);
             writer.write(";");
             writer.newLine();
         });
 
+        if (needsTry) {
+            writer.indentOut();
+            writer.newLine();
+            writer.write("} catch (e$$) {");
+            writer.indentIn();
+            writer.newLine();
+            writer.write("if (e$$ instanceof $Continue$) { continue; }");
+            writer.newLine();
+            writer.write("if (e$$ instanceof $Break$) { break; }");
+            writer.newLine();
+            writer.write("throw e$$;");
+            writer.indentOut();
+            writer.newLine();
+            writer.write("}");
+        }
         writer.indentOut();
         writer.newLine();
         writer.write("}");
@@ -288,16 +377,107 @@ export class Break extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(_ancestors: Expression[]): void {
-        // Break is always valid; type is Null
+    cascadeTypes(ancestors: Expression[]): void {
+        // Verify `break` is inside a for loop
+        const inLoop = ancestors.some((a) => a instanceof ForLoop);
+        if (!inLoop) {
+            throw this.error("`break` is only allowed inside a for loop");
+        }
     }
 
     clone(_bindings?: Map<string, Type>): Expression {
         return new Break({ line: this.line, col: this.col, text: "break", type: TokenType.Break });
     }
 
+    /** Set during pre-pass: true if this break is inside an IIFE */
+    needsException: boolean = false;
+
     toJS(writer: JSWriter): void {
-        writer.write("break");
+        if (this.needsException) {
+            writer.useBuiltin("$Break$");
+            writer.write("throw new $Break$()");
+        } else {
+            writer.write("break");
+        }
+    }
+}
+
+export class Continue extends Expression {
+    constructor(startToken: Token) {
+        super(startToken.line, startToken.col);
+        this.type = "Null";
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        // Verify `continue` is inside a for loop
+        const inLoop = ancestors.some((a) => a instanceof ForLoop);
+        if (!inLoop) {
+            throw this.error("`continue` is only allowed inside a for loop");
+        }
+    }
+
+    clone(_bindings?: Map<string, Type>): Expression {
+        return new Continue({
+            line: this.line,
+            col: this.col,
+            text: "continue",
+            type: TokenType.Continue,
+        });
+    }
+
+    /** Set during pre-pass: true if this continue is inside an IIFE */
+    needsException: boolean = false;
+
+    toJS(writer: JSWriter): void {
+        if (this.needsException) {
+            writer.useBuiltin("$Continue$");
+            writer.write("throw new $Continue$()");
+        } else {
+            writer.write("continue");
+        }
+    }
+}
+
+export class Return extends Expression {
+    constructor(
+        startToken: Token,
+        public value: Expression
+    ) {
+        super(startToken.line, startToken.col);
+    }
+
+    cascadeTypes(ancestors: Expression[]): void {
+        this.value.cascadeTypes([...ancestors, this]);
+        this.type = this.value.type;
+        // Verify `return` is inside a function
+        const inFunction = ancestors.some(
+            (a) => a instanceof AnonymousFunction || a instanceof Function
+        );
+        if (!inFunction) {
+            throw this.error("`return` is only allowed inside a function");
+        }
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new Return(
+            { line: this.line, col: this.col, text: "return", type: TokenType.Return },
+            this.value.clone(bindings)
+        );
+    }
+
+    /** Set during pre-pass: true if this return is inside an IIFE */
+    needsException: boolean = false;
+
+    toJS(writer: JSWriter): void {
+        if (this.needsException) {
+            writer.useBuiltin("$Return$");
+            writer.write("throw new $Return$(");
+            this.value.toJS(writer);
+            writer.write(")");
+        } else {
+            writer.write("return ");
+            this.value.toJS(writer);
+        }
     }
 }
 
@@ -1084,11 +1264,54 @@ export class AnonymousFunction extends Expression {
         return cloned;
     }
 
+    /** Check if a return inside this function's body is inside an IIFE (needs exception) */
+    static needsTryCatchForReturn(expr: Expression, inIIFE: boolean): boolean {
+        if (expr instanceof Return) return inIIFE;
+        if (expr instanceof DropValue) {
+            return AnonymousFunction.needsTryCatchForReturn(expr.child, inIIFE);
+        }
+        if (expr instanceof Block) {
+            const childInIIFE = inIIFE || Block.lastExprShouldReturn(expr);
+            return expr.expressions.some((e) =>
+                AnonymousFunction.needsTryCatchForReturn(e, childInIIFE)
+            );
+        }
+        if (expr instanceof If) {
+            const childInIIFE = inIIFE || expr.hasElse;
+            return (
+                expr.conditionalBranches.some((b) =>
+                    AnonymousFunction.needsTryCatchForReturn(b.branch, childInIIFE)
+                ) || AnonymousFunction.needsTryCatchForReturn(expr.elseBranch, childInIIFE)
+            );
+        }
+        if (expr instanceof ForLoop) {
+            return AnonymousFunction.needsTryCatchForReturn(expr.body, inIIFE);
+        }
+        // Recurse into common wrapper nodes (Assignment, etc.)
+        if (expr && typeof expr === "object") {
+            const wrapperProps = ["child", "value"];
+            for (const key of wrapperProps) {
+                const child = (expr as any)[key];
+                if (child && typeof child === "object" && child.constructor?.name) {
+                    if (AnonymousFunction.needsTryCatchForReturn(child, inIIFE)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
     toJS(writer: JSWriter): void {
         writer.write(`(`);
         writer.write(this.params.map((p) => writer.safeName(p.name)).join(", "));
         writer.write(") => ");
         writer.beginFunction();
+        const needsTry = AnonymousFunction.needsTryCatchForReturn(this.body, false);
+        if (needsTry) {
+            writer.useBuiltin("$Return$");
+            writer.write("try {");
+            writer.indentIn();
+            writer.newLine();
+        }
         this.body.expressions.slice(0, -1).forEach((expr) => {
             expr.toJS(writer);
             writer.newLine();
@@ -1099,6 +1322,19 @@ export class AnonymousFunction extends Expression {
         }
         lastExpr.toJS(writer);
         writer.write(";");
+        if (needsTry) {
+            writer.indentOut();
+            writer.newLine();
+            writer.write("} catch (e$$) {");
+            writer.indentIn();
+            writer.newLine();
+            writer.write("if (e$$ instanceof $Return$) return e$$.value;");
+            writer.newLine();
+            writer.write("throw e$$;");
+            writer.indentOut();
+            writer.newLine();
+            writer.write("}");
+        }
         writer.endFunction();
     }
 }
@@ -1356,6 +1592,13 @@ export class Function extends Expression {
         writer.write(this.params.map((p) => writer.safeName(p.name)).join(", "));
         writer.write(") ");
         writer.beginFunction();
+        const needsTry = AnonymousFunction.needsTryCatchForReturn(this.body, false);
+        if (needsTry) {
+            writer.useBuiltin("$Return$");
+            writer.write("try {");
+            writer.indentIn();
+            writer.newLine();
+        }
         this.body.expressions.slice(0, -1).forEach((expr) => {
             expr.toJS(writer);
             writer.newLine();
@@ -1366,6 +1609,19 @@ export class Function extends Expression {
         }
         lastExpr.toJS(writer);
         writer.write(";");
+        if (needsTry) {
+            writer.indentOut();
+            writer.newLine();
+            writer.write("} catch (e$$) {");
+            writer.indentIn();
+            writer.newLine();
+            writer.write("if (e$$ instanceof $Return$) return e$$.value;");
+            writer.newLine();
+            writer.write("throw e$$;");
+            writer.indentOut();
+            writer.newLine();
+            writer.write("}");
+        }
         writer.endFunction();
     }
 }

@@ -1,5 +1,89 @@
 import type * as AST from "./ast/index";
+import {
+    Block,
+    If,
+    ForLoop,
+    Return,
+    Continue,
+    Break,
+    AnonymousFunction,
+    Function,
+} from "./ast/nodes";
 import { BUILTINS } from "./builtins";
+
+/**
+ * Pre-pass that marks control flow nodes (Return/Continue/Break) with `needsException`.
+ * A control flow node needs exception handling (throw sentinel) when it is inside
+ * an IIFE — meaning there's an IIFE-wrapping Block or If-else between it and its
+ * handler (the enclosing function for Return, the enclosing loop for Continue/Break).
+ */
+function markControlFlowExceptions(expr: AST.Expression, inIIFE: boolean): void {
+    if (expr instanceof Return) {
+        expr.needsException = inIIFE;
+        // Still need to recurse into the return value for nested control flow
+        markControlFlowExceptions(expr.value, inIIFE);
+        return;
+    }
+    if (expr instanceof Continue || expr instanceof Break) {
+        expr.needsException = inIIFE;
+        return;
+    }
+    if (expr instanceof Block) {
+        const childInIIFE = inIIFE || Block.lastExprShouldReturn(expr);
+        for (const e of expr.expressions) {
+            markControlFlowExceptions(e, childInIIFE);
+        }
+        return;
+    }
+    if (expr instanceof If) {
+        const childInIIFE = inIIFE || expr.hasElse;
+        for (const { branch } of expr.conditionalBranches) {
+            markControlFlowExceptions(branch, childInIIFE);
+        }
+        markControlFlowExceptions(expr.elseBranch, childInIIFE);
+        return;
+    }
+    if (expr instanceof ForLoop) {
+        // Reset inIIFE for the loop body — break/continue inside nested
+        // loops are handled by that loop, not ancestors.
+        // Iterate body expressions directly WITHOUT applying lastExprShouldReturn,
+        // because for-loop bodies don't use IIFE wrapping.
+        for (const e of expr.body.expressions) {
+            markControlFlowExceptions(e, false);
+        }
+        return;
+    }
+    if (expr instanceof AnonymousFunction || expr instanceof Function) {
+        // Reset inIIFE for nested function bodies — return inside nested
+        // functions is handled by that function, not ancestors.
+        // Iterate body expressions directly WITHOUT applying lastExprShouldReturn,
+        // because function bodies don't use IIFE wrapping.
+        for (const e of (expr as AnonymousFunction | Function).body.expressions) {
+            markControlFlowExceptions(e, false);
+        }
+        return;
+    }
+    // Handle other common child properties (DropValue.child, Unary.operand, Assignment.value, etc.)
+    const singleChildKeys = ["child", "operand", "left", "right", "value"];
+    for (const key of singleChildKeys) {
+        const child = (expr as any)[key];
+        if (child && typeof child === "object" && child.constructor?.name) {
+            markControlFlowExceptions(child, inIIFE);
+        }
+    }
+    // Handle array children (expressions, args, items)
+    const arrayChildKeys = ["expressions", "args", "items"];
+    for (const key of arrayChildKeys) {
+        const arr = (expr as any)[key];
+        if (Array.isArray(arr)) {
+            for (const child of arr) {
+                if (child && typeof child === "object") {
+                    markControlFlowExceptions(child, inIIFE);
+                }
+            }
+        }
+    }
+}
 
 const INDENT = "    ";
 
@@ -88,6 +172,8 @@ export class JSWriter {
     scope: Scope = new Scope();
     builtins: Set<string> = new Set();
     nextUniqueId: number = 0;
+    /** Depth of IIFE nesting — incremented when entering an IIFE-wrapping Block or If */
+    iifeDepth: number = 0;
 
     constructor(ast: AST.Expression) {
         this.ast = ast;
@@ -124,6 +210,11 @@ export class JSWriter {
 
     useBuiltin(name: string) {
         this.builtins.add(name);
+    }
+
+    /** Check whether the current codegen position is inside an IIFE */
+    isInsideIIFE(): boolean {
+        return this.iifeDepth > 0;
     }
 
     beginScope() {
@@ -188,6 +279,8 @@ export function writeJS(
     mode: "immediate" | "inline" | "export" = "immediate",
     minify: boolean = true
 ): string {
+    // Pre-pass: mark which control flow nodes need exception handling
+    markControlFlowExceptions(ast, false);
     const compiler = new JSWriter(ast);
     let compiled = compiler.compile(mode);
     if (minify) {
