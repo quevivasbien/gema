@@ -48,6 +48,8 @@ export enum TokenType {
     Mut = "mut",
     For = "for",
     Break = "break",
+    Continue = "continue",
+    Return = "return",
     Pipe = "|",
     // In-place assignment operators
     PlusEqual = "+=",

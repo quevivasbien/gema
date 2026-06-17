@@ -11,6 +11,9 @@ const KEYWORDS = new Set([
     "if",
     "else",
     "for",
+    "break",
+    "continue",
+    "return",
 ]);
 
 const TYPE_NAMES = new Set([

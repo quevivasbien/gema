@@ -978,9 +978,9 @@ export class Assignment extends Expression {
                 writer.write(`${safeName} = `);
                 this.value.toJS(writer);
             } else {
-                writer.write(`(() => { ${safeName} = `);
+                writer.write(`(${safeName} = `);
                 this.value.toJS(writer);
-                writer.write(`; return ${safeName}; })()`);
+                writer.write(`, ${safeName})`);
             }
         } else {
             if (this.isDropped) {

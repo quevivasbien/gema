@@ -834,9 +834,9 @@ export class Call extends Expression {
                         return;
                     }
                     if (this.args[0]?.type === "Str") {
-                        writer.write("(() => { const s = ");
+                        writer.write("((s) => s.length > 0 ? s[s.length - 1] : undefined)(");
                         this.args[0].toJS(writer);
-                        writer.write("; return s.length > 0 ? s[s.length - 1] : undefined; })()");
+                        writer.write(")");
                         return;
                     }
                     writer.useBuiltin("$last$");
@@ -1060,11 +1060,11 @@ export class Call extends Expression {
                         this.args[0]?.type instanceof MutArrType ||
                         this.args[0]?.type === "Str"
                     ) {
-                        writer.write("(() => { const _i = ");
+                        writer.write("((i) => i === -1 ? undefined : BigInt(i))(");
                         this.args[0]?.toJS(writer);
                         writer.write(".indexOf(");
                         this.args[1]?.toJS(writer);
-                        writer.write("); return _i === -1 ? undefined : BigInt(_i); })()");
+                        writer.write("))");
                     } else if (this.args[0]?.type instanceof IterType) {
                         writer.useBuiltin("$find$");
                         writer.write("$find$(");
@@ -1476,11 +1476,11 @@ export class DirectCall extends Expression {
                 writer.write("]");
             } else {
                 // Maybe-wrapped string index: str[i] returns undefined if out of bounds
-                writer.write("(() => { const _s = ");
+                writer.write("((s, i) => i >= 0 && i < s.length ? s[i] : undefined)(");
                 this.caller.toJS(writer);
-                writer.write("; const _i = Number(");
+                writer.write(", ");
                 this.args[0].toJS(writer);
-                writer.write("); return _i >= 0 && _i < _s.length ? _s[_i] : undefined; })()");
+                writer.write(")");
             }
         } else if (this.caller.type instanceof CustomType && getStruct(this.caller.type.name)) {
             const fieldName =

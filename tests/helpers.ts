@@ -22,6 +22,38 @@ export function testCompile(text: string, expectEqual: unknown) {
 }
 
 /**
+ * Parse + compile a Gema program, then check whether the generated JS
+ * contains (or does not contain) the given patterns.
+ * Returns the compiled JS string.
+ */
+export function testCompileAndCheck(
+    text: string,
+    includes: string[] = [],
+    excludes: string[] = []
+): string {
+    resetRegistries();
+    const tokens = scan(text);
+    const { ast, errors } = parse(tokens);
+    expect(errors.length).toBe(0);
+    const sourceOut = writeJS(ast);
+    for (const pattern of includes) {
+        if (!sourceOut.includes(pattern)) {
+            console.log(`Expected to find in JS output:\n  ${pattern}`);
+            console.log("Actual JS:\n", sourceOut);
+        }
+        expect(sourceOut).toInclude(pattern);
+    }
+    for (const pattern of excludes) {
+        if (sourceOut.includes(pattern)) {
+            console.log(`Expected NOT to find in JS output:\n  ${pattern}`);
+            console.log("Actual JS:\n", sourceOut);
+        }
+        expect(sourceOut).not.toInclude(pattern);
+    }
+    return sourceOut;
+}
+
+/**
  * Parse a program and assert no errors. Returns the AST.
  */
 export function testParse(text: string) {

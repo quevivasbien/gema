@@ -6,7 +6,7 @@ A statically-typed functional programming language that transpiles to JavaScript
 
 ```bash
 bun install              # Install dependencies
-bun build:frontend   # Bundle the web playground
+bun build:frontend       # Bundle the web playground
 bun run server.ts        # Start dev server on port 3000
 ```
 
@@ -114,7 +114,63 @@ if x > 0 {
 };
 ```
 
-### 5. Arrays
+### 5. Loops and Control Flow
+
+```gema
+# For loop over a range
+mut values = []:Int | trans;
+for i = 1..5 {
+    push(values, i * 10);
+};
+# values: 10, 20, 30, 40, 50
+
+# For loop over an array
+values = []:Int | trans;
+for x in [10, 20, 30] {
+    push(values, x + 1);
+};
+# values: 11, 21, 31
+
+# For loop over a string (iterates characters)
+chars = []:Str | trans;
+for ch in "abc" {
+    push(chars, ch);
+};
+# chars: "a", "b", "c"
+
+# break — exit a loop early
+values = []:Int | trans;
+for i = 1..10 {
+    if i > 5 {
+        break
+    };
+    push(values, i);
+};
+# values: 1, 2, 3, 4, 5
+
+# continue — skip to next iteration
+values = []:Int | trans;
+for i = 1..10 {
+    if i % 2 == 0 {
+        continue
+    };
+    push(values, i);
+};
+# values: 1, 3, 5, 7, 9
+
+# return — exit a function early (only valid inside functions)
+func findFirstEven(xs: Arr[Int]): Int {
+    for x in xs {
+        if x % 2 == 0 {
+            return x
+        }
+    };
+    0
+};
+findFirstEven([1, 3, 4, 7])  # → 4
+```
+
+### 6. Arrays
 
 ```gema
 arr = [1, 2, 3];        # Array literal

@@ -93,13 +93,6 @@ test("compile variables named with JS reserved words", () => {
     );
     testCompile(
         `
-        return = true;
-        return
-    `,
-        true
-    );
-    testCompile(
-        `
         func f(const: Int): Int {
             const
         };
@@ -186,7 +179,6 @@ test("parse variables named with JS reserved words", () => {
     testParse(`const = 5`);
     testParse(`let = 10`);
     testParse(`class = 20`);
-    testParse(`return = true`);
     testParse(`func f(const: Int): Int { const }; f(5)`);
     testParse(`
         const = 1;

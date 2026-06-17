@@ -1,32 +1,5 @@
 # Roadmap for `gema` development
 
-## Improve string ops
-
-Strings can be indexed (though unwrapping is not implemented in this case) but not sliced. We should bring strings to parity with arrays in this respect.
-
-Something like this should work already but gives a weird runtime error:
-
-```
-func sum(xs: Iter[Int]) {
-  reduce(\acc, x {acc + x}, 0, xs)
-}
-
-# Gema has arbitrary-precision integers, so this is somewhat trivial
-numbers | sum | toStr | \x map(\i x(i), 0..9)
-```
-
-`length` and `last` should also work on strings.
-
-It would also be convenient if there was an easy way to convert a string to an array or to an iterator. Maybe builtin `toArr` and/or `toIter` functions.
-
-Ideally would have some support for basic ops like:
-
-- fstring
-- string split
-- string search
-- string replace
-- regular expressions?
-
 ## Change tuple type signature from `Tuple[A, B, C, ...]` to `(A, B, C, ...)`
 
 This one is pretty self-explanatory -- it would make it a bit less clunky to work with tuples or do things like creating an empty `Dict`.
@@ -74,31 +47,85 @@ TBD
 
 List comprehensions are helpful as a succinct map + zip + filter. Could be nice to have.
 
-## Tentative: currying
+## Stdlib
 
-Could be quite useful but possibly quite difficult to implement.
+This needs to wait until after we have the ability to import JS code and/or import other modules, but we should have some sort of standard library of helpful, optimized functions beyond those built in to the language
 
-Maybe a simpler feature that would have most of the utility would be something like some special character or other syntax in a function call that means that the function call should actually generate a closure that takes the variable masked by the special char, something like:
+## Builtin traits
+
+Maybe should wait until once we have some sort of Stdlib, but it would be nice to have standard traits like
 
 ```gema
-func foo(a: Int, b:Int) {
-    a + b
+trait Summable {
+  add[(a: Self, b: Self): Self],
 }
-
-13 | foo(1, *Int)  # Would be equivalent to 13 | func(x:Int){foo(1, x)}
 ```
 
-It should be quite straightforward to infer the type of `*` here, so this could be shortened to just something like `13 | foo(1, *)`.
+which would be a formalization of how operator overloading already works, but could also be useful in other cases. E.g., users could create functions like
 
-Note: this will be less important now that we have succinct lambda functions. `13 | \x foo(1, x)` is already quite concise.
+```gema
+func sumFrom(iter: Iter[T], start: T) where T is Summable {
+  reduce(\(acc, x) { acc + x }, start, iter)
+}
+```
+
+As an extension to this, it could also be useful to allow traits to require functions that don't require any `Self` arguments. The syntax could be something like
+
+```gema
+trait Summable {
+  add[(a: Self, b: Self): Self],
+  Self.zero[:Self]
+}
+
+func sum(iter: T) where T is Summable {
+  reduce(\(acc, x) { acc + x }, T.zero(), iter)
+}
+
+# Example implementation:
+struct S { s: Int }
+
+func sum(a: S, b: S) {
+  S(a.s + b.s)
+}
+
+func S.zero() {
+  S(0)
+}
+
+# Then we can do
+sum([S(1), S(2), S(3)])
+```
+
+## Tentative: allow structs to have generic fields
+
+Something like:
+
+```gema
+struct S[T] where T is Foo {
+  a: T,
+  b: T
+}
+```
 
 ## Return and continue keywords
 
 These would be helpful to avoid deeply nested control flow.
 
-## Concatenate iterators
+## Misc improvements and bug fixes
 
-Plus operator on iterators of the same type should concatenate them.
+Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
+
+range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
+
+Add naked for loop (equivalent to while true)
+
+Make dicts and sets from iterators; conversely, make iterators from dicts and sets
+
+Tentative: Cartesian product iterator, permutations iterator, combinations iterator
+
+Both put and push should return the value, not the data structure that the value was added to
+
+.. syntax for ranges should not continue into a curly brace block (most relevant in context of for loop)
 
 ## Optimizations
 
@@ -114,7 +141,7 @@ When chaining some operations, there are some efficiency improvements to be made
 
 For loops on ranges could be made more efficient if iterated var is not actually used.
 
-If a block expression gets dropped, it doesn't need to be an IIFE.
+Blocks that contain only a single expression can usually be brought up into the enclosing block.
 
 Lots of other room for improvement here.
 

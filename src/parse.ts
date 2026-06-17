@@ -203,6 +203,16 @@ PARSE_RULES[TokenType.Break] = {
     infix: null,
     precedence: Precedence.None,
 };
+PARSE_RULES[TokenType.Continue] = {
+    prefix: parseContinue,
+    infix: null,
+    precedence: Precedence.None,
+};
+PARSE_RULES[TokenType.Return] = {
+    prefix: parseReturn,
+    infix: null,
+    precedence: Precedence.None,
+};
 
 // Define default rules
 Object.values(TokenType).forEach((tokenType) => {
@@ -980,6 +990,31 @@ function parseFor(parser: Parser): AST.Expression {
 function parseBreak(parser: Parser): AST.Expression {
     const startToken = parser.previous();
     return new AST.Break(startToken);
+}
+
+function parseContinue(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    return new AST.Continue(startToken);
+}
+
+function parseReturn(parser: Parser): AST.Expression {
+    const startToken = parser.previous();
+    const next = parser.atEnd() ? undefined : parser.current().type;
+    // If next token is a statement terminator, return has no value
+    if (next === undefined || next === TokenType.Semicolon || next === TokenType.RBrace) {
+        const nullToken: Token = {
+            line: startToken.line,
+            col: startToken.col,
+            text: "null",
+            type: TokenType.LParen,
+        };
+        return new AST.Return(startToken, new AST.Literal(nullToken, "Null"));
+    }
+    const value = parser.expression();
+    if (value === null) {
+        throw new Error("Expected expression after `return`");
+    }
+    return new AST.Return(startToken, value);
 }
 
 class Parser {

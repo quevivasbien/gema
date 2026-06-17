@@ -35,6 +35,33 @@ bun run server.ts        # Start dev server on port 3000
 - If you suspect that a test is not passing because the test itself has a mistake in it, let the user know.
 - If you add or modify tests for any reason, ALWAYS have the user review your changes to the tests before making further changes to the codebase.
 
+If you need to dig into the generated tokens / AST / compiled JS for a test case, you can use a command like this to create and execute a test file within the project directory:
+
+```bash
+cat > ./test_foo.mjs << 'ENDSCRIPT'
+import { scan } from "./src/scan";
+import { parse } from "./src/parse";
+import { writeJS } from "./src/write-js";
+import { resetRegistries } from "./src/ast/registries";
+
+resetRegistries();
+const text = `
+func foo(x: Int) { x }
+foo(1)
+`;
+const tokens = scan(text);
+const { ast, errors } = parse(tokens);
+console.log("Errors:", errors.map(e => e.message));
+const sourceOut = writeJS(ast);
+console.log("JS:\n", sourceOut);
+const result = eval(sourceOut);
+console.log("Result:", result);
+ENDSCRIPT
+bun run ./test_foo.mjs 2>&1
+```
+
+Be sure to delete any test files you create this way once you are done debugging.
+
 ## Contribution guidelines
 
 - Run eslint (e.g. `bun run eslint`) and tsc (`bun tsc`) before finalizing changes. Do your best to comply with its suggestions. DO NOT use eslint-ignore without verifying it's okay with the user.
