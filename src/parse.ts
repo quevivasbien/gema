@@ -1000,7 +1000,7 @@ function parseContinue(parser: Parser): AST.Expression {
 function parseReturn(parser: Parser): AST.Expression {
     const startToken = parser.previous();
     const next = parser.atEnd() ? undefined : parser.current().type;
-    // If next token is a statement terminator, return has no value
+    // If next token is a statement terminator, return a Null value
     if (next === undefined || next === TokenType.Semicolon || next === TokenType.RBrace) {
         const nullToken: Token = {
             line: startToken.line,
@@ -1008,7 +1008,7 @@ function parseReturn(parser: Parser): AST.Expression {
             text: "null",
             type: TokenType.LParen,
         };
-        return new AST.Return(startToken, new AST.Literal(nullToken, "Null"));
+        return new AST.Return(startToken, null);
     }
     const value = parser.expression();
     if (value === null) {

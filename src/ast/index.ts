@@ -29,6 +29,8 @@ export {
     If,
     ForLoop,
     Break,
+    Continue,
+    Return,
     RangeIter,
     Variable,
     Assignment,
