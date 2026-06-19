@@ -32,29 +32,22 @@ import { DropValue } from "./expression";
 
 // ── Helpers ──
 
+/** Walk up parent chain to find a variable of struct type by name. */
 function findStructTypedVariable(
-    _root: Expression,
-    ancestors: Expression[],
+    startNode: Expression,
     name: string
 ): { varName: string; structType: Type } | null {
-    for (let i = ancestors.length - 1; i >= 0; i--) {
-        const ancestor = ancestors[i];
-        if (ancestor instanceof Function) {
-            for (const param of ancestor.params) {
+    let node: Expression | null = startNode.parent;
+    while (node) {
+        if (node instanceof Function || node instanceof AnonymousFunction) {
+            for (const param of node.params) {
                 if (param.name === name && param.type instanceof CustomType) {
                     const structInfo = getStruct(param.type.name);
                     if (structInfo) return { varName: name, structType: param.type };
                 }
             }
-        } else if (ancestor instanceof AnonymousFunction) {
-            for (const param of ancestor.params) {
-                if (param.name === name && param.type instanceof CustomType) {
-                    const structInfo = getStruct(param.type.name);
-                    if (structInfo) return { varName: name, structType: param.type };
-                }
-            }
-        } else if (ancestor instanceof Block) {
-            for (const expr of ancestor.expressions) {
+        } else if (node instanceof Block) {
+            for (const expr of node.expressions) {
                 let e = expr;
                 while (e instanceof DropValue) e = e.child;
                 if (e instanceof Assignment && e.name === name) {
@@ -66,31 +59,23 @@ function findStructTypedVariable(
                 }
             }
         }
+        node = node.parent;
     }
     return null;
 }
 
-function findStringTypedVariable(
-    _root: Expression,
-    ancestors: Expression[],
-    name: string
-): string | null {
-    for (let i = ancestors.length - 1; i >= 0; i--) {
-        const ancestor = ancestors[i];
-        if (ancestor instanceof Function) {
-            for (const param of ancestor.params) {
+/** Walk up parent chain to find a variable of string type by name. */
+function findStringTypedVariable(startNode: Expression, name: string): string | null {
+    let node: Expression | null = startNode.parent;
+    while (node) {
+        if (node instanceof Function || node instanceof AnonymousFunction) {
+            for (const param of node.params) {
                 if (param.name === name && param.type === "Str") {
                     return name;
                 }
             }
-        } else if (ancestor instanceof AnonymousFunction) {
-            for (const param of ancestor.params) {
-                if (param.name === name && param.type === "Str") {
-                    return name;
-                }
-            }
-        } else if (ancestor instanceof Block) {
-            for (const expr of ancestor.expressions) {
+        } else if (node instanceof Block) {
+            for (const expr of node.expressions) {
                 let e = expr;
                 while (e instanceof DropValue) e = e.child;
                 if (e instanceof Assignment && e.name === name) {
@@ -100,6 +85,7 @@ function findStringTypedVariable(
                 }
             }
         }
+        node = node.parent;
     }
     return null;
 }
@@ -130,13 +116,13 @@ export class Call extends Expression {
         this.args = args;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // Pre-fill unresolved anonymous function params so findBuiltin can match them
-        this.prefillLambdaParams(ancestors);
+        this.prefillLambdaParams();
 
         const positionalArgTypes = this.args.map((arg, i) => {
-            arg.cascadeTypes([...ancestors, this], true);
+            arg.cascadeTypes(true);
             if (arg.type === null) {
                 throw this.error(`unable to resolve type of argument ${i + 1} in call`);
             }
@@ -144,7 +130,7 @@ export class Call extends Expression {
         });
 
         const keywordInfos = this.keywordArgs.map((k) => {
-            k.value.cascadeTypes([...ancestors, this], true);
+            k.value.cascadeTypes(true);
             if (k.value.type === null) {
                 throw this.error(`unable to resolve type of keyword argument '${k.name}'`);
             }
@@ -191,15 +177,14 @@ export class Call extends Expression {
                 this.args = ordered;
                 this.keywordArgs = [];
             } else {
-                let prevAncestor: Expression | null = null;
-                for (let ai = ancestors.length - 1; ai >= 0; ai--) {
-                    const ancestor = ancestors[ai];
-                    if (ancestor instanceof Block) {
-                        const searchFor = prevAncestor ?? this;
-                        const olderSiblings = ancestor.expressions.slice(
-                            0,
-                            ancestor.expressions.indexOf(searchFor)
-                        );
+                // Search enclosing Blocks via parent pointers for a Function definition
+                // that matches this call's name and can resolve keyword arguments.
+                let child: Expression | null = null;
+                let parent = this.parent;
+                outer: while (parent) {
+                    if (parent instanceof Block) {
+                        const idx = parent.expressions.indexOf(child ?? this);
+                        const olderSiblings = parent.expressions.slice(0, idx);
                         for (let sj = olderSiblings.length - 1; sj >= 0; sj--) {
                             let sib = olderSiblings[sj];
                             while (sib instanceof DropValue) {
@@ -240,12 +225,12 @@ export class Call extends Expression {
                                 }
                                 this.args = ordered;
                                 this.keywordArgs = [];
-                                ai = -1;
-                                break;
+                                break outer;
                             }
                         }
                     }
-                    prevAncestor = ancestor;
+                    child = parent;
+                    parent = parent.parent;
                 }
             }
         }
@@ -257,7 +242,7 @@ export class Call extends Expression {
             allArgTypes = [...positionalArgTypes, ...keywordInfos.map((k) => k.type)];
         }
 
-        const { error, result } = findCaller(this, ancestors, this.name, allArgTypes);
+        const { error, result } = findCaller(this, this.parent, this.name, allArgTypes);
         if (error !== null) {
             // Struct field access fallback: varName("fieldName")
             if (
@@ -266,7 +251,7 @@ export class Call extends Expression {
                 this.args[0] instanceof Literal
             ) {
                 const fieldName = this.args[0].value.slice(1, -1);
-                const structVar = findStructTypedVariable(this, ancestors, this.name);
+                const structVar = findStructTypedVariable(this, this.name);
                 if (structVar !== null) {
                     const structInfo =
                         structVar.structType instanceof CustomType
@@ -290,7 +275,7 @@ export class Call extends Expression {
             }
             // String indexing fallback: strVar(index)
             if (allArgTypes.length === 1 && allArgTypes[0] === "Int") {
-                const stringVarType = findStringTypedVariable(this, ancestors, this.name);
+                const stringVarType = findStringTypedVariable(this, this.name);
                 if (stringVarType !== null) {
                     this.type = new MaybeType("Str");
                     this.referToByName = this.name;
@@ -347,7 +332,7 @@ export class Call extends Expression {
 
         // Fill unresolved anonymous function params using inferred types from context
         if (this.callerType instanceof FuncType && this.isBuiltin) {
-            this.fillAnonFunctionParams(ancestors);
+            this.fillAnonFunctionParams();
         }
 
         // Tuple literal index resolution: tup(0) → exact element type at index 0
@@ -454,7 +439,7 @@ export class Call extends Expression {
      * Before the main cascade, pre-fill lambda params for known builtins by
      * cascading the non-function args first to get their types.
      */
-    private prefillLambdaParams(ancestors: Expression[]): void {
+    private prefillLambdaParams(): void {
         // Find the anonymous function arg and the iterable arg
         // Normal call: map(fn, iter) → fn at 0, iter at 1
         // Pipe call: iter | map(fn) → iter at 0, fn at 1
@@ -478,7 +463,7 @@ export class Call extends Expression {
         // Cascade the non-function args (everything except the anon function) first
         for (let i = 0; i < this.args.length; i++) {
             if (this.args[i] !== anonFn) {
-                this.args[i].cascadeTypes([...ancestors, this], true);
+                this.args[i].cascadeTypes(true);
             }
         }
 
@@ -516,20 +501,17 @@ export class Call extends Expression {
         }
 
         if (expectedParamTypes !== null) {
-            anonFn.fillParams(expectedParamTypes, ancestors);
+            anonFn.fillParams(expectedParamTypes);
             return;
         }
 
         // Fallback: try to find a user-defined function by name in ancestor chain
         // and extract the expected function param type from its first parameter.
-        const fnDef = this.findUserFunctionDef(
-            ancestors,
-            this.args.slice(1).map((a) => a.type as Type)
-        );
+        const fnDef = this.findUserFunctionDef(this.args.slice(1).map((a) => a.type as Type));
         if (fnDef && fnDef.params.length > 0) {
             const firstParamType = fnDef.params[0].type;
             if (firstParamType instanceof FuncType && firstParamType.paramTypes.length > 0) {
-                anonFn.fillParams(firstParamType.paramTypes, ancestors);
+                anonFn.fillParams(firstParamType.paramTypes);
             }
         }
     }
@@ -539,18 +521,14 @@ export class Call extends Expression {
      * matching non-function args to narrow down overloads.
      */
     private findUserFunctionDef(
-        ancestors: Expression[],
         otherArgTypes: Type[]
     ): { params: { name: string; type: Type }[]; returnType: Type } | null {
-        let prevAncestor: Expression | null = null;
-        for (let i = ancestors.length - 1; i >= 0; i--) {
-            const ancestor = ancestors[i];
-            if (ancestor instanceof Block) {
-                const searchFor = prevAncestor ?? this;
-                const olderSiblings = ancestor.expressions.slice(
-                    0,
-                    ancestor.expressions.indexOf(searchFor)
-                );
+        let child: Expression | null = null;
+        let parent = this.parent;
+        while (parent) {
+            if (parent instanceof Block) {
+                const idx = parent.expressions.indexOf(child ?? this);
+                const olderSiblings = parent.expressions.slice(0, idx);
                 for (let j = olderSiblings.length - 1; j >= 0; j--) {
                     let sib = olderSiblings[j];
                     while (sib instanceof DropValue) sib = sib.child;
@@ -570,7 +548,8 @@ export class Call extends Expression {
                     }
                 }
             }
-            prevAncestor = ancestor;
+            child = parent;
+            parent = parent.parent;
         }
         // Generic functions: try monomorphized versions already cached
         for (const [, fn] of getAllMonomorphized()) {
@@ -595,7 +574,7 @@ export class Call extends Expression {
      * Fill unresolved anonymous function (lambda) params from the call context.
      * Derives expected param types based on the builtin kind and non-function args.
      */
-    private fillAnonFunctionParams(ancestors: Expression[]): void {
+    private fillAnonFunctionParams(): void {
         const anonFn = this.args[0];
         if (!(anonFn instanceof AnonymousFunction) || !anonFn.needsInference) return;
 
@@ -645,10 +624,10 @@ export class Call extends Expression {
         }
 
         if (expectedParamTypes !== null) {
-            anonFn.fillParams(expectedParamTypes, ancestors);
+            anonFn.fillParams(expectedParamTypes);
             // Re-resolve the call with the now-resolved function type
             const resolvedArgTypes = this.args.map((arg) => arg.type as Type);
-            const { error, result } = findCaller(this, ancestors, this.name, resolvedArgTypes);
+            const { error, result } = findCaller(this, this.parent, this.name, resolvedArgTypes);
             if (error === null) {
                 this.callerType = result.callerType;
                 this.type = result.rootType;
@@ -1228,12 +1207,12 @@ export class DirectCall extends Expression {
         this.args = args;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // If the caller is an unresolved anonymous function, infer params from call args first
         if (this.caller instanceof AnonymousFunction && this.caller.needsInference) {
             const argTypes = this.args.map((arg, i) => {
-                arg.cascadeTypes([...ancestors, this], true);
+                arg.cascadeTypes(true);
                 if (arg.type === null) {
                     throw this.error(
                         `unable to resolve type of argument ${i + 1} in function call`
@@ -1242,19 +1221,19 @@ export class DirectCall extends Expression {
                 return arg.type;
             });
             // Set anon function params from call arg types, then cascade the body
-            this.caller.fillParams(argTypes, ancestors);
+            this.caller.fillParams(argTypes);
             this.callerType = this.caller.type as CallableType;
             this.type = this.callerType instanceof FuncType ? this.callerType.returnType : "Null";
             return;
         }
 
-        this.caller.cascadeTypes(ancestors, true);
+        this.caller.cascadeTypes(true);
         if (this.caller.type === null) {
             throw this.error("unable to resolve type of call");
         }
         if (this.caller.type instanceof FuncType) {
             const argTypes = this.args.map((arg, i) => {
-                arg.cascadeTypes([...ancestors, this], true);
+                arg.cascadeTypes(true);
                 if (arg.type === null) {
                     throw this.error(
                         `unable to resolve type of argument ${i + 1} in function call`
@@ -1273,13 +1252,13 @@ export class DirectCall extends Expression {
         if (this.caller.type instanceof ArrayType || this.caller.type instanceof MutArrType) {
             // Array slicing with range: arr(a..b) returns an array, not an element
             if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
-                this.args[0].cascadeTypes([...ancestors, this], true);
+                this.args[0].cascadeTypes(true);
                 this.type = this.caller.type;
                 return;
             }
             // Cascade args first so their types are resolved before checking compatibility
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes([...ancestors, this], true);
+                arg.cascadeTypes(true);
                 if (arg.type === null) {
                     throw this.error(`unable to resolve type of argument ${i + 1} in array access`);
                 }
@@ -1307,7 +1286,7 @@ export class DirectCall extends Expression {
         }
         if (this.caller.type instanceof IterType) {
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes([...ancestors, this], true);
+                arg.cascadeTypes(true);
                 if (arg.type === null) {
                     throw this.error(`unable to resolve type of argument ${i + 1} in iter access`);
                 }
@@ -1326,12 +1305,12 @@ export class DirectCall extends Expression {
         if (this.caller.type === "Str") {
             // String slicing with range: str(a..b) returns a substring
             if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
-                this.args[0].cascadeTypes([...ancestors, this], true);
+                this.args[0].cascadeTypes(true);
                 this.type = "Str";
                 return;
             }
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes([...ancestors, this], true);
+                arg.cascadeTypes(true);
                 if (arg.type === null) {
                     throw this.error(
                         `unable to resolve type of argument ${i + 1} in string index access`
@@ -1352,7 +1331,7 @@ export class DirectCall extends Expression {
 
         if (this.caller.type instanceof TupleType) {
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes([...ancestors, this], true);
+                arg.cascadeTypes(true);
                 if (arg.type === null) {
                     throw this.error(
                         `unable to resolve type of argument ${i + 1} in tuple index access`
@@ -1387,7 +1366,7 @@ export class DirectCall extends Expression {
 
         if (this.caller.type instanceof DictType || this.caller.type instanceof MutDictType) {
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes([...ancestors, this], true);
+                arg.cascadeTypes(true);
                 if (arg.type === null) {
                     throw this.error(`unable to resolve type of argument ${i + 1} in dict access`);
                 }
@@ -1413,7 +1392,7 @@ export class DirectCall extends Expression {
                         `struct field access requires exactly one argument (the field name), got ${this.args.length}`
                     );
                 }
-                this.args[0].cascadeTypes([...ancestors, this], true);
+                this.args[0].cascadeTypes(true);
                 if (this.args[0].type === null) {
                     throw this.error("unable to resolve type of field name argument");
                 }

@@ -1175,7 +1175,7 @@ function findBuiltin(
 
 export function findCaller(
     root: Expression,
-    ancestors: Expression[],
+    parent: Expression | null,
     name: string,
     argTypes: Type[]
 ):
@@ -1209,41 +1209,45 @@ export function findCaller(
     // Check if a local variable with this name shadows any global function.
     // Variable assignments and function params take priority over globally
     // registered functions.
-    let scanAncestor: Expression = root;
     let hasLocalVar = false;
-    localVarCheck: for (let i = 0; i < ancestors.length; i++) {
-        const ancestor = ancestors[ancestors.length - i - 1];
-        if (ancestor instanceof Block) {
-            const olderSiblings = ancestor.expressions.slice(
+    // Walk up parent chain from root looking for local definitions
+    let scanChild: Expression = root;
+    let scanNode: Expression | null = root.parent;
+    while (scanNode) {
+        if (scanNode instanceof Block) {
+            const olderSiblings = scanNode.expressions.slice(
                 0,
-                ancestor.expressions.indexOf(scanAncestor)
+                scanNode.expressions.indexOf(scanChild)
             );
-            for (let j = 0; j < olderSiblings.length; j++) {
-                let olderSibling = olderSiblings[olderSiblings.length - j - 1];
-                while (olderSibling instanceof DropValue) {
-                    olderSibling = olderSibling.child;
-                }
-                if (olderSibling instanceof Assignment && olderSibling.name === name) {
+            for (let j = olderSiblings.length - 1; j >= 0; j--) {
+                let sib = olderSiblings[j];
+                while (sib instanceof DropValue) sib = sib.child;
+                if (sib instanceof Assignment && sib.name === name) {
                     hasLocalVar = true;
-                    break localVarCheck;
+                    break;
                 }
             }
-        } else if (ancestor instanceof Function) {
-            for (const param of ancestor.params) {
+            if (hasLocalVar) break;
+        } else if (scanNode instanceof Function) {
+            for (const param of scanNode.params) {
                 if (param.name === name) {
                     hasLocalVar = true;
-                    break localVarCheck;
+                    break;
                 }
             }
-        } else if (ancestor instanceof AnonymousFunction) {
-            for (const param of ancestor.params) {
+            if (hasLocalVar) break;
+        } else if (scanNode instanceof AnonymousFunction) {
+            for (const param of scanNode.params) {
                 if (param.name === name) {
                     hasLocalVar = true;
-                    break localVarCheck;
+                    break;
                 }
             }
+            if (hasLocalVar) break;
         }
-        scanAncestor = ancestor;
+        if (hasLocalVar) break;
+        scanChild = scanNode;
+        scanNode = scanNode.parent;
     }
 
     // First try direct match by fullName (skip if a local variable shadows)
@@ -1261,16 +1265,17 @@ export function findCaller(
         };
     }
 
-    let lastAncestor: Expression = root;
-    for (let i = 0; i < ancestors.length; i++) {
-        const ancestor = ancestors[ancestors.length - i - 1];
-        if (ancestor instanceof Block) {
-            const olderSiblings = ancestor.expressions.slice(
+    // Walk up parent chain from original root looking for sibling function defs
+    let walkNode: Expression | null = root.parent;
+    let child: Expression = root;
+    while (walkNode) {
+        if (walkNode instanceof Block) {
+            const olderSiblings = walkNode.expressions.slice(
                 0,
-                ancestor.expressions.indexOf(lastAncestor)
+                walkNode.expressions.indexOf(child)
             );
-            for (let j = 0; j < olderSiblings.length; j++) {
-                let olderSibling = olderSiblings[olderSiblings.length - j - 1];
+            for (let j = olderSiblings.length - 1; j >= 0; j--) {
+                let olderSibling = olderSiblings[j];
                 while (olderSibling instanceof DropValue) {
                     olderSibling = olderSibling.child;
                 }
@@ -1303,7 +1308,7 @@ export function findCaller(
                     olderSibling.params.length === argTypes.length
                 ) {
                     if (olderSibling.name === name) {
-                        const result = olderSibling.monomorphize(argTypes, ancestors);
+                        const result = olderSibling.monomorphize(argTypes);
                         if (result !== null) {
                             return {
                                 error: null,
@@ -1429,13 +1434,13 @@ export function findCaller(
                     };
                 }
             }
-        } else if (ancestor instanceof Function) {
-            for (const param of ancestor.params) {
+        } else if (walkNode instanceof Function) {
+            for (const param of walkNode.params) {
                 if (param.name === name) {
                     if (param.type instanceof FuncType) {
                         if (!paramTypesMatchArgTypes(param.type.paramTypes, argTypes)) {
                             return {
-                                error: `variable ${name} (parameter of function ${ancestor.name}) has an incompatible type signature for this function call.`,
+                                error: `variable ${name} (parameter of function ${walkNode.name}) has an incompatible type signature for this function call.`,
                                 result: null,
                             };
                         }
@@ -1556,24 +1561,24 @@ export function findCaller(
                         break;
                     }
                     return {
-                        error: `variable ${name} (parameter of function ${ancestor.name}) is not a function.`,
+                        error: `variable ${name} (parameter of function ${walkNode.name}) is not a function.`,
                         result: null,
                     };
                 }
             }
-            if (ancestor.fullName === fullName) {
+            if (walkNode.fullName === fullName) {
                 return {
                     error: null,
                     result: {
                         kind: "function",
                         referToByName: fullName,
-                        callerType: ancestor.getFuncType(),
-                        rootType: ancestor.returnType,
+                        callerType: walkNode.getFuncType(),
+                        rootType: walkNode.returnType,
                     },
                 };
             }
-        } else if (ancestor instanceof AnonymousFunction) {
-            for (const param of ancestor.params) {
+        } else if (walkNode instanceof AnonymousFunction) {
+            for (const param of walkNode.params) {
                 if (param.name === name) {
                     if (param.type instanceof FuncType) {
                         if (!paramTypesMatchArgTypes(param.type.paramTypes, argTypes)) {
@@ -1705,7 +1710,8 @@ export function findCaller(
                 }
             }
         }
-        lastAncestor = ancestor;
+        child = walkNode;
+        walkNode = walkNode.parent;
     }
 
     // Check for type conversion builtins
@@ -1764,17 +1770,17 @@ export function findCaller(
     }
 
     // Fallback: inside a generic function body, check for trait functions
-    for (let ai = ancestors.length - 1; ai >= 0; ai--) {
-        const ancestor = ancestors[ai];
-        if (ancestor instanceof Function && ancestor.isGeneric) {
-            for (const tp of ancestor.typeParams) {
+    let traitFn: Expression | null = parent;
+    while (traitFn) {
+        if (traitFn instanceof Function && traitFn.isGeneric) {
+            for (const tp of traitFn.typeParams) {
                 const traits = new Set<string>();
-                for (const param of ancestor.params) {
+                for (const param of traitFn.params) {
                     for (const t of collectTraitsForTypeParam(param.type, tp)) {
                         traits.add(t);
                     }
                 }
-                for (const t of collectTraitsForTypeParam(ancestor.returnType, tp)) {
+                for (const t of collectTraitsForTypeParam(traitFn.returnType, tp)) {
                     traits.add(t);
                 }
                 for (const traitName of traits) {
@@ -1813,6 +1819,7 @@ export function findCaller(
             }
             break;
         }
+        traitFn = traitFn.parent;
     }
 
     return {

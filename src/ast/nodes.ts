@@ -44,11 +44,11 @@ export class Block extends Expression {
         super(rootToken.line, rootToken.col);
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         for (let i = 0; i < this.expressions.length; i++) {
             const childValueUsed = i === this.expressions.length - 1 ? valueUsed : false;
-            this.expressions[i].cascadeTypes([...ancestors, this], childValueUsed);
+            this.expressions[i].cascadeTypes(childValueUsed);
         }
         this.type = this.expressions[this.expressions.length - 1].type;
     }
@@ -133,16 +133,16 @@ export class If extends Expression {
         return last instanceof Break || last instanceof Continue || last instanceof Return;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.elseBranch.cascadeTypes([...ancestors, this], valueUsed);
+        this.elseBranch.cascadeTypes(valueUsed);
 
         this.conditionalBranches.forEach(({ condition, branch }) => {
-            condition.cascadeTypes([...ancestors, this], true);
+            condition.cascadeTypes(true);
             if (condition.type !== "Bool") {
                 throw this.error(`condition must be boolean, but found ${condition.type}`);
             }
-            branch.cascadeTypes([...ancestors, this], valueUsed);
+            branch.cascadeTypes(valueUsed);
             if (this.hasElse) {
                 if (!deepEquals(this.elseBranch.type, branch.type)) {
                     throw this.error(
@@ -260,9 +260,9 @@ export class ForLoop extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.iter.cascadeTypes([...ancestors, this], true);
+        this.iter.cascadeTypes(true);
         if (this.iter.type === null) {
             throw this.error("unable to resolve type of iterator");
         }
@@ -276,7 +276,7 @@ export class ForLoop extends Expression {
         } else {
             throw this.error(`cannot iterate over object of type ${this.iter.type}`);
         }
-        this.body.cascadeTypes([...ancestors, this], false);
+        this.body.cascadeTypes(false);
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -288,35 +288,23 @@ export class ForLoop extends Expression {
         );
     }
 
-    /** Check if a break/continue inside this loop's body is inside an IIFE (needs exception) */
-    static needsTryCatchForBody(expr: Expression, inIIFE: boolean): boolean {
-        if (expr instanceof Break || expr instanceof Continue) return inIIFE;
-        if (expr instanceof DropValue) {
-            return ForLoop.needsTryCatchForBody(expr.child, inIIFE);
-        }
-        if (expr instanceof Block) {
-            const childInIIFE = inIIFE || (expr.isValueUsed && Block.lastExprShouldReturn(expr));
-            return expr.expressions.some((e) => ForLoop.needsTryCatchForBody(e, childInIIFE));
-        }
+    /** Walk the body subtree to check if any Break/Continue needs exception handling. */
+    private bodyNeedsException(expr: Expression): boolean {
+        if (expr instanceof Break || expr instanceof Continue) return expr.needsException;
+        if (expr instanceof DropValue) return this.bodyNeedsException(expr.child);
+        if (expr instanceof Block) return expr.expressions.some((e) => this.bodyNeedsException(e));
         if (expr instanceof If) {
-            const childInIIFE = inIIFE || (expr.isValueUsed && expr.hasElse);
             return (
-                expr.conditionalBranches.some((b) =>
-                    ForLoop.needsTryCatchForBody(b.branch, childInIIFE)
-                ) || ForLoop.needsTryCatchForBody(expr.elseBranch, childInIIFE)
+                expr.conditionalBranches.some((b) => this.bodyNeedsException(b.branch)) ||
+                this.bodyNeedsException(expr.elseBranch)
             );
         }
-        if (expr instanceof ForLoop) {
-            return false; // break/continue in nested loops are handled by that loop
-        }
-        // Recurse into common wrapper nodes (Assignment, etc.)
-        if (expr && typeof expr === "object") {
-            const wrapperProps = ["child", "value"];
-            for (const key of wrapperProps) {
-                const child = (expr as unknown as Record<string, unknown>)[key];
-                if (child && typeof child === "object" && child.constructor?.name) {
-                    if (ForLoop.needsTryCatchForBody(child as Expression, inIIFE)) return true;
-                }
+        if (expr instanceof ForLoop) return false; // break/continue in nested loops are handled by that loop
+        // Recurse into common wrapper nodes
+        for (const key of ["child", "value"] as const) {
+            const child = (expr as unknown as Record<string, Expression | undefined>)[key];
+            if (child && typeof child === "object" && child.constructor?.name) {
+                if (this.bodyNeedsException(child)) return true;
             }
         }
         return false;
@@ -348,7 +336,7 @@ export class ForLoop extends Expression {
         writer.write(`if (${safeVarName} === undefined) break;`);
         writer.newLine();
 
-        const needsTry = this.body.expressions.some((e) => ForLoop.needsTryCatchForBody(e, false));
+        const needsTry = this.body.expressions.some((e) => this.bodyNeedsException(e));
         if (needsTry) {
             writer.useBuiltin("$Continue$");
             writer.useBuiltin("$Break$");
@@ -392,7 +380,7 @@ export class Break extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // Verify `break` is inside a for loop
         if (!this.findEnclosing(ForLoop)) {
@@ -404,8 +392,29 @@ export class Break extends Expression {
         return new Break({ line: this.line, col: this.col, text: "break", type: TokenType.Break });
     }
 
-    /** Set during pre-pass: true if this break is inside an IIFE */
-    needsException: boolean = false;
+    /** True if this break is inside an IIFE (computed lazily via parent pointers) */
+    get needsException(): boolean {
+        let node: Expression | null = this.parent;
+        while (node) {
+            if (node instanceof ForLoop) return false;
+            if (node instanceof Function || node instanceof AnonymousFunction) return false;
+            if (node instanceof Block && node.isValueUsed) {
+                // A Block creates an IIFE context only when it's NOT the direct body of a function or loop
+                const isFunctionBody =
+                    node.parent instanceof Function || node.parent instanceof AnonymousFunction;
+                const isLoopBody = node.parent instanceof ForLoop;
+                if (
+                    !isFunctionBody &&
+                    !isLoopBody &&
+                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
+                )
+                    return true;
+            }
+            if (node instanceof If && node.isValueUsed && node.hasElse) return true;
+            node = node.parent;
+        }
+        return false;
+    }
 
     toJS(writer: JSWriter): void {
         if (this.needsException) {
@@ -423,7 +432,7 @@ export class Continue extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // Verify `continue` is inside a for loop
         if (!this.findEnclosing(ForLoop)) {
@@ -440,8 +449,28 @@ export class Continue extends Expression {
         });
     }
 
-    /** Set during pre-pass: true if this continue is inside an IIFE */
-    needsException: boolean = false;
+    /** True if this continue is inside an IIFE (computed lazily via parent pointers) */
+    get needsException(): boolean {
+        let node: Expression | null = this.parent;
+        while (node) {
+            if (node instanceof ForLoop) return false;
+            if (node instanceof Function || node instanceof AnonymousFunction) return false;
+            if (node instanceof Block && node.isValueUsed) {
+                const isFunctionBody =
+                    node.parent instanceof Function || node.parent instanceof AnonymousFunction;
+                const isLoopBody = node.parent instanceof ForLoop;
+                if (
+                    !isFunctionBody &&
+                    !isLoopBody &&
+                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
+                )
+                    return true;
+            }
+            if (node instanceof If && node.isValueUsed && node.hasElse) return true;
+            node = node.parent;
+        }
+        return false;
+    }
 
     toJS(writer: JSWriter): void {
         if (this.needsException) {
@@ -461,9 +490,9 @@ export class Return extends Expression {
         super(startToken.line, startToken.col);
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.value.cascadeTypes([...ancestors, this], true);
+        this.value.cascadeTypes(true);
         this.type = "Null"; // Return statements have type null, even if their values do not
         // Verify `return` is inside a function,
         // and let that function knows it needs to check that the return type matches
@@ -480,8 +509,26 @@ export class Return extends Expression {
         );
     }
 
-    /** Set during pre-pass: true if this return is inside an IIFE */
-    needsException: boolean = false;
+    /** True if this return is inside an IIFE (computed lazily via parent pointers) */
+    get needsException(): boolean {
+        let node: Expression | null = this.parent;
+        while (node) {
+            if (node instanceof Function || node instanceof AnonymousFunction) return false;
+            if (node instanceof Block && node.isValueUsed) {
+                // A Block creates an IIFE context only when it's NOT the direct body of a function
+                const isFunctionBody =
+                    node.parent instanceof Function || node.parent instanceof AnonymousFunction;
+                if (
+                    !isFunctionBody &&
+                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
+                )
+                    return true;
+            }
+            if (node instanceof If && node.isValueUsed && node.hasElse) return true;
+            node = node.parent;
+        }
+        return false;
+    }
 
     toJS(writer: JSWriter): void {
         if (this.needsException) {
@@ -520,22 +567,22 @@ export class RangeIter extends Expression {
         this.step = step;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         if (this.start !== null) {
-            this.start.cascadeTypes(ancestors, true);
+            this.start.cascadeTypes(true);
             if (this.start.type !== "Int") {
                 throw this.error("range start must be an integer");
             }
         }
         if (this.end !== null) {
-            this.end.cascadeTypes(ancestors, true);
+            this.end.cascadeTypes(true);
             if (this.end.type !== "Int") {
                 throw this.error("range end must be an integer");
             }
         }
         if (this.step !== null) {
-            this.step.cascadeTypes(ancestors, true);
+            this.step.cascadeTypes(true);
             if (this.step.type !== "Int") {
                 throw this.error("range step must be an integer");
             }
@@ -586,11 +633,11 @@ export class TupleLit extends Expression {
         }
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         const types: Type[] = [];
         for (let i = 0; i < this.elements.length; i++) {
-            this.elements[i].cascadeTypes([...ancestors, this], true);
+            this.elements[i].cascadeTypes(true);
             if (this.elements[i].type === null) {
                 throw this.error(`unable to resolve type of tuple element ${i + 1}`);
             }
@@ -633,9 +680,9 @@ export class TupleUnpack extends Expression {
         this.isDropped = isDropped;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.source.cascadeTypes([...ancestors, this], true);
+        this.source.cascadeTypes(true);
         if (this.source.type === null) {
             throw this.error("unable to resolve type of source expression");
         }
@@ -655,10 +702,10 @@ export class TupleUnpack extends Expression {
             const elemType = this.source.type.types[i];
 
             // Check for existing variable with same name (reassignment semantics)
-            const sameBlockDef = Assignment.findDefiningAssignment(binding.name, this, ancestors);
+            const sameBlockDef = Assignment.findDefiningAssignment(binding.name, this);
             const outerDef = sameBlockDef
                 ? null
-                : Assignment.findOuterDefinition(binding.name, this, ancestors);
+                : Assignment.findOuterDefinition(binding.name, this);
 
             if (sameBlockDef !== null || outerDef !== null) {
                 const existingDef = sameBlockDef ?? outerDef!;
@@ -742,7 +789,24 @@ export class Variable extends Expression {
         return this.name;
     }
 
-    setTypeWithTemplateTypes(ancestors: Expression[]): void {
+    /** Walk up the parent chain through enclosing Blocks, scanning older sibling
+     *  expressions in each one. Stops when the callback returns true (found). */
+    private walkEnclosingBlocks(callback: (siblings: Expression[]) => boolean): boolean {
+        let child: Expression | null = null;
+        let parent = this.parent;
+        while (parent) {
+            if (parent instanceof Block) {
+                const idx = parent.expressions.indexOf(child ?? this);
+                const olderSiblings = parent.expressions.slice(0, idx);
+                if (callback(olderSiblings)) return true;
+            }
+            child = parent;
+            parent = parent.parent;
+        }
+        return false;
+    }
+
+    setTypeWithTemplateTypes(): void {
         this.fullName = functionNameWithParamTypes(this.name, this.templateTypes?.types ?? []);
         // Check global registry first (for non-generic or already-monomorphized functions)
         const registered = findFunction(this.fullName);
@@ -750,27 +814,17 @@ export class Variable extends Expression {
             this.type = registered.getFuncType();
             return;
         }
-        let prevAncestor: Expression | null = null;
-        for (let i = 0; i < ancestors.length; i++) {
-            const ancestor = ancestors[ancestors.length - i - 1];
-            if (!(ancestor instanceof Block)) {
-                prevAncestor = ancestor;
-                continue;
-            }
-            const searchFor = prevAncestor ?? this;
-            const olderSiblings = ancestor.expressions.slice(
-                0,
-                ancestor.expressions.indexOf(searchFor)
-            );
-            for (let j = 0; j < olderSiblings.length; j++) {
-                let olderSibling = olderSiblings[olderSiblings.length - j - 1];
+        // Walk up parent chain scanning older siblings in each enclosing Block
+        const found = this.walkEnclosingBlocks((olderSiblings) => {
+            for (let j = olderSiblings.length - 1; j >= 0; j--) {
+                let olderSibling = olderSiblings[j];
                 if (olderSibling instanceof DropValue) {
                     olderSibling = olderSibling.child;
                 }
                 // Exact match on fullName (non-generic or already monomorphized)
                 if (olderSibling instanceof Function && olderSibling.fullName === this.fullName) {
                     this.type = olderSibling.getFuncType();
-                    return;
+                    return true;
                 }
                 // Generic function match — attempt monomorphization
                 if (
@@ -779,17 +833,19 @@ export class Variable extends Expression {
                     olderSibling.isGeneric
                 ) {
                     const argTypes = this.templateTypes?.types ?? [];
-                    const result = olderSibling.monomorphize(argTypes, ancestors);
+                    const result = olderSibling.monomorphize(argTypes);
                     if (result !== null) {
                         this.fullName = result.fullName;
                         this.type = result.funcType;
-                        return;
+                        return true;
                     }
                 }
             }
-            prevAncestor = ancestor;
+            return false;
+        });
+        if (!found) {
+            throw this.error(`cannot resolve type of variable '${this}'`);
         }
-        throw this.error(`cannot resolve type of variable '${this}'`);
     }
 
     resolveAssignment(e: Expression): Type | null {
@@ -812,41 +868,54 @@ export class Variable extends Expression {
         return null;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         if (!this.templateTypes.empty()) {
-            this.setTypeWithTemplateTypes(ancestors);
+            this.setTypeWithTemplateTypes();
             return;
         }
-        let prevAncestor: Expression | null = null;
-        for (let i = 0; i < ancestors.length; i++) {
-            const ancestor = ancestors[ancestors.length - i - 1];
-            if (ancestor instanceof Block) {
-                const searchFor = prevAncestor ?? this;
-                const olderSiblings = ancestor.expressions.slice(
-                    0,
-                    ancestor.expressions.indexOf(searchFor)
-                );
-                for (let j = 0; j < olderSiblings.length; j++) {
-                    let olderSibling = olderSiblings[olderSiblings.length - j - 1];
-                    const type = this.resolveAssignment(olderSibling);
-                    if (type !== null) {
-                        this.type = type;
+        // Walk up parent chain checking enclosing contexts for variable definitions.
+        // 'child' tracks the expression at each level that leads back to this variable,
+        // so we can correctly identify sibling positions in Blocks.
+        let child: Expression | null = null;
+        let node: Expression | null = this.parent;
+        while (node) {
+            // Check Function/AnonymousFunction params
+            if (node instanceof Function || node instanceof AnonymousFunction) {
+                for (const param of node.params) {
+                    if (param.name === this.name && param.type !== null) {
+                        this.type = param.type;
                         this.fullName = this.name;
-                        if (isVarConsumed(this.fullName)) {
-                            throw this.error(
-                                `cannot use variable '${this.fullName}' after it was detrans'd`
-                            );
-                        }
                         return;
                     }
-                    // Check inside DropValue or non-matching Assignment for nested
-                    // assignments (e.g. x = (y = 2); (x, y) — y is nested in x's value)
-                    if (olderSibling instanceof DropValue) {
-                        olderSibling = olderSibling.child;
-                        const innerType = this.resolveAssignment(olderSibling);
-                        if (innerType !== null) {
-                            this.type = innerType;
+                }
+            }
+            // Check ForLoop variable
+            if (node instanceof ForLoop && node.varName === this.name) {
+                let innerType: Type = "Int";
+                if (node.iter.type instanceof ArrayType) {
+                    innerType = node.iter.type.innerType;
+                } else if (node.iter.type instanceof IterType) {
+                    innerType = node.iter.type.innerType;
+                } else if (node.iter.type instanceof MutArrType) {
+                    innerType = node.iter.type.innerType;
+                } else if (node.iter.type === "Str") {
+                    innerType = "Str";
+                }
+                this.type = innerType;
+                this.fullName = this.name;
+                return;
+            }
+            // Scan older siblings in Blocks (only when child is a direct expression of the Block)
+            if (node instanceof Block) {
+                const idx = node.expressions.indexOf(child ?? this);
+                if (idx > 0) {
+                    const olderSiblings = node.expressions.slice(0, idx);
+                    for (let j = olderSiblings.length - 1; j >= 0; j--) {
+                        let sib = olderSiblings[j];
+                        const type = this.resolveAssignment(sib);
+                        if (type !== null) {
+                            this.type = type;
                             this.fullName = this.name;
                             if (isVarConsumed(this.fullName)) {
                                 throw this.error(
@@ -855,28 +924,11 @@ export class Variable extends Expression {
                             }
                             return;
                         }
-                    }
-                    // For a non-matching Assignment, check its value for nested assignments
-                    if (olderSibling instanceof Assignment && olderSibling.name !== this.name) {
-                        const nested = this.findNestedAssignment(olderSibling.value, this.name);
-                        if (nested !== null) {
-                            this.type = nested;
-                            this.fullName = this.name;
-                            if (isVarConsumed(this.fullName)) {
-                                throw this.error(
-                                    `cannot use variable '${this.fullName}' after it was detrans'd`
-                                );
-                            }
-                            return;
-                        }
-                    }
-                    // Check TupleUnpack bindings
-                    if (olderSibling instanceof TupleUnpack) {
-                        const binding = olderSibling.bindings.find((b) => b.name === this.name);
-                        if (binding) {
-                            const idx = olderSibling.bindings.indexOf(binding);
-                            if (olderSibling.source.type instanceof TupleType) {
-                                this.type = olderSibling.source.type.types[idx];
+                        if (sib instanceof DropValue) {
+                            sib = sib.child;
+                            const innerType = this.resolveAssignment(sib);
+                            if (innerType !== null) {
+                                this.type = innerType;
                                 this.fullName = this.name;
                                 if (isVarConsumed(this.fullName)) {
                                     throw this.error(
@@ -886,64 +938,51 @@ export class Variable extends Expression {
                                 return;
                             }
                         }
+                        if (sib instanceof Assignment && sib.name !== this.name) {
+                            const nested = this.findNestedAssignment(sib.value, this.name);
+                            if (nested !== null) {
+                                this.type = nested;
+                                this.fullName = this.name;
+                                if (isVarConsumed(this.fullName)) {
+                                    throw this.error(
+                                        `cannot use variable '${this.fullName}' after it was detrans'd`
+                                    );
+                                }
+                                return;
+                            }
+                        }
+                        if (sib instanceof TupleUnpack) {
+                            const binding = sib.bindings.find((b) => b.name === this.name);
+                            if (binding) {
+                                const idx = sib.bindings.indexOf(binding);
+                                if (sib.source.type instanceof TupleType) {
+                                    this.type = sib.source.type.types[idx];
+                                    this.fullName = this.name;
+                                    if (isVarConsumed(this.fullName)) {
+                                        throw this.error(
+                                            `cannot use variable '${this.fullName}' after it was detrans'd`
+                                        );
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                        if (sib instanceof DropValue) sib = sib.child;
+                        if (
+                            sib instanceof Function &&
+                            sib.name === this.name &&
+                            sib.params.length === 0 &&
+                            sib.fullName !== null
+                        ) {
+                            this.type = sib.getFuncType();
+                            this.fullName = sib.fullName;
+                            return;
+                        }
                     }
-                    if (olderSibling instanceof DropValue) {
-                        olderSibling = olderSibling.child;
-                    }
-                    if (
-                        olderSibling instanceof Function &&
-                        olderSibling.name === this.name &&
-                        olderSibling.params.length === 0 &&
-                        olderSibling.fullName !== null
-                    ) {
-                        this.type = olderSibling.getFuncType();
-                        this.fullName = olderSibling.fullName;
-                        return;
-                    }
-                }
-            } else if (ancestor instanceof Function) {
-                for (const param of ancestor.params) {
-                    if (param.name === this.name) {
-                        this.type = param.type;
-                        this.fullName = this.name;
-                        return;
-                    }
-                }
-                if (
-                    ancestor.name === this.name &&
-                    ancestor.params.length === 0 &&
-                    ancestor.fullName !== null
-                ) {
-                    this.type = ancestor.type;
-                    this.fullName = ancestor.fullName;
-                    return;
-                }
-            } else if (ancestor instanceof AnonymousFunction) {
-                for (const param of ancestor.params) {
-                    if (param.name === this.name) {
-                        this.type = param.type;
-                        this.fullName = this.name;
-                        return;
-                    }
-                }
-            } else if (ancestor instanceof ForLoop) {
-                if (ancestor.varName === this.name) {
-                    let innerType: Type = "Int";
-                    if (ancestor.iter.type instanceof ArrayType) {
-                        innerType = ancestor.iter.type.innerType;
-                    } else if (ancestor.iter.type instanceof IterType) {
-                        innerType = ancestor.iter.type.innerType;
-                    } else if (ancestor.iter.type instanceof MutArrType) {
-                        innerType = ancestor.iter.type.innerType;
-                    } else if (ancestor.iter.type === "Str") {
-                        innerType = "Str";
-                    }
-                    this.type = innerType;
-                    this.fullName = this.name;
-                    return;
                 }
             }
-            prevAncestor = ancestor;
+            child = node;
+            node = node.parent;
         }
         throw this.error(`unable to resolve type of variable ${this}`);
     }
@@ -989,129 +1028,99 @@ export class Assignment extends Expression {
         this.isMutable = isMutable;
     }
 
+    /** Scan older siblings in the immediate enclosing Block for a variable definition. */
     static findDefiningAssignment(
         name: string,
-        startNode: Expression,
-        ancestors: Expression[]
+        startNode: Expression
     ): { isMutable: boolean; type: Type } | null {
-        for (let i = 0; i < ancestors.length; i++) {
-            const ancestor = ancestors[ancestors.length - i - 1];
-            if (ancestor instanceof Block) {
-                const olderSiblings = ancestor.expressions.slice(
-                    0,
-                    ancestor.expressions.indexOf(startNode)
-                );
-                for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                    let olderSibling = olderSiblings[j];
-                    if (olderSibling instanceof DropValue) {
-                        olderSibling = olderSibling.child;
-                        // Don't match self (startNode nested inside DropValue)
-                        if (olderSibling === startNode) continue;
-                    }
-                    if (olderSibling instanceof Assignment && olderSibling.name === name) {
-                        if (olderSibling.isReassignment) {
-                            continue;
-                        }
-                        return {
-                            isMutable: olderSibling.isMutable,
-                            type: olderSibling.value.type!,
-                        };
-                    }
-                    // Also check TupleUnpack definitions
-                    if (olderSibling instanceof TupleUnpack) {
-                        const binding = olderSibling.bindings.find((b) => b.name === name);
-                        if (binding && olderSibling.source.type instanceof TupleType) {
-                            const idx = olderSibling.bindings.indexOf(binding);
-                            return {
-                                isMutable: binding.isMutable,
-                                type: olderSibling.source.type.types[idx],
-                            };
-                        }
-                    }
+        const parent = startNode.parent;
+        if (!(parent instanceof Block)) return null;
+        const olderSiblings = parent.expressions.slice(0, parent.expressions.indexOf(startNode));
+        for (let j = olderSiblings.length - 1; j >= 0; j--) {
+            let olderSibling = olderSiblings[j];
+            if (olderSibling instanceof DropValue) {
+                olderSibling = olderSibling.child;
+                if (olderSibling === startNode) continue;
+            }
+            if (olderSibling instanceof Assignment && olderSibling.name === name) {
+                if (olderSibling.isReassignment) continue;
+                return { isMutable: olderSibling.isMutable, type: olderSibling.value.type! };
+            }
+            if (olderSibling instanceof TupleUnpack) {
+                const binding = olderSibling.bindings.find((b) => b.name === name);
+                if (binding && olderSibling.source.type instanceof TupleType) {
+                    const idx = olderSibling.bindings.indexOf(binding);
+                    return {
+                        isMutable: binding.isMutable,
+                        type: olderSibling.source.type.types[idx],
+                    };
                 }
-                return null;
             }
         }
         return null;
     }
 
+    /** Walk up parent chain beyond the direct enclosing Block to find a variable definition. */
     static findOuterDefinition(
         name: string,
-        startNode: Expression,
-        ancestors: Expression[]
+        startNode: Expression
     ): { isMutable: boolean; type: Type } | null {
-        let foundInnerBlock = false;
-        let lastAncestor: Expression = startNode;
-        for (let i = 0; i < ancestors.length; i++) {
-            const ancestor = ancestors[ancestors.length - i - 1];
-            if (!foundInnerBlock) {
-                if (ancestor instanceof Block) {
-                    foundInnerBlock = true;
-                }
-                lastAncestor = ancestor;
+        // Walk up from startNode's parent, tracking 'child' to limit sibling scans
+        let child: Expression = startNode;
+        let node: Expression | null = startNode.parent;
+        let skippedFirstBlock = false;
+        while (node) {
+            if (!skippedFirstBlock) {
+                if (node instanceof Block) skippedFirstBlock = true;
+                child = node;
+                node = node.parent;
                 continue;
             }
-            if (ancestor instanceof Block) {
-                const olderSiblings = ancestor.expressions.slice(
-                    0,
-                    ancestor.expressions.indexOf(lastAncestor)
-                );
-                for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                    let olderSibling = olderSiblings[j];
-                    if (olderSibling instanceof DropValue) {
-                        olderSibling = olderSibling.child;
-                        // Don't match self (startNode nested inside DropValue)
-                        if (olderSibling === startNode) continue;
+            if (node instanceof Block) {
+                // Only scan siblings before the child that led into this Block
+                const idx = node.expressions.indexOf(child);
+                for (let j = idx - 1; j >= 0; j--) {
+                    let sib = node.expressions[j];
+                    if (sib instanceof DropValue) sib = sib.child;
+                    if (sib instanceof Assignment && sib.name === name && !sib.isReassignment) {
+                        return { isMutable: sib.isMutable, type: sib.value.type! };
                     }
-                    if (olderSibling instanceof Assignment && olderSibling.name === name) {
-                        if (olderSibling.isReassignment) {
-                            continue;
-                        }
-                        return {
-                            isMutable: olderSibling.isMutable,
-                            type: olderSibling.value.type!,
-                        };
-                    }
-                    // Also check TupleUnpack definitions
-                    if (olderSibling instanceof TupleUnpack) {
-                        const binding = olderSibling.bindings.find((b) => b.name === name);
-                        if (binding && olderSibling.source.type instanceof TupleType) {
-                            const idx = olderSibling.bindings.indexOf(binding);
+                    if (sib instanceof TupleUnpack) {
+                        const binding = sib.bindings.find((b) => b.name === name);
+                        if (binding && sib.source.type instanceof TupleType) {
+                            const idx = sib.bindings.indexOf(binding);
                             return {
                                 isMutable: binding.isMutable,
-                                type: olderSibling.source.type.types[idx],
+                                type: sib.source.type.types[idx],
                             };
                         }
                     }
                 }
-            } else if (ancestor instanceof Function) {
-                for (const arg of ancestor.params) {
-                    if (arg.name === name) {
-                        return { isMutable: false, type: arg.type };
-                    }
+            } else if (node instanceof Function) {
+                for (const arg of node.params) {
+                    if (arg.name === name) return { isMutable: false, type: arg.type };
                 }
-            } else if (ancestor instanceof AnonymousFunction) {
-                for (const arg of ancestor.params) {
-                    if (arg.name === name) {
-                        return { isMutable: false, type: arg.type };
-                    }
+            } else if (node instanceof AnonymousFunction) {
+                for (const arg of node.params) {
+                    if (arg.name === name) return { isMutable: false, type: arg.type };
                 }
             }
-            lastAncestor = ancestor;
+            child = node;
+            node = node.parent;
         }
         return null;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.value.cascadeTypes([...ancestors, this], true);
+        this.value.cascadeTypes(true);
         this.type = this.isDropped ? "Null" : this.value.type;
 
         if (this.value.type === "Null") {
             throw this.error("cannot assign null value to variable");
         }
 
-        const sameBlockDef = Assignment.findDefiningAssignment(this.name, this, ancestors);
+        const sameBlockDef = Assignment.findDefiningAssignment(this.name, this);
 
         if (sameBlockDef !== null) {
             this.isReassignment = true;
@@ -1133,7 +1142,7 @@ export class Assignment extends Expression {
                 );
             }
         } else if (this.isMutable) {
-            const outerDef = Assignment.findOuterDefinition(this.name, this, ancestors);
+            const outerDef = Assignment.findOuterDefinition(this.name, this);
             if (outerDef !== null && !outerDef.isMutable) {
                 throw this.error(
                     `cannot declare mutable variable '${this.name}' — it shadows a non-mutable variable in an outer scope`
@@ -1141,7 +1150,7 @@ export class Assignment extends Expression {
             }
             this.isReassignment = false;
         } else {
-            const outerDef = Assignment.findOuterDefinition(this.name, this, ancestors);
+            const outerDef = Assignment.findOuterDefinition(this.name, this);
             if (outerDef !== null) {
                 this.isReassignment = true;
 
@@ -1217,14 +1226,14 @@ export class AnonymousFunction extends Expression {
     }
 
     /** Fill param types from an inferred signature, then cascade the body. */
-    fillParams(types: Type[], ancestors: Expression[]): void {
+    fillParams(types: Type[]): void {
         if (!this.needsInference) return;
         for (let i = 0; i < this.params.length; i++) {
             this.params[i].type = types[i] ?? this.params[i].type;
         }
         this.needsInference = false;
         // Body: last expression is the return value (always consumed).
-        this.body.cascadeTypes([...ancestors, this], true);
+        this.body.cascadeTypes(true);
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
@@ -1240,7 +1249,7 @@ export class AnonymousFunction extends Expression {
         );
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // If params have null types, set a placeholder FuncType and skip body cascade.
         // fillParams() must be called by the enclosing context to provide real types.
@@ -1256,7 +1265,7 @@ export class AnonymousFunction extends Expression {
         // Body: last expression is the return value (always consumed), not the
         // function definition's own valueUsed. Block.cascadeTypes handles the
         // per-expression valueUsed propagation internally.
-        this.body.cascadeTypes([...ancestors, this], true);
+        this.body.cascadeTypes(true);
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
@@ -1294,41 +1303,27 @@ export class AnonymousFunction extends Expression {
         return cloned;
     }
 
-    /** Check if a return inside this function's body is inside an IIFE (needs exception) */
-    static needsTryCatchForReturn(expr: Expression, inIIFE: boolean): boolean {
-        if (expr instanceof Return) return inIIFE;
-        if (expr instanceof DropValue) {
-            return AnonymousFunction.needsTryCatchForReturn(expr.child, inIIFE);
-        }
-        if (expr instanceof Block) {
-            const childInIIFE = inIIFE || (expr.isValueUsed && Block.lastExprShouldReturn(expr));
-            return expr.expressions.some((e) =>
-                AnonymousFunction.needsTryCatchForReturn(e, childInIIFE)
-            );
-        }
-        if (expr instanceof If) {
-            const childInIIFE = inIIFE || (expr.isValueUsed && expr.hasElse);
-            return (
-                expr.conditionalBranches.some((b) =>
-                    AnonymousFunction.needsTryCatchForReturn(b.branch, childInIIFE)
-                ) || AnonymousFunction.needsTryCatchForReturn(expr.elseBranch, childInIIFE)
-            );
-        }
-        if (expr instanceof ForLoop) {
-            return AnonymousFunction.needsTryCatchForReturn(expr.body, inIIFE);
-        }
-        // Recurse into common wrapper nodes (Assignment, etc.)
-        if (expr && typeof expr === "object") {
-            const wrapperProps = ["child", "value"];
-            for (const key of wrapperProps) {
-                const child = (expr as unknown as Record<string, unknown>)[key];
+    /** Walk the body subtree to check if any Return needs exception handling. */
+    private needsTryCatch(): boolean {
+        const check = (expr: Expression): boolean => {
+            if (expr instanceof Return) return expr.needsException;
+            if (expr instanceof DropValue) return check(expr.child);
+            if (expr instanceof Block) return expr.expressions.some((e) => check(e));
+            if (expr instanceof If) {
+                return (
+                    expr.conditionalBranches.some((b) => check(b.branch)) || check(expr.elseBranch)
+                );
+            }
+            if (expr instanceof ForLoop) return check(expr.body);
+            for (const key of ["child", "value"] as const) {
+                const child = (expr as unknown as Record<string, Expression | undefined>)[key];
                 if (child && typeof child === "object" && child.constructor?.name) {
-                    if (AnonymousFunction.needsTryCatchForReturn(child as Expression, inIIFE))
-                        return true;
+                    if (check(child)) return true;
                 }
             }
-        }
-        return false;
+            return false;
+        };
+        return this.body.expressions.some((e) => check(e));
     }
 
     toJS(writer: JSWriter): void {
@@ -1336,9 +1331,7 @@ export class AnonymousFunction extends Expression {
         writer.write(this.params.map((p) => writer.safeName(p.name)).join(", "));
         writer.write(") => ");
         writer.beginFunction();
-        const needsTry = this.body.expressions.some((e) =>
-            AnonymousFunction.needsTryCatchForReturn(e, false)
-        );
+        const needsTry = this.needsTryCatch();
         if (needsTry) {
             writer.useBuiltin("$Return$");
             writer.write("try {");
@@ -1464,18 +1457,18 @@ export class Function extends Expression {
         return this.typeParams.length > 0;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // Body: last expression is the return value (always consumed).
         // Block.cascadeTypes handles per-expression valueUsed propagation.
         if (this.isGeneric) {
-            this.body.cascadeTypes([...ancestors, this], true);
+            this.body.cascadeTypes(true);
             return;
         }
         // Save/restore consumedVars so detrans inside function bodies doesn't
         // leak consumed status to outer scopes
         const savedConsumed = saveConsumedVars();
-        this.body.cascadeTypes([...ancestors, this], true);
+        this.body.cascadeTypes(true);
         restoreConsumedVars(savedConsumed);
 
         if (this.returnType === "Null" && this.body.type !== null && this.body.type !== "Null") {
@@ -1505,8 +1498,7 @@ export class Function extends Expression {
     }
 
     monomorphize(
-        argTypes: Type[],
-        ancestors?: Expression[]
+        argTypes: Type[]
     ): { fullName: string; funcType: FuncType; returnType: Type } | null {
         if (!this.isGeneric) return null;
         if (this.params.length !== argTypes.length) return null;
@@ -1568,8 +1560,10 @@ export class Function extends Expression {
         );
 
         // Fix parent pointers on the cloned subtree so findEnclosing() works
-        // during cascadeTypes of the monomorphized body
-        setParentPointers(monomorphized);
+        // during cascadeTypes of the monomorphized body.
+        // Link the monomorphized function into the parent chain by using
+        // this function's parent so ancestor lookups reach the main AST.
+        setParentPointers(monomorphized, this.parent);
 
         const allConcrete = clonedParams.every(
             (p) =>
@@ -1579,7 +1573,7 @@ export class Function extends Expression {
         );
 
         // Last body expression is return value (always consumed).
-        monomorphized.body.cascadeTypes([...(ancestors || []), monomorphized], true);
+        monomorphized.body.cascadeTypes(true);
 
         if (
             this.returnType === "Null" &&
@@ -1632,6 +1626,29 @@ export class Function extends Expression {
         return cloned;
     }
 
+    /** Walk the body subtree to check if any Return needs exception handling. */
+    private needsTryCatch(): boolean {
+        const check = (expr: Expression): boolean => {
+            if (expr instanceof Return) return expr.needsException;
+            if (expr instanceof DropValue) return check(expr.child);
+            if (expr instanceof Block) return expr.expressions.some((e) => check(e));
+            if (expr instanceof If) {
+                return (
+                    expr.conditionalBranches.some((b) => check(b.branch)) || check(expr.elseBranch)
+                );
+            }
+            if (expr instanceof ForLoop) return check(expr.body);
+            for (const key of ["child", "value"] as const) {
+                const child = (expr as unknown as Record<string, Expression | undefined>)[key];
+                if (child && typeof child === "object" && child.constructor?.name) {
+                    if (check(child)) return true;
+                }
+            }
+            return false;
+        };
+        return this.body.expressions.some((e) => check(e));
+    }
+
     toJS(writer: JSWriter): void {
         if (this.isGeneric) {
             for (const v of this.monomorphizedVersions) {
@@ -1645,9 +1662,7 @@ export class Function extends Expression {
         writer.write(this.params.map((p) => writer.safeName(p.name)).join(", "));
         writer.write(") ");
         writer.beginFunction();
-        const needsTry = this.body.expressions.some((e) =>
-            AnonymousFunction.needsTryCatchForReturn(e, false)
-        );
+        const needsTry = this.needsTryCatch();
         if (needsTry) {
             writer.useBuiltin("$Return$");
             writer.write("try {");

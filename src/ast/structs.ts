@@ -17,10 +17,10 @@ export class ArrLit extends Expression {
         }
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         this.expressions.forEach((expr, i) => {
-            expr.cascadeTypes(ancestors, true);
+            expr.cascadeTypes(true);
             if (expr.type === null) {
                 throw this.error(`unable to resolve type of array element ${i + 1}`);
             }
@@ -79,7 +79,7 @@ export class StructDef extends Expression {
         registerStruct(name, fields);
     }
 
-    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // Nothing to cascade — struct definition just registers its type
     }
@@ -101,9 +101,9 @@ export class FieldAccess extends Expression {
         super(obj.line, obj.col);
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.obj.cascadeTypes([...ancestors, this], valueUsed);
+        this.obj.cascadeTypes(valueUsed);
         if (this.obj.type === null) {
             throw this.error("unable to resolve type of object");
         }
@@ -146,10 +146,10 @@ export class FieldAssignment extends Expression {
         this.isDropped = isDropped;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.value.cascadeTypes([...ancestors, this], true);
-        this.obj.cascadeTypes([...ancestors, this], valueUsed);
+        this.value.cascadeTypes(true);
+        this.obj.cascadeTypes(valueUsed);
         if (this.obj.type === null) {
             throw this.error("unable to resolve type of object");
         }

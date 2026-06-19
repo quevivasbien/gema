@@ -46,9 +46,9 @@ export class Unary extends Expression {
         this.operator = operatorToken.type;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.child.cascadeTypes([...ancestors, this], valueUsed);
+        this.child.cascadeTypes(valueUsed);
 
         switch (this.child.type) {
             case "Int":
@@ -108,10 +108,10 @@ export class Binary extends Expression {
         this.operator = operatorToken.type;
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.left.cascadeTypes([...ancestors, this], valueUsed);
-        this.right.cascadeTypes([...ancestors, this], valueUsed);
+        this.left.cascadeTypes(valueUsed);
+        this.right.cascadeTypes(valueUsed);
 
         const [ltype, rtype] = [this.left.type, this.right.type];
 
@@ -222,7 +222,7 @@ export class Binary extends Expression {
         ) {
             const opName = OPERATOR_TO_FUNCTION[this.operator];
             if (opName) {
-                const { error, result } = findCaller(this, ancestors, opName, [ltype, rtype]);
+                const { error, result } = findCaller(this, this.parent, opName, [ltype, rtype]);
                 if (error === null) {
                     this.type = result.rootType;
                     this.overloadedAs = { name: result.referToByName };

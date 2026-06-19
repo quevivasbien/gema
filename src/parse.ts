@@ -1622,7 +1622,7 @@ export function parse(tokens: Token[]): { ast: AST.Expression; errors: ParseErro
         // upward tree walks (Return → enclosing Function, Break → enclosing ForLoop, etc.)
         AST.setParentPointers(block);
         try {
-            block.cascadeTypes([], true);
+            block.cascadeTypes(true);
         } catch (e) {
             if (e instanceof AST.ASTError) {
                 parser.errors.push({

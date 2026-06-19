@@ -33,7 +33,8 @@ export function setParentPointers(node: Expression, parent: Expression | null = 
             setParentPointers(child, node);
         }
     } else if (node instanceof If) {
-        for (const { branch } of node.conditionalBranches) {
+        for (const { condition, branch } of node.conditionalBranches) {
+            setParentPointers(condition, node);
             setParentPointers(branch, node);
         }
         setParentPointers(node.elseBranch, node);

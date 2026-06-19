@@ -36,7 +36,7 @@ export abstract class Expression {
         return null;
     }
 
-    abstract cascadeTypes(ancestors: Expression[], valueUsed: boolean): void;
+    abstract cascadeTypes(valueUsed: boolean): void;
 
     toJS(_writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`);
@@ -54,7 +54,7 @@ export class ErrorExpression extends Expression {
         super(token.line, token.col);
     }
 
-    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // noop
     }
@@ -70,10 +70,10 @@ export class DropValue extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+    cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
         // Type is already resolved as null, so just pass to children
-        this.child.cascadeTypes([...ancestors, this], false);
+        this.child.cascadeTypes(false);
     }
 
     toJS(writer: JSWriter): void {
