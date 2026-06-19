@@ -15,6 +15,10 @@ export default defineConfig([
         ...js.configs.recommended,
         languageOptions: { globals: globals.node },
     },
+    {
+        files: ["frontend/**/*.js"],
+        languageOptions: { globals: globals.browser },
+    },
     tseslint.configs.recommended,
     {
         rules: {

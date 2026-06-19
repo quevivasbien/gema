@@ -308,9 +308,9 @@ export class ForLoop extends Expression {
         if (expr && typeof expr === "object") {
             const wrapperProps = ["child", "value"];
             for (const key of wrapperProps) {
-                const child = (expr as any)[key];
+                const child = (expr as unknown as Record<string, unknown>)[key];
                 if (child && typeof child === "object" && child.constructor?.name) {
-                    if (ForLoop.needsTryCatchForBody(child, inIIFE)) return true;
+                    if (ForLoop.needsTryCatchForBody(child as Expression, inIIFE)) return true;
                 }
             }
         }
@@ -1166,14 +1166,8 @@ export class Assignment extends Expression {
     toJS(writer: JSWriter): void {
         const safeName = writer.safeName(this.name);
         if (this.isReassignment) {
-            if (this.isDropped) {
-                writer.write(`${safeName} = `);
-                this.value.toJS(writer);
-            } else {
-                writer.write(`(${safeName} = `);
-                this.value.toJS(writer);
-                writer.write(`, ${safeName})`);
-            }
+            writer.write(`${safeName} = `);
+            this.value.toJS(writer);
         } else {
             if (this.isDropped) {
                 writer.write(`${this.isMutable ? "let" : "const"} ${safeName} = `);
@@ -1314,9 +1308,9 @@ export class AnonymousFunction extends Expression {
         if (expr && typeof expr === "object") {
             const wrapperProps = ["child", "value"];
             for (const key of wrapperProps) {
-                const child = (expr as any)[key];
+                const child = (expr as unknown as Record<string, unknown>)[key];
                 if (child && typeof child === "object" && child.constructor?.name) {
-                    if (AnonymousFunction.needsTryCatchForReturn(child, inIIFE)) return true;
+                    if (AnonymousFunction.needsTryCatchForReturn(child as Expression, inIIFE)) return true;
                 }
             }
         }

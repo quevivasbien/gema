@@ -71,19 +71,19 @@ function markControlFlowExceptions(expr: AST.Expression, inIIFE: boolean): void 
     // Handle other common child properties (DropValue.child, Unary.operand, Assignment.value, etc.)
     const singleChildKeys = ["child", "operand", "left", "right", "value"];
     for (const key of singleChildKeys) {
-        const child = (expr as any)[key];
+        const child = (expr as unknown as Record<string, unknown>)[key];
         if (child && typeof child === "object" && child.constructor?.name) {
-            markControlFlowExceptions(child, inIIFE);
+            markControlFlowExceptions(child as AST.Expression, inIIFE);
         }
     }
     // Handle array children (expressions, args, items)
     const arrayChildKeys = ["expressions", "args", "items"];
     for (const key of arrayChildKeys) {
-        const arr = (expr as any)[key];
+        const arr = (expr as unknown as Record<string, unknown>)[key];
         if (Array.isArray(arr)) {
             for (const child of arr) {
                 if (child && typeof child === "object") {
-                    markControlFlowExceptions(child, inIIFE);
+                    markControlFlowExceptions(child as AST.Expression, inIIFE);
                 }
             }
         }
@@ -156,23 +156,23 @@ function markValueUsed(expr: AST.Expression, valueUsed: boolean): void {
     // Recurse into children for other expression types
     const singleChildKeys = ["value", "operand", "left", "right"];
     for (const key of singleChildKeys) {
-        const child = (expr as any)[key];
+        const child = (expr as unknown as Record<string, unknown>)[key];
         if (child && typeof child === "object" && child.constructor?.name) {
-            markValueUsed(child, valueUsed);
+            markValueUsed(child as AST.Expression, valueUsed);
         }
     }
     const arrayChildKeys = ["args", "items", "expressions"];
     for (const key of arrayChildKeys) {
-        const arr = (expr as any)[key];
+        const arr = (expr as unknown as Record<string, unknown>)[key];
         if (Array.isArray(arr)) {
             for (const child of arr) {
                 if (child && typeof child === "object") {
-                    markValueUsed(child, valueUsed);
+                    markValueUsed(child as AST.Expression, valueUsed);
                 }
             }
         }
     } // Keyword arguments — their values are always consumed
-    const kwArgs = (expr as any).keywordArgs as
+    const kwArgs = (expr as unknown as Record<string, unknown>).keywordArgs as
         | Array<{ name: string; value: AST.Expression }>
         | undefined;
     if (kwArgs) {
