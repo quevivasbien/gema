@@ -52,3 +52,6 @@ export { Trait } from "./traits";
 
 // Caller resolution
 export { findCaller } from "./caller";
+
+// Parent pointer setup
+export { setParentPointers } from "./set-parent-pointers";

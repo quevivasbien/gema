@@ -31,6 +31,7 @@ import {
     saveConsumedVars,
     restoreConsumedVars,
 } from "./registries";
+import { setParentPointers } from "./set-parent-pointers";
 
 export class Block extends Expression {
     constructor(
@@ -43,9 +44,11 @@ export class Block extends Expression {
         super(rootToken.line, rootToken.col);
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
-        for (const expression of this.expressions) {
-            expression.cascadeTypes([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        for (let i = 0; i < this.expressions.length; i++) {
+            const childValueUsed = i === this.expressions.length - 1 ? valueUsed : false;
+            this.expressions[i].cascadeTypes([...ancestors, this], childValueUsed);
         }
         this.type = this.expressions[this.expressions.length - 1].type;
     }
@@ -130,15 +133,16 @@ export class If extends Expression {
         return last instanceof Break || last instanceof Continue || last instanceof Return;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
-        this.elseBranch.cascadeTypes([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        this.elseBranch.cascadeTypes([...ancestors, this], valueUsed);
 
         this.conditionalBranches.forEach(({ condition, branch }) => {
-            condition.cascadeTypes([...ancestors, this]);
+            condition.cascadeTypes([...ancestors, this], true);
             if (condition.type !== "Bool") {
                 throw this.error(`condition must be boolean, but found ${condition.type}`);
             }
-            branch.cascadeTypes([...ancestors, this]);
+            branch.cascadeTypes([...ancestors, this], valueUsed);
             if (this.hasElse) {
                 if (!deepEquals(this.elseBranch.type, branch.type)) {
                     throw this.error(
@@ -256,8 +260,9 @@ export class ForLoop extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
-        this.iter.cascadeTypes([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        this.iter.cascadeTypes([...ancestors, this], true);
         if (this.iter.type === null) {
             throw this.error("unable to resolve type of iterator");
         }
@@ -271,7 +276,7 @@ export class ForLoop extends Expression {
         } else {
             throw this.error(`cannot iterate over object of type ${this.iter.type}`);
         }
-        this.body.cascadeTypes([...ancestors, this]);
+        this.body.cascadeTypes([...ancestors, this], false);
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -387,10 +392,10 @@ export class Break extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         // Verify `break` is inside a for loop
-        const inLoop = ancestors.some((a) => a instanceof ForLoop);
-        if (!inLoop) {
+        if (!this.findEnclosing(ForLoop)) {
             throw this.error("`break` is only allowed inside a for loop");
         }
     }
@@ -418,10 +423,10 @@ export class Continue extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         // Verify `continue` is inside a for loop
-        const inLoop = ancestors.some((a) => a instanceof ForLoop);
-        if (!inLoop) {
+        if (!this.findEnclosing(ForLoop)) {
             throw this.error("`continue` is only allowed inside a for loop");
         }
     }
@@ -456,17 +461,15 @@ export class Return extends Expression {
         super(startToken.line, startToken.col);
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
-        this.value.cascadeTypes([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        this.value.cascadeTypes([...ancestors, this], true);
         this.type = "Null"; // Return statements have type null, even if their values do not
         // Verify `return` is inside a function,
         // and let that function knows it needs to check that the return type matches
-        for (let i = ancestors.length - 1; i >= 0; i--) {
-            const a = ancestors[i];
-            if (a instanceof AnonymousFunction || a instanceof Function) {
-                a.returnStatements.push(this);
-                return;
-            }
+        const fn = this.findEnclosing(Function) ?? this.findEnclosing(AnonymousFunction);
+        if (fn) {
+            fn.returnStatements.push(this);
         }
     }
 
@@ -517,21 +520,22 @@ export class RangeIter extends Expression {
         this.step = step;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         if (this.start !== null) {
-            this.start.cascadeTypes(ancestors);
+            this.start.cascadeTypes(ancestors, true);
             if (this.start.type !== "Int") {
                 throw this.error("range start must be an integer");
             }
         }
         if (this.end !== null) {
-            this.end.cascadeTypes(ancestors);
+            this.end.cascadeTypes(ancestors, true);
             if (this.end.type !== "Int") {
                 throw this.error("range end must be an integer");
             }
         }
         if (this.step !== null) {
-            this.step.cascadeTypes(ancestors);
+            this.step.cascadeTypes(ancestors, true);
             if (this.step.type !== "Int") {
                 throw this.error("range step must be an integer");
             }
@@ -582,10 +586,11 @@ export class TupleLit extends Expression {
         }
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         const types: Type[] = [];
         for (let i = 0; i < this.elements.length; i++) {
-            this.elements[i].cascadeTypes([...ancestors, this]);
+            this.elements[i].cascadeTypes([...ancestors, this], true);
             if (this.elements[i].type === null) {
                 throw this.error(`unable to resolve type of tuple element ${i + 1}`);
             }
@@ -628,8 +633,9 @@ export class TupleUnpack extends Expression {
         this.isDropped = isDropped;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
-        this.source.cascadeTypes([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        this.source.cascadeTypes([...ancestors, this], true);
         if (this.source.type === null) {
             throw this.error("unable to resolve type of source expression");
         }
@@ -806,7 +812,8 @@ export class Variable extends Expression {
         return null;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         if (!this.templateTypes.empty()) {
             this.setTypeWithTemplateTypes(ancestors);
             return;
@@ -1095,8 +1102,9 @@ export class Assignment extends Expression {
         return null;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
-        this.value.cascadeTypes([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        this.value.cascadeTypes([...ancestors, this], true);
         this.type = this.isDropped ? "Null" : this.value.type;
 
         if (this.value.type === "Null") {
@@ -1215,7 +1223,8 @@ export class AnonymousFunction extends Expression {
             this.params[i].type = types[i] ?? this.params[i].type;
         }
         this.needsInference = false;
-        this.body.cascadeTypes([...ancestors, this]);
+        // Body: last expression is the return value (always consumed).
+        this.body.cascadeTypes([...ancestors, this], true);
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
@@ -1231,7 +1240,8 @@ export class AnonymousFunction extends Expression {
         );
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         // If params have null types, set a placeholder FuncType and skip body cascade.
         // fillParams() must be called by the enclosing context to provide real types.
         if (this.needsInference) {
@@ -1243,7 +1253,10 @@ export class AnonymousFunction extends Expression {
             );
             return;
         }
-        this.body.cascadeTypes([...ancestors, this]);
+        // Body: last expression is the return value (always consumed), not the
+        // function definition's own valueUsed. Block.cascadeTypes handles the
+        // per-expression valueUsed propagation internally.
+        this.body.cascadeTypes([...ancestors, this], true);
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
@@ -1310,7 +1323,8 @@ export class AnonymousFunction extends Expression {
             for (const key of wrapperProps) {
                 const child = (expr as unknown as Record<string, unknown>)[key];
                 if (child && typeof child === "object" && child.constructor?.name) {
-                    if (AnonymousFunction.needsTryCatchForReturn(child as Expression, inIIFE)) return true;
+                    if (AnonymousFunction.needsTryCatchForReturn(child as Expression, inIIFE))
+                        return true;
                 }
             }
         }
@@ -1450,15 +1464,18 @@ export class Function extends Expression {
         return this.typeParams.length > 0;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        // Body: last expression is the return value (always consumed).
+        // Block.cascadeTypes handles per-expression valueUsed propagation.
         if (this.isGeneric) {
-            this.body.cascadeTypes([...ancestors, this]);
+            this.body.cascadeTypes([...ancestors, this], true);
             return;
         }
         // Save/restore consumedVars so detrans inside function bodies doesn't
         // leak consumed status to outer scopes
         const savedConsumed = saveConsumedVars();
-        this.body.cascadeTypes([...ancestors, this]);
+        this.body.cascadeTypes([...ancestors, this], true);
         restoreConsumedVars(savedConsumed);
 
         if (this.returnType === "Null" && this.body.type !== null && this.body.type !== "Null") {
@@ -1550,6 +1567,10 @@ export class Function extends Expression {
             true
         );
 
+        // Fix parent pointers on the cloned subtree so findEnclosing() works
+        // during cascadeTypes of the monomorphized body
+        setParentPointers(monomorphized);
+
         const allConcrete = clonedParams.every(
             (p) =>
                 !(p.type instanceof CustomType) ||
@@ -1557,7 +1578,8 @@ export class Function extends Expression {
                 getStruct(p.type.name) !== undefined
         );
 
-        monomorphized.body.cascadeTypes([...(ancestors || []), monomorphized]);
+        // Last body expression is return value (always consumed).
+        monomorphized.body.cascadeTypes([...(ancestors || []), monomorphized], true);
 
         if (
             this.returnType === "Null" &&

@@ -46,8 +46,9 @@ export class Unary extends Expression {
         this.operator = operatorToken.type;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
-        this.child.cascadeTypes([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        this.child.cascadeTypes([...ancestors, this], valueUsed);
 
         switch (this.child.type) {
             case "Int":
@@ -107,9 +108,10 @@ export class Binary extends Expression {
         this.operator = operatorToken.type;
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
-        this.left.cascadeTypes([...ancestors, this]);
-        this.right.cascadeTypes([...ancestors, this]);
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        this.left.cascadeTypes([...ancestors, this], valueUsed);
+        this.right.cascadeTypes([...ancestors, this], valueUsed);
 
         const [ltype, rtype] = [this.left.type, this.right.type];
 

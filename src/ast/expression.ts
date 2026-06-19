@@ -14,6 +14,8 @@ export abstract class Expression {
     type: Type | null = null;
     /** Set during pre-pass: whether this expression's value is consumed by its context */
     isValueUsed: boolean = true;
+    /** Link to this node's parent in the AST tree. Set by setParentPointers(). */
+    parent: Expression | null = null;
 
     constructor(
         public line: number,
@@ -24,7 +26,17 @@ export abstract class Expression {
         return new ASTError(this.line, this.col, message);
     }
 
-    abstract cascadeTypes(ancestors: Expression[]): void;
+    /** Walk up the parent chain to find the nearest enclosing node of the given type. */
+    findEnclosing<T extends Expression>(type: new (...args: never[]) => T): T | null {
+        let node: Expression | null = this.parent;
+        while (node) {
+            if (node instanceof type) return node;
+            node = node.parent;
+        }
+        return null;
+    }
+
+    abstract cascadeTypes(ancestors: Expression[], valueUsed: boolean): void;
 
     toJS(_writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`);
@@ -42,7 +54,8 @@ export class ErrorExpression extends Expression {
         super(token.line, token.col);
     }
 
-    cascadeTypes(_ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         // noop
     }
 
@@ -57,9 +70,10 @@ export class DropValue extends Expression {
         this.type = "Null";
     }
 
-    cascadeTypes(ancestors: Expression[]): void {
+    cascadeTypes(ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         // Type is already resolved as null, so just pass to children
-        this.child.cascadeTypes([...ancestors, this]);
+        this.child.cascadeTypes([...ancestors, this], false);
     }
 
     toJS(writer: JSWriter): void {

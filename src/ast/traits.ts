@@ -60,7 +60,8 @@ export class Trait extends Expression {
         return null;
     }
 
-    cascadeTypes(_ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         // Nothing to do here
     }
 

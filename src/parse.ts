@@ -1618,8 +1618,11 @@ export function parse(tokens: Token[]): { ast: AST.Expression; errors: ParseErro
     const parser = new Parser(tokens);
     const block = parser.block();
     if (parser.errors.length === 0) {
+        // Set up parent pointers so cascadeTypes can use findEnclosing() for
+        // upward tree walks (Return → enclosing Function, Break → enclosing ForLoop, etc.)
+        AST.setParentPointers(block);
         try {
-            block.cascadeTypes([]);
+            block.cascadeTypes([], true);
         } catch (e) {
             if (e instanceof AST.ASTError) {
                 parser.errors.push({

@@ -12,7 +12,8 @@ export class Literal extends Expression {
         this.type = type;
     }
 
-    cascadeTypes(_ancestors: Expression[]): void {
+    cascadeTypes(_ancestors: Expression[], valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
         // Type is already resolved; no need to do anything
     }
 

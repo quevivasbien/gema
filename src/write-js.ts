@@ -182,6 +182,8 @@ function markValueUsed(expr: AST.Expression, valueUsed: boolean): void {
     }
 }
 
+
+
 const INDENT = "    ";
 
 // JavaScript reserved words that cannot be used as variable/function/parameter names
