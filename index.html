@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Gema Playground</title>
+        <link rel="stylesheet" href="styles.css" />
+    </head>
+
+    <body>
+        <header class="app-header">
+            <h1 class="app-title">gema <span class="app-subtitle">playground</span></h1>
+            <div class="toolbar">
+                <label class="toolbar-label">
+                    Preset:
+                    <select id="select-preset" name="select-preset">
+                        <!-- Populated by editor.js -->
+                    </select>
+                </label>
+                <button id="button-run" class="btn btn-run">Run (Ctrl+Enter)</button>
+            </div>
+        </header>
+
+        <main class="app-main">
+            <div class="editor-panel">
+                <div id="editor" class="editor-container"></div>
+            </div>
+
+            <div class="results-panel">
+                <div class="result-section result-section-flex" id="output-section">
+                    <div id="output-header" class="result-header result-header-toggle">
+                        Output <span class="toggle-icon">▶</span>
+                    </div>
+                    <div id="output-content" class="result-section-body">
+                        <!-- prettier-ignore -->
+                        <div id="output" class="output-panel">-- Run code to view output here --</div>
+                    </div>
+                </div>
+
+                <div class="result-section result-section-flex" id="js-section">
+                    <div id="js-panel-header" class="result-header result-header-toggle">
+                        Compiled JavaScript <span class="toggle-icon">▶</span>
+                    </div>
+                    <div id="js-panel-content" class="result-section-body">
+                        <pre id="js-compiled" class="output-panel js-output"></pre>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <script type="module" src="dist/bundle.js"></script>
+    </body>
+</html>

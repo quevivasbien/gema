@@ -1,0 +1,315 @@
+@import url("https://fonts.googleapis.com/css2?family=Google+Sans+Code:ital,wght,MONO@0,300..800,1;1,300..800,1&family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap");
+
+/* ── Reset & base ─────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --bg-primary: #1e1e1e;
+    --bg-secondary: #252526;
+    --bg-tertiary: #2d2d2d;
+    --bg-editor: #1e1e1e;
+    --border: #3c3c3c;
+    --text-primary: #cccccc;
+    --text-secondary: #969696;
+    --text-muted: #6e6e6e;
+    --accent: #569cd6;
+    --accent-hover: #75b8f0;
+    --error-bg: #5a1d1d;
+    --error-text: #f48771;
+    --error-line-bg: rgba(244, 135, 113, 0.1);
+    --success-text: #6a9955;
+    --font-mono: "Google Sans Code", monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --radius: 6px;
+    --header-height: 56px;
+}
+
+html,
+body {
+    height: 100%;
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Header & toolbar ─────────────────────────────────────────── */
+
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--header-height);
+    padding: 0 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.app-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+}
+
+.app-subtitle {
+    font-weight: 400;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.toolbar-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+#select-preset {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    cursor: pointer;
+    outline: none;
+    min-width: 180px;
+}
+
+#select-preset:hover {
+    border-color: var(--accent);
+}
+
+#select-preset:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.btn {
+    padding: 6px 16px;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition:
+        background 0.15s,
+        opacity 0.15s;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-run {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+}
+
+.btn-run:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+/* ── Main layout ──────────────────────────────────────────────── */
+
+.app-main {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+    min-height: 0;
+    padding: 12px;
+    gap: 12px;
+}
+
+.editor-panel {
+    flex: 3;
+    min-height: 200px;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.editor-container {
+    height: 100%;
+}
+
+/* ── Results panels ───────────────────────────────────────────── */
+
+.results-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 2;
+    min-width: 0;
+    max-height: none;
+}
+
+.result-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.result-header {
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.result-header-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+
+.result-header-toggle:hover {
+    background: var(--bg-tertiary);
+}
+
+.toggle-icon {
+    font-size: 0.7rem;
+    margin-left: 4px;
+    transition: transform 0.15s;
+}
+
+.collapsed .toggle-icon {
+    transform: rotate(90deg);
+}
+
+.output-panel {
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    background: var(--bg-editor);
+    color: var(--text-primary);
+    min-height: 40px;
+    flex: 1;
+    overflow: auto;
+}
+
+.output-error {
+    color: var(--error-text);
+}
+
+.output-success {
+    color: var(--success-text);
+}
+
+.result-section-flex {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.result-section-flex.collapsed {
+    flex: 0 0 auto;
+    height: auto;
+}
+
+.result-section-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.result-section-body.collapsed {
+    display: none;
+}
+
+.js-output {
+    color: var(--text-secondary);
+    max-height: none;
+}
+
+/* ── Error line highlighting in CodeMirror ────────────────────── */
+
+.cm-error-line {
+    background-color: var(--error-line-bg) !important;
+}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .app-main {
+        flex-direction: column;
+        padding: 8px;
+        gap: 8px;
+    }
+
+    .editor-panel {
+        flex: 1;
+        min-height: 200px;
+    }
+
+    .results-panel {
+        flex: 1;
+        max-height: none;
+        min-height: 0;
+    }
+
+    .result-section-flex {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .result-section-flex.collapsed {
+        flex: none;
+    }
+
+    .result-section-body {
+        min-height: 0;
+    }
+}
+
+@media (max-width: 640px) {
+    .app-header {
+        flex-direction: column;
+        height: auto;
+        padding: 10px;
+        gap: 8px;
+    }
+
+    .toolbar {
+        width: 100%;
+        justify-content: center;
+    }
+
+    #select-preset {
+        min-width: 140px;
+        font-size: 0.8rem;
+    }
+}
