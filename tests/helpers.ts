@@ -3,7 +3,6 @@ import { parse } from "../src/parse";
 import { scan } from "../src/scan";
 import { writeJS } from "../src/write-js";
 import { resetRegistries } from "../src/ast/index";
-import type { Type } from "../src/types";
 
 /**
  * Parse + compile a Gema program, then eval the JS.
@@ -55,23 +54,6 @@ export function testCompileAndCheck(
 }
 
 /**
- * Assert two programs produce identical compiled output.
- */
-export function requireIdenticalCompilation(text1: string, text2: string) {
-    const js1 = testCompile(text1, null);
-    const js2 = testCompile(text2, null);
-    expect(js1).toEqual(js2);
-}
-
-/**
- * Assert a program compiles successfully but throws a runtime error
- */
-export function testCompileExpectRuntimeError(text: string, expectErrorMessage?: string) {
-    const js = testCompile(text, null);
-    expect(() => eval(js)).toThrow(expectErrorMessage);
-}
-
-/**
  * Parse a program and assert no errors. Returns the AST.
  */
 export function testParse(text: string) {
@@ -96,9 +78,18 @@ export function testParseExpectError(text: string) {
 }
 
 /**
- * Parse a program and assert that its result has the expected type.
+ * Assert two programs produce identical compiled output.
  */
-export function checkTypeOfResult(text: string, expectedType: Type) {
-    const ast = testParse(text);
-    expect(ast.type).toStrictEqual(expectedType);
+export function requireIdenticalCompilation(text1: string, text2: string) {
+    const js1 = testCompile(text1, null);
+    const js2 = testCompile(text2, null);
+    expect(js1).toEqual(js2);
+}
+
+/**
+ * Assert a program compiles successfully but throws a runtime error
+ */
+export function testCompileExpectRuntimeError(text: string, expectErrorMessage?: string) {
+    const js = testCompile(text, null);
+    expect(() => eval(js)).toThrow(expectErrorMessage);
 }
