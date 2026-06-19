@@ -78,22 +78,25 @@ test("if-else: else-less if with else-if chain still works", () => {
     testCompile(
         `
         mut x = 0;
-        if x == 5 {
+        if x == 0 {
             x = 10
-        } else if x == 0 {
+        } else if x == 10 {
             x = 20
-        } else {
-            x = 30
         };
         x
         `,
-        20n
+        10n
     );
 });
 
 test("if-else: error else-less if in expression context", () => {
     testParseExpectError("x = if true { 1 }");
     testParseExpectError("x = if false { 1 }");
+});
+
+test("if-else: error if + if-else if without else in expression context", () => {
+    testParseExpectError("x = if true { 1 } else if false { 2 }");
+    testParseExpectError("x = if false { 1 } else if true { 2 }");
 });
 
 test("if-else: regular if-else still works", () => {
@@ -110,6 +113,30 @@ test("if-else: regular if-else still works", () => {
         x
         `,
         2n
+    );
+});
+
+test("if-else: basic if/ifelse/else", () => {
+    testCompile("if false { 1 } else if false { 2 } else { 3 }", 3n);
+})
+
+test("if-else: if+else if+else works as an expression", () => {
+    testCompile("if true { 1 } else if true { 2 } else { 3 }", 1n);
+    testCompile("if false { 1 } else if true { 2 } else { 3 }", 2n);
+    testCompile("if false { 1 } else if false { 2 } else { 3 }", 3n);
+    testCompile(
+        `
+        mut x = 1;
+        y = if false {
+            x = 2
+        } else if true {
+            x = 3
+        } else {
+            1
+        };
+        (x, y)
+        `,
+        [3n, 3n]
     );
 });
 
@@ -222,34 +249,83 @@ test("for: repeated for loop with same iterating variable", () => {
 // Return statement
 // ============================================================
 
-test("return: basic return from function", () => {
-    testCompile(
+test("return: cannot end function with return", () => {
+    // Control flow statements technically have null type.
+    // This means you cannot terminate a function with a return statement,
+    // since this would imply that the function both does and does not return a Null
+    testParseExpectError(
         `
         func foo(): Int {
             return 42
         };
         foo()
         `,
-        42n
     );
-});
-
-test("return: return from function with expression", () => {
-    testCompile(
+    testParseExpectError(
         `
         func add(a: Int, b: Int): Int {
             return a + b
         };
         add(3, 4)
         `,
-        7n
     );
 });
 
-test("return: conditional return", () => {
+test("return: return type doesn't match function return type", () => {
+    // Tries to return Null, but function expects integer
+    testParseExpectError(
+        `
+        func foo() {
+            if true {
+                return
+            }
+            1
+        }
+        foo()
+        `
+    );
+    // Tries to return string, but function expects integer
+    testParseExpectError(
+        `
+        func foo() {
+            if true {
+                return "foo"
+            }
+            1
+        }
+        foo()
+        `
+    );
+});
+
+
+test("return: conditional return where Null value is allowed", () => {
+    // This is okay, since both branches of the if-else have the same (Null) type,
+    // And the function ends in an Int value
+    // Ofc the idiomatic way to do this would be to omit the returns
     testCompile(
         `
-        func min(a: Int, b: Int): Int {
+        func min(a: Int, b: Int) {
+            if a < b {
+                return a
+            } else {
+                return b
+            }
+
+            0
+        };
+        min(5, 3)
+        `,
+        3n
+    );
+});
+
+test("return: nested conditional return where Null value is not allowed", () => {
+    // This is NOT okay, since the if-else statement here will have type Null
+    // Which conflicts with what is returned.
+    testParseExpectError(
+        `
+        func min(a: Int, b: Int) {
             if a < b {
                 return a
             } else {
@@ -258,12 +334,12 @@ test("return: conditional return", () => {
         };
         min(5, 3)
         `,
-        3n
     );
 });
 
-test("return: return inside nested if inside function", () => {
-    testCompile(
+test("return: deeply nested conditional return where Null value is not allowed", () => {
+    // This is NOT okay, for the same reason as the previous test
+    testParseExpectError(
         `
         func categorize(x: Int): Str {
             if x > 0 {
@@ -278,7 +354,45 @@ test("return: return inside nested if inside function", () => {
         };
         categorize(7)
         `,
-        "small"
+    );
+});
+
+test("return: if/elseif/else with mismatch in type", () => {
+    // This is NOT okay, because the if and elseif both have Null type, but the else block has Int type
+    testParseExpectError(
+        `
+        func foo() {
+            if false {
+                return 1
+            }
+            else if true {
+                return 2
+            }
+            else {
+                3
+            }
+        };
+        foo()
+        `,
+    );
+});
+
+test("return: if/elseif/else with mismatch in type", () => {
+    // This IS okay, since the if/ifelse has type null, and the 3 is a separate expression
+    testCompile(
+        `
+        func foo() {
+            if false {
+                return 1
+            }
+            else if true {
+                return 2
+            }
+            3
+        };
+        foo()
+        `,
+        2n
     );
 });
 
@@ -343,9 +457,8 @@ test("return: return in a chain of else-ifs", () => {
                 return "B"
             } else if score >= 70 {
                 return "C"
-            } else {
-                return "F"
             }
+            "F"
         };
         grade(85)
         `,
@@ -367,7 +480,7 @@ test("continue: basic continue in for loop", () => {
             };
             push(out, i)
         };
-        collect(out)
+        out
         `,
         [1n, 3n, 5n]
     );
@@ -385,7 +498,7 @@ test("continue: continue inside nested block in loop", () => {
             };
             push(out, i)
         };
-        collect(out)
+        out
         `,
         [1n, 2n, 4n, 5n]
     );
@@ -403,7 +516,7 @@ test("continue: continue with nested for loops", () => {
                 push(out, i * 10 + j)
             }
         };
-        collect(out)
+        out
         `,
         [11n, 13n, 21n, 23n, 31n, 33n]
     );
@@ -440,7 +553,7 @@ test("return: return in braced block inside if-else branch", () => {
                 if true {
                     { return i }
                 } else {
-                    1
+                    1;
                 }
             };
             0
@@ -449,6 +562,82 @@ test("return: return in braced block inside if-else branch", () => {
         `,
         1n
     );
+});
+
+// ============================================================
+// Break statement
+// ============================================================
+
+test("break: basic break in for loop", () => {
+    testCompile(
+        `
+        mut out = []:Int | trans;
+        for i = 1..5 {
+            if i % 2 == 0 {
+                break
+            };
+            push(out, i)
+        };
+        out
+        `,
+        [1n]
+    );
+});
+
+test("break: break inside nested block in loop", () => {
+    testCompile(
+        `
+        mut out = []:Int | trans;
+        for i = 1..5 {
+            {
+                if i == 3 {
+                    break
+                }
+            };
+            push(out, i)
+        };
+        out
+        `,
+        [1n, 2n]
+    );
+});
+
+test("break: break with nested for loops", () => {
+    testCompile(
+        `
+        mut out = []:Int | trans;
+        for i = 1..3 {
+            for j = 1..3 {
+                if j == 2 {
+                    break
+                };
+                push(out, i * 10 + j)
+            }
+        };
+        out
+        `,
+        [11n, 21n, 31n]
+    );
+});
+
+// ============================================================
+// Control flow where not allowed
+// ============================================================
+
+test("return: error when return outside function", () => {
+    testParseExpectError("return 42");
+});
+
+test("return: error when return outside function in block", () => {
+    testParseExpectError("{ return 42 }");
+});
+
+test("continue: error when continue outside loop", () => {
+    testParseExpectError("continue");
+});
+
+test("break: error when break outside loop", () => {
+    testParseExpectError("continue");
 });
 
 // ============================================================
@@ -484,10 +673,10 @@ test("optimization: no try/catch in loop without break/continue", () => {
 test("optimization: direct return when not inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo(): Int { return 42 };
-        foo()
+        func foo() { return };
+        foo(); 1
         `,
-        ["return 42n"],
+        ["return"],
         ["throw new $Return$", "try {"]
     );
 });
@@ -528,8 +717,8 @@ test("optimization: exception return when inside IIFE", () => {
     testCompileAndCheck(
         `
         func foo(x: Int): Int {
-            result = if x > 0 { return x } else { 0 };
-            result
+            if x > 0 { return x } else { return 0 };
+            42
         };
         foo(5)
         `,
@@ -542,7 +731,7 @@ test("optimization: exception break when inside IIFE", () => {
         `
         func foo(): Int {
             for i = 1..10 {
-                if true { break } else { 0 };
+                if true { break } else { break };
             };
             0
         };
@@ -557,7 +746,7 @@ test("optimization: exception continue when inside IIFE", () => {
         `
         func foo(): Int {
             for i = 1..10 {
-                if true { continue } else { 0 };
+                if true { continue } else { continue };
             };
             0
         };
@@ -566,6 +755,22 @@ test("optimization: exception continue when inside IIFE", () => {
         ["throw new $Continue$", "try {"]
     );
 });
+
+test("optimization: return in dropped block doesn't require try/catch", () => {
+    testCompileAndCheck(
+        `
+        func foo(): Int {
+            {
+                return 99
+            }
+            0
+        };
+        foo()
+        `,
+        ["return 99"],
+        ["throw new $Return$", "try {"]
+    )
+})
 
 // ============================================================
 // Error cases
@@ -581,57 +786,4 @@ test("return: error when return outside function in block", () => {
 
 test("continue: error when continue outside loop", () => {
     testParseExpectError("continue");
-});
-
-// ============================================================
-// Existing behavior must still work after IIFE flattening
-// ============================================================
-
-test("if-else as expression assigned to variable", () => {
-    testCompile(
-        `
-        x = if true { 10 } else { 20 };
-        x
-        `,
-        10n
-    );
-    testCompile(
-        `
-        x = if false { 10 } else { 20 };
-        x
-        `,
-        20n
-    );
-});
-
-test("if-else with multiple statements in branches", () => {
-    testCompile(
-        `
-        x = if true {
-            mut y = 1;
-            y + 1
-        } else {
-            mut z = 2;
-            z + 2
-        };
-        x
-        `,
-        2n
-    );
-});
-
-test("if-else chained assigned to variable", () => {
-    testCompile(
-        `
-        x = if 1 == 1 {
-            "a"
-        } else if 2 == 2 {
-            "b"
-        } else {
-            "c"
-        };
-        x
-        `,
-        "a"
-    );
 });

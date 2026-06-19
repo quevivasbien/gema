@@ -109,7 +109,119 @@ struct S[T] where T is Foo {
 
 ## Return and continue keywords
 
-These would be helpful to avoid deeply nested control flow.
+These would be helpful to avoid deeply nested control flow. We also need to fix currently existing bugs with the `break` statement.
+
+These statements have the following type behavior:
+* All of the `continue`, `break` and `return` statements have null type
+* Yes, even the `return` statement has null type! This means that the following examples are not permitted.
+
+```gema
+# This is illegal! The if/else expression has type null because both branches end in return statements (which have type null)
+func foo(x) {
+  if true {
+    return 1;
+  } else {
+    return 2;
+  }
+}
+
+# The correct way to do this would be
+func foo(x) {
+  if true {
+    return 1;
+  }
+  2
+}
+
+# Or just
+func foo(x) {
+  if true {
+    1
+  } else {
+    2
+  }
+}
+```
+
+The way the type resolution needs to happen here is: the function needs to keep track of whether it has any return statements in it. (`Return` expressions will mark this on their most recent ancestor function during type resolution in `cascadeTypes` -- the `Return` expressions themselves, of course, have type `Null`, but that is distinguished from the type of the value they return).
+
+Once the function expression is done cascading types to its own children and has resolved its own type, it checks each of the return statements within it and verifies that they are returning a type that matches the function's expected return type.
+
+
+Other misc examples:
+```gema
+# This is illegal because the last expression in the function is a naked if, which has type Null.
+# So it's not legal to try to return a value of type Int.
+func foo() {
+  if true {
+    return 1;
+  }
+}
+
+# This _would_ be legal
+func foo() {
+  if true {
+    return 1;
+  }
+  1
+}
+
+# This is okay; this would be a useful pattern if you want a function that just mutates something or has side effects but doesn't return anything
+func foo() {
+  return
+}
+```
+
+Something similar needs to happen with `break` and `continue` statements. (In this case, ofc, you don't need to check that the type of the value returned matches the type of the enclosing scope, since for loops always have type Null.) For example:
+```gema
+# This is fine
+for i = 1..10 {
+  if i % 2 = 0 {
+    continue
+  }
+}
+
+# But this is not fine, because the branches of an if/else statement need to have the same type
+for i = 1..10 {
+  if i % 2 = 0 {
+    continue
+  } else {
+    i
+  }
+}
+
+# This is fine
+for i = 1..10 {
+  if i % 2 = 0 {
+    continue
+  } else {
+    i;  # Semicolon here discards the value
+  }
+}
+
+# This is also fine
+for i = 1..10 {
+  if i % 2 = 0 {
+    continue
+  } else {
+    break  # break and continue both have null type
+  }
+}
+```
+
+Here's an example combining return with continue
+```gema
+# This is fine! Everything has null value
+func foo() {
+  for i == 1..10 {
+    if i % 2 == 0 {
+      continue
+    } else {
+      return
+    }
+  }
+}
+```
 
 ## Misc improvements and bug fixes
 

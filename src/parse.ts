@@ -304,6 +304,7 @@ function parseIfStatement(parser: Parser): AST.Expression {
     const branch = parser.block();
     const conditionalBranches = [{ condition, branch }];
     let hasElse = true;
+    let elseBranch: AST.Expression | null = null;
     while (true) {
         if (parser.current()?.type !== TokenType.Else) {
             // No else — this is a statement-only if
@@ -327,16 +328,14 @@ function parseIfStatement(parser: Parser): AST.Expression {
         const branch = parser.block();
         conditionalBranches.push({ condition, branch });
     }
-    let elseBranch: AST.Expression;
-    if (hasElse) {
+    if (hasElse && elseBranch === null) {
         if (parser.current()?.type !== TokenType.LBrace) {
             return parser.error("Expected '{' after 'else'");
         }
         parser.advance();
         elseBranch = parser.block();
-    } else {
+    } else if (!hasElse) {
         // Dummy else branch — will not be type-checked since hasElse=false
-        // Create a minimal block with a null literal
         const nullToken = {
             line: rootToken.line,
             col: rootToken.col,
@@ -349,7 +348,7 @@ function parseIfStatement(parser: Parser): AST.Expression {
         );
     }
     return parser.tryCreateASTExpression(
-        () => new AST.If(rootToken, conditionalBranches, elseBranch, hasElse)
+        () => new AST.If(rootToken, conditionalBranches, elseBranch!, hasElse)
     );
 }
 

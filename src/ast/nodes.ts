@@ -90,15 +90,7 @@ export class Block extends Expression {
                 lastExpr.expressions[lastExpr.expressions.length - 1]
             );
         }
-        return !(
-            lastExpr instanceof DropValue ||
-            (lastExpr instanceof Assignment && lastExpr.isDropped) ||
-            (lastExpr instanceof TupleUnpack && lastExpr.isDropped) ||
-            (lastExpr instanceof If && !lastExpr.hasElse) ||
-            lastExpr instanceof Break ||
-            lastExpr instanceof Continue ||
-            lastExpr instanceof Return
-        );
+        return lastExpr.type !== "Null";
     }
 }
 
@@ -147,11 +139,7 @@ export class If extends Expression {
                 throw this.error(`condition must be boolean, but found ${condition.type}`);
             }
             branch.cascadeTypes([...ancestors, this]);
-            if (
-                this.hasElse &&
-                !If.branchEndsInControlFlow(branch) &&
-                !If.branchEndsInControlFlow(this.elseBranch)
-            ) {
+            if (this.hasElse) {
                 if (!deepEquals(this.elseBranch.type, branch.type)) {
                     throw this.error(
                         `all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`
@@ -218,8 +206,9 @@ export class If extends Expression {
             writer.iifeDepth--;
             writer.write("})()");
         } else {
-            this.conditionalBranches.forEach(({ condition, branch }) => {
-                writer.write("if (");
+            // Chain all conditional branches with else if, even without a final else
+            this.conditionalBranches.forEach(({ condition, branch }, i) => {
+                writer.write(i === 0 ? "if (" : " else if (");
                 condition.toJS(writer);
                 writer.write(") ");
                 writer.beginScope();
@@ -448,13 +437,15 @@ export class Return extends Expression {
 
     cascadeTypes(ancestors: Expression[]): void {
         this.value.cascadeTypes([...ancestors, this]);
-        this.type = this.value.type;
-        // Verify `return` is inside a function
-        const inFunction = ancestors.some(
-            (a) => a instanceof AnonymousFunction || a instanceof Function
-        );
-        if (!inFunction) {
-            throw this.error("`return` is only allowed inside a function");
+        this.type = "Null";  // Return statements have type null, even if their values do not
+        // Verify `return` is inside a function,
+        // and let that function knows it needs to check that the return type matches
+        for (let i = ancestors.length - 1; i >= 0; i--) {
+            const a = ancestors[i];
+            if (a instanceof AnonymousFunction || a instanceof Function) {
+                a.returnStatements.push(this);
+                return;
+            }
         }
     }
 
@@ -1181,6 +1172,10 @@ export class AnonymousFunction extends Expression {
     returnType: Type | null;
     /** Whether this function has unresolved (null) param types that need inference. */
     needsInference: boolean = false;
+    /** Need to maintain a list of any return statements this function has,
+     * so we can check that they return a value whose type matches
+     * the return type of this function */
+    returnStatements: Return[] = [];
 
     constructor(
         rootToken: Token,
@@ -1242,6 +1237,13 @@ export class AnonymousFunction extends Expression {
             throw this.error(
                 `anonymous function body should return ${this.returnType}, but found ${bodyReturnType}`
             );
+        }
+        for (const s of this.returnStatements) {
+            if (s.value.type !== this.returnType) {
+                throw this.error(
+                    `anonymous function with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
+                )
+            }
         }
         this.type = new FuncType(
             this.params.map((p) => p.type),
@@ -1347,6 +1349,10 @@ export class Function extends Expression {
     fullName: string;
     typeParams: string[] = [];
     monomorphizedVersions: Function[] = [];
+    /** Need to maintain a list of any return statements this function has,
+     * so we can check that they return a value whose type matches
+     * the return type of this function */
+    returnStatements: Return[] = [];
 
     constructor(
         rootToken: Token,
@@ -1446,6 +1452,14 @@ export class Function extends Expression {
             throw this.error(
                 `function body should return ${this.returnType}, but found ${this.body.type}`
             );
+        }
+
+        for (const s of this.returnStatements) {
+            if (s.value.type !== this.returnType) {
+                throw this.error(
+                    `function with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
+                )
+            }
         }
     }
 
