@@ -116,6 +116,10 @@ test("if-else: regular if-else still works", () => {
     );
 });
 
+test("if-else: basic if/ifelse/else", () => {
+    testCompile("if false { 1 } else if false { 2 } else { 3 }", 3n);
+});
+
 test("if-else: if+else if+else works as an expression", () => {
     testCompile("if true { 1 } else if true { 2 } else { 3 }", 1n);
     testCompile("if false { 1 } else if true { 2 } else { 3 }", 2n);
@@ -255,7 +259,7 @@ test("return: cannot end function with return", () => {
             return 42
         };
         foo()
-        `,
+        `
     );
     testParseExpectError(
         `
@@ -263,7 +267,7 @@ test("return: cannot end function with return", () => {
             return a + b
         };
         add(3, 4)
-        `,
+        `
     );
 });
 
@@ -293,7 +297,6 @@ test("return: return type doesn't match function return type", () => {
         `
     );
 });
-
 
 test("return: conditional return where Null value is allowed", () => {
     // This is okay, since both branches of the if-else have the same (Null) type,
@@ -329,7 +332,7 @@ test("return: nested conditional return where Null value is not allowed", () => 
             }
         };
         min(5, 3)
-        `,
+        `
     );
 });
 
@@ -349,7 +352,7 @@ test("return: deeply nested conditional return where Null value is not allowed",
             }
         };
         categorize(7)
-        `,
+        `
     );
 });
 
@@ -369,7 +372,7 @@ test("return: if/elseif/else with mismatch in type", () => {
             }
         };
         foo()
-        `,
+        `
     );
 });
 
@@ -549,7 +552,7 @@ test("return: return in braced block inside if-else branch", () => {
                 if true {
                     { return i }
                 } else {
-                    1
+                    1;
                 }
             };
             0
@@ -636,4 +639,204 @@ test("break: error when break outside loop", () => {
     testParseExpectError("continue");
 });
 
-// TODO: Tests for "break" keyword
+// ============================================================
+// Optimization: verify exception handling is only used when needed
+// ============================================================
+
+test("optimization: no try/catch in function without return", () => {
+    testCompileAndCheck(
+        `
+        func add(a: Int, b: Int): Int { a + b };
+        add(3, 4)
+        `,
+        [],
+        ["try {", "$Return$"]
+    );
+});
+
+test("optimization: no try/catch in loop without break/continue", () => {
+    testCompileAndCheck(
+        `
+        func sum(): Int {
+            mut total = 0;
+            for i = 1..5 { total = total + i };
+            total
+        };
+        sum()
+        `,
+        [],
+        ["try {", "$Continue$", "$Break$"]
+    );
+});
+
+test("optimization: direct return when not inside IIFE", () => {
+    testCompileAndCheck(
+        `
+        func foo() { return };
+        foo(); 1
+        `,
+        ["return"],
+        ["throw new $Return$", "try {"]
+    );
+});
+
+test("optimization: direct break when not inside IIFE", () => {
+    testCompileAndCheck(
+        `
+        func foo(): Int {
+            for i = 1..10 {
+                if i > 5 { break };
+            };
+            0
+        };
+        foo()
+        `,
+        ["break;"],
+        ["throw new $Break$", "try {"]
+    );
+});
+
+test("optimization: direct continue when not inside IIFE", () => {
+    testCompileAndCheck(
+        `
+        func foo(): Int {
+            for i = 1..10 {
+                if i % 2 == 0 { continue };
+            };
+            0
+        };
+        foo()
+        `,
+        ["continue"],
+        ["throw new $Continue$", "try {"]
+    );
+});
+
+test("optimization: exception return when inside IIFE", () => {
+    testCompileAndCheck(
+        `
+        func foo(): Int {
+            x = {
+                if true { return 1 };
+                42
+            };
+            x
+        };
+        foo()
+        `,
+        ["throw new $Return$", "try {"]
+    );
+});
+
+test("optimization: exception break when inside IIFE", () => {
+    testCompileAndCheck(
+        `
+        func foo(): Int {
+            for i = 1..10 {
+                x = {
+                    if true { break };
+                    0
+                };
+            };
+            0
+        };
+        foo()
+        `,
+        ["throw new $Break$", "try {"]
+    );
+});
+
+test("optimization: exception continue when inside IIFE", () => {
+    testCompileAndCheck(
+        `
+        func foo(): Int {
+            for i = 1..10 {
+                x = {
+                    if true { continue };
+                    0
+                };
+            };
+            0
+        };
+        foo()
+        `,
+        ["throw new $Continue$", "try {"]
+    );
+});
+
+test("optimization: return in dropped block doesn't require try/catch", () => {
+    testCompileAndCheck(
+        `
+        func foo(): Int {
+            {
+                return 99
+            }
+            0
+        };
+        foo()
+        `,
+        ["return 99"],
+        ["throw new $Return$", "try {"]
+    );
+});
+
+test("optimization: return in non-nested if statement doesn't require try/catch", () => {
+    testCompileAndCheck(
+        `
+        func sign(x: Int) {
+            if x > 0 {
+                return 1 
+            }
+            if x < 0 {
+                return -1
+            }
+            0
+        }
+        sign(1)
+        `,
+        ["return 1n", "return (-(1n))"],
+        ["throw new $Return$", "try {"]
+    );
+});
+
+test("optimization: return in nested if statement doesn't require try/catch", () => {
+    testCompileAndCheck(
+        `
+        func superSign(x: Int) {
+        if x > 0 {
+            if x > 10 {
+            return 2
+            }
+            return 1 
+        }
+        if x < 0 {
+            if x < -10 {
+            return -2
+            }
+            return -1
+        }
+        0
+        }
+
+        superSign(1)
+        `,
+        ["return 2n", "return 1n", "return (-(1n))", "return (-(2n))"],
+        ["throw new $Return$", "try {"]
+    );
+});
+
+// ============================================================
+// Error cases
+// ============================================================
+
+test("return: error when return outside function", () => {
+    testParseExpectError("return 42");
+});
+
+test("return: error when return outside function in block", () => {
+    testParseExpectError("{ return 42 }");
+});
+
+test("continue: error when continue outside loop", () => {
+    testParseExpectError("continue");
+});

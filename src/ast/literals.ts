@@ -34,6 +34,9 @@ export class Literal extends Expression {
             case "Bool":
                 compiler.write(this.value);
                 break;
+            case "Null":
+                compiler.write("undefined");
+                break;
             default:
                 throw this.error(`cannot use token ${this.value} as literal type`);
         }
