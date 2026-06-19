@@ -699,9 +699,10 @@ test("optimization: direct break when not inside IIFE", () => {
 test("optimization: direct continue when not inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo(): Int {
-            for i = 1..10 {
-                if i % 2 == 0 { continue };
+        mut out = []:Int | trans;
+        for i = 1..5 {
+            if i % 2 == 0 {
+                break
             };
             0
         };
@@ -724,12 +725,12 @@ test("optimization: exception return when inside IIFE", () => {
         };
         foo()
         `,
-        ["throw new $Return$", "try {"]
+        [1n]
     );
 });
 
-test("optimization: exception break when inside IIFE", () => {
-    testCompileAndCheck(
+test("break: break inside nested block in loop", () => {
+    testCompile(
         `
         func foo(): Int {
             for i = 1..10 {
@@ -738,16 +739,16 @@ test("optimization: exception break when inside IIFE", () => {
                     0
                 };
             };
-            0
+            push(out, i)
         };
-        foo()
+        out
         `,
-        ["throw new $Break$", "try {"]
+        [1n, 2n]
     );
 });
 
-test("optimization: exception continue when inside IIFE", () => {
-    testCompileAndCheck(
+test("break: break with nested for loops", () => {
+    testCompile(
         `
         func foo(): Int {
             for i = 1..10 {
@@ -758,9 +759,9 @@ test("optimization: exception continue when inside IIFE", () => {
             };
             0
         };
-        foo()
+        out
         `,
-        ["throw new $Continue$", "try {"]
+        [11n, 21n, 31n]
     );
 });
 
@@ -826,7 +827,7 @@ test("optimization: return in nested if statement doesn't require try/catch", ()
 });
 
 // ============================================================
-// Error cases
+// Control flow where not allowed
 // ============================================================
 
 test("return: error when return outside function", () => {

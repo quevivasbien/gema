@@ -493,6 +493,53 @@ export class Return extends Expression {
     }
 }
 
+export class Continue extends Expression {
+    constructor(startToken: Token) {
+        super(startToken.line, startToken.col);
+        this.type = "Null";
+    }
+
+    cascadeTypes(_ancestors: Expression[]): void {
+        // Continue always has type Null
+    }
+
+    clone(_bindings?: Map<string, Type>): Expression {
+        return new Continue({ line: this.line, col: this.col, text: "continue", type: TokenType.Break });
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write("continue");
+    }
+}
+
+export class Return extends Expression {
+    value: Expression | null;
+
+    constructor(startToken: Token, value: Expression | null) {
+        super(startToken.line, startToken.col);
+        this.value = value;
+        this.type = "Null";
+    }
+
+    cascadeTypes(_ancestors: Expression[]): void {
+        // Return always has type Null
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new Return({ line: this.line, col: this.col, text: "return", type: TokenType.Break }, this.value === null ? null : this.value.clone(bindings));
+    }
+
+    toJS(writer: JSWriter): void {
+        if (this.value === null) {
+            writer.write("return");
+        }
+        else {
+            writer.write("return ");
+            this.value.toJS(writer);
+        }
+    }
+}
+
 /**
  * Range literal created by the `..` syntax.
  * `a..b` → start=a, end=b (inclusive)
@@ -1166,14 +1213,8 @@ export class Assignment extends Expression {
     toJS(writer: JSWriter): void {
         const safeName = writer.safeName(this.name);
         if (this.isReassignment) {
-            if (this.isDropped) {
-                writer.write(`${safeName} = `);
-                this.value.toJS(writer);
-            } else {
-                writer.write(`(${safeName} = `);
-                this.value.toJS(writer);
-                writer.write(`, ${safeName})`);
-            }
+            writer.write(`${safeName} = `);
+            this.value.toJS(writer);
         } else {
             if (this.isDropped) {
                 writer.write(`${this.isMutable ? "let" : "const"} ${safeName} = `);
