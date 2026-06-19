@@ -962,7 +962,15 @@ function parseArray(parser: Parser): AST.Expression {
 
 function parseFor(parser: Parser): AST.Expression {
     const startToken = parser.previous(); // should be 'for'
-    // Expect Identifier = expression
+    // Check for infinite loop: for { ... } (no variable or iterator)
+    if (!parser.atEnd() && parser.current().type === TokenType.LBrace) {
+        parser.advance();
+        const body = parser.block();
+        return parser.tryCreateASTExpression(
+            () => new AST.ForLoop(startToken, null, null, body as AST.Block)
+        );
+    }
+    // Normal for loop: for Identifier = Expression { ... }
     if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
         return parser.error("Expected loop variable name after 'for'");
     }

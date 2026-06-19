@@ -240,11 +240,17 @@ Tentative: Cartesian product iterator, permutations iterator, combinations itera
 
 Both put and push should return the value, not the data structure that the value was added to
 
-.. syntax for ranges should not continue into a curly brace block (most relevant in context of for loop)
+.. syntax for ranges should not continue into a curly brace block (most relevant in context of for loop) -- On second thought on this one, this would screw with a lot of our precedence rules, so maybe not a good idea.
+
+## Scoped TypeEnv
+
+Replace the remaining ancestors parameter with a TypeEnv scope object that maintains a symbol table. Variable.cascadeTypes becomes a simple env.lookup instead of walking up the tree and scanning siblings. Eliminates Assignment.findDefiningAssignment(), findOuterDefinition(), findStructTypedVariable(), findStringTypedVariable(), and all sibling-scanning code.
+
+Complication: Call's keyword-arg reordering digs through ancestor blocks for function definitions — this needs careful design to port to TypeEnv.
 
 ## Optimizations
 
-When transing an expression that is not a variable, there is no need for a copy (it can be a no-op, behaving exactly like unsafeTrans);
+When transing an expression that is not a variable, there is no need for a copy (it can be a no-op, behaving exactly like unsafeTrans);  (revisiting this later, it might actually be quite complicated to ensure that something is safe not to copy--variables aren't the only case that could cause problems--so maybe this should be kept until later -- this is not actually a super important optimization, since it usually won't matter, and users can use `unsafeTrans` in cases where it does)
 
 We can completely omit branches of the AST that do not operate on pre-existing mutable variables (or have other side effects) and are dropped.
 
@@ -255,8 +261,6 @@ Small gain: if iterators are dropped, they don't need to reset.
 When chaining some operations, there are some efficiency improvements to be made. For example, arr1 + arr2 + arr3 would probably be more efficiently compiled as `[...arr1, ...arr2, ...arr3]` instead of `arr1.concat(arr2).concat(arr3)`.
 
 For loops on ranges could be made more efficient if iterated var is not actually used.
-
-Blocks that contain only a single expression can usually be brought up into the enclosing block.
 
 Lots of other room for improvement here.
 

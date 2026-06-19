@@ -39,7 +39,7 @@ export function setParentPointers(node: Expression, parent: Expression | null = 
         }
         setParentPointers(node.elseBranch, node);
     } else if (node instanceof ForLoop) {
-        setParentPointers(node.iter, node);
+        if (node.iter) setParentPointers(node.iter, node);
         setParentPointers(node.body, node);
     } else if (node instanceof Return) {
         setParentPointers(node.value, node);

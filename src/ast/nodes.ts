@@ -248,11 +248,11 @@ export class If extends Expression {
 }
 
 export class ForLoop extends Expression {
-    varName: string;
-    iter: Expression;
+    varName: string | null;
+    iter: Expression | null;
     body: Block;
 
-    constructor(startToken: Token, varName: string, iter: Expression, body: Block) {
+    constructor(startToken: Token, varName: string | null, iter: Expression | null, body: Block) {
         super(startToken.line, startToken.col);
         this.varName = varName;
         this.iter = iter;
@@ -262,19 +262,21 @@ export class ForLoop extends Expression {
 
     cascadeTypes(valueUsed: boolean): void {
         this.isValueUsed = valueUsed;
-        this.iter.cascadeTypes(true);
-        if (this.iter.type === null) {
-            throw this.error("unable to resolve type of iterator");
-        }
-        let _innerType: Type;
-        if (this.iter.type instanceof ArrayType) {
-            _innerType = this.iter.type.innerType;
-        } else if (this.iter.type instanceof IterType) {
-            _innerType = this.iter.type.innerType;
-        } else if (this.iter.type instanceof MutArrType) {
-            _innerType = this.iter.type.innerType;
-        } else {
-            throw this.error(`cannot iterate over object of type ${this.iter.type}`);
+        if (this.iter !== null) {
+            this.iter.cascadeTypes(true);
+            if (this.iter.type === null) {
+                throw this.error("unable to resolve type of iterator");
+            }
+            let _innerType: Type;
+            if (this.iter.type instanceof ArrayType) {
+                _innerType = this.iter.type.innerType;
+            } else if (this.iter.type instanceof IterType) {
+                _innerType = this.iter.type.innerType;
+            } else if (this.iter.type instanceof MutArrType) {
+                _innerType = this.iter.type.innerType;
+            } else {
+                throw this.error(`cannot iterate over object of type ${this.iter.type}`);
+            }
         }
         this.body.cascadeTypes(false);
     }
@@ -283,7 +285,7 @@ export class ForLoop extends Expression {
         return new ForLoop(
             { line: this.line, col: this.col, text: "for", type: TokenType.For },
             this.varName,
-            this.iter.clone(bindings),
+            this.iter !== null ? this.iter.clone(bindings) : null,
             this.body.clone(bindings) as Block
         );
     }
@@ -311,9 +313,49 @@ export class ForLoop extends Expression {
     }
 
     toJS(writer: JSWriter): void {
+        if (this.iter === null) {
+            // Infinite loop: for { ... } → while (true) { ... }
+            writer.write("while (true) {");
+            writer.indentIn();
+            writer.newLine();
+            const needsTry = this.body.expressions.some((e) => this.bodyNeedsException(e));
+            if (needsTry) {
+                writer.useBuiltin("$Continue$");
+                writer.useBuiltin("$Break$");
+                writer.write("try {");
+                writer.indentIn();
+                writer.newLine();
+            }
+            this.body.expressions.forEach((expr) => {
+                expr.toJS(writer);
+                writer.write(";");
+                writer.newLine();
+            });
+            if (needsTry) {
+                writer.indentOut();
+                writer.newLine();
+                writer.write("} catch (e$$) {");
+                writer.indentIn();
+                writer.newLine();
+                writer.write("if (e$$ instanceof $Continue$) { continue; }");
+                writer.newLine();
+                writer.write("if (e$$ instanceof $Break$) { break; }");
+                writer.newLine();
+                writer.write("throw e$$;");
+                writer.indentOut();
+                writer.newLine();
+                writer.write("}");
+            }
+            writer.indentOut();
+            writer.newLine();
+            writer.write("}");
+            writer.newLine();
+            return;
+        }
+
         const iterVar = writer.uniqueName("$iter$");
         const safeIterVar = writer.safeName(iterVar);
-        const safeVarName = writer.safeName(this.varName);
+        const safeVarName = writer.safeName(this.varName!);
 
         if (this.iter.type instanceof ArrayType || this.iter.type instanceof MutArrType) {
             writer.useBuiltin("$ArrayIterator$");
@@ -890,8 +932,8 @@ export class Variable extends Expression {
                     }
                 }
             }
-            // Check ForLoop variable
-            if (node instanceof ForLoop && node.varName === this.name) {
+            // Check ForLoop variable (skip infinite loops with no iterator)
+            if (node instanceof ForLoop && node.iter !== null && node.varName === this.name) {
                 let innerType: Type = "Int";
                 if (node.iter.type instanceof ArrayType) {
                     innerType = node.iter.type.innerType;

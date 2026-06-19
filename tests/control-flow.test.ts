@@ -246,6 +246,95 @@ test("for: repeated for loop with same iterating variable", () => {
 });
 
 // ============================================================
+// Infinite loop: for { ... }
+// ============================================================
+
+test("for: infinite loop with break", () => {
+    testCompile(
+        `
+        mut count = 0;
+        for {
+            if count == 5 {
+                break
+            };
+            count += 1
+        };
+        count
+        `,
+        5n
+    );
+});
+
+test("for: infinite loop break immediately", () => {
+    testCompile(
+        `
+        for { break };
+        42
+        `,
+        42n
+    );
+});
+
+test("for: infinite loop with continue", () => {
+    testCompile(
+        `
+        mut count = 0;
+        mut seen = []:Int | trans;
+        for {
+            count += 1;
+            if count % 2 == 0 {
+                continue
+            };
+            push(seen, count);
+            if count >= 5 {
+                break
+            }
+        };
+        detrans(seen)
+        `,
+        [1n, 3n, 5n]
+    );
+});
+
+test("for: nested infinite loops with break", () => {
+    testCompile(
+        `
+        mut sum = 0;
+        for {
+            for {
+                sum += 1;
+                break  # break inner
+            };
+            if sum >= 3 {
+                break  # break outer
+            }
+        };
+        sum
+        `,
+        3n
+    );
+});
+
+test("for: infinite loop inside function with break", () => {
+    testCompile(
+        `
+        func findTarget(target: Int): Int {
+            mut guess = 0;
+            for {
+                if guess == target {
+                    break
+                };
+                guess += 1
+            };
+            guess
+        };
+        findTarget(10)
+        `,
+        10n
+    );
+});
+
+// ============================================================
 // Return statement
 // ============================================================
 

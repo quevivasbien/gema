@@ -3,7 +3,7 @@ func quicksortRecursion(arr: MutArr[Int], start_idx: Int, end_idx: Int) {
     pivot = arr!(start_idx);
     mut i = start_idx + 1;
     mut j = end_idx;
-    for _ = (..) {
+    for {
       # If arr(i) < pivot, swap it with the previous element (which will be the pivot)
       if arr!(i) < pivot {
         temp = arr!(i);
