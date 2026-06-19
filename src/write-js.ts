@@ -1,4 +1,6 @@
 import type * as AST from "./ast/index";
+import { DropValue } from "./ast/expression";
+import { Call, DirectCall } from "./ast/calls";
 import {
     Block,
     If,
@@ -8,6 +10,7 @@ import {
     Break,
     AnonymousFunction,
     Function,
+    Assignment,
 } from "./ast/nodes";
 import { BUILTINS } from "./builtins";
 
@@ -29,14 +32,16 @@ function markControlFlowExceptions(expr: AST.Expression, inIIFE: boolean): void 
         return;
     }
     if (expr instanceof Block) {
-        const childInIIFE = inIIFE || Block.lastExprShouldReturn(expr);
+        // Only creates IIFE context if the block's value is actually consumed
+        const childInIIFE = inIIFE || (expr.isValueUsed && Block.lastExprShouldReturn(expr));
         for (const e of expr.expressions) {
             markControlFlowExceptions(e, childInIIFE);
         }
         return;
     }
     if (expr instanceof If) {
-        const childInIIFE = inIIFE || expr.hasElse;
+        // Only creates IIFE context if the if-else's value is actually consumed
+        const childInIIFE = inIIFE || (expr.isValueUsed && expr.hasElse);
         for (const { branch } of expr.conditionalBranches) {
             markControlFlowExceptions(branch, childInIIFE);
         }
@@ -81,6 +86,98 @@ function markControlFlowExceptions(expr: AST.Expression, inIIFE: boolean): void 
                     markControlFlowExceptions(child, inIIFE);
                 }
             }
+        }
+    }
+}
+
+/**
+ * Pre-pass that marks each expression with whether its value is consumed.
+ * When a variable/block/if-else's value is never used, we can skip IIFE wrapping.
+ */
+function markValueUsed(expr: AST.Expression, valueUsed: boolean): void {
+    expr.isValueUsed = valueUsed;
+
+    // Block: last expression inherits block's value usage; non-last are discarded
+    if (expr instanceof Block) {
+        const exprs = expr.expressions;
+        for (let i = 0; i < exprs.length - 1; i++) {
+            markValueUsed(exprs[i], false);
+        }
+        if (exprs.length > 0) {
+            markValueUsed(exprs[exprs.length - 1], valueUsed);
+        }
+        return;
+    }
+    // If: branches inherit the if-else's value usage
+    if (expr instanceof If) {
+        for (const { branch } of expr.conditionalBranches) {
+            markValueUsed(branch, valueUsed);
+        }
+        markValueUsed(expr.elseBranch, valueUsed);
+        return;
+    }
+    // ForLoop: body expressions are statements (values discarded)
+    if (expr instanceof ForLoop) {
+        for (const e of expr.body.expressions) {
+            markValueUsed(e, false);
+        }
+        return;
+    }
+    // Assignment: the assigned value is always consumed (stored in the variable)
+    if (expr instanceof Assignment) {
+        markValueUsed(expr.value, true);
+        return;
+    }
+    // DropValue: semicolon discards the child's value entirely
+    if (expr instanceof DropValue) {
+        markValueUsed(expr.child, false);
+        return;
+    }
+    // Function / AnonymousFunction: non-last body expressions are discarded;
+    // the last expression is the return value
+    if (expr instanceof Function || expr instanceof AnonymousFunction) {
+        const body = (expr as Function | AnonymousFunction).body;
+        const exprs = body.expressions;
+        for (let i = 0; i < exprs.length - 1; i++) {
+            markValueUsed(exprs[i], false);
+        }
+        if (exprs.length > 0) {
+            markValueUsed(exprs[exprs.length - 1], true); // function return value is always used
+        }
+        return;
+    }
+    // Call / DirectCall: arguments are always consumed by the function
+    if (expr instanceof Call || expr instanceof DirectCall) {
+        for (const arg of expr.args) {
+            markValueUsed(arg, true);
+        }
+        return;
+    }
+    // Recurse into children for other expression types
+    const singleChildKeys = ["value", "operand", "left", "right"];
+    for (const key of singleChildKeys) {
+        const child = (expr as any)[key];
+        if (child && typeof child === "object" && child.constructor?.name) {
+            markValueUsed(child, valueUsed);
+        }
+    }
+    const arrayChildKeys = ["args", "items", "expressions"];
+    for (const key of arrayChildKeys) {
+        const arr = (expr as any)[key];
+        if (Array.isArray(arr)) {
+            for (const child of arr) {
+                if (child && typeof child === "object") {
+                    markValueUsed(child, valueUsed);
+                }
+            }
+        }
+    } // Keyword arguments — their values are always consumed
+    const kwArgs = (expr as any).keywordArgs as
+        | Array<{ name: string; value: AST.Expression }>
+        | undefined;
+    if (kwArgs) {
+        for (const kw of kwArgs) {
+            markValueUsed(kw.value, true);
         }
     }
 }
@@ -279,6 +376,9 @@ export function writeJS(
     mode: "immediate" | "inline" | "export" = "immediate",
     minify: boolean = true
 ): string {
+    // Pre-pass: mark which expression values are actually consumed (runs first,
+    // since markControlFlowExceptions needs isValueUsed to determine IIFE context)
+    markValueUsed(ast, true);
     // Pre-pass: mark which control flow nodes need exception handling
     markControlFlowExceptions(ast, false);
     const compiler = new JSWriter(ast);

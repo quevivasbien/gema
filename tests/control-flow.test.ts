@@ -118,7 +118,7 @@ test("if-else: regular if-else still works", () => {
 
 test("if-else: basic if/ifelse/else", () => {
     testCompile("if false { 1 } else if false { 2 } else { 3 }", 3n);
-})
+});
 
 test("if-else: if+else if+else works as an expression", () => {
     testCompile("if true { 1 } else if true { 2 } else { 3 }", 1n);
@@ -259,7 +259,7 @@ test("return: cannot end function with return", () => {
             return 42
         };
         foo()
-        `,
+        `
     );
     testParseExpectError(
         `
@@ -267,7 +267,7 @@ test("return: cannot end function with return", () => {
             return a + b
         };
         add(3, 4)
-        `,
+        `
     );
 });
 
@@ -297,7 +297,6 @@ test("return: return type doesn't match function return type", () => {
         `
     );
 });
-
 
 test("return: conditional return where Null value is allowed", () => {
     // This is okay, since both branches of the if-else have the same (Null) type,
@@ -333,7 +332,7 @@ test("return: nested conditional return where Null value is not allowed", () => 
             }
         };
         min(5, 3)
-        `,
+        `
     );
 });
 
@@ -353,7 +352,7 @@ test("return: deeply nested conditional return where Null value is not allowed",
             }
         };
         categorize(7)
-        `,
+        `
     );
 });
 
@@ -373,7 +372,7 @@ test("return: if/elseif/else with mismatch in type", () => {
             }
         };
         foo()
-        `,
+        `
     );
 });
 
@@ -716,11 +715,14 @@ test("optimization: direct continue when not inside IIFE", () => {
 test("optimization: exception return when inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo(x: Int): Int {
-            if x > 0 { return x } else { return 0 };
-            42
+        func foo(): Int {
+            x = {
+                if true { return 1 };
+                42
+            };
+            x
         };
-        foo(5)
+        foo()
         `,
         ["throw new $Return$", "try {"]
     );
@@ -731,7 +733,10 @@ test("optimization: exception break when inside IIFE", () => {
         `
         func foo(): Int {
             for i = 1..10 {
-                if true { break } else { break };
+                x = {
+                    if true { break };
+                    0
+                };
             };
             0
         };
@@ -746,7 +751,10 @@ test("optimization: exception continue when inside IIFE", () => {
         `
         func foo(): Int {
             for i = 1..10 {
-                if true { continue } else { continue };
+                x = {
+                    if true { continue };
+                    0
+                };
             };
             0
         };
@@ -769,8 +777,53 @@ test("optimization: return in dropped block doesn't require try/catch", () => {
         `,
         ["return 99"],
         ["throw new $Return$", "try {"]
-    )
-})
+    );
+});
+
+test("optimization: return in non-nested if statement doesn't require try/catch", () => {
+    testCompileAndCheck(
+        `
+        func sign(x: Int) {
+            if x > 0 {
+                return 1 
+            }
+            if x < 0 {
+                return -1
+            }
+            0
+        }
+        sign(1)
+        `,
+        ["return 1n", "return (-(1n))"],
+        ["throw new $Return$", "try {"]
+    );
+});
+
+test("optimization: return in nested if statement doesn't require try/catch", () => {
+    testCompileAndCheck(
+        `
+        func superSign(x: Int) {
+        if x > 0 {
+            if x > 10 {
+            return 2
+            }
+            return 1 
+        }
+        if x < 0 {
+            if x < -10 {
+            return -2
+            }
+            return -1
+        }
+        0
+        }
+
+        superSign(1)
+        `,
+        ["return 2n", "return 1n", "return (-(1n))", "return (-(2n))"],
+        ["throw new $Return$", "try {"]
+    );
+});
 
 // ============================================================
 // Error cases

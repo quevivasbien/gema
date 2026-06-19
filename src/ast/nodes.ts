@@ -59,7 +59,7 @@ export class Block extends Expression {
 
     toJS(writer: JSWriter): void {
         const lastExpr = this.expressions[this.expressions.length - 1];
-        const shouldReturn = Block.lastExprShouldReturn(lastExpr);
+        const shouldReturn = this.isValueUsed && Block.lastExprShouldReturn(lastExpr);
         if (shouldReturn) {
             writer.write("(() => ");
             writer.iifeDepth++;
@@ -167,7 +167,8 @@ export class If extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        if (this.hasElse) {
+        if (this.hasElse && this.isValueUsed) {
+            // Value-producing if-else: wrap in IIFE so the value can be captured
             writer.write("(() => {");
             writer.iifeDepth++;
             writer.indentIn();
@@ -205,8 +206,28 @@ export class If extends Expression {
             writer.newLine();
             writer.iifeDepth--;
             writer.write("})()");
+        } else if (this.hasElse) {
+            // Statement if-else (value not used): plain if/else/else chain, no IIFE
+            this.conditionalBranches.forEach(({ condition, branch }, i) => {
+                writer.write(i === 0 ? "if (" : " else if (");
+                condition.toJS(writer);
+                writer.write(") ");
+                writer.beginScope();
+                branch.expressions.forEach((expr) => {
+                    expr.toJS(writer);
+                    writer.newLine();
+                });
+                writer.endScope();
+            });
+            writer.write(" else ");
+            writer.beginScope();
+            this.elseBranch.expressions.forEach((expr) => {
+                expr.toJS(writer);
+                writer.newLine();
+            });
+            writer.endScope();
         } else {
-            // Chain all conditional branches with else if, even without a final else
+            // Else-less if chain: all branches are else-if (no final else)
             this.conditionalBranches.forEach(({ condition, branch }, i) => {
                 writer.write(i === 0 ? "if (" : " else if (");
                 condition.toJS(writer);
@@ -269,11 +290,11 @@ export class ForLoop extends Expression {
             return ForLoop.needsTryCatchForBody(expr.child, inIIFE);
         }
         if (expr instanceof Block) {
-            const childInIIFE = inIIFE || Block.lastExprShouldReturn(expr);
+            const childInIIFE = inIIFE || (expr.isValueUsed && Block.lastExprShouldReturn(expr));
             return expr.expressions.some((e) => ForLoop.needsTryCatchForBody(e, childInIIFE));
         }
         if (expr instanceof If) {
-            const childInIIFE = inIIFE || expr.hasElse;
+            const childInIIFE = inIIFE || (expr.isValueUsed && expr.hasElse);
             return (
                 expr.conditionalBranches.some((b) =>
                     ForLoop.needsTryCatchForBody(b.branch, childInIIFE)
@@ -322,7 +343,7 @@ export class ForLoop extends Expression {
         writer.write(`if (${safeVarName} === undefined) break;`);
         writer.newLine();
 
-        const needsTry = ForLoop.needsTryCatchForBody(this.body, false);
+        const needsTry = this.body.expressions.some((e) => ForLoop.needsTryCatchForBody(e, false));
         if (needsTry) {
             writer.useBuiltin("$Continue$");
             writer.useBuiltin("$Break$");
@@ -437,7 +458,7 @@ export class Return extends Expression {
 
     cascadeTypes(ancestors: Expression[]): void {
         this.value.cascadeTypes([...ancestors, this]);
-        this.type = "Null";  // Return statements have type null, even if their values do not
+        this.type = "Null"; // Return statements have type null, even if their values do not
         // Verify `return` is inside a function,
         // and let that function knows it needs to check that the return type matches
         for (let i = ancestors.length - 1; i >= 0; i--) {
@@ -1242,7 +1263,7 @@ export class AnonymousFunction extends Expression {
             if (s.value.type !== this.returnType) {
                 throw this.error(
                     `anonymous function with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
-                )
+                );
             }
         }
         this.type = new FuncType(
@@ -1273,13 +1294,13 @@ export class AnonymousFunction extends Expression {
             return AnonymousFunction.needsTryCatchForReturn(expr.child, inIIFE);
         }
         if (expr instanceof Block) {
-            const childInIIFE = inIIFE || Block.lastExprShouldReturn(expr);
+            const childInIIFE = inIIFE || (expr.isValueUsed && Block.lastExprShouldReturn(expr));
             return expr.expressions.some((e) =>
                 AnonymousFunction.needsTryCatchForReturn(e, childInIIFE)
             );
         }
         if (expr instanceof If) {
-            const childInIIFE = inIIFE || expr.hasElse;
+            const childInIIFE = inIIFE || (expr.isValueUsed && expr.hasElse);
             return (
                 expr.conditionalBranches.some((b) =>
                     AnonymousFunction.needsTryCatchForReturn(b.branch, childInIIFE)
@@ -1307,7 +1328,9 @@ export class AnonymousFunction extends Expression {
         writer.write(this.params.map((p) => writer.safeName(p.name)).join(", "));
         writer.write(") => ");
         writer.beginFunction();
-        const needsTry = AnonymousFunction.needsTryCatchForReturn(this.body, false);
+        const needsTry = this.body.expressions.some((e) =>
+            AnonymousFunction.needsTryCatchForReturn(e, false)
+        );
         if (needsTry) {
             writer.useBuiltin("$Return$");
             writer.write("try {");
@@ -1458,7 +1481,7 @@ export class Function extends Expression {
             if (s.value.type !== this.returnType) {
                 throw this.error(
                     `function with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
-                )
+                );
             }
         }
     }
@@ -1606,7 +1629,9 @@ export class Function extends Expression {
         writer.write(this.params.map((p) => writer.safeName(p.name)).join(", "));
         writer.write(") ");
         writer.beginFunction();
-        const needsTry = AnonymousFunction.needsTryCatchForReturn(this.body, false);
+        const needsTry = this.body.expressions.some((e) =>
+            AnonymousFunction.needsTryCatchForReturn(e, false)
+        );
         if (needsTry) {
             writer.useBuiltin("$Return$");
             writer.write("try {");

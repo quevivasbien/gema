@@ -112,8 +112,9 @@ struct S[T] where T is Foo {
 These would be helpful to avoid deeply nested control flow. We also need to fix currently existing bugs with the `break` statement.
 
 These statements have the following type behavior:
-* All of the `continue`, `break` and `return` statements have null type
-* Yes, even the `return` statement has null type! This means that the following examples are not permitted.
+
+- All of the `continue`, `break` and `return` statements have null type
+- Yes, even the `return` statement has null type! This means that the following examples are not permitted.
 
 ```gema
 # This is illegal! The if/else expression has type null because both branches end in return statements (which have type null)
@@ -147,8 +148,8 @@ The way the type resolution needs to happen here is: the function needs to keep 
 
 Once the function expression is done cascading types to its own children and has resolved its own type, it checks each of the return statements within it and verifies that they are returning a type that matches the function's expected return type.
 
-
 Other misc examples:
+
 ```gema
 # This is illegal because the last expression in the function is a naked if, which has type Null.
 # So it's not legal to try to return a value of type Int.
@@ -173,6 +174,7 @@ func foo() {
 ```
 
 Something similar needs to happen with `break` and `continue` statements. (In this case, ofc, you don't need to check that the type of the value returned matches the type of the enclosing scope, since for loops always have type Null.) For example:
+
 ```gema
 # This is fine
 for i = 1..10 {
@@ -210,6 +212,7 @@ for i = 1..10 {
 ```
 
 Here's an example combining return with continue
+
 ```gema
 # This is fine! Everything has null value
 func foo() {

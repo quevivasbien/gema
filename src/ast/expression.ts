@@ -12,6 +12,8 @@ export class ASTError {
 
 export abstract class Expression {
     type: Type | null = null;
+    /** Set during pre-pass: whether this expression's value is consumed by its context */
+    isValueUsed: boolean = true;
 
     constructor(
         public line: number,
