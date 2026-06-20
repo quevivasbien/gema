@@ -334,6 +334,26 @@ test("for: infinite loop inside function with break", () => {
     );
 });
 
+test("for: nested for loop with same iterator", () => {
+    // Iterators need to be cloned if used in a nested fashion
+    testCompile(
+        `
+        trait Any {}
+        func square(iter: Iter[T]) where T is Any {
+            result = []: Tuple[T, T] | trans;
+            for a = iter {
+                for b = iter {
+                    push(result, (a, b));
+                }
+            }
+            result
+        }
+        square([1,2])
+        `,
+        [[1n,1n],[1n,2n],[2n,1n],[2n,2n]]
+    );
+});
+
 // ============================================================
 // Return statement
 // ============================================================

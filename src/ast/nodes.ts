@@ -364,9 +364,11 @@ export class ForLoop extends Expression {
             writer.write(");");
             writer.newLine();
         } else {
+            // For IterType, clone the iterator so each for loop gets a fresh copy.
+            // This prevents issues with nested loops sharing the same iterator.
             writer.write(`const ${safeIterVar} = `);
             this.iter.toJS(writer);
-            writer.write(";");
+            writer.write(".clone();");
             writer.newLine();
         }
 

@@ -32,6 +32,9 @@ export const BUILTINS: Record<string, string> = {
     reset() {
         this.index = 0;
     }
+    clone() {
+        return new $ArrayIterator$(this.array);
+    }
 }`,
     // Numeric range: start..end with optional step
     $RangeIterator$: `class $RangeIterator$ {
@@ -52,6 +55,9 @@ export const BUILTINS: Record<string, string> = {
     }
     reset() {
         this.value = this.start;
+    }
+    clone() {
+        return new $RangeIterator$(this.start, this.end, this.step);
     }
 }`,
     $ConcatIterator$: `class $ConcatIterator$ {
@@ -80,6 +86,9 @@ export const BUILTINS: Record<string, string> = {
         this.iter1.reset();
         this.iter2.reset();
     }
+    clone() {
+        return new $ConcatIterator$(this.iter1.clone(), this.iter2.clone());
+    }
 }`,
     // Transforms each element via a mapping function
     $MapIterator$: `class $MapIterator$ {
@@ -98,6 +107,9 @@ export const BUILTINS: Record<string, string> = {
     reset() {
         this.innerIter.reset();
     }
+    clone() {
+        return new $MapIterator$(this.mapfn, this.innerIter.clone());
+    }
 }`,
     // Map via array index lookup (arr.map(indexIter))
     $ArrayMapIterator$: `class $ArrayMapIterator$ {
@@ -115,6 +127,9 @@ export const BUILTINS: Record<string, string> = {
     }
     reset() {
         this.innerIter.reset();
+    }
+    clone() {
+        return new $ArrayMapIterator$(this.arr, this.innerIter.clone());
     }
 }`,
     // Filters elements by predicate
@@ -138,6 +153,9 @@ export const BUILTINS: Record<string, string> = {
     }
     reset() {
         this.innerIter.reset();
+    }
+    clone() {
+        return new $FilterIterator$(this.filterFn, this.innerIter.clone());
     }
 }`,
     // Takes the first N elements
@@ -164,6 +182,9 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
         this.remaining = this.originalCount;
     }
+    clone() {
+        return new $TakeIterator$(this.originalCount, this.innerIter.clone());
+    }
 }`,
     // Takes elements while predicate holds
     $TakeWhileIterator$: `class $TakeWhileIterator$ {
@@ -181,6 +202,9 @@ export const BUILTINS: Record<string, string> = {
     }
     reset() {
         this.innerIter.reset();
+    }
+    clone() {
+        return new $TakeWhileIterator$(this.pred, this.innerIter.clone());
     }
 }`,
     // Skips the first N elements
@@ -211,6 +235,9 @@ export const BUILTINS: Record<string, string> = {
     reset() {
         this.innerIter.reset();
         this.dropping = true;
+    }
+    clone() {
+        return new $DropIterator$(this.toSkip, this.innerIter.clone());
     }
 }`,
     // Skips elements while predicate holds
@@ -245,6 +272,9 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
         this.dropping = true;
     }
+    clone() {
+        return new $DropWhileIterator$(this.pred, this.innerIter.clone());
+    }
 }`,
     // Repeatedly applies fn: iterate(fn, start) → start, fn(start), fn(fn(start)), …
     $IterateIterator$: `class $IterateIterator$ {
@@ -265,6 +295,9 @@ export const BUILTINS: Record<string, string> = {
     reset() {
         this.current = this.start;
         this.first = true;
+    }
+    clone() {
+        return new $IterateIterator$(this.fn, this.start);
     }
 }`,
     // Yields every stepSize-th element from an iterator
@@ -292,6 +325,9 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
         this.count = 0n;
     }
+    clone() {
+        return new $StepIterator$(this.innerIter.clone(), this.stepSize);
+    }
 }`,
     // Zips multiple iterators together, yielding arrays of values
     $ZipIterator$: `class $ZipIterator$ {
@@ -314,6 +350,9 @@ export const BUILTINS: Record<string, string> = {
         for (const iter of this.iterators) {
             iter.reset();
         }
+    }
+    clone() {
+        return new $ZipIterator$(...this.iterators.map(i => i.clone()));
     }
 }`,
 
