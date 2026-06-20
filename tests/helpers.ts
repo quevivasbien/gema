@@ -92,7 +92,12 @@ export function testCompileMulti(
     if (result.errors.length > 0) {
         throw new Error(
             "Compile errors:\n" +
-                result.errors.map((e: { line: number; col: number; message: string }) => `${e.line}:${e.col} ${e.message}`).join("\n")
+                result.errors
+                    .map(
+                        (e: { line: number; col: number; message: string }) =>
+                            `${e.line}:${e.col} ${e.message}`
+                    )
+                    .join("\n")
         );
     }
     if (expectEqual !== null) {

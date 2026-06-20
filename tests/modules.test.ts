@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-    testCompileMulti,
-    testCompileMultiExpectError,
-} from "./helpers";
+import { testCompileMulti, testCompileMultiExpectError } from "./helpers";
 
 test("basic: function from module", () => {
     testCompileMulti(
@@ -140,7 +137,7 @@ add(3, 4)`;
     // Split the source by #--- markers
     const files = parseMultiFileSource(source);
     expect(files).toEqual({
-        "math.gema": 'func add(x: Int, y: Int) { x + y }',
+        "math.gema": "func add(x: Int, y: Int) { x + y }",
         "main.gema": 'use "math.gema"\nadd(3, 4)',
     });
 });
@@ -152,7 +149,8 @@ test("parse multi-file source: no markers falls back to single file", () => {
 });
 
 test("parse multi-file source: windows-style line endings", () => {
-    const source = "#--- math.gema ---\r\nfunc add(x: Int, y: Int) { x + y }\r\n#--- main.gema ---\r\nuse \"math.gema\"\r\nadd(3, 4)";
+    const source =
+        '#--- math.gema ---\r\nfunc add(x: Int, y: Int) { x + y }\r\n#--- main.gema ---\r\nuse "math.gema"\r\nadd(3, 4)';
     const files = parseMultiFileSource(source);
     expect(files).toEqual({
         "math.gema": "func add(x: Int, y: Int) { x + y }",

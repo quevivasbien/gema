@@ -25,14 +25,14 @@ function collectUseDirectives(source: string): string[] {
         if (tokens[i].type === TokenType.Use) {
             // Next token should be a string literal
             if (i + 1 < tokens.length && tokens[i + 1].type === TokenType.String) {
-                    let path = tokens[i + 1].text;
-                    // Strip surrounding quotes from string literal
-                    if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
-                        path = path.slice(1, -1);
-                    }
-                    paths.push(path);
-                    i++; // skip the string token
+                let path = tokens[i + 1].text;
+                // Strip surrounding quotes from string literal
+                if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
+                    path = path.slice(1, -1);
                 }
+                paths.push(path);
+                i++; // skip the string token
+            }
         }
     }
     return paths;
@@ -130,27 +130,23 @@ function compileModule(
  *   compile(files: Record<string, string>, mode, entry?, minify?)
  *
  * Returns the compiled JS and any compile-time errors.
- * Does NOT execute the code — that's handled by the Web Worker.
  */
 export function compile(
     filesOrSource: Record<string, string> | string,
     mode: "immediate" | "inline" | "export" = "immediate",
-    entryOrMinify?: string | boolean,
-    minify: boolean = true
+    entry?: string
 ): CompileResult {
     // Normalize arguments
     let files: Record<string, string>;
-    let entry: string;
 
     if (typeof filesOrSource === "string") {
         // Single-file mode: compile(source, mode, minify)
         files = { "main.gema": filesOrSource };
         entry = "main.gema";
-        if (typeof entryOrMinify === "boolean") minify = entryOrMinify;
     } else {
-        // Multi-file mode: compile(files, mode, entry?, minify?)
+        // Multi-file mode: compile(files, mode, entry?)
         files = filesOrSource;
-        entry = typeof entryOrMinify === "string" ? entryOrMinify : "main.gema";
+        entry = entry ?? "main.gema";
     }
 
     resetRegistries();
@@ -193,7 +189,7 @@ export function compile(
             return { js: "", result: null, errors, runtimeError: null };
         }
 
-        const entryJS = writeJS(ast, mode, minify);
+        const entryJS = writeJS(ast, mode);
 
         // Phase 3: Concatenate — builtins come from the entry's writeJS output,
         // module JS is injected before the PROGRAM section

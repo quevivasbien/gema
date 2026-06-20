@@ -6,7 +6,6 @@
         "dev": "bun run server.ts",
         "deploy": "bun build:frontend && bun gh-pages -d frontend",
         "compile": "bun run compile.ts",
-        "compile:benchmarks": "mkdir -p benchmarks/compiled && for f in benchmarks/*.gema; do bun run compile.ts \"$f\" -m -o \"benchmarks/compiled/$(basename \"$f\" .gema).js\"; done",
         "bench": "bun compile:benchmarks && bun run benchmarks/compile.bench.ts && bun run benchmarks/runtime.bench.ts"
     },
     "devDependencies": {

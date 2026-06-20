@@ -10,6 +10,41 @@ import { PRESETS } from "./editor-presets.js";
 import { gema } from "./gema-language.js";
 import { getWorker } from "./get-worker.js";
 
+// ── Multi-file source parsing ───────────────────────────────────
+
+/**
+ * Parse a source string that may contain `#--- filename ---` markers
+ * to split it into multiple virtual files.
+ *
+ * Returns null if no markers are found (single-file mode).
+ * Otherwise returns a Record<filename, content>.
+ */
+function parseMultiFileSource(source) {
+    const lines = source.split("\n");
+    const files = {};
+    let currentFile = null;
+    let currentContent = [];
+
+    for (const raw of lines) {
+        const line = raw.replace(/\r$/, "");
+        const m = line.match(/^#---\s+(.+?)\s*---$/);
+        if (m) {
+            if (currentFile !== null && currentContent.length > 0) {
+                files[currentFile] = currentContent.join("\n");
+            }
+            currentFile = m[1];
+            currentContent = [];
+        } else {
+            currentContent.push(line);
+        }
+    }
+    if (currentFile !== null && currentContent.length > 0) {
+        files[currentFile] = currentContent.join("\n");
+    }
+
+    return currentFile === null ? null : files;
+}
+
 // ── Error decoration state ──────────────────────────────────────
 
 const addErrorLine = StateEffect.define();
@@ -135,11 +170,23 @@ async function runCode(view) {
     runBtn.textContent = "Running...";
 
     try {
-        // Step 1: Compile (runs in main thread — pure string manipulation, safe)
-        const compiled = compile(code, "inline");
+        // Step 1: Split into files (if multi-file markers present) and compile
+        const multiFiles = parseMultiFileSource(code);
+        let compiled;
+        let displaySource = code;
+
+        if (multiFiles) {
+            // Multi-file mode
+            compiled = compile(multiFiles, "inline", "main.gema");
+            // For error display, use the main.gema content
+            displaySource = multiFiles["main.gema"] ?? code;
+        } else {
+            // Single-file mode (backwards compatible)
+            compiled = compile(code, "inline");
+        }
 
         if (compiled.errors && compiled.errors.length > 0) {
-            displayErrors(view, compiled.errors, code);
+            displayErrors(view, compiled.errors, displaySource);
             runBtn.disabled = false;
             runBtn.textContent = "Run (Ctrl+Enter)";
             return;
