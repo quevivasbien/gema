@@ -232,12 +232,6 @@ Don't require param types when referencing functions in a context where it's inf
 
 range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
 
-Add naked for loop (equivalent to while true)
-
-Make dicts and sets from iterators; conversely, make iterators from dicts and sets
-
-Both put and push should return the value, not the data structure that the value was added to
-
 .. syntax for ranges should not continue into a curly brace block (most relevant in context of for loop) -- On second thought on this one, this would screw with a lot of our precedence rules, so maybe not a good idea.
 
 ## Scoped TypeEnv

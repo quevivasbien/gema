@@ -825,14 +825,54 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "toIter":
-                    writer.useBuiltin("$ArrayIterator$");
-                    writer.write("new $ArrayIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(".split ? ");
-                    this.args[0]?.toJS(writer);
-                    writer.write('.split("") : ');
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
+                    if (
+                        this.args[0]?.type instanceof DictType ||
+                        this.args[0]?.type instanceof MutDictType
+                    ) {
+                        writer.useBuiltin("$DictIterator$");
+                        writer.write("new $DictIterator$(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(")");
+                    } else if (
+                        this.args[0]?.type instanceof SetType ||
+                        this.args[0]?.type instanceof MutSetType
+                    ) {
+                        writer.useBuiltin("$SetIterator$");
+                        writer.write("new $SetIterator$(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(")");
+                    } else {
+                        writer.useBuiltin("$ArrayIterator$");
+                        writer.write("new $ArrayIterator$(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(".split ? ");
+                        this.args[0]?.toJS(writer);
+                        writer.write('.split("") : ');
+                        this.args[0]?.toJS(writer);
+                        writer.write(")");
+                    }
+                    return;
+                case "toArr":
+                    if (
+                        this.args[0]?.type instanceof DictType ||
+                        this.args[0]?.type instanceof MutDictType
+                    ) {
+                        // JS Map is natively iterable via .entries()
+                        writer.write("[...");
+                        this.args[0]?.toJS(writer);
+                        writer.write("]");
+                    } else if (
+                        this.args[0]?.type instanceof SetType ||
+                        this.args[0]?.type instanceof MutSetType
+                    ) {
+                        // JS Set is natively iterable via .values()
+                        writer.write("[...");
+                        this.args[0]?.toJS(writer);
+                        writer.write("]");
+                    } else if (this.args[0]?.type === "Str") {
+                        this.args[0]?.toJS(writer);
+                        writer.write('.split("")');
+                    }
                     return;
                 case "step":
                     writer.useBuiltin("$StepIterator$");

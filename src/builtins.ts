@@ -513,6 +513,47 @@ export const BUILTINS: Record<string, string> = {
     }
 }`,
 
+    // Iterator over a Dict (JS Map), yielding [key, value] tuples
+    $DictIterator$: `class $DictIterator$ {
+    constructor(map) {
+        this.entries = [...map.entries()];
+        this.index = 0;
+    }
+    next() {
+        if (this.index >= this.entries.length) {
+            this.reset();
+            return undefined;
+        }
+        return this.entries[this.index++];
+    }
+    reset() {
+        this.index = 0;
+    }
+    clone() {
+        return new $DictIterator$(new Map(this.entries));
+    }
+}`,
+    // Iterator over a Set, yielding its elements
+    $SetIterator$: `class $SetIterator$ {
+    constructor(set) {
+        this.values = [...set.values()];
+        this.index = 0;
+    }
+    next() {
+        if (this.index >= this.values.length) {
+            this.reset();
+            return undefined;
+        }
+        return this.values[this.index++];
+    }
+    reset() {
+        this.index = 0;
+    }
+    clone() {
+        return new $SetIterator$(new Set(this.values));
+    }
+}`,
+
     // ── Iterator terminal operations ──
     // Collect an iterator into an array
     $collect$: `function $collect$(iter) {

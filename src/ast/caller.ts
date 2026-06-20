@@ -1284,6 +1284,33 @@ function findBuiltin(
                     },
                 };
             }
+            if (tiInner instanceof DictType || tiInner instanceof MutDictType) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toIter",
+                        callerType: new FuncType(
+                            [tiInner],
+                            new IterType(new TupleType([tiInner.keyType, tiInner.valueType]))
+                        ),
+                        rootType: new IterType(new TupleType([tiInner.keyType, tiInner.valueType])),
+                        builtinKind: "toIter",
+                    },
+                };
+            }
+            if (tiInner instanceof SetType || tiInner instanceof MutSetType) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toIter",
+                        callerType: new FuncType([tiInner], new IterType(tiInner.innerType)),
+                        rootType: new IterType(tiInner.innerType),
+                        builtinKind: "toIter",
+                    },
+                };
+            }
             if (tiInner === "Str") {
                 return {
                     error: null,
@@ -1296,15 +1323,49 @@ function findBuiltin(
                     },
                 };
             }
-            if (tiInner instanceof IterType) {
+            return undefined;
+        }
+        case "toArr": {
+            if (argTypes.length !== 1) return undefined;
+            const taInner = argTypes[0];
+            if (taInner instanceof DictType || taInner instanceof MutDictType) {
                 return {
                     error: null,
                     result: {
                         kind: "builtin",
-                        referToByName: "toIter",
-                        callerType: new FuncType([tiInner], tiInner),
-                        rootType: tiInner,
-                        builtinKind: "toIter",
+                        referToByName: "toArr",
+                        callerType: new FuncType(
+                            [taInner],
+                            new ArrayType(new TupleType([taInner.keyType, taInner.valueType]))
+                        ),
+                        rootType: new ArrayType(
+                            new TupleType([taInner.keyType, taInner.valueType])
+                        ),
+                        builtinKind: "toArr",
+                    },
+                };
+            }
+            if (taInner instanceof SetType || taInner instanceof MutSetType) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toArr",
+                        callerType: new FuncType([taInner], new ArrayType(taInner.innerType)),
+                        rootType: new ArrayType(taInner.innerType),
+                        builtinKind: "toArr",
+                    },
+                };
+            }
+            if (taInner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toArr",
+                        callerType: new FuncType([taInner], new ArrayType("Str")),
+                        rootType: new ArrayType("Str"),
+                        builtinKind: "toArr",
                     },
                 };
             }

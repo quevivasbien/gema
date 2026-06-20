@@ -503,3 +503,31 @@ x | filter(\\i contains(x, i)) | collect`,
         [1n, 2n, 3n]
     );
 });
+
+test("toIter Dict", () => {
+    testCompile('collect(toIter(Dict([(1, "a"), (2, "b")])))', [
+        [1n, "a"],
+        [2n, "b"],
+    ]);
+});
+
+test("toIter Set", () => {
+    testCompile("collect(toIter(Set([1, 2, 3])))", [1n, 2n, 3n]);
+});
+
+test("toArr Dict", () => {
+    testCompile('toArr(Dict([(1, "a"), (2, "b")]))', [
+        [1n, "a"],
+        [2n, "b"],
+    ]);
+});
+
+test("toArr Set", () => {
+    testCompile("toArr(Set([1, 2, 3]))", [1n, 2n, 3n]);
+});
+
+test("toArr Str", () => {
+    testCompile('toArr("abc")', ["a", "b", "c"]);
+});
+
+
