@@ -1124,6 +1124,191 @@ function findBuiltin(
                 },
             };
         }
+        case "repeat": {
+            if (argTypes.length !== 2) return undefined;
+            const [repeatCount, repeatInner] = argTypes;
+            if (repeatCount !== "Int") return undefined;
+            if (
+                repeatInner instanceof IterType ||
+                repeatInner instanceof ArrayType ||
+                repeatInner instanceof MutArrType
+            ) {
+                const rInner =
+                    repeatInner instanceof IterType ? repeatInner.innerType : repeatInner.innerType;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "repeat",
+                        callerType: new FuncType([repeatCount, repeatInner], new IterType(rInner)),
+                        rootType: new IterType(rInner),
+                        builtinKind: "repeat",
+                    },
+                };
+            }
+            if (repeatInner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "repeat",
+                        callerType: new FuncType([repeatCount, repeatInner], new IterType("Str")),
+                        rootType: new IterType("Str"),
+                        builtinKind: "repeat",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "repeatInner": {
+            if (argTypes.length !== 2) return undefined;
+            const [riCount, riInner] = argTypes;
+            if (riCount !== "Int") return undefined;
+            if (
+                riInner instanceof IterType ||
+                riInner instanceof ArrayType ||
+                riInner instanceof MutArrType
+            ) {
+                const riInnerType =
+                    riInner instanceof IterType ? riInner.innerType : riInner.innerType;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "repeatInner",
+                        callerType: new FuncType([riCount, riInner], new IterType(riInnerType)),
+                        rootType: new IterType(riInnerType),
+                        builtinKind: "repeatInner",
+                    },
+                };
+            }
+            if (riInner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "repeatInner",
+                        callerType: new FuncType([riCount, riInner], new IterType("Str")),
+                        rootType: new IterType("Str"),
+                        builtinKind: "repeatInner",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "cartesian": {
+            if (argTypes.length < 2) return undefined;
+            const innerTypes: Type[] = argTypes.map((t) => {
+                if (t instanceof IterType) return t.innerType;
+                if (t instanceof ArrayType) return t.innerType;
+                if (t instanceof MutArrType) return t.innerType;
+                return t === "Str" ? "Str" : t;
+            });
+            return {
+                error: null,
+                result: {
+                    kind: "builtin",
+                    referToByName: "cartesian",
+                    callerType: new FuncType(argTypes, new IterType(new TupleType(innerTypes))),
+                    rootType: new IterType(new TupleType(innerTypes)),
+                    builtinKind: "cartesian",
+                },
+            };
+        }
+        case "permutations": {
+            if (argTypes.length !== 1) return undefined;
+            const permInner = argTypes[0];
+            if (
+                permInner instanceof IterType ||
+                permInner instanceof ArrayType ||
+                permInner instanceof MutArrType
+            ) {
+                const pInner =
+                    permInner instanceof IterType ? permInner.innerType : permInner.innerType;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "permutations",
+                        callerType: new FuncType(
+                            [permInner],
+                            new IterType(new TupleType([pInner]))
+                        ),
+                        rootType: new IterType(new TupleType([pInner])),
+                        builtinKind: "permutations",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "combinations": {
+            if (argTypes.length !== 2) return undefined;
+            const [combIter, combN] = argTypes;
+            if (combN !== "Int") return undefined;
+            if (
+                combIter instanceof IterType ||
+                combIter instanceof ArrayType ||
+                combIter instanceof MutArrType
+            ) {
+                const cInner =
+                    combIter instanceof IterType ? combIter.innerType : combIter.innerType;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "combinations",
+                        callerType: new FuncType(
+                            [combIter, combN],
+                            new IterType(new TupleType([cInner]))
+                        ),
+                        rootType: new IterType(new TupleType([cInner])),
+                        builtinKind: "combinations",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "toIter": {
+            if (argTypes.length !== 1) return undefined;
+            const tiInner = argTypes[0];
+            if (tiInner instanceof ArrayType || tiInner instanceof MutArrType) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toIter",
+                        callerType: new FuncType([tiInner], new IterType(tiInner.innerType)),
+                        rootType: new IterType(tiInner.innerType),
+                        builtinKind: "toIter",
+                    },
+                };
+            }
+            if (tiInner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toIter",
+                        callerType: new FuncType([tiInner], new IterType("Str")),
+                        rootType: new IterType("Str"),
+                        builtinKind: "toIter",
+                    },
+                };
+            }
+            if (tiInner instanceof IterType) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toIter",
+                        callerType: new FuncType([tiInner], tiInner),
+                        rootType: tiInner,
+                        builtinKind: "toIter",
+                    },
+                };
+            }
+            return undefined;
+        }
         case "unwrap": {
             if (argTypes.length < 1 || argTypes.length > 2) return undefined;
             if (!(argTypes[0] instanceof MaybeType)) return undefined;

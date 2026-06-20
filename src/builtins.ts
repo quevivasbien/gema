@@ -45,7 +45,7 @@ export const BUILTINS: Record<string, string> = {
         this.step = step;
     }
     next() {
-        if (this.end !== undefined && (this.step > 0 ? this.value > this.end : this.value < this.end)) {
+        if (this.end !== undefined && (this.step > 0n ? this.value > this.end : this.value < this.end)) {
             this.reset();
             return undefined;
         }
@@ -353,6 +353,163 @@ export const BUILTINS: Record<string, string> = {
     }
     clone() {
         return new $ZipIterator$(...this.iterators.map(i => i.clone()));
+    }
+}`,
+    // Repeats an iterator n times (infinitely if n <= 0)
+    $RepeatIterator$: `class $RepeatIterator$ {
+    constructor(count, innerIter) {
+        this.count = count;
+        this.remaining = count;
+        this.innerIter = innerIter;
+    }
+    next() {
+        const value = this.innerIter.next();
+        if (value !== undefined) return value;
+        this.innerIter.reset();
+        if (this.remaining > 0n) {
+            this.remaining--;
+            if (this.remaining === 0n) return undefined;
+        }
+        // remaining <= 0 means infinite — keep going
+        return this.innerIter.next();
+    }
+    reset() {
+        this.innerIter.reset();
+        this.remaining = this.count;
+    }
+}`,
+    // Repeats each element n times before moving to the next
+    $RepeatInnerIterator$: `class $RepeatInnerIterator$ {
+    constructor(count, innerIter) {
+        this.repeatCount = count;
+        this.innerIter = innerIter;
+        this.currentValue = undefined;
+        this.timesYielded = 0;
+    }
+    next() {
+        if (this.timesYielded > 0 && this.timesYielded < this.repeatCount) {
+            this.timesYielded++;
+            return this.currentValue;
+        }
+        this.currentValue = this.innerIter.next();
+        if (this.currentValue === undefined) {
+            this.reset();
+            return undefined;
+        }
+        this.timesYielded = 1;
+        return this.currentValue;
+    }
+    reset() {
+        this.innerIter.reset();
+        this.currentValue = undefined;
+        this.timesYielded = 0;
+    }
+}`,
+    // Generates the cartesian product of multiple iterators
+    $CartesianIterator$: `class $CartesianIterator$ {
+    constructor(...iterators) {
+        this.iterators = iterators.map(i => ({ iter: i, saved: [] }));
+        this.finished = false;
+        // Collect all elements upfront since we need random access
+        for (const entry of this.iterators) {
+            while (true) {
+                const v = entry.iter.next();
+                if (v === undefined) break;
+                entry.saved.push(v);
+            }
+            entry.iter.reset();
+            if (entry.saved.length === 0) {
+                this.finished = true;
+                break;
+            }
+        }
+        this.indices = new Array(this.iterators.length).fill(0);
+    }
+    next() {
+        if (this.finished) return undefined;
+        const result = this.indices.map((idx, i) => this.iterators[i].saved[idx]);
+        // Advance indices (rightmost first, like odometer)
+        let pos = this.indices.length - 1;
+        while (pos >= 0) {
+            this.indices[pos]++;
+            if (this.indices[pos] < this.iterators[pos].saved.length) break;
+            this.indices[pos] = 0;
+            pos--;
+        }
+        if (pos < 0) this.finished = true;
+        return result;
+    }
+    reset() {
+        this.indices = new Array(this.iterators.length).fill(0);
+        this.finished = false;
+        for (const entry of this.iterators) {
+            if (entry.saved.length === 0) { this.finished = true; break; }
+        }
+    }
+}`,
+    // Generates all permutations of an iterator
+    $PermutationsIterator$: `class $PermutationsIterator$ {
+    constructor(innerIter) {
+        this.elements = $collect$(innerIter);
+        this.n = this.elements.length;
+        this.indices = new Array(this.n).fill(0).map((_, i) => i);
+        this.done = this.n === 0;
+    }
+    next() {
+        if (this.done) return undefined;
+        const result = this.indices.map(i => this.elements[i]);
+        // Generate next permutation of indices in lexicographic order
+        let i = this.n - 2;
+        while (i >= 0 && this.indices[i] >= this.indices[i + 1]) i--;
+        if (i < 0) {
+            this.done = true;
+        } else {
+            let j = this.n - 1;
+            while (this.indices[j] <= this.indices[i]) j--;
+            [this.indices[i], this.indices[j]] = [this.indices[j], this.indices[i]];
+            // Reverse suffix
+            let left = i + 1;
+            let right = this.n - 1;
+            while (left < right) {
+                [this.indices[left], this.indices[right]] = [this.indices[right], this.indices[left]];
+                left++;
+                right--;
+            }
+        }
+        return result;
+    }
+    reset() {
+        this.indices = new Array(this.n).fill(0).map((_, i) => i);
+        this.done = this.n === 0;
+    }
+}`,
+    // Generates all combinations of n elements from an iterator
+    $CombinationsIterator$: `class $CombinationsIterator$ {
+    constructor(innerIter, choose) {
+        this.elements = $collect$(innerIter);
+        this.choose = Number(choose);
+        this.indices = new Array(this.choose).fill(0).map((_, i) => i);
+        this.done = this.choose > this.elements.length || this.choose === 0;
+    }
+    next() {
+        if (this.done) return undefined;
+        const result = this.indices.map(i => this.elements[i]);
+        // Advance to next combination
+        let i = this.choose - 1;
+        while (i >= 0 && this.indices[i] === this.elements.length - this.choose + i) i--;
+        if (i < 0) {
+            this.done = true;
+        } else {
+            this.indices[i]++;
+            for (let j = i + 1; j < this.choose; j++) {
+                this.indices[j] = this.indices[j - 1] + 1;
+            }
+        }
+        return result;
+    }
+    reset() {
+        this.indices = new Array(this.choose).fill(0).map((_, i) => i);
+        this.done = this.choose > this.elements.length || this.choose === 0;
     }
 }`,
 

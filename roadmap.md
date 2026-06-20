@@ -236,8 +236,6 @@ Add naked for loop (equivalent to while true)
 
 Make dicts and sets from iterators; conversely, make iterators from dicts and sets
 
-Tentative: Cartesian product iterator, permutations iterator, combinations iterator
-
 Both put and push should return the value, not the data structure that the value was added to
 
 .. syntax for ranges should not continue into a curly brace block (most relevant in context of for loop) -- On second thought on this one, this would screw with a lot of our precedence rules, so maybe not a good idea.
@@ -250,13 +248,15 @@ Complication: Call's keyword-arg reordering digs through ancestor blocks for fun
 
 ## Optimizations
 
-When transing an expression that is not a variable, there is no need for a copy (it can be a no-op, behaving exactly like unsafeTrans);  (revisiting this later, it might actually be quite complicated to ensure that something is safe not to copy--variables aren't the only case that could cause problems--so maybe this should be kept until later -- this is not actually a super important optimization, since it usually won't matter, and users can use `unsafeTrans` in cases where it does)
+When transing an expression that is not a variable, there is no need for a copy (it can be a no-op, behaving exactly like unsafeTrans); (revisiting this later, it might actually be quite complicated to ensure that something is safe not to copy--variables aren't the only case that could cause problems--so maybe this should be kept until later -- this is not actually a super important optimization, since it usually won't matter, and users can use `unsafeTrans` in cases where it does)
 
 We can completely omit branches of the AST that do not operate on pre-existing mutable variables (or have other side effects) and are dropped.
 
 Optimizations for StepIterator: can be made more efficient when stepping over ranges or arrays.
 
 Small gain: if iterators are dropped, they don't need to reset.
+
+Small improvement for for loops: When we use for loops where the iterator is just a range iterator, it should be possible to just compile this to something like (let i = start; i !== stop; i += step) instead of having to create and check a new iterator object.
 
 When chaining some operations, there are some efficiency improvements to be made. For example, arr1 + arr2 + arr3 would probably be more efficiently compiled as `[...arr1, ...arr2, ...arr3]` instead of `arr1.concat(arr2).concat(arr3)`.
 

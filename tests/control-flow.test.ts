@@ -350,7 +350,12 @@ test("for: nested for loop with same iterator", () => {
         }
         square([1,2])
         `,
-        [[1n,1n],[1n,2n],[2n,1n],[2n,2n]]
+        [
+            [1n, 1n],
+            [1n, 2n],
+            [2n, 1n],
+            [2n, 2n],
+        ]
     );
 });
 

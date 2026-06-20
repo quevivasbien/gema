@@ -785,6 +785,55 @@ export class Call extends Expression {
                     });
                     writer.write(")");
                     return;
+                case "repeat":
+                    writer.useBuiltin("$RepeatIterator$");
+                    writer.write("new $RepeatIterator$(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArrayToIter(1);
+                    writer.write(")");
+                    return;
+                case "repeatInner":
+                    writer.useBuiltin("$RepeatInnerIterator$");
+                    writer.write("new $RepeatInnerIterator$(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    wrapArrayToIter(1);
+                    writer.write(")");
+                    return;
+                case "cartesian":
+                    writer.useBuiltin("$CartesianIterator$");
+                    writer.write("new $CartesianIterator$(");
+                    this.args.forEach((arg, i) => {
+                        if (i > 0) writer.write(", ");
+                        wrapArrayToIter(i);
+                    });
+                    writer.write(")");
+                    return;
+                case "permutations":
+                    writer.useBuiltin("$PermutationsIterator$");
+                    writer.write("new $PermutationsIterator$(");
+                    wrapArrayToIter(0);
+                    writer.write(")");
+                    return;
+                case "combinations":
+                    writer.useBuiltin("$CombinationsIterator$");
+                    writer.write("new $CombinationsIterator$(");
+                    wrapArrayToIter(0);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "toIter":
+                    writer.useBuiltin("$ArrayIterator$");
+                    writer.write("new $ArrayIterator$(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(".split ? ");
+                    this.args[0]?.toJS(writer);
+                    writer.write('.split("") : ');
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
                 case "step":
                     writer.useBuiltin("$StepIterator$");
                     writer.write("new $StepIterator$(");

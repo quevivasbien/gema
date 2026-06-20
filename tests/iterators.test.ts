@@ -414,3 +414,81 @@ test("iter: find", () => {
     testCompile("unwrap(find(1..5, 3))", 2n);
     testCompile("isnone(find(1..5, 99))", true);
 });
+
+// ============================================================
+// New iterator builtins
+// ============================================================
+
+test("repeat: basic repeat", () => {
+    testCompile("collect(repeat(2, [1, 2, 3]))", [1n, 2n, 3n, 1n, 2n, 3n]);
+    testCompile("collect(repeat(1, [1, 2]))", [1n, 2n]);
+});
+
+test("repeat: infinite repeat (n <= 0), take n", () => {
+    testCompile("collect(take(5, repeat(0, [1, 2])))", [1n, 2n, 1n, 2n, 1n]);
+});
+
+test("repeatInner: basic repeat inner", () => {
+    testCompile("collect(repeatInner(3, [1, 2, 3]))", [1n, 1n, 1n, 2n, 2n, 2n, 3n, 3n, 3n]);
+    testCompile("collect(repeatInner(1, [1, 2]))", [1n, 2n]);
+});
+
+test("cartesian: two iterators", () => {
+    testCompile("collect(cartesian([1, 2], [3, 4]))", [
+        [1n, 3n],
+        [1n, 4n],
+        [2n, 3n],
+        [2n, 4n],
+    ]);
+});
+
+test("cartesian: three iterators", () => {
+    testCompile("collect(cartesian([1, 2], [3], [4, 5]))", [
+        [1n, 3n, 4n],
+        [1n, 3n, 5n],
+        [2n, 3n, 4n],
+        [2n, 3n, 5n],
+    ]);
+});
+
+test("permutations: small set", () => {
+    testCompile("collect(permutations([1, 2, 3]))", [
+        [1n, 2n, 3n],
+        [1n, 3n, 2n],
+        [2n, 1n, 3n],
+        [2n, 3n, 1n],
+        [3n, 1n, 2n],
+        [3n, 2n, 1n],
+    ]);
+});
+
+test("permutations: single element", () => {
+    testCompile("collect(permutations([42]))", [[42n]]);
+});
+
+test("combinations: pick 2 from 4", () => {
+    testCompile("collect(combinations([1, 2, 3, 4], 2))", [
+        [1n, 2n],
+        [1n, 3n],
+        [1n, 4n],
+        [2n, 3n],
+        [2n, 4n],
+        [3n, 4n],
+    ]);
+});
+
+test("combinations: pick 1 from 3", () => {
+    testCompile("collect(combinations([1, 2, 3], 1))", [[1n], [2n], [3n]]);
+});
+
+test("combinations: pick all", () => {
+    testCompile("collect(combinations([1, 2, 3], 3))", [[1n, 2n, 3n]]);
+});
+
+test("toIter: array to iterator", () => {
+    testCompile("collect(toIter([1, 2, 3]))", [1n, 2n, 3n]);
+});
+
+test("toIter: string to iterator", () => {
+    testCompile('collect(toIter("abc"))', ["a", "b", "c"]);
+});
