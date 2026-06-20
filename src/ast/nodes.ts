@@ -28,6 +28,7 @@ import {
     getTrait,
     getStruct,
     isVarConsumed,
+    findModuleVar,
     saveConsumedVars,
     restoreConsumedVars,
 } from "./registries";
@@ -586,6 +587,35 @@ export class Return extends Expression {
 }
 
 /**
+ * Compile-time `use` directive: loads another module's definitions.
+ * Generates no runtime code — handled entirely during compilation.
+ */
+export class UseModule extends Expression {
+    constructor(
+        rootToken: Token,
+        public path: string
+    ) {
+        super(rootToken.line, rootToken.col);
+        this.type = "Null";
+    }
+
+    cascadeTypes(_valueUsed: boolean): void {
+        // No type-checking needed — module compilation is handled by the compiler.
+    }
+
+    toJS(_writer: JSWriter): void {
+        // No runtime code generated for `use` directives.
+    }
+
+    clone(_bindings?: Map<string, Type>): Expression {
+        return new UseModule(
+            { line: this.line, col: this.col, text: "use", type: TokenType.Use },
+            this.path
+        );
+    }
+}
+
+/**
  * Range literal created by the `..` syntax.
  * `a..b` → start=a, end=b (inclusive)
  * `..b`  → start=null, end=b (from 0 to b)
@@ -1025,6 +1055,13 @@ export class Variable extends Expression {
             }
             child = node;
             node = node.parent;
+        }
+        // Fallback: check for module-level variables registered during module compilation
+        const moduleVarType = findModuleVar(this.name);
+        if (moduleVarType !== undefined) {
+            this.type = moduleVarType;
+            this.fullName = this.name;
+            return;
         }
         throw this.error(`unable to resolve type of variable ${this}`);
     }

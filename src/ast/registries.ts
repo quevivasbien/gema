@@ -5,6 +5,17 @@ import type { Function } from "./nodes";
 const traitRegistry: Map<string, { name: string; paramNames: string[]; types: TemplateTypes }[]> =
     new Map();
 
+// Global registry of module-level variables (set during module compilation)
+const moduleVarRegistry: Map<string, Type> = new Map();
+
+export function registerModuleVar(name: string, type: Type): void {
+    moduleVarRegistry.set(name, type);
+}
+
+export function findModuleVar(name: string): Type | undefined {
+    return moduleVarRegistry.get(name);
+}
+
 export function registerTrait(
     name: string,
     requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[]
@@ -97,4 +108,5 @@ export function resetRegistries(): void {
     functionRegistry.clear();
     monomorphizedCache.clear();
     consumedVars.clear();
+    moduleVarRegistry.clear();
 }

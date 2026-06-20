@@ -1491,6 +1491,24 @@ class Parser {
         );
     }
 
+    parseUse(): AST.Expression | null {
+        if (this.current().type !== TokenType.Use) {
+            return null;
+        }
+        const rootToken = this.current();
+        this.advance(); // consume 'use'
+        if (this.atEnd() || this.current().type !== TokenType.String) {
+            return this.error("Expected module path string after 'use'.");
+        }
+        let path = this.current().text;
+        // Strip surrounding quotes from string literal
+        if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
+            path = path.slice(1, -1);
+        }
+        this.advance(); // consume the string
+        return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path));
+    }
+
     structDef(): AST.Expression | null {
         if (
             this.current().type !== TokenType.Struct ||
@@ -1570,6 +1588,13 @@ class Parser {
                 this.advance();
                 continue;
             }
+            if (this.current().type === TokenType.Use) {
+                const useModule = this.parseUse();
+                if (useModule !== null) {
+                    expressions.push(useModule);
+                    continue;
+                }
+            }
             const assignment = this.assignment();
             if (assignment !== null) {
                 expressions.push(assignment);
@@ -1622,7 +1647,10 @@ class Parser {
     }
 }
 
-export function parse(tokens: Token[]): { ast: AST.Expression; errors: ParseError[] } {
+export function parse(
+    tokens: Token[],
+    allowNullType: boolean = false
+): { ast: AST.Expression; errors: ParseError[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
     if (parser.errors.length === 0) {
@@ -1649,7 +1677,7 @@ export function parse(tokens: Token[]): { ast: AST.Expression; errors: ParseErro
             }
         }
     }
-    if (block.type === "Null") {
+    if (block.type === "Null" && !allowNullType) {
         parser.errors.push({
             line: tokens[tokens.length - 1].line,
             col: tokens[tokens.length - 1].col,
