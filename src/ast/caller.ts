@@ -1199,12 +1199,19 @@ function findBuiltin(
         }
         case "cartesian": {
             if (argTypes.length < 2) return undefined;
-            const innerTypes: Type[] = argTypes.map((t) => {
-                if (t instanceof IterType) return t.innerType;
-                if (t instanceof ArrayType) return t.innerType;
-                if (t instanceof MutArrType) return t.innerType;
-                return t === "Str" ? "Str" : t;
-            });
+            const innerTypes: Type[] = [];
+            for (const t of argTypes) {
+                if (t instanceof IterType || t instanceof ArrayType || t instanceof MutArrType) {
+                    innerTypes.push(t.innerType);
+                    continue;
+                }
+                if (t === "Str") {
+                    innerTypes.push("Str");
+                    continue;
+                }
+                // Got invalid type for cartesian iterator
+                return undefined;
+            }
             return {
                 error: null,
                 result: {
@@ -1231,11 +1238,8 @@ function findBuiltin(
                     result: {
                         kind: "builtin",
                         referToByName: "permutations",
-                        callerType: new FuncType(
-                            [permInner],
-                            new IterType(new TupleType([pInner]))
-                        ),
-                        rootType: new IterType(new TupleType([pInner])),
+                        callerType: new FuncType([permInner], new IterType(new ArrayType(pInner))),
+                        rootType: new IterType(new ArrayType(pInner)),
                         builtinKind: "permutations",
                     },
                 };
@@ -1244,7 +1248,7 @@ function findBuiltin(
         }
         case "combinations": {
             if (argTypes.length !== 2) return undefined;
-            const [combIter, combN] = argTypes;
+            const [combN, combIter] = argTypes;
             if (combN !== "Int") return undefined;
             if (
                 combIter instanceof IterType ||
@@ -1259,10 +1263,10 @@ function findBuiltin(
                         kind: "builtin",
                         referToByName: "combinations",
                         callerType: new FuncType(
-                            [combIter, combN],
-                            new IterType(new TupleType([cInner]))
+                            [combN, combIter],
+                            new IterType(new ArrayType(cInner))
                         ),
-                        rootType: new IterType(new TupleType([cInner])),
+                        rootType: new IterType(new ArrayType(cInner)),
                         builtinKind: "combinations",
                     },
                 };

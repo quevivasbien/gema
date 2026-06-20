@@ -813,42 +813,59 @@ export class Call extends Expression {
                 case "permutations":
                     writer.useBuiltin("$PermutationsIterator$");
                     writer.write("new $PermutationsIterator$(");
-                    wrapArrayToIter(0);
-                    writer.write(")");
+                    // $PermutationsIterator$ behaves differently if you give it an array or string
+                    this.args[0]?.toJS(writer);
+                    if (
+                        this.args[0]?.type instanceof ArrayType ||
+                        this.args[0]?.type instanceof MutArrType ||
+                        this.args[0]?.type == "Str"
+                    ) {
+                        writer.write(", true)"); // Second param in constructor is true if arg is Arr or Str
+                    } else {
+                        writer.write(")");
+                    }
                     return;
                 case "combinations":
                     writer.useBuiltin("$CombinationsIterator$");
                     writer.write("new $CombinationsIterator$(");
-                    wrapArrayToIter(0);
+                    // $PermutationsIterator$ behaves differently if you give it an array or string
+                    this.args[0]?.toJS(writer);
                     writer.write(", ");
                     this.args[1]?.toJS(writer);
-                    writer.write(")");
+                    if (
+                        this.args[1]?.type instanceof ArrayType ||
+                        this.args[1]?.type instanceof MutArrType ||
+                        this.args[1]?.type == "Str"
+                    ) {
+                        writer.write(", true)"); // Third param in constructor is true if arg is Arr or Str
+                    } else {
+                        writer.write(")");
+                    }
                     return;
                 case "toIter":
                     if (
-                        this.args[0]?.type instanceof DictType ||
-                        this.args[0]?.type instanceof MutDictType
+                        this.args[0]?.type instanceof ArrayType ||
+                        this.args[0]?.type instanceof MutArrType
                     ) {
-                        writer.useBuiltin("$DictIterator$");
-                        writer.write("new $DictIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(")");
-                    } else if (
-                        this.args[0]?.type instanceof SetType ||
-                        this.args[0]?.type instanceof MutSetType
-                    ) {
-                        writer.useBuiltin("$SetIterator$");
-                        writer.write("new $SetIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(")");
-                    } else {
                         writer.useBuiltin("$ArrayIterator$");
                         writer.write("new $ArrayIterator$(");
                         this.args[0]?.toJS(writer);
-                        writer.write(".split ? ");
+                        writer.write(")");
+                    } else if (
+                        this.args[0]?.type instanceof DictType ||
+                        this.args[0]?.type instanceof MutDictType ||
+                        this.args[0]?.type instanceof SetType ||
+                        this.args[0]?.type instanceof MutSetType
+                    ) {
+                        writer.useBuiltin("$ArrayIterator$");
+                        writer.write("new $ArrayIterator$([...");
                         this.args[0]?.toJS(writer);
-                        writer.write('.split("") : ');
+                        writer.write("])");
+                    } else if (this.args[0]?.type === "Str") {
+                        writer.useBuiltin("$ArrayIterator$");
+                        writer.write("new $ArrayIterator$(");
                         this.args[0]?.toJS(writer);
+                        writer.write('.split("")');
                         writer.write(")");
                     }
                     return;

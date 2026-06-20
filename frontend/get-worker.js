@@ -1,6 +1,6 @@
 export function getWorker(js) {
     const workerPayload = `${js}
-function safeStringify(value, seen = new Set()) {
+function safeStringify(value) {
     if (value === null) return "null";
     if (value === undefined) return "undefined";
     const type = typeof value;
@@ -11,17 +11,15 @@ function safeStringify(value, seen = new Set()) {
         const name = value.name ? \` \${value.name}\` : " (anonymous)";
         return \`[Function\${name}]\`;
     }
-    if (seen.has(value)) return "[Circular Reference]";
-    seen.add(value);
     if (Array.isArray(value)) {
-        const elements = value.map(item => safeStringify(item, seen));
+        const elements = value.map(item => safeStringify(item));
         return \`[\${elements.join(", ")}]\`;
     }
     try {
         const keys = Object.keys(value);
         if (keys.length === 0) return "{}";
         const properties = keys.map(key => {
-            return \`"\${key}": \${safeStringify(value[key], seen)}\`;
+            return \`"\${key}": \${safeStringify(value[key])}\`;
         });
         return \`{ \${properties.join(", ")} }\`;
     } catch (e) {

@@ -377,6 +377,9 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
         this.remaining = this.count;
     }
+    clone() {
+        return new $RepeatIterator$(this.count, this.remaining, this.innerIter.clone());
+    }
 }`,
     // Repeats each element n times before moving to the next
     $RepeatInnerIterator$: `class $RepeatInnerIterator$ {
@@ -403,6 +406,9 @@ export const BUILTINS: Record<string, string> = {
         this.innerIter.reset();
         this.currentValue = undefined;
         this.timesYielded = 0;
+    }
+    clone() {
+        return new $RepeatInnerIterator$(this.count, this.innerIter.clone());
     }
 }`,
     // Generates the cartesian product of multiple iterators
@@ -446,11 +452,27 @@ export const BUILTINS: Record<string, string> = {
             if (entry.saved.length === 0) { this.finished = true; break; }
         }
     }
+    clone() {
+        return new $CartesianIterator$(...this.iterators.map(i => i.clone()));
+    }
 }`,
     // Generates all permutations of an iterator
     $PermutationsIterator$: `class $PermutationsIterator$ {
-    constructor(innerIter) {
-        this.elements = $collect$(innerIter);
+    constructor(innerIter, innerIsArray=false) {
+        if (innerIsArray) {
+            this.elements = innerIter;
+        } else {
+            // Collecting and storing inner iterator makes this a lot more efficient
+            this.elements = [];
+            while (true) {
+                const nextElement = innerIter.next();
+                if (nextElement === undefined) {
+                    break;
+                }
+                this.elements.push(nextElement);
+            }
+            innerIter.reset();
+        }
         this.n = this.elements.length;
         this.indices = new Array(this.n).fill(0).map((_, i) => i);
         this.done = this.n === 0;
@@ -482,11 +504,27 @@ export const BUILTINS: Record<string, string> = {
         this.indices = new Array(this.n).fill(0).map((_, i) => i);
         this.done = this.n === 0;
     }
+    clone() {
+        return new $PermutationsIterator$(this.elements, true);
+    }
 }`,
     // Generates all combinations of n elements from an iterator
     $CombinationsIterator$: `class $CombinationsIterator$ {
-    constructor(innerIter, choose) {
-        this.elements = $collect$(innerIter);
+    constructor(choose, innerIter, innerIsArray=false) {
+        if (innerIsArray) {
+            this.elements = innerIter;
+        } else {
+            // Collecting and storing inner iterator makes this a lot more efficient
+            this.elements = [];
+            while (true) {
+                const nextElement = innerIter.next();
+                if (nextElement === undefined) {
+                    break;
+                }
+                this.elements.push(nextElement);
+            }
+            innerIter.reset();
+        }
         this.choose = Number(choose);
         this.indices = new Array(this.choose).fill(0).map((_, i) => i);
         this.done = this.choose > this.elements.length || this.choose === 0;
@@ -511,49 +549,10 @@ export const BUILTINS: Record<string, string> = {
         this.indices = new Array(this.choose).fill(0).map((_, i) => i);
         this.done = this.choose > this.elements.length || this.choose === 0;
     }
-}`,
-
-    // Iterator over a Dict (JS Map), yielding [key, value] tuples
-    $DictIterator$: `class $DictIterator$ {
-    constructor(map) {
-        this.entries = [...map.entries()];
-        this.index = 0;
-    }
-    next() {
-        if (this.index >= this.entries.length) {
-            this.reset();
-            return undefined;
-        }
-        return this.entries[this.index++];
-    }
-    reset() {
-        this.index = 0;
-    }
     clone() {
-        return new $DictIterator$(new Map(this.entries));
+        return new $CombinationsIterator$(this.choose, this.elements, true);
     }
 }`,
-    // Iterator over a Set, yielding its elements
-    $SetIterator$: `class $SetIterator$ {
-    constructor(set) {
-        this.values = [...set.values()];
-        this.index = 0;
-    }
-    next() {
-        if (this.index >= this.values.length) {
-            this.reset();
-            return undefined;
-        }
-        return this.values[this.index++];
-    }
-    reset() {
-        this.index = 0;
-    }
-    clone() {
-        return new $SetIterator$(new Set(this.values));
-    }
-}`,
-
     // ── Iterator terminal operations ──
     // Collect an iterator into an array
     $collect$: `function $collect$(iter) {
@@ -709,7 +708,7 @@ export const BUILTINS: Record<string, string> = {
     return value;
 }`,
     // Unwrap a Maybe value; returns the value or fallback (throws if no fallback)
-    $unwrapNoFallback$: `function $unwrapNoFallback$(value, fallback) {
+    $unwrapNoFallback$: `function $unwrapNoFallback$(value) {
     if (value === undefined) {
         throw new Error("Unwrapped on None without a fallback value");
     }

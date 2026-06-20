@@ -467,7 +467,7 @@ test("permutations: single element", () => {
 });
 
 test("combinations: pick 2 from 4", () => {
-    testCompile("collect(combinations([1, 2, 3, 4], 2))", [
+    testCompile("collect(combinations(2, [1, 2, 3, 4]))", [
         [1n, 2n],
         [1n, 3n],
         [1n, 4n],
@@ -478,11 +478,11 @@ test("combinations: pick 2 from 4", () => {
 });
 
 test("combinations: pick 1 from 3", () => {
-    testCompile("collect(combinations([1, 2, 3], 1))", [[1n], [2n], [3n]]);
+    testCompile("collect(combinations(1, [1, 2, 3]))", [[1n], [2n], [3n]]);
 });
 
 test("combinations: pick all", () => {
-    testCompile("collect(combinations([1, 2, 3], 3))", [[1n, 2n, 3n]]);
+    testCompile("collect(combinations(3, [1, 2, 3]))", [[1n, 2n, 3n]]);
 });
 
 test("toIter: array to iterator", () => {
@@ -529,5 +529,3 @@ test("toArr Set", () => {
 test("toArr Str", () => {
     testCompile('toArr("abc")', ["a", "b", "c"]);
 });
-
-
