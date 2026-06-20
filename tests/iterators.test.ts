@@ -492,3 +492,14 @@ test("toIter: array to iterator", () => {
 test("toIter: string to iterator", () => {
     testCompile('collect(toIter("abc"))', ["a", "b", "c"]);
 });
+
+test("iterator variable auto-clone: filter with contains", () => {
+    // x is an iterator used both as the filter input and inside the predicate.
+    // Without cloning, the inner use in contains() would consume the iterator and then reset
+    // and we'd end up with an infinite loop
+    testCompile(
+        `x = 1..3;
+x | filter(\\i contains(x, i)) | collect`,
+        [1n, 2n, 3n]
+    );
+});

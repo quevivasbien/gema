@@ -801,16 +801,17 @@ function findBuiltin(
         }
         case "push": {
             if (argTypes.length !== 2) return undefined;
-            // MutArr push: (mutarr, value) → Null
+            // MutArr push: (mutarr, value) → MutArr (chainable)
             if (argTypes[0] instanceof MutArrType) {
                 if (!looseMatch(argTypes[0].innerType, argTypes[1])) return undefined;
+                const mutArrResult = argTypes[0];
                 return {
                     error: null,
                     result: {
                         kind: "builtin",
                         referToByName: "push",
-                        callerType: new FuncType(argTypes, "Null"),
-                        rootType: "Null",
+                        callerType: new FuncType(argTypes, mutArrResult),
+                        rootType: mutArrResult,
                         builtinKind: "push",
                     },
                 };

@@ -364,11 +364,9 @@ export class ForLoop extends Expression {
             writer.write(");");
             writer.newLine();
         } else {
-            // For IterType, clone the iterator so each for loop gets a fresh copy.
-            // This prevents issues with nested loops sharing the same iterator.
             writer.write(`const ${safeIterVar} = `);
             this.iter.toJS(writer);
-            writer.write(".clone();");
+            writer.write(";");
             writer.newLine();
         }
 
@@ -1052,7 +1050,14 @@ export class Variable extends Expression {
         if (this.fullName === undefined) {
             throw this.error(`type of variable ${this} not resolved`);
         }
-        writer.write(writer.safeName(this.fullName));
+        const name = writer.safeName(this.fullName);
+        writer.write(name);
+        // Clone iterator variables on every use so that sharing an iterator
+        // across multiple expressions (nested loops, call arguments, pipes, etc.)
+        // doesn't cause one consumer to share the same state as another
+        if (this.type instanceof IterType) {
+            writer.write(".clone()");
+        }
     }
 }
 
