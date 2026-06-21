@@ -327,6 +327,66 @@ test("module: use struct defined in another module", () => {
     );
 });
 
+// ── Tree-shaking tests ─────────────────────────────────────────
+
+test("tree-shaking: unused function eliminated", () => {
+    const js = testCompileMulti(
+        {
+            "utils.gema": "func used() { 1 }\nfunc unused() { 2 }",
+            "main.gema": 'use "utils.gema"\nused()',
+        },
+        "main.gema",
+        1n
+    );
+    expect(js).not.toInclude("unused");
+});
+
+test("tree-shaking: unused variable eliminated", () => {
+    const js = testCompileMulti(
+        {
+            "config.gema": "used = 1\nunused = 2",
+            "main.gema": 'use "config.gema"\nused',
+        },
+        "main.gema",
+        1n
+    );
+    expect(js).not.toInclude("unused");
+});
+
+test("tree-shaking: struct used as type is kept", () => {
+    testCompileMulti(
+        {
+            "point.gema": "struct Point { x: Float, y: Float }",
+            "main.gema": 'use "point.gema"\nfunc abs(p: Point) { (p.x^2.0 + p.y^2.0)^0.5 }\nabs(Point(3., 4.))',
+        },
+        "main.gema",
+        5.0
+    );
+});
+
+test("tree-shaking: transitive reachability", () => {
+    testCompileMulti(
+        {
+            "utils.gema": "func square(x: Int) { x * x }\nfunc double(x: Int) { x * 2 }\nfunc process(x: Int) { square(x) }",
+            "main.gema": 'use "utils.gema"\nprocess(3)',
+        },
+        "main.gema",
+        9n
+    );
+});
+
+test("tree-shaking: unreferenced struct eliminated", () => {
+    const js = testCompileMulti(
+        {
+            "shapes.gema": "struct Point { x: Int, y: Int }\nstruct Line { a: Int, b: Int }\nfunc makePoint(x: Int, y: Int) { Point(x, y) }",
+            "main.gema": 'use "shapes.gema"\nmakePoint(1, 2)',
+        },
+        "main.gema",
+        { x: 1n, y: 2n }
+    );
+    expect(js).toInclude("Point");
+    expect(js).not.toInclude("Line");
+});
 
 // ── Helper used by tests above ──
 

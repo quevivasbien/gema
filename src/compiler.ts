@@ -5,7 +5,10 @@ import { TokenType } from "./tokens";
 import { resetRegistries, registerStruct, registerTrait } from "./ast";
 import { setParentPointers } from "./ast/set-parent-pointers";
 import type { Expression } from "./ast/expression";
-import { Block, UseModule } from "./ast/nodes";
+import { Block, UseModule, Function, Assignment } from "./ast/nodes";
+import { StructDef } from "./ast/structs";
+import { DropValue } from "./ast/expression";
+import { computeReachable } from "./ast/reachability";
 
 interface CompileResult {
     js: string;
@@ -252,8 +255,30 @@ export function compile(
             return { js: "", result: null, errors, runtimeError: null };
         }
 
-        // Phase 4: Codegen — one pass over the unified AST
-        const js = writeJS(unifiedBlock, mode);
+        // Phase 3.5: Tree-shaking — remove unreachable definitions
+        const reachable = computeReachable(unifiedBlock);
+        const filteredExprs = unifiedBlock.expressions.filter((expr) => {
+            let e = expr;
+            while (e instanceof DropValue) e = e.child;
+            // Keep concrete functions only if reachable
+            if (e instanceof Function && !e.isGeneric && e.fullName) {
+                return reachable.has(e.fullName);
+            }
+            // Keep top-level variable assignments (non-reassignment) only if reachable
+            if (e instanceof Assignment && e.name && !e.isReassignment) {
+                return reachable.has(e.name);
+            }
+            // Keep structs only if reachable (referenced in some type)
+            if (e instanceof StructDef && e.name) {
+                return reachable.has(e.name);
+            }
+            // Keep everything else (traits, generics, entry expressions, calls, etc.)
+            return true;
+        });
+        const filteredBlock = new Block(rootToken, filteredExprs);
+
+        // Phase 4: Codegen — one pass over the filtered AST
+        const js = writeJS(filteredBlock, mode);
         return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {
         return {
