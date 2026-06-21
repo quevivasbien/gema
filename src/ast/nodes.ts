@@ -1533,8 +1533,8 @@ export class Function extends Expression {
 
         this.type = "Null";
 
-        // Register in the global function registry (non-generic functions only)
-        if (this.name && !this.isGeneric) {
+        // Register in the global function registry
+        if (this.name) {
             registerFunction(this);
         }
     }

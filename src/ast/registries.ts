@@ -51,12 +51,15 @@ export function getStruct(
 // Global cache of monomorphized functions, keyed by fullName
 const monomorphizedCache: Map<string, Function> = new Map();
 
-// Global registry of all named functions (non-generic), keyed by fullName
+// Global registry of all named functions, keyed by fullName (non-generic) or name (generic)
 const functionRegistry: Map<string, Function> = new Map();
 
 export function registerFunction(fn: Function): void {
     if (!fn.isGeneric) {
         functionRegistry.set(fn.fullName, fn);
+    } else if (fn.name) {
+        // Register generic functions under their base name so modules can expose them
+        functionRegistry.set(fn.name, fn);
     }
 }
 

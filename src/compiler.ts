@@ -1,8 +1,9 @@
 import { scan } from "./scan";
 import { parse } from "./parse";
-import { writeJS, writeJSModule } from "./write-js";
+import { writeJSModule, writeJSWithBuiltins, JSWriter } from "./write-js";
+import { BUILTINS } from "./builtins";
 import { TokenType } from "./tokens";
-import { resetRegistries, registerModuleVar } from "./ast";
+import { resetRegistries, registerModuleVar, getAllMonomorphized } from "./ast";
 import { Block } from "./ast/nodes";
 import { Assignment } from "./ast/nodes";
 import { DropValue } from "./ast/expression";
@@ -41,6 +42,7 @@ function collectUseDirectives(source: string): string[] {
 /**
  * Compile a single module file — populates registries but produces raw JS
  * without IIFE wrapping (so its declarations are in scope for the entry file).
+ * Returns the JS code and the set of builtin function names used.
  */
 function compileModule(
     filename: string,
@@ -48,8 +50,8 @@ function compileModule(
     visiting: Set<string>,
     visited: Set<string>,
     errors: { line: number; col: number; message: string }[]
-): string | null {
-    if (visited.has(filename)) return ""; // already compiled
+): { code: string; builtins: Set<string> } | null {
+    if (visited.has(filename)) return { code: "", builtins: new Set() };
     if (visiting.has(filename)) {
         errors.push({
             line: 0,
@@ -73,11 +75,13 @@ function compileModule(
 
     // Recursively compile dependencies first
     const usePaths = collectUseDirectives(source);
-    const moduleJSs: string[] = [];
+    const depCode: string[] = [];
+    const allBuiltins = new Set<string>();
     for (const depPath of usePaths) {
-        const depJS = compileModule(depPath, files, visiting, visited, errors);
-        if (depJS === null) return null; // error propagated
-        if (depJS !== "") moduleJSs.push(depJS);
+        const depResult = compileModule(depPath, files, visiting, visited, errors);
+        if (depResult === null) return null; // error propagated
+        if (depResult.code !== "") depCode.push(depResult.code);
+        for (const b of depResult.builtins) allBuiltins.add(b);
     }
 
     // Compile this module (allow Null type for definition-only modules)
@@ -90,8 +94,11 @@ function compileModule(
         return null;
     }
     let js: string;
+    let moduleBuiltins: Set<string>;
     try {
-        js = writeJSModule(ast, true);
+        const result = writeJSModule(ast, true);
+        js = result.code;
+        moduleBuiltins = result.builtins;
     } catch (e) {
         errors.push({
             line: 0,
@@ -100,6 +107,9 @@ function compileModule(
         });
         return null;
     }
+
+    // Collect this module's builtins
+    for (const b of moduleBuiltins) allBuiltins.add(b);
 
     // Register module-level variable names so importing files can resolve their types
     if (ast instanceof Block) {
@@ -116,8 +126,8 @@ function compileModule(
     visited.add(filename);
 
     // Concat dependency JS before this module's JS
-    const allJS = [...moduleJSs, js].filter(Boolean).join("\n");
-    return allJS;
+    const allCode = [...depCode, js].filter(Boolean).join("\n");
+    return { code: allCode, builtins: allBuiltins };
 }
 
 /**
@@ -168,11 +178,11 @@ export function compile(
         const visiting = new Set<string>();
         const visited = new Set<string>();
         const usePaths = collectUseDirectives(entrySource);
-        const moduleJSs: string[] = [];
+        const moduleResults: { code: string; builtins: Set<string> }[] = [];
         for (const depPath of usePaths) {
-            const depJS = compileModule(depPath, files, visiting, visited, errors);
-            if (depJS === null) break; // error occurred
-            if (depJS !== "") moduleJSs.push(depJS);
+            const depResult = compileModule(depPath, files, visiting, visited, errors);
+            if (depResult === null) break; // error occurred
+            if (depResult.code !== "") moduleResults.push(depResult);
         }
 
         if (errors.length > 0) {
@@ -189,22 +199,56 @@ export function compile(
             return { js: "", result: null, errors, runtimeError: null };
         }
 
-        const entryJS = writeJS(ast, mode);
+        const entryResult = writeJSWithBuiltins(ast, mode);
+        const entryCode = entryResult.code;
+        const entryBuiltins = entryResult.builtins;
 
-        // Phase 3: Concatenate — builtins come from the entry's writeJS output,
-        // module JS is injected before the PROGRAM section
-        const moduleBlock = moduleJSs.length > 0 ? moduleJSs.join("\n") + "\n" : "";
+        // Phase 3: Collect any monomorphized functions created during entry compilation
+        // that originated from module generics. Emit them before the entry code.
+        let monoCode = "";
+        const allBuiltins = new Set(entryBuiltins);
+        const allMonomorphized = getAllMonomorphized();
+        if (allMonomorphized.size > 0) {
+            const monoWriter = new JSWriter(ast);
+            for (const [, fn] of allMonomorphized) {
+                if (fn.isGeneric) continue;
+                fn.toJS(monoWriter);
+                monoWriter.write(";");
+                monoWriter.newLine();
+            }
+            for (const line of monoWriter.scope.lines) {
+                if (line.trim()) monoCode += line + "\n";
+            }
+            for (const b of monoWriter.builtins) allBuiltins.add(b);
+        }
+
+        // Merge builtins from all modules
+        for (const mod of moduleResults) {
+            for (const b of mod.builtins) allBuiltins.add(b);
+        }
+
+        const builtinSection =
+            allBuiltins.size === 0
+                ? ""
+                : "// BUILTINS //\n" +
+                  Array.from(allBuiltins)
+                      .map((name) => BUILTINS[name])
+                      .join("\n") +
+                  "\n\n";
+
+        // Phase 5: Concatenate — builtins + module code + monomorphized code + entry code
+        const moduleCode = moduleResults.map((m) => m.code).filter(Boolean).join("\n");
         const programMarker = "// PROGRAM //";
-        const programIdx = entryJS.indexOf(programMarker);
+        const programIdx = entryCode.indexOf(programMarker);
         if (programIdx !== -1) {
-            // Insert module JS after the PROGRAM marker
-            const before = entryJS.slice(0, programIdx + programMarker.length);
-            const after = entryJS.slice(programIdx + programMarker.length);
-            const js = before + "\n" + moduleBlock + after;
+            const afterProgram = entryCode.slice(programIdx + programMarker.length);
+            const js = builtinSection + "// PROGRAM //\n" + moduleCode + "\n" + monoCode + afterProgram;
             return { js, result: null, errors: [], runtimeError: null };
         }
 
-        return { js: entryJS, result: null, errors: [], runtimeError: null };
+        // Fallback for unusual output formats
+        const js = builtinSection + "// PROGRAM //\n" + moduleCode + "\n" + entryCode;
+        return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {
         return {
             js: "",

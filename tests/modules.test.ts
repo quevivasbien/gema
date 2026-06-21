@@ -158,7 +158,140 @@ test("parse multi-file source: windows-style line endings", () => {
     });
 });
 
-// ── Helper used by tests above (will move to a shared location later) ──
+// ── Module builtin integration tests ────────────────────────────
+
+test("module: function uses reduce builtin", () => {
+    testCompileMulti(
+        {
+            "math.gema": `func sum(xs: Iter[Int]): Int {
+    reduce(\\(acc, x) { acc + x }, 0, xs)
+}`,
+            "main.gema": `use "math.gema"\nsum(1..3)`,
+        },
+        "main.gema",
+        6n
+    );
+});
+
+test("module: function uses collect builtin", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func toArray(xs: Iter[Int]): Arr[Int] { collect(xs) }`,
+            "main.gema": `use "utils.gema"\ntoArray(1..3)`,
+        },
+        "main.gema",
+        [1n, 2n, 3n]
+    );
+});
+
+test("module: function uses map with lambda", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func doubleAll(xs: Iter[Int]): Iter[Int] {
+    map(\\x { x * 2 }, xs)
+}`,
+            "main.gema": `use "utils.gema"\ncollect(doubleAll(1..4))`,
+        },
+        "main.gema",
+        [2n, 4n, 6n, 8n]
+    );
+});
+
+test("module: function uses iterate builtin", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func countFrom(n: Int): Iter[Int] {
+    iterate(\\x { x + 1 }, n)
+}`,
+            "main.gema": `use "utils.gema"\ncollect(take(3, countFrom(5)))`,
+        },
+        "main.gema",
+        [5n, 6n, 7n]
+    );
+});
+
+test("module: generic function with trait bound", () => {
+    // A simpler generic test: trait in module, implementation in entry
+    testCompileMulti(
+        {
+            "traits.gema": `trait Any {}
+
+func getLength(arr: Arr[T]): Int where T is Any {
+    length(arr)
+}`,
+            "main.gema": `use "traits.gema"
+getLength([10, 20, 30])`,
+        },
+        "main.gema",
+        3n
+    );
+});
+
+test("module: trait used across module boundary", () => {
+    testCompileMulti(
+        {
+            "traits.gema": `trait Doublable { double[(self: Self): Int], }`,
+            "impl.gema": `use "traits.gema"
+struct S { v: Int }
+func double(s: S): Int { s.v * 2 }`,
+            "main.gema": `use "impl.gema"\ndouble(S(3))`,
+        },
+        "main.gema",
+        6n
+    );
+});
+
+test("module: transitive builtins (module imports module that uses builtins)", () => {
+    testCompileMulti(
+        {
+            "base.gema": `func collectAndDouble(xs: Iter[Int]): Arr[Int] {
+    collect(xs) | map(\\x { x * 2 }) | collect
+}`,
+            "utils.gema": `use "base.gema"
+func process(xs: Iter[Int]): Arr[Int] { collectAndDouble(xs) }`,
+            "main.gema": `use "utils.gema"\nprocess(1..3)`,
+        },
+        "main.gema",
+        [2n, 4n, 6n]
+    );
+});
+
+test("module: same builtin used in both entry and module", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func collectOne(xs: Iter[Int]): Arr[Int] { collect(take(1, xs)) }`,
+            "main.gema": `use "utils.gema"\ncollect(1..3) + collectOne(4..6)`,
+        },
+        "main.gema",
+        [1n, 2n, 3n, 4n]
+    );
+});
+
+test("module: filter + take builtins in module", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func firstEven(xs: Iter[Int]): Iter[Int] {
+    take(1, filter(\\x { x % 2 == 0 }, xs))
+}`,
+            "main.gema": `use "utils.gema"\ncollect(firstEven(1..10))`,
+        },
+        "main.gema",
+        [2n]
+    );
+});
+
+test("module: step builtin in module", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func everyOther(xs: Iter[Int]): Iter[Int] { step(xs, 2) }`,
+            "main.gema": `use "utils.gema"\ncollect(everyOther(1..6))`,
+        },
+        "main.gema",
+        [1n, 3n, 5n]
+    );
+});
+
+// ── Helper used by tests above ──
 
 function parseMultiFileSource(source: string): Record<string, string> {
     const lines = source.split("\n");
