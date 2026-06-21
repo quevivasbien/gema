@@ -10,39 +10,25 @@ import { PRESETS } from "./editor-presets.js";
 import { gema } from "./gema-language.js";
 import { getWorker } from "./get-worker.js";
 
-// ── Multi-file source parsing ───────────────────────────────────
+// ── Multi-file state ────────────────────────────────────────────
 
-/**
- * Parse a source string that may contain `#--- filename ---` markers
- * to split it into multiple virtual files.
- *
- * Returns null if no markers are found (single-file mode).
- * Otherwise returns a Record<filename, content>.
- */
-function parseMultiFileSource(source) {
-    const lines = source.split("\n");
-    const files = {};
-    let currentFile = null;
-    let currentContent = [];
+/** Array of open files. Each has a name and current content. */
+let openFiles = [];
+/** Index of the currently active tab. */
+let activeTabIndex = 0;
+/** Whether we're in the middle of switching tabs (suppress doc change events). */
+let isSwitchingTab = false;
 
-    for (const raw of lines) {
-        const line = raw.replace(/\r$/, "");
-        const m = line.match(/^#---\s+(.+?)\s*---$/);
-        if (m) {
-            if (currentFile !== null && currentContent.length > 0) {
-                files[currentFile] = currentContent.join("\n");
-            }
-            currentFile = m[1];
-            currentContent = [];
-        } else {
-            currentContent.push(line);
-        }
+function currentFile() {
+    return openFiles[activeTabIndex];
+}
+
+function getFilesRecord() {
+    const record = {};
+    for (const f of openFiles) {
+        record[f.name] = f.content;
     }
-    if (currentFile !== null && currentContent.length > 0) {
-        files[currentFile] = currentContent.join("\n");
-    }
-
-    return currentFile === null ? null : files;
+    return record;
 }
 
 // ── Error decoration state ──────────────────────────────────────
@@ -76,13 +62,161 @@ const errorField = StateField.define({
     provide: (field) => EditorView.decorations.from(field),
 });
 
+// ── Tab bar rendering ───────────────────────────────────────────
+
+function renderTabs(view) {
+    const tabBar = document.getElementById("tab-bar");
+    if (!tabBar) return;
+
+    // Save current content before re-rendering
+    if (!isSwitchingTab && openFiles.length > 0) {
+        currentFile().content = view.state.doc.toString();
+    }
+
+    tabBar.innerHTML = "";
+
+    for (let i = 0; i < openFiles.length; i++) {
+        const file = openFiles[i];
+        const tab = document.createElement("button");
+        tab.className = "tab" + (i === activeTabIndex ? " active" : "");
+        tab.dataset.index = i;
+
+        const nameSpan = document.createElement("input");
+        nameSpan.className = "tab-name";
+        nameSpan.value = file.name;
+        nameSpan.title = file.name;
+        nameSpan.addEventListener("input", () => {
+            file.name = nameSpan.value;
+            nameSpan.title = nameSpan.value;
+        });
+        nameSpan.addEventListener("mousedown", (e) => e.stopPropagation());
+
+        tab.appendChild(nameSpan);
+
+        if (openFiles.length > 1) {
+            const closeBtn = document.createElement("span");
+            closeBtn.className = "tab-close";
+            closeBtn.textContent = "×";
+            closeBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+            closeBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                closeTab(i, view);
+            });
+            tab.appendChild(closeBtn);
+        }
+
+        tab.addEventListener("click", () => switchTab(i, view));
+        tabBar.appendChild(tab);
+    }
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "tab-add";
+    addBtn.textContent = "+";
+    addBtn.title = "Add new file";
+    addBtn.addEventListener("click", () => addTab(view));
+    tabBar.appendChild(addBtn);
+}
+
+function switchTab(index, view) {
+    if (index === activeTabIndex || index < 0 || index >= openFiles.length) return;
+
+    // Save current content
+    currentFile().content = view.state.doc.toString();
+
+    isSwitchingTab = true;
+    activeTabIndex = index;
+
+    // Load new file content
+    view.dispatch({
+        changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: currentFile().content,
+        },
+    });
+
+    isSwitchingTab = false;
+    renderTabs(view);
+}
+
+function addTab(view) {
+    // Save current content
+    currentFile().content = view.state.doc.toString();
+
+    const baseName = "module";
+    let counter = 1;
+    while (openFiles.some((f) => f.name === `${baseName}${counter}.gema`)) counter++;
+    const name = `${baseName}${counter}.gema`;
+
+    openFiles.push({ name, content: "" });
+    activeTabIndex = openFiles.length - 1;
+
+    view.dispatch({
+        changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: "",
+        },
+    });
+
+    renderTabs(view);
+}
+
+function closeTab(index, view) {
+    if (openFiles.length <= 1) return; // don't close last tab
+
+    // Save current content
+    currentFile().content = view.state.doc.toString();
+
+    openFiles.splice(index, 1);
+
+    if (activeTabIndex >= openFiles.length) activeTabIndex = openFiles.length - 1;
+    if (index < activeTabIndex) activeTabIndex--;
+    if (index === activeTabIndex && index >= openFiles.length)
+        activeTabIndex = openFiles.length - 1;
+
+    view.dispatch({
+        changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: currentFile().content,
+        },
+    });
+
+    renderTabs(view);
+}
+
+function loadPresetFiles(files, view) {
+    const entries = Object.entries(files);
+    if (entries.length === 0) {
+        entries.push(["main.gema", ""]);
+    }
+
+    openFiles = entries.map(([name, content]) => ({ name, content }));
+    activeTabIndex = 0;
+
+    isSwitchingTab = true;
+    view.dispatch({
+        changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: currentFile().content,
+        },
+    });
+    isSwitchingTab = false;
+
+    renderTabs(view);
+}
+
 // ── Editor setup ────────────────────────────────────────────────
 
 function createEditor(parent) {
     const startPreset = Object.keys(PRESETS)[0];
+    const preset = PRESETS[startPreset];
+    const files = preset.files || { "main.gema": preset.code || "" };
 
     const view = new EditorView({
-        doc: PRESETS[startPreset].code,
+        doc: Object.values(files)[0] || "",
         extensions: [
             basicSetup,
             gema(),
@@ -119,18 +253,24 @@ function createEditor(parent) {
         parent,
     });
 
+    // Initialize multi-file state from preset
+    const entries = Object.entries(files);
+    openFiles = entries.map(([name, content]) => ({ name, content }));
+    activeTabIndex = 0;
+    renderTabs(view);
+
     return view;
 }
 
 /** Display error lines by highlighting them in the editor. */
 function displayErrors(view, errors, code) {
     const outputEl = document.getElementById("output");
-    const lines = code.split("\n");
+    const lines = (code || "").split("\n");
     const errorText = errors
         .map((err) => {
             const lineNum = err.line + 1;
             const context = lines[err.line] || "";
-            return `Error on line ${lineNum}, column ${err.col + 1}: ${err.message}\n  ${lineNum} | ${context}\n  ${" ".repeat(String(lineNum).length + err.col + 3)}^`;
+            return `Error at line ${lineNum}, column ${err.col + 1}: ${err.message}\n  ${lineNum} | ${context}\n  ${" ".repeat(String(lineNum).length + err.col + 3)}^`;
         })
         .join("\n\n");
     outputEl.innerText = errorText;
@@ -140,10 +280,12 @@ function displayErrors(view, errors, code) {
     view.dispatch({ effects: addErrorLine.of(errorLines) });
 
     const firstErrorLine = Math.min(...errorLines);
-    const line = view.state.doc.line(firstErrorLine + 1);
-    view.dispatch({
-        effects: EditorView.scrollIntoView(line.from, { y: "center" }),
-    });
+    if (firstErrorLine >= 0 && firstErrorLine < view.state.doc.lines) {
+        const line = view.state.doc.line(firstErrorLine + 1);
+        view.dispatch({
+            effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+        });
+    }
 }
 
 // ── Run code ────────────────────────────────────────────────────
@@ -159,7 +301,13 @@ async function runCode(view) {
     // Clear previous error decorations
     view.dispatch({ effects: clearErrors.of(null) });
 
-    const code = view.state.doc.toString();
+    // Save current file content before compiling
+    currentFile().content = view.state.doc.toString();
+
+    // Collect all files
+    const files = getFilesRecord();
+    const defaultContent = files["main.gema"] || Object.values(files)[0] || "";
+    const displaySource = files["main.gema"] || defaultContent;
 
     // Show running state
     outputEl.innerText = "Running...";
@@ -170,20 +318,8 @@ async function runCode(view) {
     runBtn.textContent = "Running...";
 
     try {
-        // Step 1: Split into files (if multi-file markers present) and compile
-        const multiFiles = parseMultiFileSource(code);
-        let compiled;
-        let displaySource = code;
-
-        if (multiFiles) {
-            // Multi-file mode
-            compiled = compile(multiFiles, "inline", "main.gema");
-            // For error display, use the main.gema content
-            displaySource = multiFiles["main.gema"] ?? code;
-        } else {
-            // Single-file mode (backwards compatible)
-            compiled = compile(code, "inline");
-        }
+        // Compile — multi-file mode
+        const compiled = compile(files, "inline", "main.gema");
 
         if (compiled.errors && compiled.errors.length > 0) {
             displayErrors(view, compiled.errors, displaySource);
@@ -246,16 +382,15 @@ function setupPresets(view) {
 
     select.value = Object.keys(PRESETS)[0];
     select.addEventListener("change", () => {
-        const code = PRESETS[select.value]?.code;
-        if (!code) return;
-        view.dispatch({
-            changes: {
-                from: 0,
-                to: view.state.doc.length,
-                insert: code,
-            },
-        });
-        // Clear errors
+        const preset = PRESETS[select.value];
+        if (!preset) return;
+        const files = preset.files || { "main.gema": preset.code || "" };
+
+        // Save current content and switch to preset files
+        currentFile().content = view.state.doc.toString();
+        loadPresetFiles(files, view);
+
+        // Clear errors and output
         view.dispatch({ effects: clearErrors.of(null) });
         document.getElementById("output").innerText = "-- Run code to view output here --";
         document.getElementById("output").className = "output-panel";
