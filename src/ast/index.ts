@@ -11,8 +11,6 @@ export {
     getAllMonomorphized,
     isVarConsumed,
     markVarConsumed,
-    registerModuleVar,
-    findModuleVar,
     resetRegistries,
 } from "./registries";
 

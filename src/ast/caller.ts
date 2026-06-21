@@ -1516,26 +1516,6 @@ export function findCaller(
         };
     }
 
-    // If direct match failed, check if there's a generic function registered by
-    // base name (e.g., from a module). Attempt monomorphization.
-    if (!hasLocalVar) {
-        const genericFn = findFunction(name);
-        if (genericFn && genericFn.isGeneric && genericFn.name === name) {
-            const monoResult = genericFn.monomorphize(argTypes);
-            if (monoResult !== null) {
-                return {
-                    error: null,
-                    result: {
-                        kind: "function",
-                        referToByName: monoResult.fullName,
-                        callerType: monoResult.funcType,
-                        rootType: monoResult.returnType,
-                    },
-                };
-            }
-        }
-    }
-
     // Walk up parent chain from original root looking for sibling function defs
     let walkNode: Expression | null = root.parent;
     let child: Expression = root;

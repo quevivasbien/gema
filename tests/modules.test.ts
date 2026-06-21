@@ -291,6 +291,43 @@ test("module: step builtin in module", () => {
     );
 });
 
+test("module: custom type defined in module", () => {
+    testCompileMulti(
+        {
+            "point.gema": `
+                struct Point { x: Float, y: Float, }
+                func abs(p: Point) { (p.x^2.0 + p.y^2.0)^0.5 }
+`,
+            "main.gema": `
+                use "point.gema"
+                p = Point(3., 4.);
+                abs(p)
+`,
+        },
+        "main.gema",
+        5.0
+    );
+});
+
+test("module: use struct defined in another module", () => {
+    testCompileMulti(
+        {
+            "point.gema": `
+                struct Point { x: Float, y: Float, }
+`,
+            "main.gema": `
+                use "point.gema"
+                func abs(p: Point) { (p.x^2.0 + p.y^2.0)^0.5 }
+                p = Point(3., 4.);
+                abs(p)
+`,
+        },
+        "main.gema",
+        5.0
+    );
+});
+
+
 // ── Helper used by tests above ──
 
 function parseMultiFileSource(source: string): Record<string, string> {

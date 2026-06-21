@@ -1649,11 +1649,12 @@ class Parser {
 
 export function parse(
     tokens: Token[],
-    allowNullType: boolean = false
+    allowNullType: boolean = false,
+    skipCascadeTypes: boolean = false
 ): { ast: AST.Expression; errors: ParseError[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
-    if (parser.errors.length === 0) {
+    if (parser.errors.length === 0 && !skipCascadeTypes) {
         // Set up parent pointers so cascadeTypes can use findEnclosing() for
         // upward tree walks (Return → enclosing Function, Break → enclosing ForLoop, etc.)
         AST.setParentPointers(block);
@@ -1677,7 +1678,7 @@ export function parse(
             }
         }
     }
-    if (block.type === "Null" && !allowNullType) {
+    if (block.type === "Null" && !allowNullType && !skipCascadeTypes) {
         parser.errors.push({
             line: tokens[tokens.length - 1].line,
             col: tokens[tokens.length - 1].col,

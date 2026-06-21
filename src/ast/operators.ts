@@ -122,6 +122,11 @@ export class Binary extends Expression {
             throw this.error("Right-hand side of expression has null type");
         }
 
+        // Enforce that left-hand type == right-hand type for all binary ops
+        if (!deepEquals(ltype, rtype)) {
+            throw this.error(`Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
+        }
+
         const NUMERIC_OPS = [
             TokenType.Plus,
             TokenType.Minus,
@@ -231,7 +236,7 @@ export class Binary extends Expression {
             }
         }
         throw this.error(
-            `cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
+            `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
         );
     }
 

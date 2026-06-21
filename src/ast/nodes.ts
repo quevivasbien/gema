@@ -28,7 +28,6 @@ import {
     getTrait,
     getStruct,
     isVarConsumed,
-    findModuleVar,
     saveConsumedVars,
     restoreConsumedVars,
 } from "./registries";
@@ -1056,13 +1055,6 @@ export class Variable extends Expression {
             child = node;
             node = node.parent;
         }
-        // Fallback: check for module-level variables registered during module compilation
-        const moduleVarType = findModuleVar(this.name);
-        if (moduleVarType !== undefined) {
-            this.type = moduleVarType;
-            this.fullName = this.name;
-            return;
-        }
         throw this.error(`unable to resolve type of variable ${this}`);
     }
 
@@ -1535,8 +1527,8 @@ export class Function extends Expression {
 
         this.type = "Null";
 
-        // Register in the global function registry
-        if (this.name) {
+        // Register in the global function registry (non-generic functions only)
+        if (this.name && !this.isGeneric) {
             registerFunction(this);
         }
     }

@@ -111,44 +111,44 @@ test("compile variables named with JS reserved words", () => {
 });
 
 test("parse addition", () => {
-    testParse(`1.22  + 1.23  + 8 + 3.13`);
+    testParse(`1.22  + 1.23  + 8.0 + 3.13`);
     testParse(`"hello" + "hello"`);
     testParseExpectError("1.22 + false");
 });
 
 test("parse subtraction", () => {
-    testParse(`1.22  - 1.23  - 8 - 3.13`);
+    testParse(`1.22  - 1.23  - 8.0 - 3.13`);
     testParseExpectError("1.22 - false");
 });
 
 test("parse multiplication", () => {
-    testParse(`1.22  * 1.23  * 8 * 3.13`);
+    testParse(`1.22  * 1.23  * 8.0 * 3.13`);
     testParseExpectError("1.22 * false");
 });
 
 test("parse division", () => {
-    testParse(`1.22  / 1.23  / 8 / 3.13`);
+    testParse(`1.22  / 1.23  / 8.0 / 3.13`);
     testParseExpectError("1.22 / false");
 });
 
 test("parse modulo", () => {
-    testParse(`1.22  % 1.23  % 8 % 3.13`);
+    testParse(`1.22  % 1.23  % 8.0 % 3.13`);
     testParseExpectError("1.22 % false");
 });
 
 test("parse order of operations", () => {
-    testParse(`1.22  + 1.23  * 8 / 3.13`);
+    testParse(`1.22  + 1.23  * 8.0 / 3.13`);
     testParse(`123 * 123 / 123 % 123 * 123`);
     testParse(`123 + 456 == 123 + 456`);
     testParse(`123 + 456 != 123 + 456 or 123 + 456 == 123 + 456`);
 });
 
 test("parse parens", () => {
-    testParse(`(1.22  + 1.23)  * 8 / 3.13`);
+    testParse(`(1.22  + 1.23)  * 8.0 / 3.13`);
 });
 
 test("parse block", () => {
-    testParse(`{ 1.22  + 1.23  * { 8 / 3.13 } + 2. }`);
+    testParse(`{ 1.22  + 1.23  * { 8.0 / 3.13 } + 2. }`);
     testParse(`1 + 1; x = -2; -x`);
     testParse(`
         1 + 1;

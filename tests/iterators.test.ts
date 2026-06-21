@@ -398,13 +398,6 @@ test("iterator concatenation with + operator", () => {
     testParseExpectError("(0..2) + map(\\x toFloat(x), 0..2)");
 });
 
-test("iterator concatenation with + operator, one side is array", () => {
-    // Iter plus Arr gives an iter
-    testCompile("(0..2) + [0, 1, 2] | collect", [0n, 1n, 2n, 0n, 1n, 2n]);
-    // Arr plus Iter is not legal -- intended pattern is to collect the RHS first to get an array or swap order if you do want an iterator
-    testParseExpectError("[0, 1, 2] + (0..2) | collect");
-});
-
 test("iter: contains", () => {
     testCompile("contains(range(0, 5), 3)", true);
     testCompile("contains(range(0, 5), 99)", false);
