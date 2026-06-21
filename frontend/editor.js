@@ -115,6 +115,36 @@ function renderTabs(view) {
     addBtn.title = "Add new file";
     addBtn.addEventListener("click", () => addTab(view));
     tabBar.appendChild(addBtn);
+
+    // Spacer to push download button to the right
+    const spacer = document.createElement("div");
+    spacer.style.flex = "1";
+    tabBar.appendChild(spacer);
+
+    // Download button
+    const downloadBtn = document.createElement("button");
+    downloadBtn.className = "tab-add";
+    downloadBtn.textContent = "📥";
+    downloadBtn.title = "Download all files";
+    downloadBtn.addEventListener("click", () => {
+        // Save the current tab's content before downloading
+        currentFile().content = view.state.doc.toString();
+
+        // Trigger a download for each file with a small delay between them
+        // to avoid browser rate-limiting on simultaneous downloads
+        openFiles.forEach((file, i) => {
+            setTimeout(() => {
+                const blob = new Blob([file.content], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = file.name;
+                a.click();
+                URL.revokeObjectURL(url);
+            }, i * 100);
+        });
+    });
+    tabBar.appendChild(downloadBtn);
 }
 
 function switchTab(index, view) {
