@@ -1,15 +1,4 @@
-struct Complex { re: Float, im: Float }
-
-func add(a: Complex, b: Complex): Complex {
-    Complex(a.re + b.re, a.im + b.im)
-}
-
-func mul(z: Complex, c: Complex): Complex {
-    Complex(c.re + z.re * z.re - z.im * z.im,
-            c.im + 2.0 * z.re * z.im)
-}
-
-func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }
+use "complex.gema"
 
 func mandelIter(z: Complex, c: Complex, i: Int): Bool {
     if (i <= 0) { abs2(z) < 4.0 }

@@ -3,8 +3,13 @@
  * CLI compiler for Gema — compiles a .gema file to JavaScript.
  *
  * Usage:
- *   bun compile.ts input.gema [--minify]
- *   bun compile.ts input.gema -o output.js [--minify]
+ *   bun compile.ts [options] <file>...
+ *
+ * Examples:
+ *   bun compile.ts input.gema                              # Single file
+ *   bun compile.ts -e main.gema lib.gema utils.gema        # Multi-file with explicit entry
+ *   bun compile.ts -o output.js input.gema                 # Custom output path
+ *   bun compile.ts -e main.gema -m lib.gema utils.gema     # Minified multi-file
  *   bun compile.ts --help
  */
 
@@ -23,6 +28,10 @@ const { values, positionals } = parseArgs({
             type: "boolean",
             short: "m",
         },
+        entry: {
+            type: "string",
+            short: "e",
+        },
         help: {
             type: "boolean",
             short: "h",
@@ -34,57 +43,92 @@ const { values, positionals } = parseArgs({
 
 if (values.help || positionals.length === 0) {
     console.log(`
-Usage: bun compile.ts [options] <file>
+Usage: bun compile.ts [options] <file>...
 
-Compile a Gema source file (.gema) to JavaScript.
+Compile one or more Gema source files (.gema) to JavaScript.
 
 Arguments:
-  file                    Path to the .gema source file
+  file                    Path(s) to .gema source file(s)
 
 Options:
-  -o, --output <file>     Output file path (default: same name as input with .js)
+  -e, --entry <file>      Entry point filename (default: main.gema)
+  -o, --output <file>     Output file path (default: same name as entry with .js)
   -m, --minify            Minify the compiled code using Bun.Transpiler
   -h, --help              Show this help message
+
+Examples:
+  bun compile.ts main.gema
+  bun compile.ts -e main.gema math.gema utils.gema
+  bun compile.ts -m -e app.gema -o bundle.js lib/*.gema
 `);
     process.exit(values.help ? 0 : 1);
 }
 
-const inputPath = resolve(positionals[0]);
+// Determine entry file
+// If --entry is explicitly provided, use it.
+// Otherwise, if there's only one positional arg, use it as the entry.
+// Otherwise, default to "main.gema".
+let entry: string;
+if (values.entry) {
+    entry = values.entry;
+} else if (positionals.length === 1) {
+    entry = basename(resolve(positionals[0]));
+} else {
+    entry = "main.gema";
+}
 
-if (!existsSync(inputPath)) {
-    console.error(`Error: file not found: ${inputPath}`);
+// Build the files map — read all positional args from disk
+const files: Record<string, string> = {};
+for (const pos of positionals) {
+    const filePath = resolve(pos);
+    if (!existsSync(filePath)) {
+        console.error(`Error: file not found: ${filePath}`);
+        process.exit(1);
+    }
+    const content = readFileSync(filePath, "utf-8");
+    const filename = basename(filePath);
+    files[filename] = content;
+}
+
+if (!files[entry]) {
+    console.error(
+        `Error: entry file '${entry}' not found among provided files: [${Object.keys(files).join(", ")}]`
+    );
     process.exit(1);
 }
 
-// Determine output path
-let outputPath: string;
-if (values.output) {
-    outputPath = resolve(values.output);
-} else {
-    const dir = dirname(inputPath);
-    const name = basename(inputPath, extname(inputPath));
-    outputPath = resolve(dir, name + ".js");
+// Show source lines for error display (collect from all files)
+const sourceLines: Record<string, string[]> = {};
+for (const [name, content] of Object.entries(files)) {
+    sourceLines[name] = content.split("\n");
 }
 
-// Read and compile
-const source = readFileSync(inputPath, "utf-8");
-const sourceLines = source.split("\n");
-
-const result = compile(source, "export");
+const result = compile(files, "export", entry);
 
 if (result.errors && result.errors.length > 0) {
     console.error("Compilation failed:");
     for (const err of result.errors) {
         const line = err.line + 1;
         const col = err.col + 1;
-        console.error(`\n  × line ${line}, col ${col}: ${err.message}`);
-        if (err.line >= 0 && err.line < sourceLines.length) {
-            // Show the offending line with a caret
-            if (err.line > 0) {
-                console.error(`    ${line - 1} │ ${sourceLines[err.line - 1]}`);
+        const fileTag = err.filename ? `${err.filename}:` : "";
+        console.error(`\n  × ${fileTag}line ${line}, col ${col}: ${err.message}`);
+
+        // Show source context using the error's filename if available
+        const linesToSearch =
+            err.filename && sourceLines[err.filename]
+                ? { [err.filename]: sourceLines[err.filename] }
+                : sourceLines;
+
+        for (const [name, lines] of Object.entries(linesToSearch)) {
+            if (err.line >= 0 && err.line < lines.length) {
+                if (err.line > 0) {
+                    console.error(`    ${name}:${line - 1} │ ${lines[err.line - 1]}`);
+                }
+                console.error(`    ${name}:${line} │ ${lines[err.line]}`);
+                console.error(
+                    `    ${" ".repeat(String(line).length + name.length + 5 + err.col)}^`
+                );
             }
-            console.error(`    ${line} │ ${sourceLines[err.line]}`);
-            console.error(`    ${" ".repeat(String(line).length + 3 + err.col)}^`);
         }
     }
     process.exit(1);
@@ -106,6 +150,16 @@ if (values.minify) {
         `Reduced output size from ${compiledCode.length} to ${minifiedCode.length} characters`
     );
     compiledCode = minifiedCode;
+}
+
+// Determine output path
+let outputPath: string;
+if (values.output) {
+    outputPath = resolve(values.output);
+} else {
+    const dir = dirname(resolve(positionals[0]));
+    const name = basename(entry, extname(entry));
+    outputPath = resolve(dir, name + ".js");
 }
 
 // Write output

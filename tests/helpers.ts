@@ -2,6 +2,7 @@ import { expect } from "bun:test";
 import { parse } from "../src/parse";
 import { scan } from "../src/scan";
 import { writeJS } from "../src/write-js";
+import { compile } from "../src/compiler";
 import { resetRegistries } from "../src/ast/index";
 
 /**
@@ -78,6 +79,35 @@ export function testParseExpectError(text: string) {
 }
 
 /**
+ * Compile a multi-module Gema program and eval the result.
+ * `files` maps filenames to source content. `entry` is the entry filename.
+ * Asserts the final expression equals expectEqual.
+ */
+export function testCompileMulti(
+    files: Record<string, string>,
+    entry: string,
+    expectEqual: unknown
+) {
+    const result = compile(files, "immediate", entry);
+    if (result.errors.length > 0) {
+        throw new Error(
+            "Compile errors:\n" +
+                result.errors
+                    .map((e: { line: number; col: number; message: string; filename?: string }) => {
+                        const tag = e.filename ? `${e.filename}:` : "";
+                        return `${tag}${e.line}:${e.col} ${e.message}`;
+                    })
+                    .join("\n")
+        );
+    }
+    if (expectEqual !== null) {
+        const jsResult = eval(result.js);
+        expect(jsResult).toEqual(expectEqual);
+    }
+    return result.js;
+}
+
+/**
  * Assert two programs produce identical compiled output.
  */
 export function requireIdenticalCompilation(text1: string, text2: string) {
@@ -92,4 +122,23 @@ export function requireIdenticalCompilation(text1: string, text2: string) {
 export function testCompileExpectRuntimeError(text: string, expectErrorMessage?: string) {
     const js = testCompile(text, null);
     expect(() => eval(js)).toThrow(expectErrorMessage);
+}
+
+/**
+ * Compile a multi-module Gema program and assert it produces a compile error.
+ * Returns the error messages.
+ */
+export function testCompileMultiExpectError(
+    files: Record<string, string>,
+    entry: string,
+    expectedMessage?: string
+): string[] {
+    const result = compile(files, "immediate", entry);
+    expect(result.errors.length).toBeGreaterThan(0);
+    const messages = result.errors.map((e: { message: string }) => e.message);
+    if (expectedMessage !== undefined) {
+        const combined = messages.join("\n");
+        expect(combined).toInclude(expectedMessage);
+    }
+    return messages;
 }

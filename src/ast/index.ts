@@ -11,6 +11,8 @@ export {
     getAllMonomorphized,
     isVarConsumed,
     markVarConsumed,
+    registerModuleVar,
+    findModuleVar,
     resetRegistries,
 } from "./registries";
 
@@ -32,6 +34,7 @@ export {
     Continue,
     Return,
     RangeIter,
+    UseModule,
     Variable,
     Assignment,
     AnonymousFunction,

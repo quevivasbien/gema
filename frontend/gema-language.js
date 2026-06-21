@@ -14,6 +14,7 @@ const KEYWORDS = new Set([
     "break",
     "continue",
     "return",
+    "use",
 ]);
 
 const TYPE_NAMES = new Set([

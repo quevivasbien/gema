@@ -5,6 +5,7 @@ import {
     If,
     ForLoop,
     Return,
+    UseModule,
     Assignment,
     Function,
     AnonymousFunction,
@@ -93,6 +94,8 @@ export function setParentPointers(node: Expression, parent: Expression | null = 
         if (node.start) setParentPointers(node.start, node);
         if (node.end) setParentPointers(node.end, node);
         if (node.step) setParentPointers(node.step, node);
+    } else if (node instanceof UseModule) {
+        // Leaf node — no children
     } else if (node instanceof ErrorExpression) {
         // Leaf node — no children
     } else if (node instanceof Trait) {

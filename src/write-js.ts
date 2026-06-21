@@ -1,5 +1,6 @@
 import type * as AST from "./ast/index";
 import { BUILTINS } from "./builtins";
+import { Block } from "./ast/nodes";
 
 const INDENT = "    ";
 
@@ -213,4 +214,80 @@ export function writeJS(
             .join("\n");
     }
     return compiled;
+}
+
+/**
+ * Compile a module AST to raw JavaScript without IIFE wrapping.
+ * Module output is raw top-level declarations so imported variables and
+ * functions are accessible from the entry file's IIFE scope.
+ */
+export function writeJSModule(
+    ast: AST.Expression,
+    minify: boolean = true
+): {
+    code: string;
+    builtins: Set<string>;
+} {
+    if (!(ast instanceof Block)) {
+        throw new Error("writeJSModule expects a Block AST");
+    }
+    const compiler = new JSWriter(ast);
+
+    // Walk expressions directly without the Block's IIFE wrapper
+    for (const expr of ast.expressions) {
+        expr.toJS(compiler);
+        compiler.write(";");
+        compiler.newLine();
+    }
+    compiler.newLine();
+
+    // Emit variable declarations (normally produced by endScope)
+    const declarations = compiler.scope.getDeclarations();
+    for (const decl of declarations) {
+        compiler.scope.lines.unshift(decl + "\n");
+    }
+
+    let body = compiler.scope.lines.join("\n");
+    if (minify) {
+        body = body
+            .split("\n")
+            .filter((line) => {
+                const trimmed = line.trim();
+                if (/^;+$/.test(trimmed)) return false;
+                if (trimmed === "") return false;
+                return true;
+            })
+            .map((line) => line.replaceAll(/;+/g, ";"))
+            .join("\n");
+    }
+
+    // Return code and builtins separately so the caller can merge and deduplicate
+    return { code: body, builtins: compiler.builtins };
+}
+
+/**
+ * Compile an AST to JavaScript and return the code along with the set of
+ * builtin function names used. Useful for multi-module compilation where
+ * builtins from all modules need to be merged.
+ */
+export function writeJSWithBuiltins(
+    ast: AST.Expression,
+    mode: "immediate" | "inline" | "export" = "immediate",
+    minify: boolean = true
+): { code: string; builtins: Set<string> } {
+    const compiler = new JSWriter(ast);
+    let compiled = compiler.compile(mode);
+    if (minify) {
+        compiled = compiled
+            .split("\n")
+            .filter((line) => {
+                const trimmed = line.trim();
+                if (/^;+$/.test(trimmed)) return false;
+                if (trimmed === "") return false;
+                return true;
+            })
+            .map((line) => line.replaceAll(/;+/g, ";"))
+            .join("\n");
+    }
+    return { code: compiled, builtins: compiler.builtins };
 }

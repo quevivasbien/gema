@@ -50,6 +50,7 @@ export enum TokenType {
     Break = "break",
     Continue = "continue",
     Return = "return",
+    Use = "use",
     Pipe = "|",
     // In-place assignment operators
     PlusEqual = "+=",
