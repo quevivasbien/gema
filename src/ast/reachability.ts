@@ -13,9 +13,11 @@ import {
     CustomType,
 } from "../types";
 import { findFunction } from "./registries";
-import { Block, Function, Assignment, Variable } from "./nodes";
+import { Block, Function, Assignment, Variable, If, ForLoop, TupleUnpack } from "./nodes";
 import { StructDef } from "./structs";
+import { Trait } from "./traits";
 import { Call } from "./calls";
+import { Binary } from "./operators";
 import { DropValue, Expression } from "./expression";
 
 /**
@@ -65,6 +67,18 @@ function collectReferences(
         referencedNames.add(node.fullName);
     } else if (node instanceof Function && node.fullName) {
         referencedNames.add(node.fullName);
+    } else if (node instanceof Assignment && node.name) {
+        referencedNames.add(node.name);
+    } else if (node instanceof TupleUnpack) {
+        for (const binding of node.bindings) {
+            if (binding.fullName) referencedNames.add(binding.fullName);
+        }
+    }
+
+    // Check for operator-overloaded Binary nodes where the resolved function
+    // name is stored in overloadedAs.name (a string), not as a child Expression.
+    if (node instanceof Binary && node.overloadedAs?.name) {
+        referencedNames.add(node.overloadedAs.name);
     }
 
     // Recurse into children
@@ -76,6 +90,16 @@ function collectReferences(
         }
     } else if (node instanceof Assignment) {
         collectReferences(node.value, referencedNames, referencedTypes);
+    } else if (node instanceof If) {
+        // If conditionalBranches and elseBranch contain Expression children
+        for (const { condition, branch } of node.conditionalBranches) {
+            collectReferences(condition, referencedNames, referencedTypes);
+            collectReferences(branch, referencedNames, referencedTypes);
+        }
+        collectReferences(node.elseBranch, referencedNames, referencedTypes);
+    } else if (node instanceof ForLoop) {
+        if (node.iter) collectReferences(node.iter, referencedNames, referencedTypes);
+        collectReferences(node.body, referencedNames, referencedTypes);
     } else {
         // Generic walk for other AST node properties.
         // Skip 'parent' to avoid walking up the tree (creates infinite recursion).
@@ -127,9 +151,27 @@ export function computeReachable(block: Block): Set<string> {
         for (const t of types) referencedTypes.add(t);
     }
 
-    // Phase 2: Trace reachable references starting from the entry's return value
-    const queue: Expression[] = [block.expressions[block.expressions.length - 1]];
-
+    // Phase 2: Trace reachable references starting from all non-definition
+    // top-level expressions (calls, for-loops, variables, etc.) so that
+    // transitive dependencies are followed even for mid-block expressions.
+    // Falls back to the last expression if everything is a definition.
+    const explored = new Set<string>();
+    const queue: Expression[] = [];
+    for (const expr of block.expressions) {
+        let e = expr;
+        while (e instanceof DropValue) e = e.child;
+        if (e instanceof Function) continue;
+        if (e instanceof StructDef) continue;
+        if (e instanceof Trait) continue;
+        if (e instanceof Assignment) continue;
+        queue.push(e);
+    }
+    // If nothing non-definition, start from the last expression (which may be
+    // an Assignment — its name is found via collectReferences' new Assignment
+    // handling).
+    if (queue.length === 0) {
+        queue.push(block.expressions[block.expressions.length - 1]);
+    }
     while (queue.length > 0) {
         const node = queue.pop()!;
         const names = new Set<string>();
@@ -137,12 +179,24 @@ export function computeReachable(block: Block): Set<string> {
         collectReferences(node, names, types);
 
         for (const name of names) {
-            if (reachable.has(name)) continue;
             reachable.add(name);
+            if (explored.has(name)) continue;
+            explored.add(name);
 
+            // Follow function references
             const fn = findFunction(name);
             if (fn && fn.body) {
                 queue.push(fn.body);
+            }
+
+            // Follow variable references: find the assignment that defines
+            // this name in the top-level block and recurse into its value
+            for (const expr of block.expressions) {
+                let e = expr;
+                while (e instanceof DropValue) e = e.child;
+                if (e instanceof Assignment && e.name === name && e.value) {
+                    queue.push(e.value);
+                }
             }
         }
         for (const t of types) referencedTypes.add(t);

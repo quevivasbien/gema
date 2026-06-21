@@ -1075,6 +1075,9 @@ class Parser {
         try {
             return cFunc();
         } catch (e) {
+            if (e instanceof AST.ASTError) {
+                return this.error(e.message);
+            }
             if (e instanceof Error) {
                 return this.error(e.message);
             }
@@ -1639,6 +1642,9 @@ class Parser {
         try {
             return new AST.Block(rootToken, expressions);
         } catch (e) {
+            if (e instanceof AST.ASTError) {
+                return this.error(e.message);
+            }
             if (e instanceof Error) {
                 return this.error(e.message);
             }
@@ -1654,27 +1660,29 @@ export function parse(
 ): { ast: AST.Expression; errors: ParseError[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
-    if (parser.errors.length === 0 && !skipCascadeTypes) {
+    if (parser.errors.length === 0) {
         // Set up parent pointers so cascadeTypes can use findEnclosing() for
         // upward tree walks (Return → enclosing Function, Break → enclosing ForLoop, etc.)
         AST.setParentPointers(block);
-        try {
-            block.cascadeTypes(true);
-        } catch (e) {
-            if (e instanceof AST.ASTError) {
-                parser.errors.push({
-                    line: e.line,
-                    col: e.col,
-                    message: e.message,
-                });
-            } else {
-                // Non-ASTError (e.g. from Function constructor validation).
-                // Report it without line/col info.
-                parser.errors.push({
-                    line: 0,
-                    col: 0,
-                    message: e instanceof Error ? e.message : String(e),
-                });
+        if (!skipCascadeTypes) {
+            try {
+                block.cascadeTypes(true);
+            } catch (e) {
+                if (e instanceof AST.ASTError) {
+                    parser.errors.push({
+                        line: e.line,
+                        col: e.col,
+                        message: e.message,
+                    });
+                } else {
+                    // Non-ASTError (e.g. from Function constructor validation).
+                    // Report it without line/col info.
+                    parser.errors.push({
+                        line: 0,
+                        col: 0,
+                        message: e instanceof Error ? e.message : String(e),
+                    });
+                }
             }
         }
     }

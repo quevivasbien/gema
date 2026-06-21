@@ -261,7 +261,7 @@ grid = concat(map(\\y {
     toStr(map(\\x { isMandel(Complex(x, y)) }, xs))
 }, collect(linspace(-1., 1., 39))));
 grid`,
-        "complex.gema": `struct Complex { re: Float, im: Float }
+            "complex.gema": `struct Complex { re: Float, im: Float }
 
 func add(a: Complex, b: Complex): Complex {
     Complex(a.re + b.re, a.im + b.im)
@@ -272,7 +272,7 @@ func multiply(z: Complex, c: Complex): Complex {
             c.im + 2.0 * z.re * z.im)
 }
 
-func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }`
+func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }`,
         },
     },
 };

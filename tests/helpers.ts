@@ -1,7 +1,6 @@
 import { expect } from "bun:test";
 import { parse } from "../src/parse";
 import { scan } from "../src/scan";
-import { writeJS } from "../src/write-js";
 import { compile } from "../src/compiler";
 import { resetRegistries } from "../src/ast/index";
 
@@ -10,16 +9,23 @@ import { resetRegistries } from "../src/ast/index";
  * Asserts the final expression equals expectEqual.
  */
 export function testCompile(text: string, expectEqual: unknown) {
-    resetRegistries();
-    const tokens = scan(text);
-    const { ast, errors } = parse(tokens);
-    expect(errors.length).toBe(0);
-    const sourceOut = writeJS(ast);
-    if (expectEqual !== null) {
-        const result = eval(sourceOut);
-        expect(result).toEqual(expectEqual);
+    const result = compile(text, "immediate");
+    if (result.errors.length > 0) {
+        throw new Error(
+            "Compile errors:\n" +
+                result.errors
+                    .map((e: { line: number; col: number; message: string; filename?: string }) => {
+                        const tag = e.filename ? `${e.filename}:` : "";
+                        return `${tag}${e.line}:${e.col} ${e.message}`;
+                    })
+                    .join("\n")
+        );
     }
-    return sourceOut;
+    if (expectEqual !== null) {
+        const jsResult = eval(result.js);
+        expect(jsResult).toEqual(expectEqual);
+    }
+    return result.js;
 }
 
 /**
@@ -32,11 +38,7 @@ export function testCompileAndCheck(
     includes: string[] = [],
     excludes: string[] = []
 ): string {
-    resetRegistries();
-    const tokens = scan(text);
-    const { ast, errors } = parse(tokens);
-    expect(errors.length).toBe(0);
-    const sourceOut = writeJS(ast);
+    const sourceOut = testCompile(text, null);
     for (const pattern of includes) {
         if (!sourceOut.includes(pattern)) {
             console.log(`Expected to find in JS output:\n  ${pattern}`);

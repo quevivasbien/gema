@@ -10,17 +10,11 @@ The `:` that we have as part of our type annotations is not really needed--it's 
 
 ## Modules
 
-We need to be able to create projects across multiple files. TBD what the best way to approach this is.
-
-One potential way to do this is to continue to treat every file like a script that returns whatever the last expression is in the file, and module files just have their exported members listed at the end, something like
-
+Need to be able to filter which symbols are imported from other modules. Suggested syntax is
 ```gema
-func exportedFunction(x: Int) { x + 1 }
-struct ExportedStruct { x: Int, y: Int }
-trait ExportedTrait { foo{Self: Int} }
-exportedConstant = 11;
-
-exports(exportedFunction, ExportedStruct, ExportedTrait, exportedConstant)
+use "utilities.gema"  # the currently supported pattern; makes everything available, including anything that the imported module itself imports
+use "utilities.gema" as utils  # make everything accessible under the namespace `utils`. For example, we could use `foo` as `utils.foo`.
+use (foo, bar) from "utilities.gema"  # import only `foo` and `bar`, parentheses are optional
 ```
 
 ## IO
@@ -112,6 +106,7 @@ struct S[T] where T is Foo {
 Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
 
 range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
+
 ```gema
 trait Any {}
 

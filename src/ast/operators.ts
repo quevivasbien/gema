@@ -124,7 +124,9 @@ export class Binary extends Expression {
 
         // Enforce that left-hand type == right-hand type for all binary ops
         if (!deepEquals(ltype, rtype)) {
-            throw this.error(`Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`);
+            throw this.error(
+                `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
+            );
         }
 
         const NUMERIC_OPS = [

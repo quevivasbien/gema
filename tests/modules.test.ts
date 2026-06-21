@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { testCompileMulti, testCompileMultiExpectError } from "./helpers";
+import { testCompile, testCompileMulti, testCompileMultiExpectError } from "./helpers";
 
 test("basic: function from module", () => {
     testCompileMulti(
@@ -357,7 +357,8 @@ test("tree-shaking: struct used as type is kept", () => {
     testCompileMulti(
         {
             "point.gema": "struct Point { x: Float, y: Float }",
-            "main.gema": 'use "point.gema"\nfunc abs(p: Point) { (p.x^2.0 + p.y^2.0)^0.5 }\nabs(Point(3., 4.))',
+            "main.gema":
+                'use "point.gema"\nfunc abs(p: Point) { (p.x^2.0 + p.y^2.0)^0.5 }\nabs(Point(3., 4.))',
         },
         "main.gema",
         5.0
@@ -367,7 +368,8 @@ test("tree-shaking: struct used as type is kept", () => {
 test("tree-shaking: transitive reachability", () => {
     testCompileMulti(
         {
-            "utils.gema": "func square(x: Int) { x * x }\nfunc double(x: Int) { x * 2 }\nfunc process(x: Int) { square(x) }",
+            "utils.gema":
+                "func square(x: Int) { x * x }\nfunc double(x: Int) { x * 2 }\nfunc process(x: Int) { square(x) }",
             "main.gema": 'use "utils.gema"\nprocess(3)',
         },
         "main.gema",
@@ -378,7 +380,8 @@ test("tree-shaking: transitive reachability", () => {
 test("tree-shaking: unreferenced struct eliminated", () => {
     const js = testCompileMulti(
         {
-            "shapes.gema": "struct Point { x: Int, y: Int }\nstruct Line { a: Int, b: Int }\nfunc makePoint(x: Int, y: Int) { Point(x, y) }",
+            "shapes.gema":
+                "struct Point { x: Int, y: Int }\nstruct Line { a: Int, b: Int }\nfunc makePoint(x: Int, y: Int) { Point(x, y) }",
             "main.gema": 'use "shapes.gema"\nmakePoint(1, 2)',
         },
         "main.gema",
@@ -386,6 +389,24 @@ test("tree-shaking: unreferenced struct eliminated", () => {
     );
     expect(js).toInclude("Point");
     expect(js).not.toInclude("Line");
+});
+
+test("tree-shaking: retain variable referenced in for loop", () => {
+    const js = testCompile(
+        `
+        x = 1;
+        mut max = 0;
+        for i = 1..x {
+            if i == x {
+                break
+            }
+            max = i;
+        }
+        max
+        `,
+        0n
+    );
+    expect(js).toInclude("x = ");
 });
 
 // ── Helper used by tests above ──

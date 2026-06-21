@@ -4,6 +4,7 @@ import { writeJS } from "./write-js";
 import { TokenType } from "./tokens";
 import { resetRegistries, registerStruct, registerTrait } from "./ast";
 import { setParentPointers } from "./ast/set-parent-pointers";
+import { ASTError } from "./ast/expression";
 import type { Expression } from "./ast/expression";
 import { Block, UseModule, Function, Assignment } from "./ast/nodes";
 import { StructDef } from "./ast/structs";
@@ -126,7 +127,12 @@ function flattenModule(
         return null;
     }
     if (!(ast instanceof Block)) {
-        errors.push({ line: 0, col: 0, message: `Module '${filename}' has no top-level block.`, filename });
+        errors.push({
+            line: 0,
+            col: 0,
+            message: `Module '${filename}' has no top-level block.`,
+            filename,
+        });
         return null;
     }
 
@@ -184,7 +190,14 @@ export function compile(
             return {
                 js: "",
                 result: null,
-                errors: [{ line: 0, col: 0, message: `Entry file '${entry}' not found.`, filename: entry }],
+                errors: [
+                    {
+                        line: 0,
+                        col: 0,
+                        message: `Entry file '${entry}' not found.`,
+                        filename: entry,
+                    },
+                ],
                 runtimeError: null,
             };
         }
@@ -209,7 +222,19 @@ export function compile(
             return { js: "", result: null, errors, runtimeError: null };
         }
         if (!(entryAst instanceof Block)) {
-            return { js: "", result: null, errors: [{ line: 0, col: 0, message: `Entry file has no top-level block.`, filename: entry }], runtimeError: null };
+            return {
+                js: "",
+                result: null,
+                errors: [
+                    {
+                        line: 0,
+                        col: 0,
+                        message: `Entry file has no top-level block.`,
+                        filename: entry,
+                    },
+                ],
+                runtimeError: null,
+            };
         }
 
         // Phase 2: Link modules — flatten all `use` directives into the entry's Block
@@ -241,6 +266,10 @@ export function compile(
         try {
             unifiedBlock.cascadeTypes(true);
         } catch (e) {
+            if (e instanceof ASTError) {
+                errors.push({ line: e.line, col: e.col, message: e.message });
+                return { js: "", result: null, errors, runtimeError: null };
+            }
             if (e instanceof Error) {
                 errors.push({ line: 0, col: 0, message: e.message });
                 return { js: "", result: null, errors, runtimeError: null };
@@ -281,10 +310,14 @@ export function compile(
         const js = writeJS(filteredBlock, mode);
         return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {
+        const message =
+            e instanceof ASTError ? e.message : e instanceof Error ? e.message : String(e);
+        const line = e instanceof ASTError ? e.line : 0;
+        const col = e instanceof ASTError ? e.col : 0;
         return {
             js: "",
             result: null,
-            errors: [{ line: 0, col: 0, message: e instanceof Error ? e.message : String(e), filename: entry }],
+            errors: [{ line, col, message, filename: entry }],
             runtimeError: null,
         };
     }
