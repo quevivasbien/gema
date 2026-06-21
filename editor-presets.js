@@ -1,11 +1,21 @@
+/**
+ * Preset programs for the Gema playground.
+ *
+ * Each preset has:
+ *   label     — Display name in the dropdown
+ *   files     — Record of filename → source content (multi-file support)
+ */
 export const PRESETS = {
     blank: {
         label: "Blank",
-        code: `# Write your code here, or choose a preset above`,
+        files: {
+            "main.gema": `# Write your code here, or choose a preset above`,
+        },
     },
     fizzbuzz: {
         label: "FizzBuzz",
-        code: `# Classic FizzBuzz: print Fizz for multiples of 3,
+        files: {
+            "main.gema": `# Classic FizzBuzz: print Fizz for multiples of 3,
 # Buzz for multiples of 5, FizzBuzz for both.
 
 func fizzbuzz(n: Int): Str {
@@ -22,10 +32,12 @@ func fizzbuzz(n: Int): Str {
 
 # Apply to range 1..20, collect into array
 1..20 | map(fizzbuzz[Int]) | collect`,
+        },
     },
     fibonacci: {
         label: "Fibonacci",
-        code: `# Fibonacci sequence shown three ways
+        files: {
+            "main.gema": `# Fibonacci sequence shown three ways
 
 # 1. Recursive
 func fibRec(n: Int): Int {
@@ -34,8 +46,6 @@ func fibRec(n: Int): Int {
 };
 
 # 2. With iterate
-# iterate(fn, start) produces: start, fn(start), fn(fn(start)), ...
-# We iterate a pair (a,b) → (b, a+b) to generate Fibonacci
 fibs = iterate(\\pair { (pair(1), pair(0) + pair(1)) }, (0, 1))
        | map(\\p { p(0) })
        | take(10)
@@ -58,12 +68,13 @@ func fibLoop(n: Int): Int {
 
 loop10 = 0..9 | map(fibLoop[Int]) | collect;
 
-# All produce the same sequence
-[fibRec(9), fibs(9) | unwrap, loop10(9) | unwrap]   # all 34`,
+[fibRec(9), fibs(9) | unwrap, loop10(9) | unwrap]`,
+        },
     },
     quicksort: {
         label: "Quicksort",
-        code: `# Quicksort using functional style
+        files: {
+            "main.gema": `# Quicksort using functional style
 func quicksort(iter: Iter[Int]): Iter[Int] {
     first = iter(0);
     if isnone(first){
@@ -78,11 +89,13 @@ func quicksort(iter: Iter[Int]): Iter[Int] {
 };
 
 unsorted = [3, 7, 8, 5, 2, 1, 9, 6, 4];
-quicksort(unsorted) | collect   # [1, 2, 3, 4, 5, 6, 7, 8, 9]`,
+quicksort(unsorted) | collect`,
+        },
     },
     sieve: {
         label: "Sieve of Eratosthenes",
-        code: `# Sieve of Eratosthenes using mutable arrays
+        files: {
+            "main.gema": `# Sieve of Eratosthenes using mutable arrays
 
 func sieve(n: Int): Arr[Int] {
     mut isPrime = map(\\_ true, 0..n) | collect | trans;
@@ -101,11 +114,13 @@ func sieve(n: Int): Arr[Int] {
     (0..n) | filter(\\x { isPrime(x) | unwrap }) | collect
 };
 
-sieve(50)   # primes up to 50`,
+sieve(50)`,
+        },
     },
     fbpipeline: {
         label: "Functional Pipeline",
-        code: `# A functional pipeline: compute sum of squares of even
+        files: {
+            "main.gema": `# A functional pipeline: compute sum of squares of even
 # numbers from 1..100, using pipe and lambdas.
 
 result = 1..100
@@ -118,11 +133,13 @@ result2 = reduce(\\(acc, x) {
     if x % 2 == 0 { acc + x * x } else { acc }
 }, 0, 1..100);
 
-result == result2   # true (both are 171700)`,
+result == result2`,
+        },
     },
     primeFactors: {
         label: "Prime Factorization",
-        code: `# Prime factorization using recursion and iteration
+        files: {
+            "main.gema": `# Prime factorization using recursion and iteration
 
 func smallestFactor(n: Int): Int {
     if (n % 2 == 0) { 2 }
@@ -142,11 +159,13 @@ func factors(n: Int): Arr[Int] {
     }
 };
 
-factors(84)   # [2, 2, 3, 7]`,
+factors(84)`,
+        },
     },
     wordCount: {
         label: "Word Frequency",
-        code: `# Count word frequencies using Dict and functional combinators
+        files: {
+            "main.gema": `# Count word frequencies using Dict and functional combinators
 
 # Sample text as an array of words
 words = ["the", "quick", "brown", "fox", "jumps", "over",
@@ -164,15 +183,16 @@ func countWords(words: Arr[Str]): Dict[Str, Int] {
 
 freq = countWords(words);
 
-# Access individual frequencies
 (
   freq("the") | unwrap,   # 3
   freq("fox") | unwrap,   # 2
 )`,
+        },
     },
     generics: {
         label: "Generic Functions",
-        code: `# Generic functions with trait bounds — concatenate in reverse
+        files: {
+            "main.gema": `# Generic functions with trait bounds
 
 trait Concatenatable {
   concat[(a: Self, b: Self): Self],
@@ -185,7 +205,7 @@ func tacnoc(a: T, b: T): T where T is Concatenatable {
 
 # Implement for strings
 func concat(a: Str, b: Str) { a + b };
-tacnoc("hello", "there")                     # "therehello"
+tacnoc("hello", "there")
 
 # Implement for integers (digit concatenation)
 func concat(a: Int, b: Int) {
@@ -195,21 +215,20 @@ func concat(a: Int, b: Int) {
   };
   a * 10 ^ getNDigits(b, 0) + b
 };
-tacnoc(123, 45)                              # 45123
+tacnoc(123, 45)
 
 # Implement for a struct
 struct Pair { first: Int, second: Int }
 func concat(a: Pair, b: Pair) {
   Pair(concat(a.first, b.first), concat(a.second, b.second))
 };
-func toStr(p: Pair) {
-  "(" + toStr(p.first) + ", " + toStr(p.second) + ")"
-};
-toStr(tacnoc(Pair(1, 2), Pair(34, 56)))      # (341, 562)`,
+tacnoc(Pair(1, 2), Pair(34, 56))`,
+        },
     },
     mandelbrot: {
         label: "Mandelbrot set",
-        code: `# ASCII Mandelbrot set visualization
+        files: {
+            "main.gema": `# ASCII Mandelbrot set visualization
 struct Complex { re: Float, im: Float }
 
 func add(a: Complex, b: Complex): Complex {
@@ -226,60 +245,24 @@ func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }
 func mandelIter(z: Complex, c: Complex, i: Int): Bool {
     if (i <= 0) { abs2(z) < 4.0 }
     else { mandelIter(mul(z, c), c, i - 1) }
-}
-
-func isMandel(c: Complex): Bool {
-    mandelIter(Complex(0.0, 0.0), c, 20)
-}
-
-func linspace(a: Float, b: Float, n: Int): Iter[Float] {
-    step = (b - a) / toFloat(n - 1);
-    map(\\i { a + step * toFloat(i) }, 0..(n - 1))
-}
-
-func concat(strs: Iter[Str]) {
-    reduce(\\(acc, x) { acc + x }, "", strs)
-}
-
-func toStr(arr: Iter[Bool]) {
-    strs = map(\\x { if x { "*" } else { " " } }, arr);
-    concat(strs) + "\\n"
-}
-
-grid = concat(map(\\y {
-    xs = collect(linspace(-1.75, 0.25, 39));
-    toStr(map(\\x { isMandel(Complex(x, y)) }, xs))
-}, collect(linspace(-1., 1., 39))));
-grid
-`,
+}`,
+        },
     },
-    counter: {
-        label: "Closures & State",
-        code: `# Closures capture mutable variables by reference,
-# enabling stateful function objects.
+    multiModule: {
+        label: "Multi-Module Demo",
+        files: {
+            "main.gema": `# Main program using the "math" module
+use "math.gema"
 
-func makeCounter(): Func[:Int] {
-    mut count = 0;
-    func() { count = count + 1; count }
-};
-
-a = makeCounter();
-b = makeCounter();
-indep_state = [a(), a(), b(), b()];   # [1, 2, 1, 2] — independent state
-
-# Higher-order: a function that takes a predicate
-# and returns a filtered counter
-func makeFilteredCounter(pred: Func[Int: Bool]): Func[:Int] {
-    mut count = 0;
-    func() {
-        count = count + 1;
-        if pred(count) { count } else { 0 }
-    }
-};
-
-evens = makeFilteredCounter(\\x { x % 2 == 0 });
-mutating_state = [evens(), evens(), evens()];   # [0, 2, 0]
-
-(indep_state, mutating_state)`,
+a = add(3, 4);
+b = mul(a, 2);
+c = square(5);
+[a, b, c]`,
+            "math.gema": `# Math utilities module
+func add(x: Int, y: Int): Int { x + y }
+func mul(x: Int, y: Int): Int { x * y }
+func square(x: Int): Int { x * x }
+`,
+        },
     },
 };
