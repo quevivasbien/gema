@@ -11,7 +11,7 @@ import { DropValue } from "./ast/expression";
 interface CompileResult {
     js: string;
     result: null;
-    errors: { line: number; col: number; message: string }[];
+    errors: { line: number; col: number; message: string; filename?: string }[];
     runtimeError: null;
 }
 
@@ -49,7 +49,7 @@ function compileModule(
     files: Record<string, string>,
     visiting: Set<string>,
     visited: Set<string>,
-    errors: { line: number; col: number; message: string }[]
+    errors: { line: number; col: number; message: string; filename?: string }[]
 ): { code: string; builtins: Set<string> } | null {
     if (visited.has(filename)) return { code: "", builtins: new Set() };
     if (visiting.has(filename)) {
@@ -57,6 +57,7 @@ function compileModule(
             line: 0,
             col: 0,
             message: `Circular dependency detected: module '${filename}' is already being compiled.`,
+            filename,
         });
         return null;
     }
@@ -67,6 +68,7 @@ function compileModule(
             line: 0,
             col: 0,
             message: `Module '${filename}' not found. Make sure it is included in the provided files.`,
+            filename,
         });
         return null;
     }
@@ -89,7 +91,7 @@ function compileModule(
     const { ast, errors: parseErrors } = parse(tokens, true);
     if (parseErrors.length > 0) {
         for (const e of parseErrors) {
-            errors.push({ line: e.line, col: e.col, message: e.message });
+            errors.push({ line: e.line, col: e.col, message: e.message, filename });
         }
         return null;
     }
@@ -104,6 +106,7 @@ function compileModule(
             line: 0,
             col: 0,
             message: e instanceof Error ? e.message : String(e),
+            filename,
         });
         return null;
     }
@@ -161,7 +164,7 @@ export function compile(
 
     resetRegistries();
 
-    const errors: { line: number; col: number; message: string }[] = [];
+    const errors: { line: number; col: number; message: string; filename?: string }[] = [];
 
     try {
         const entrySource = files[entry];
@@ -169,7 +172,14 @@ export function compile(
             return {
                 js: "",
                 result: null,
-                errors: [{ line: 0, col: 0, message: `Entry file '${entry}' not found.` }],
+                errors: [
+                    {
+                        line: 0,
+                        col: 0,
+                        message: `Entry file '${entry}' not found.`,
+                        filename: entry,
+                    },
+                ],
                 runtimeError: null,
             };
         }
@@ -194,7 +204,7 @@ export function compile(
         const { ast, errors: parseErrors } = parse(tokens);
         if (parseErrors.length > 0) {
             for (const e of parseErrors) {
-                errors.push({ line: e.line, col: e.col, message: e.message });
+                errors.push({ line: e.line, col: e.col, message: e.message, filename: entry });
             }
             return { js: "", result: null, errors, runtimeError: null };
         }
@@ -237,12 +247,16 @@ export function compile(
                   "\n\n";
 
         // Phase 5: Concatenate — builtins + module code + monomorphized code + entry code
-        const moduleCode = moduleResults.map((m) => m.code).filter(Boolean).join("\n");
+        const moduleCode = moduleResults
+            .map((m) => m.code)
+            .filter(Boolean)
+            .join("\n");
         const programMarker = "// PROGRAM //";
         const programIdx = entryCode.indexOf(programMarker);
         if (programIdx !== -1) {
             const afterProgram = entryCode.slice(programIdx + programMarker.length);
-            const js = builtinSection + "// PROGRAM //\n" + moduleCode + "\n" + monoCode + afterProgram;
+            const js =
+                builtinSection + "// PROGRAM //\n" + moduleCode + "\n" + monoCode + afterProgram;
             return { js, result: null, errors: [], runtimeError: null };
         }
 
@@ -253,7 +267,14 @@ export function compile(
         return {
             js: "",
             result: null,
-            errors: [{ line: 0, col: 0, message: e instanceof Error ? e.message : String(e) }],
+            errors: [
+                {
+                    line: 0,
+                    col: 0,
+                    message: e instanceof Error ? e.message : String(e),
+                    filename: entry,
+                },
+            ],
             runtimeError: null,
         };
     }

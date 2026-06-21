@@ -110,9 +110,16 @@ if (result.errors && result.errors.length > 0) {
     for (const err of result.errors) {
         const line = err.line + 1;
         const col = err.col + 1;
-        console.error(`\n  × line ${line}, col ${col}: ${err.message}`);
-        // Try to show source context from each registered file
-        for (const [name, lines] of Object.entries(sourceLines)) {
+        const fileTag = err.filename ? `${err.filename}:` : "";
+        console.error(`\n  × ${fileTag}line ${line}, col ${col}: ${err.message}`);
+
+        // Show source context using the error's filename if available
+        const linesToSearch =
+            err.filename && sourceLines[err.filename]
+                ? { [err.filename]: sourceLines[err.filename] }
+                : sourceLines;
+
+        for (const [name, lines] of Object.entries(linesToSearch)) {
             if (err.line >= 0 && err.line < lines.length) {
                 if (err.line > 0) {
                     console.error(`    ${name}:${line - 1} │ ${lines[err.line - 1]}`);

@@ -221,7 +221,10 @@ export function writeJS(
  * Module output is raw top-level declarations so imported variables and
  * functions are accessible from the entry file's IIFE scope.
  */
-export function writeJSModule(ast: AST.Expression, minify: boolean = true): {
+export function writeJSModule(
+    ast: AST.Expression,
+    minify: boolean = true
+): {
     code: string;
     builtins: Set<string>;
 } {

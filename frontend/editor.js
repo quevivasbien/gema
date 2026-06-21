@@ -263,14 +263,17 @@ function createEditor(parent) {
 }
 
 /** Display error lines by highlighting them in the editor. */
-function displayErrors(view, errors, code) {
+function displayErrors(view, errors, files) {
     const outputEl = document.getElementById("output");
-    const lines = (code || "").split("\n");
     const errorText = errors
         .map((err) => {
+            // Look up the source for the file this error belongs to
+            const fileContent = err.filename && files[err.filename] ? files[err.filename] : "";
+            const lines = fileContent.split("\n");
             const lineNum = err.line + 1;
             const context = lines[err.line] || "";
-            return `Error at line ${lineNum}, column ${err.col + 1}: ${err.message}\n  ${lineNum} | ${context}\n  ${" ".repeat(String(lineNum).length + err.col + 3)}^`;
+            const fileTag = err.filename ? ` in ${err.filename}` : "";
+            return `Error${fileTag} at line ${lineNum}, column ${err.col + 1}: ${err.message}\n  ${lineNum} | ${context}\n  ${" ".repeat(String(lineNum).length + err.col + 3)}^`;
         })
         .join("\n\n");
     outputEl.innerText = errorText;
@@ -306,8 +309,6 @@ async function runCode(view) {
 
     // Collect all files
     const files = getFilesRecord();
-    const defaultContent = files["main.gema"] || Object.values(files)[0] || "";
-    const displaySource = files["main.gema"] || defaultContent;
 
     // Show running state
     outputEl.innerText = "Running...";
@@ -322,7 +323,7 @@ async function runCode(view) {
         const compiled = compile(files, "inline", "main.gema");
 
         if (compiled.errors && compiled.errors.length > 0) {
-            displayErrors(view, compiled.errors, displaySource);
+            displayErrors(view, compiled.errors, files);
             runBtn.disabled = false;
             runBtn.textContent = "Run (Ctrl+Enter)";
             return;

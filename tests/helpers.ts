@@ -93,10 +93,10 @@ export function testCompileMulti(
         throw new Error(
             "Compile errors:\n" +
                 result.errors
-                    .map(
-                        (e: { line: number; col: number; message: string }) =>
-                            `${e.line}:${e.col} ${e.message}`
-                    )
+                    .map((e: { line: number; col: number; message: string; filename?: string }) => {
+                        const tag = e.filename ? `${e.filename}:` : "";
+                        return `${tag}${e.line}:${e.col} ${e.message}`;
+                    })
                     .join("\n")
         );
     }
