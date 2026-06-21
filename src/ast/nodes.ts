@@ -1362,8 +1362,10 @@ export class AnonymousFunction extends Expression {
             );
         }
         for (const s of this.returnStatements) {
-            if (s.value.type !== this.returnType) {
-                throw this.error(
+            if (!deepEquals(s.value.type, this.returnType)) {
+                throw new ASTError(
+                    s.line,
+                    s.col,
                     `anonymous function with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
                 );
             }
@@ -1568,9 +1570,11 @@ export class Function extends Expression {
         }
 
         for (const s of this.returnStatements) {
-            if (s.value.type !== this.returnType) {
-                throw this.error(
-                    `function with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
+            if (!deepEquals(s.value.type, this.returnType)) {
+                throw new ASTError(
+                    s.line,
+                    s.col,
+                    `function ${this.name} with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
                 );
             }
         }

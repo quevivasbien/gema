@@ -4,6 +4,7 @@ import { keymap, Decoration } from "@codemirror/view";
 import { compile } from "../src/compiler.ts";
 
 import { Prec, StateEffect, StateField } from "@codemirror/state";
+import { indentUnit } from "@codemirror/language";
 import { indentWithTab, toggleComment } from "@codemirror/commands";
 
 import { PRESETS } from "./editor-presets.js";
@@ -251,6 +252,7 @@ function createEditor(parent) {
             basicSetup,
             gema(),
             oneDark,
+            indentUnit.of("    "),
             Prec.highest(
                 keymap.of([
                     indentWithTab,

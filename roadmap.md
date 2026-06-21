@@ -111,9 +111,24 @@ struct S[T] where T is Foo {
 
 Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
 
-range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
+range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
+```gema
+trait Any {}
 
-.. syntax for ranges should not continue into a curly brace block (most relevant in context of for loop) -- On second thought on this one, this would screw with a lot of our precedence rules, so maybe not a good idea.
+func tail(n: Int, iter: Iter[T]) where T is Any {
+    mut arr_out = []:T;
+    for i = iter {
+        if length(arr_out) < n {
+            arr_out += [i];
+        } else {
+            arr_out = arr_out(1..) + [i];
+        }
+    }
+    toIter(arr_out)
+}
+
+tail(3, 1..10)  # result is 8, 9, 10
+```
 
 ## Scoped TypeEnv
 
@@ -142,3 +157,5 @@ Lots of other room for improvement here.
 ## More helpful error messages. There are still lots of cases where we emit very opaque error messages.
 
 Maybe the best way to chase these down is to just generate a bunch of slightly misformed code and examine the error messages.
+
+Example: if a user creates a recursive function, the function must have an annotated return type. Currently, if users don't annotate the return type, the error messages produced will be very misleading.
