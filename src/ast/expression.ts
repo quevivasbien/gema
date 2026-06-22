@@ -6,7 +6,8 @@ export class ASTError {
     constructor(
         public line: number,
         public col: number,
-        public message: string
+        public message: string,
+        public sourceFile?: string
     ) {}
 }
 
@@ -25,7 +26,7 @@ export abstract class Expression {
     ) {}
 
     error(message: string): ASTError {
-        return new ASTError(this.line, this.col, message);
+        return new ASTError(this.line, this.col, message, this.sourceFile);
     }
 
     /** Walk up the parent chain to find the nearest enclosing node of the given type. */

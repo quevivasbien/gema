@@ -94,6 +94,8 @@ Don't require param types when referencing functions in a context where it's inf
 
 Cleanup: type conversions shouldn't be handled separately from builtins.
 
+Fix weird error message when trying to compile an empty program: "Error in main.gema at line 1, column 1: can't access property "line", Z is undefined"
+
 range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
 
 ```gema

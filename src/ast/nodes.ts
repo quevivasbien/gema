@@ -1546,6 +1546,19 @@ export class FunctionDef extends Expression {
         // When creating a monomorphized function programmatically, the types might
         // reference outer function type params — skip validation in that case.
         if (!skipTypeValidation) {
+            // Validate: every type parameter must appear in at least one parameter type,
+            // otherwise it can never be inferred from call arguments.
+            const paramTypeNames = new Set<string>();
+            this.params.forEach((p) => collectCustomTypeNames(p.type, paramTypeNames));
+            for (const tp of this.typeParams) {
+                if (!paramTypeNames.has(tp)) {
+                    throw new Error(
+                        `generic type parameter '${tp}' of function '${this.name}' must appear ` +
+                            `in the type of at least one parameter so it can be inferred.`
+                    );
+                }
+            }
+
             // Validate: every non-builtin, non-struct CustomType in the signature must be a type param
             const signatureTypes = new Set<string>();
             this.params.forEach((p) => collectCustomTypeNames(p.type, signatureTypes));

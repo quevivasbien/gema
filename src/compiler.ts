@@ -181,6 +181,9 @@ function flattenModule(
 
 /**
  * Recursively set sourceFile on every node in an expression tree.
+ * TODO: This function is extremely inelegant. The way this should probably work instead
+ *  is to have sourceFile be a required attribute of the Expression class, and set it for all
+ *  expressions when they are first constructed during parsing.
  */
 function tagSourceFileTree(node: Expression, sourceFile: string): void {
     node.sourceFile = sourceFile;
@@ -291,7 +294,7 @@ function typeCheckBlock(
         unifiedBlock.cascadeTypes(true);
     } catch (e) {
         if (e instanceof ASTError) {
-            errors.push({ line: e.line, col: e.col, message: e.message });
+            errors.push({ line: e.line, col: e.col, message: e.message, filename: e.sourceFile });
         } else if (e instanceof Error) {
             errors.push({ line: 0, col: 0, message: e.message });
         } else {
@@ -300,7 +303,13 @@ function typeCheckBlock(
         return false;
     }
     if (unifiedBlock.type === "Null") {
-        errors.push({ line: 0, col: 0, message: "Program must end with a value expression." });
+        const lastExpr = unifiedBlock.expressions[unifiedBlock.expressions.length - 1];
+        errors.push({
+            line: lastExpr.line,
+            col: lastExpr.col,
+            message: "Program must end with a value expression.",
+            filename: lastExpr.sourceFile,
+        });
         return false;
     }
     return true;

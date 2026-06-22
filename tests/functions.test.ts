@@ -203,8 +203,8 @@ test("functions: a function that returns a function on an iterable", () => {
     );
 });
 
-test.todo("functions: generic function with generic type only in nested function signature", () => {
-    testCompile(
+test("functions: generic type must appear in at least one param", () => {
+    testParseExpectError(
         `
         trait Any {}
         func makeGetter(i: Int): Func[Iter[T]: Maybe[T]] where T is Any {
@@ -213,7 +213,6 @@ test.todo("functions: generic function with generic type only in nested function
             }
         }
         makeGetter(1)([1,2,3])
-        `,
-        2n
+        `
     );
 });
