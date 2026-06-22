@@ -196,7 +196,7 @@ words = ["the", "quick", "brown", "fox", "jumps", "over",
 
 # Build a frequency dict manually
 func countWords(words: Arr[Str]): Dict[Str, Int] {
-    freq = trans(Dict([]:Tuple[Str, Int]));
+    freq = trans(Dict([]:Tup[Str, Int]));
     for w = words {
         count = freq(w);
         put(freq, w, (if isnone(count) { 0 } else { unwrap(count) }) + 1)
@@ -250,7 +250,7 @@ func concat(a: Pair, b: Pair) {
 result_pair = tacnoc(Pair(1, 2), Pair(34, 56));
 
 (result_str, result_int, result_pair)`,
-        ["therehello", 45123n, { "first": 341n, "second": 562n } ]
+        ["therehello", 45123n, { first: 341n, second: 562n }]
     );
 });
 

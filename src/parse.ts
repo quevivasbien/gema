@@ -680,7 +680,7 @@ function parseRangePrefix(parser: Parser): AST.Expression {
 
 function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     if (parser.atEnd()) {
-        return parser.error("Expected function name after '|'");
+        return parser.error("Expected function after '|'");
     }
     const tt = parser.current().type;
 
@@ -711,7 +711,7 @@ function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
 
     // Existing: identifier or keyword function/builtin name
     if (tt !== TokenType.Identifier && !KEYWORDS.has(tt as string)) {
-        return parser.error("Expected function name after '|'");
+        return parser.error("Expected function after '|'");
     }
     const nameToken = {
         ...parser.current(),

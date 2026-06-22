@@ -8,7 +8,7 @@ const BUILTIN_TYPE_NAMES = new Set([
     "Arr",
     "Iter",
     "MutArr",
-    "Tuple",
+    "Tup",
     "Dict",
     "Set",
     "Maybe",
@@ -176,7 +176,7 @@ export class TupleType {
     constructor(public types: Type[]) {}
 
     toString(): string {
-        return `Tuple[${this.types.join(", ")}]`;
+        return `Tup[${this.types.join(", ")}]`;
     }
 
     get length(): number {
@@ -365,7 +365,7 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         }
         return new MutArrType(templateTypes.types[0]);
     }
-    if (typeName === "Tuple") {
+    if (typeName === "Tup") {
         if (templateTypes.types.length < 1) {
             throw new Error(`Tuple type requires at least one template type`);
         }

@@ -99,6 +99,7 @@ export class Call extends Expression {
     referToByName?: string;
     isStructFieldAccess: boolean = false;
     structFieldName: string = "";
+    isStructConstructor: boolean = false;
     isStringIndexing: boolean = false;
     isTypeConversion: boolean = false;
     conversionJsExpr: ((arg: string) => string) | null = null;
@@ -327,6 +328,7 @@ export class Call extends Expression {
         this.referToByName = result.referToByName;
         this.callerType = result.callerType;
         this.type = result.rootType;
+        this.isStructConstructor = result.kind === "struct-constructor";
 
         // Fill unresolved anonymous function params using inferred types from context
         if (this.callerType instanceof FuncType && this.isBuiltin) {
@@ -630,6 +632,7 @@ export class Call extends Expression {
                 this.callerType = result.callerType;
                 this.type = result.rootType;
                 this.referToByName = result.referToByName;
+                this.isStructConstructor = result.kind === "struct-constructor";
 
                 if (result.kind === "builtin") {
                     this.isBuiltin = true;
@@ -1192,9 +1195,8 @@ export class Call extends Expression {
             }
         }
         if (this.callerType instanceof FuncType) {
-            const structInfo =
-                this.type instanceof CustomType ? getStruct(this.type.name) : undefined;
-            if (structInfo && this.name === structInfo.name) {
+            if (this.isStructConstructor) {
+                const structInfo = getStruct(this.name)!;
                 writer.write("{");
                 this.args.forEach((arg, i) => {
                     if (i > 0) {

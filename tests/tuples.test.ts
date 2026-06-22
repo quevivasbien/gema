@@ -36,7 +36,7 @@ test("nested tuple", () => {
 test("tuple: function with tuple parameter", () => {
     testCompile(
         `
-        func foo(t: Tuple[Int, Float, Str]) {
+        func foo(t: Tup[Int, Float, Str]) {
             toStr(t(0)) + toStr(t(1)) + t(2)
         }
         foo((1, 2.0, "3"))
@@ -179,7 +179,7 @@ test("zip with collect on array and range", () => {
 
 test("zip with map", () => {
     testCompile(
-        `collect(map(func(pair: Tuple[Int, Int]) { pair(0) + pair(1) }, zip([1, 2, 3], [10, 20, 30])))`,
+        `collect(map(func(pair: Tup[Int, Int]) { pair(0) + pair(1) }, zip([1, 2, 3], [10, 20, 30])))`,
         [11n, 22n, 33n]
     );
 });
@@ -195,11 +195,11 @@ test("tuple: list of tuples", () => {
 });
 
 test("tuple: operations on list of tuples", () => {
-    testCompile("x = trans([]:Tuple[Int]); push(x, (1,)); x!(0)(0)", 1n);
-    testCompile("([]:Tuple[Int] + [(1,)])!(0)(0)", 1n);
+    testCompile("x = trans([]:Tup[Int]); push(x, (1,)); x!(0)(0)", 1n);
+    testCompile("([]:Tup[Int] + [(1,)])!(0)(0)", 1n);
     testCompile("([(1,)] + [(2,)])!(1)(0)", 2n);
 });
 
 test("tuple: struct with tuple field", () => {
-    testCompile("struct P { p: Tuple[Float, Float] } P((1.0,2.0)).p(0)", 1.0);
+    testCompile("struct P { p: Tup[Float, Float] } P((1.0,2.0)).p(0)", 1.0);
 });

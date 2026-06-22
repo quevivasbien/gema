@@ -207,7 +207,7 @@ test.todo("functions: generic function with generic type only in nested function
     testCompile(
         `
         trait Any {}
-        func makeGetter(i: Int): Func[Iter[T]: T] where T is Any {
+        func makeGetter(i: Int): Func[Iter[T]: Maybe[T]] where T is Any {
             func(t: Iter[T]) {
                 t(i)
             }

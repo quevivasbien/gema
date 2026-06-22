@@ -340,7 +340,7 @@ test("for: nested for loop with same iterator", () => {
         `
         trait Any {}
         func square(iter: Iter[T]) where T is Any {
-            result = []: Tuple[T, T] | trans;
+            result = []: Tup[T, T] | trans;
             for a = iter {
                 for b = iter {
                     push(result, (a, b));

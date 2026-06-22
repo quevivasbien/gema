@@ -1446,28 +1446,6 @@ export function findCaller(
           result: CallerResult;
       }
     | { error: string; result: null } {
-    // Check if name matches a registered struct (constructor call)
-    const structDef = getStruct(name);
-    if (structDef) {
-        const fieldTypes = structDef.fields.map((f) => f.type);
-        if (!paramTypesMatchArgTypes(fieldTypes, argTypes)) {
-            return {
-                error: `struct ${name} constructor expects arguments of types [${fieldTypes}], got [${argTypes}]`,
-                result: null,
-            };
-        }
-        const structType = new CustomType(name);
-        return {
-            error: null,
-            result: {
-                kind: "struct-constructor",
-                referToByName: name,
-                callerType: new FuncType(fieldTypes, structType),
-                rootType: structType,
-            },
-        };
-    }
-
     // Check if a local variable with this name shadows any global function.
     // Variable assignments and function params take priority over globally
     // registered functions.
@@ -1514,12 +1492,9 @@ export function findCaller(
 
     // First try direct match by fullName (skip if a local variable shadows)
     const fullName = functionNameWithParamTypes(name, argTypes);
+    const sourceFile = (root as { sourceFile?: string }).sourceFile;
     const foundFn = !hasLocalVar
-        ? findFunctionInModule(
-              fullName,
-              (root as { sourceFile?: string }).sourceFile,
-              getSelectiveImportRules
-          )
+        ? findFunctionInModule(fullName, sourceFile, getSelectiveImportRules)
         : undefined;
     if (foundFn) {
         return {
@@ -2097,6 +2072,28 @@ export function findCaller(
             break;
         }
         traitFn = traitFn.parent;
+    }
+
+    // No user-defined function matched — fall back to struct constructor if one exists.
+    const structDef = getStruct(name);
+    if (structDef) {
+        const fieldTypes = structDef.fields.map((f) => f.type);
+        if (paramTypesMatchArgTypes(fieldTypes, argTypes)) {
+            const structType = new CustomType(name);
+            return {
+                error: null,
+                result: {
+                    kind: "struct-constructor",
+                    referToByName: name,
+                    callerType: new FuncType(fieldTypes, structType),
+                    rootType: structType,
+                },
+            };
+        }
+        return {
+            error: `struct ${name} constructor expects arguments of types [${fieldTypes}], got [${argTypes}]`,
+            result: null,
+        };
     }
 
     return {

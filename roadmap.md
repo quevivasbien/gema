@@ -1,23 +1,5 @@
 # Roadmap for `gema` development
 
-## Change tuple type signature from `Tuple[A, B, C, ...]` to `(A, B, C, ...)`
-
-This one is pretty self-explanatory -- it would make it a bit less clunky to work with tuples or do things like creating an empty `Dict`.
-
-## Tentative: remove `:` from type annotations.
-
-The `:` that we have as part of our type annotations is not really needed--it's just an extra character to type. We could just have go-style type annotations like `func(a Int, b Float) Float { toFloat(a) + b }`
-
-## Modules
-
-Need to be able to filter which symbols are imported from other modules. Suggested syntax is
-
-```gema
-use "utilities.gema"  # the currently supported pattern; makes everything available, including anything that the imported module itself imports
-use "utilities.gema" as utils  # make everything accessible under the namespace `utils`. For example, we could use `foo` as `utils.foo`.
-use (foo, bar) from "utilities.gema"  # import only `foo` and `bar`, parentheses are optional
-```
-
 ## IO
 
 We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
@@ -29,10 +11,6 @@ I think my preferred way to do this would be to have a `Result` type, like in Ru
 ## JS Interoperability
 
 It would be really helpful to be able to have bindings to JS modules or libraries. This could serve as an easy way to build out a good standard library for the language.
-
-## Tentative: Enums
-
-It might be nice to have enums, maybe similar to how it is handled in Rust.
 
 ## 64-bit ndarray types based on JS's TypedArray
 
@@ -101,6 +79,14 @@ struct S[T] where T is Foo {
   b: T
 }
 ```
+
+## Tentative: Enums
+
+It might be nice to have enums, maybe implemented as tagged unions/sum types.
+
+## Tentative: remove `:` from type annotations.
+
+The `:` that we have as part of our type annotations is not really needed--it's just an extra character to type. We could just have go-style type annotations like `func(a Int, b Float) Float { toFloat(a) + b }`
 
 ## Misc improvements and bug fixes
 

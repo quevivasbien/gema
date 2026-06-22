@@ -16,8 +16,8 @@ test("Dict: basic", () => {
 });
 
 test("Dict: create empty Dict", () => {
-    testParse(`Dict([]:Tuple[Int, Int])`);
-    testCompile(`d = Dict([]:Tuple[Int, Int]); d(1)`, undefined);
+    testParse(`Dict([]:Tup[Int, Int])`);
+    testCompile(`d = Dict([]:Tup[Int, Int]); d(1)`, undefined);
 });
 
 test("Dict: compile and access with numeric key", () => {

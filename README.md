@@ -430,7 +430,7 @@ Gema uses `:` for type annotations:
 | `MutArr[Int]`           | Mutable array of Int             |
 | `Func[Int: Str]`        | Function: Int → Str              |
 | `Func[Int, Str: Bool]`  | Function: (Int, Str) → Bool      |
-| `Tuple[Int, Str, Bool]` | Tuple of (Int, Str, Bool)        |
+| `Tup[Int, Str, Bool]`   | Tuple of (Int, Str, Bool)        |
 | `Dict[Str, Int]`        | Dict with Str keys, Int values   |
 | `MutDict[Str, Int]`     | Mutable dict                     |
 | `Set[Int]`              | Immutable set of Int             |
