@@ -632,6 +632,7 @@ export class Call extends Expression {
                 this.callerType = result.callerType;
                 this.type = result.rootType;
                 this.referToByName = result.referToByName;
+
                 if (result.kind === "builtin") {
                     this.isBuiltin = true;
                     this.builtinKind = result.builtinKind;

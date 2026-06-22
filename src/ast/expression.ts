@@ -16,6 +16,8 @@ export abstract class Expression {
     isValueUsed: boolean = true;
     /** Link to this node's parent in the AST tree. Set by setParentPointers(). */
     parent: Expression | null = null;
+    /** The source file this expression was parsed from, or undefined for the entry file. */
+    sourceFile?: string;
 
     constructor(
         public line: number,

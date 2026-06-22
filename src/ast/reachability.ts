@@ -50,7 +50,7 @@ function collectCustomTypeNames(type: Type, names: Set<string>): void {
 /**
  * Walk an expression subtree and collect referenced fullNames and CustomType names.
  */
-function collectReferences(
+export function collectReferences(
     node: Expression,
     referencedNames: Set<string>,
     referencedTypes: Set<string>

@@ -1500,16 +1500,67 @@ class Parser {
         }
         const rootToken = this.current();
         this.advance(); // consume 'use'
+        if (this.atEnd()) {
+            return this.error("Expected module path or symbol list after 'use'.");
+        }
+
+        // Case 1: use "path" — existing pattern
+        if (this.current().type === TokenType.String) {
+            let path = this.current().text;
+            // Strip surrounding quotes from string literal
+            if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
+                path = path.slice(1, -1);
+            }
+            this.advance(); // consume the string
+            return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path));
+        }
+
+        // Case 2: use (foo, bar) from "path"  or  use foo, bar from "path"
+        const symbols: string[] = [];
+        let hasParens = false;
+
+        if (this.current().type === TokenType.LParen) {
+            hasParens = true;
+            this.advance(); // consume '('
+        }
+
+        // Parse comma-separated identifier list
+        while (!this.atEnd() && this.current().type === TokenType.Identifier) {
+            symbols.push(this.current().text);
+            this.advance(); // consume the identifier
+            if (this.current().type === TokenType.Comma) {
+                this.advance(); // consume ','
+            } else {
+                break;
+            }
+        }
+
+        if (hasParens) {
+            if (this.atEnd() || this.current().type !== TokenType.RParen) {
+                return this.error("Expected ')' after symbol list.");
+            }
+            this.advance(); // consume ')'
+        }
+
+        if (symbols.length === 0) {
+            return this.error("Expected at least one symbol name.");
+        }
+
+        if (this.atEnd() || this.current().type !== TokenType.From) {
+            return this.error("Expected 'from' after symbol list.");
+        }
+        this.advance(); // consume 'from'
+
         if (this.atEnd() || this.current().type !== TokenType.String) {
-            return this.error("Expected module path string after 'use'.");
+            return this.error("Expected module path string after 'from'.");
         }
         let path = this.current().text;
-        // Strip surrounding quotes from string literal
         if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
             path = path.slice(1, -1);
         }
         this.advance(); // consume the string
-        return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path));
+
+        return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path, symbols));
     }
 
     structDef(): AST.Expression | null {

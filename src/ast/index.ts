@@ -12,6 +12,11 @@ export {
     isVarConsumed,
     markVarConsumed,
     resetRegistries,
+    setSelectiveImportRule,
+    checkSelectiveImport,
+    findFunctionInModule,
+    getSelectiveImportRules,
+    isCrossModuleRefAllowed,
 } from "./registries";
 
 // Base expression classes

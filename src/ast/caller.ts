@@ -13,7 +13,14 @@ import {
     type Type,
     type CallableType,
 } from "../types";
-import { getStruct, getTrait, findFunction, isVarConsumed } from "./registries";
+import {
+    getStruct,
+    getTrait,
+    findFunctionInModule,
+    getSelectiveImportRules,
+    isVarConsumed,
+    isCrossModuleRefAllowed,
+} from "./registries";
 import { functionNameWithParamTypes } from "./caller-utils";
 import { deepEquals } from "../deep-equals";
 import { paramTypesMatchArgTypes, collectTraitsForTypeParam, looseMatch } from "./type-utils";
@@ -1503,7 +1510,13 @@ export function findCaller(
 
     // First try direct match by fullName (skip if a local variable shadows)
     const fullName = functionNameWithParamTypes(name, argTypes);
-    const foundFn = !hasLocalVar ? findFunction(fullName) : undefined;
+    const foundFn = !hasLocalVar
+        ? findFunctionInModule(
+              fullName,
+              (root as { sourceFile?: string }).sourceFile,
+              getSelectiveImportRules
+          )
+        : undefined;
     if (foundFn) {
         return {
             error: null,
@@ -1541,6 +1554,15 @@ export function findCaller(
                         argTypes
                     )
                 ) {
+                    // Skip cross-module functions unless allowed by import rules
+                    if (
+                        !isCrossModuleRefAllowed(
+                            (root as { sourceFile?: string }).sourceFile,
+                            olderSibling.sourceFile,
+                            name
+                        )
+                    )
+                        continue;
                     return {
                         error: null,
                         result: {

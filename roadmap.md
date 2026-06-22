@@ -11,6 +11,7 @@ The `:` that we have as part of our type annotations is not really needed--it's 
 ## Modules
 
 Need to be able to filter which symbols are imported from other modules. Suggested syntax is
+
 ```gema
 use "utilities.gema"  # the currently supported pattern; makes everything available, including anything that the imported module itself imports
 use "utilities.gema" as utils  # make everything accessible under the namespace `utils`. For example, we could use `foo` as `utils.foo`.
@@ -104,6 +105,8 @@ struct S[T] where T is Foo {
 ## Misc improvements and bug fixes
 
 Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
+
+Cleanup: type conversions shouldn't be handled separately from builtins.
 
 range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
 

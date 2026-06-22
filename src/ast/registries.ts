@@ -43,14 +43,66 @@ const monomorphizedCache: Map<string, Function> = new Map();
 // Global registry of all named functions, keyed by fullName (non-generic) or name (generic)
 const functionRegistry: Map<string, Function> = new Map();
 
+// Per-module function registries: modulePath → fullName → Function
+const functionRegistryByModule = new Map<string, Map<string, Function>>();
+
 export function registerFunction(fn: Function): void {
     if (!fn.isGeneric) {
         functionRegistry.set(fn.fullName, fn);
+        // Also index by sourceFile for scoped lookups
+        if (fn.sourceFile) {
+            let modReg = functionRegistryByModule.get(fn.sourceFile);
+            if (!modReg) {
+                modReg = new Map();
+                functionRegistryByModule.set(fn.sourceFile, modReg);
+            }
+            modReg.set(fn.fullName, fn);
+        }
     }
 }
 
 export function findFunction(fullName: string): Function | undefined {
     return functionRegistry.get(fullName) ?? monomorphizedCache.get(fullName);
+}
+
+/**
+ * Look up a function scoped to a specific module and its selective imports.
+ * Searches the module's own registry first, then imported modules (checking
+ * the selective import rules), then the monomorphized cache.
+ */
+export function findFunctionInModule(
+    fullName: string,
+    modulePath: string | undefined,
+    getImportRules: (sourceModule: string) => Map<string, Set<string>> | undefined
+): Function | undefined {
+    if (!modulePath) {
+        // No module context — fall back to global lookup
+        return findFunction(fullName);
+    }
+
+    // 1. Own module
+    const ownReg = functionRegistryByModule.get(modulePath);
+    if (ownReg) {
+        const fn = ownReg.get(fullName);
+        if (fn) return fn;
+    }
+
+    // 2. Imported modules (checking selective import rules)
+    const baseName = fullName.includes("$") ? fullName.slice(0, fullName.indexOf("$")) : fullName;
+    const importRules = getImportRules(modulePath);
+    if (importRules) {
+        for (const [importedModule, allowedSymbols] of importRules) {
+            if (!allowedSymbols.has(baseName)) continue;
+            const importedReg = functionRegistryByModule.get(importedModule);
+            if (importedReg) {
+                const fn = importedReg.get(fullName);
+                if (fn) return fn;
+            }
+        }
+    }
+
+    // 3. Monomorphized cache (global)
+    return monomorphizedCache.get(fullName);
 }
 
 export function getMonomorphized(fullName: string): Function | undefined {
@@ -59,6 +111,15 @@ export function getMonomorphized(fullName: string): Function | undefined {
 
 export function registerMonomorphized(fullName: string, fn: Function): void {
     monomorphizedCache.set(fullName, fn);
+    // Also index monomorphized functions in per-module registry
+    if (fn.sourceFile) {
+        let modReg = functionRegistryByModule.get(fn.sourceFile);
+        if (!modReg) {
+            modReg = new Map();
+            functionRegistryByModule.set(fn.sourceFile, modReg);
+        }
+        modReg.set(fullName, fn);
+    }
 }
 
 export function getAllMonomorphized(): Map<string, Function> {
@@ -90,6 +151,64 @@ export function restoreConsumedVars(snapshot: Map<string, boolean>): void {
     }
 }
 
+// Selective import rules: sourceModule → { targetModule → allowedSymbols }
+const selectiveImportRules = new Map<string, Map<string, Set<string>>>();
+
+export function setSelectiveImportRule(
+    sourceModule: string,
+    targetModule: string,
+    symbols: Set<string>
+): void {
+    let targetMap = selectiveImportRules.get(sourceModule);
+    if (!targetMap) {
+        targetMap = new Map();
+        selectiveImportRules.set(sourceModule, targetMap);
+    }
+    targetMap.set(targetModule, symbols);
+}
+
+/**
+ * Check whether `symbol` may be used in `sourceModule` when it was defined in
+ * `targetModule`. Returns true if there are no selective import restrictions,
+ * or if the symbol is in the allowed list.
+ */
+export function checkSelectiveImport(
+    sourceModule: string,
+    targetModule: string,
+    symbol: string
+): boolean {
+    const targetMap = selectiveImportRules.get(sourceModule);
+    if (!targetMap) return true; // no selective import rules for this source
+    const allowed = targetMap.get(targetModule);
+    if (!allowed) return true; // no selective import rules for this target
+    return allowed.has(symbol);
+}
+
+/** Get the selective import rules for a source module. */
+export function getSelectiveImportRules(
+    sourceModule: string
+): Map<string, Set<string>> | undefined {
+    return selectiveImportRules.get(sourceModule);
+}
+
+/**
+ * Check whether a cross-module reference from `sourceFile` to a definition in
+ * `targetFile` with the given `name` is allowed. Returns true if either module
+ * has no selective import rules, or if the name is in the allowed list.
+ */
+export function isCrossModuleRefAllowed(
+    sourceFile: string | undefined,
+    targetFile: string | undefined,
+    name: string
+): boolean {
+    if (!sourceFile || !targetFile || sourceFile === targetFile) return true;
+    const importRules = selectiveImportRules.get(sourceFile);
+    if (!importRules) return true;
+    const allowed = importRules.get(targetFile);
+    if (!allowed) return true;
+    return allowed.has(name);
+}
+
 // Reset all global registries (useful between tests)
 export function resetRegistries(): void {
     traitRegistry.clear();
@@ -97,4 +216,6 @@ export function resetRegistries(): void {
     functionRegistry.clear();
     monomorphizedCache.clear();
     consumedVars.clear();
+    selectiveImportRules.clear();
+    functionRegistryByModule.clear();
 }

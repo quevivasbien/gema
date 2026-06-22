@@ -28,6 +28,7 @@ import {
     getTrait,
     getStruct,
     isVarConsumed,
+    isCrossModuleRefAllowed,
     saveConsumedVars,
     restoreConsumedVars,
 } from "./registries";
@@ -592,7 +593,8 @@ export class Return extends Expression {
 export class UseModule extends Expression {
     constructor(
         rootToken: Token,
-        public path: string
+        public path: string,
+        public symbols?: string[]
     ) {
         super(rootToken.line, rootToken.col);
         this.type = "Null";
@@ -609,7 +611,8 @@ export class UseModule extends Expression {
     clone(_bindings?: Map<string, Type>): Expression {
         return new UseModule(
             { line: this.line, col: this.col, text: "use", type: TokenType.Use },
-            this.path
+            this.path,
+            this.symbols ? [...this.symbols] : undefined
         );
     }
 }
@@ -986,6 +989,11 @@ export class Variable extends Expression {
                         let sib = olderSiblings[j];
                         const type = this.resolveAssignment(sib);
                         if (type !== null) {
+                            // Skip cross-module assignments unless allowed by import rules.
+                            if (
+                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
+                            )
+                                continue;
                             this.type = type;
                             this.fullName = this.name;
                             if (isVarConsumed(this.fullName)) {
@@ -997,6 +1005,11 @@ export class Variable extends Expression {
                         }
                         if (sib instanceof DropValue) {
                             sib = sib.child;
+                            // Skip cross-module definitions unless allowed by import rules.
+                            if (
+                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
+                            )
+                                continue;
                             const innerType = this.resolveAssignment(sib);
                             if (innerType !== null) {
                                 this.type = innerType;
@@ -1010,6 +1023,11 @@ export class Variable extends Expression {
                             }
                         }
                         if (sib instanceof Assignment && sib.name !== this.name) {
+                            // Skip cross-module definitions unless allowed by import rules.
+                            if (
+                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
+                            )
+                                continue;
                             const nested = this.findNestedAssignment(sib.value, this.name);
                             if (nested !== null) {
                                 this.type = nested;
@@ -1023,6 +1041,11 @@ export class Variable extends Expression {
                             }
                         }
                         if (sib instanceof TupleUnpack) {
+                            // Skip cross-module definitions unless allowed by import rules.
+                            if (
+                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
+                            )
+                                continue;
                             const binding = sib.bindings.find((b) => b.name === this.name);
                             if (binding) {
                                 const idx = sib.bindings.indexOf(binding);
@@ -1045,6 +1068,11 @@ export class Variable extends Expression {
                             sib.params.length === 0 &&
                             sib.fullName !== null
                         ) {
+                            // Skip functions from a different module unless allowed by import rules.
+                            if (
+                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
+                            )
+                                continue;
                             this.type = sib.getFuncType();
                             this.fullName = sib.fullName;
                             return;
@@ -1121,6 +1149,14 @@ export class Assignment extends Expression {
                 if (olderSibling === startNode) continue;
             }
             if (olderSibling instanceof Assignment && olderSibling.name === name) {
+                // Skip assignments from a different module — they are in
+                // separate scopes and should not shadow or cause redefinition.
+                if (
+                    olderSibling.sourceFile !== undefined &&
+                    olderSibling.sourceFile !== startNode.sourceFile
+                ) {
+                    continue;
+                }
                 if (olderSibling.isReassignment) continue;
                 return { isMutable: olderSibling.isMutable, type: olderSibling.value.type! };
             }
@@ -1656,6 +1692,7 @@ export class Function extends Expression {
 
         // Last body expression is return value (always consumed).
         monomorphized.body.cascadeTypes(true);
+        monomorphized.sourceFile = this.sourceFile;
 
         if (
             this.returnType === "Null" &&
@@ -1704,6 +1741,7 @@ export class Function extends Expression {
             this.body.clone(bindings)
         );
         cloned.fullName = this.fullName;
+        cloned.sourceFile = this.sourceFile;
         cloned.typeParams = [...this.typeParams];
         return cloned;
     }

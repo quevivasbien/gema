@@ -409,6 +409,253 @@ test("tree-shaking: retain variable referenced in for loop", () => {
     expect(js).toInclude("x = ");
 });
 
+// ── Selective import tests ────────────────────────────────────
+
+test("selective: basic function import", () => {
+    testCompileMulti(
+        {
+            "math.gema": `func add(x: Int, y: Int) { x + y }`,
+            "main.gema": `use (add) from "math.gema"\nadd(3, 4)`,
+        },
+        "main.gema",
+        7n
+    );
+});
+
+test("selective: function import without parens", () => {
+    testCompileMulti(
+        {
+            "math.gema": `func add(x: Int, y: Int) { x + y }`,
+            "main.gema": `use add from "math.gema"\nadd(3, 4)`,
+        },
+        "main.gema",
+        7n
+    );
+});
+
+test("selective: multiple symbols imported", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func add(x: Int, y: Int) { x + y }
+func sub(x: Int, y: Int) { x - y }`,
+            "main.gema": `use (add, sub) from "utils.gema"\nadd(sub(10, 3), 2)`,
+        },
+        "main.gema",
+        9n
+    );
+});
+
+test("selective: struct import", () => {
+    testCompileMulti(
+        {
+            "shapes.gema": `struct Point { x: Int, y: Int }`,
+            "main.gema": `use (Point) from "shapes.gema"\nPoint(3, 4)`,
+        },
+        "main.gema",
+        { x: 3n, y: 4n }
+    );
+});
+
+test("selective: variable import", () => {
+    testCompileMulti(
+        {
+            "config.gema": `pi = 3`,
+            "main.gema": `use (pi) from "config.gema"\npi`,
+        },
+        "main.gema",
+        3n
+    );
+});
+
+test("selective: error on non-imported function", () => {
+    testCompileMultiExpectError(
+        {
+            "math.gema": `func add(x: Int, y: Int) { x + y }
+func sub(x: Int, y: Int) { x - y }`,
+            "main.gema": `use (add) from "math.gema"\nsub(5, 3)`,
+        },
+        "main.gema",
+        "not found"
+    );
+});
+
+test("selective: error on non-imported variable", () => {
+    testCompileMultiExpectError(
+        {
+            "config.gema": `a = 1\nb = 2`,
+            "main.gema": `use (a) from "config.gema"\nb`,
+        },
+        "main.gema",
+        "unable to resolve type"
+    );
+});
+
+test("selective: transitive deps of imported symbol work", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func square(x: Int) { x * x }
+func double(x: Int) { x * 2 }
+func process(x: Int) { square(x) + double(x) }`,
+            "main.gema": `use (process) from "utils.gema"\nprocess(3)`,
+        },
+        "main.gema",
+        15n
+    );
+});
+
+test("selective: importing function that uses module-internal helper", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func helper(x: Int) { x * 10 }
+func foo(x: Int) { helper(x) + 1 }`,
+            "main.gema": `use (foo) from "utils.gema"\nfoo(3)`,
+        },
+        "main.gema",
+        31n
+    );
+});
+
+test("selective: chain through intermediate module", () => {
+    testCompileMulti(
+        {
+            "helpers.gema": `func double(x: Int) { x * 2 }`,
+            "math.gema": `use "helpers.gema"\nfunc addDouble(x: Int, y: Int) { x + double(y) }`,
+            "main.gema": `use (addDouble) from "math.gema"\naddDouble(3, 4)`,
+        },
+        "main.gema",
+        11n
+    );
+});
+
+test("selective: non-imported function still tree-shaken", () => {
+    const js = testCompileMulti(
+        {
+            "utils.gema": `func used() { 1 }\nfunc unused() { 2 }`,
+            "main.gema": `use (used) from "utils.gema"\nused()`,
+        },
+        "main.gema",
+        1n
+    );
+    expect(js).not.toInclude("unused");
+});
+
+test("selective: trailing comma", () => {
+    testCompileMulti(
+        {
+            "math.gema": `func add(x: Int, y: Int) { x + y }`,
+            "main.gema": `use (add,) from "math.gema"\nadd(3, 4)`,
+        },
+        "main.gema",
+        7n
+    );
+});
+
+test("selective: can also use regular imports alongside selective", () => {
+    testCompileMulti(
+        {
+            "utils.gema": `func a() { 1 }\nfunc b() { 2 }`,
+            "main.gema": `use "utils.gema"\na() + b()`,
+        },
+        "main.gema",
+        3n
+    );
+});
+
+test("selective: mixed regular and selective imports", () => {
+    testCompileMulti(
+        {
+            "alpha.gema": `func a() { 10 }`,
+            "beta.gema": `func b() { 20 }\nfunc c() { 30 }`,
+            "main.gema": `use "alpha.gema"\nuse (b) from "beta.gema"\na() + b()`,
+        },
+        "main.gema",
+        30n
+    );
+});
+
+test("selective: same-named function in entry shadows module", () => {
+    // The entry defines its own `foo` with a different type; the module's `foo`
+    // should not interfere. Only the module's `bar` is imported.
+    testCompileMulti(
+        {
+            "module.gema": `
+                func foo(x: Int, y: Int) { x + y }
+                func bar(x: Int) { x }
+            `,
+            "main.gema": `
+                use (bar) from "module.gema"
+                func foo(x: Float, y: Float) { x + y }
+                foo(1.0, 2.0)
+            `,
+        },
+        "main.gema",
+        3.0
+    );
+});
+
+test("selective: same-named function in entry with same type", () => {
+    // Even with the same type, the entry's definition takes priority
+    testCompileMulti(
+        {
+            "module.gema": `
+                func greet() { "from module" }
+                func other() { 42 }
+            `,
+            "main.gema": `
+                use (other) from "module.gema"
+                func greet() { "from entry" }
+                greet()
+            `,
+        },
+        "main.gema",
+        "from entry"
+    );
+});
+
+test("selective: import function where matching symbol exists in multiple modules", () => {
+    testCompileMulti(
+        {
+            "module1.gema": `
+                func foo(x: Int) { x + 1 }
+                func bar(x: Int) { x + 2 }
+            `,
+            "module2.gema": `
+                func foo(x: Int) { x + 3 }
+                func bar(x: Int) { x + 4 }
+            `,
+            "main.gema": `
+                use (foo) from "module1.gema"
+                use (bar) from "module2.gema"
+                foo(0) + bar(1)
+            `,
+        },
+        "main.gema",
+        6n
+    );
+});
+
+test("selective: definition of same variable in multiple modules", () => {
+    testCompileMulti(
+        {
+            "module1.gema": `
+                x = 1;
+                y = 2;
+            `,
+            "module2.gema": `
+                x = 4;
+                y = 3;
+            `,
+            "main.gema": `
+                use (x) from "module1.gema"
+                use (y) from "module2.gema"
+                x + y
+            `,
+        },
+        "main.gema",
+        4n
+    );
+});
+
 // ── Helper used by tests above ──
 
 function parseMultiFileSource(source: string): Record<string, string> {
