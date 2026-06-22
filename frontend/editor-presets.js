@@ -205,7 +205,7 @@ func tacnoc(a: T, b: T): T where T is Concatenatable {
 
 # Implement for strings
 func concat(a: Str, b: Str) { a + b };
-tacnoc("hello", "there")
+result_str = tacnoc("hello", "there");
 
 # Implement for integers (digit concatenation)
 func concat(a: Int, b: Int) {
@@ -215,14 +215,16 @@ func concat(a: Int, b: Int) {
   };
   a * 10 ^ getNDigits(b, 0) + b
 };
-tacnoc(123, 45)
+result_int = tacnoc(123, 45);
 
 # Implement for a struct
 struct Pair { first: Int, second: Int }
 func concat(a: Pair, b: Pair) {
   Pair(concat(a.first, b.first), concat(a.second, b.second))
 };
-tacnoc(Pair(1, 2), Pair(34, 56))`,
+result_pair = tacnoc(Pair(1, 2), Pair(34, 56));
+
+(result_str, result_int, result_pair)`,
         },
     },
     mandelbrot: {

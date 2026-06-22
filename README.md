@@ -441,39 +441,40 @@ Gema uses `:` for type annotations:
 
 ```
 gema/
-├── index.ts              # Public API (compile, compileWithRawErrors)
+├── compile.ts            # CLI entry point for compiling .gema files
 ├── server.ts             # Dev server for the playground
 ├── src/
+│   ├── compiler.ts       # Main compile() API (single-file and multi-file modes)
 │   ├── scan.ts           # Lexer
 │   ├── parse.ts          # Pratt parser
 │   ├── tokens.ts         # Token types and keywords
-│   ├── types.ts          # Type system (Type, FuncType, ArrayType, etc.)
 │   ├── builtins.ts       # Runtime JS helpers (iterators, mutability)
-│   ├── deep-equals.ts    # Structural type equality (browser-compatible)
 │   ├── write-js.ts       # Code generator
+│   ├── tree-shake.ts     # Dead-code elimination for unreachable definitions
 │   └── ast/              # AST nodes and type checker
 │       ├── index.ts      # Re-exports
+│       ├── types.ts      # Type system (Type, FuncType, ArrayType, etc.)
 │       ├── expression.ts # Base Expression class
 │       ├── literals.ts   # Literal nodes
 │       ├── operators.ts  # Unary/Binary operators
 │       ├── nodes.ts      # Control flow, functions, variables, RangeIter, tuples
 │       ├── calls.ts      # Call/DirectCall + builtin codegen
 │       ├── caller.ts     # findCaller/findBuiltin dispatch
+│       ├── set-parent-pointers.ts # Parent pointer assignment on AST
 │       ├── structs.ts    # StructDef, ArrLit, FieldAccess, FieldAssignment
 │       ├── traits.ts     # Trait node
 │       ├── registries.ts # Global registries (struct, trait, function, monomorphized)
 │       ├── type-utils.ts # Type comparison utilities
-│       └── caller-utils.ts # Monomorphization helpers
+│       └── reachability.ts  # Reachability analysis for tree-shaking
 ├── frontend/
 │   ├── index.html        # Playground page
-│   ├── styles.css         # Playground styling
-│   ├── editor.js          # CodeMirror editor + presets
-│   ├── compiler.js        # Browser compiler wrapper
-│   ├── gema-language.js   # CodeMirror language support
-│   └── dist/              # Built bundles
-│       └── static-site/   # Self-contained static site deployment
-├── tests/                 # Test suite (300+ tests)
-└── benchmarks/            # Performance benchmarks
+│   ├── styles.css        # Playground styling
+│   ├── editor.js         # CodeMirror editor + presets
+│   ├── get-worker.js     # Web worker for compilation
+│   └── dist/             # Built bundles
+│       └── bundle.js     # Bundled frontend assets
+├── tests/                # Test suite (14 test files)
+└── benchmarks/           # Performance benchmarks
 ```
 
 ## Running Tests

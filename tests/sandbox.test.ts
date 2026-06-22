@@ -217,7 +217,7 @@ freq = countWords(words);
 
 test("sandbox: Generic functions", () => {
     testCompile(
-        `# Generic functions with trait bounds — concatenate in reverse
+        `# Generic functions with trait bounds
 
 trait Concatenatable {
   concat[(a: Self, b: Self): Self],
@@ -230,7 +230,7 @@ func tacnoc(a: T, b: T): T where T is Concatenatable {
 
 # Implement for strings
 func concat(a: Str, b: Str) { a + b };
-tacnoc("hello", "there")                     # "therehello"
+result_str = tacnoc("hello", "there");
 
 # Implement for integers (digit concatenation)
 func concat(a: Int, b: Int) {
@@ -240,18 +240,17 @@ func concat(a: Int, b: Int) {
   };
   a * 10 ^ getNDigits(b, 0) + b
 };
-tacnoc(123, 45)                              # 45123
+result_int = tacnoc(123, 45);
 
 # Implement for a struct
 struct Pair { first: Int, second: Int }
 func concat(a: Pair, b: Pair) {
   Pair(concat(a.first, b.first), concat(a.second, b.second))
 };
-func toStr(p: Pair) {
-  "(" + toStr(p.first) + ", " + toStr(p.second) + ")"
-};
-toStr(tacnoc(Pair(1, 2), Pair(34, 56)))      # (341, 562)`,
-        "(341, 562)"
+result_pair = tacnoc(Pair(1, 2), Pair(34, 56));
+
+(result_str, result_int, result_pair)`,
+        ["therehello", 45123n, { "first": 341n, "second": 562n } ]
     );
 });
 
