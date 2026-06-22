@@ -1,12 +1,23 @@
-import { scan } from "./scan";
+import {
+    ASTError,
+    Block,
+    DropValue,
+    Expression,
+    FunctionDef,
+    registerFunction,
+    registerStruct,
+    registerTrait,
+    resetRegistries,
+    setParentPointers,
+    setSelectiveImportRule,
+    UseModule,
+} from "./ast";
 import { parse } from "./parse";
-import { writeJSModule, writeJSWithBuiltins, JSWriter } from "./write-js";
-import { BUILTINS } from "./builtins";
+import { scan } from "./scan";
 import { TokenType } from "./tokens";
-import { resetRegistries, registerModuleVar, getAllMonomorphized } from "./ast";
-import { Block } from "./ast/nodes";
-import { Assignment } from "./ast/nodes";
-import { DropValue } from "./ast/expression";
+import { writeJS } from "./write-js";
+
+import { treeShake } from "./tree-shake";
 
 interface CompileResult {
     js: string;
@@ -16,23 +27,25 @@ interface CompileResult {
 }
 
 /**
- * Collect the list of module paths referenced by `use "..."` directives
- * in a source file, by scanning tokens (no full parse needed).
+ * Scan tokens for `use "..."` directives and collect the module paths.
  */
-function collectUseDirectives(source: string): string[] {
-    const tokens = scan(source);
+function collectUseDirectives(tokens: { type: TokenType; text: string }[]): string[] {
     const paths: string[] = [];
     for (let i = 0; i < tokens.length; i++) {
         if (tokens[i].type === TokenType.Use) {
-            // Next token should be a string literal
-            if (i + 1 < tokens.length && tokens[i + 1].type === TokenType.String) {
-                let path = tokens[i + 1].text;
-                // Strip surrounding quotes from string literal
-                if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
-                    path = path.slice(1, -1);
+            // Scan forward past (foo, bar) from / as ns to find the path string
+            for (let j = i + 1; j < tokens.length; j++) {
+                if (tokens[j].type === TokenType.String) {
+                    let path = tokens[j].text;
+                    if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
+                        path = path.slice(1, -1);
+                    }
+                    paths.push(path);
+                    i = j;
+                    break;
                 }
-                paths.push(path);
-                i++; // skip the string token
+                if (tokens[j].type === TokenType.Semicolon || tokens[j].type === TokenType.RBrace)
+                    break;
             }
         }
     }
@@ -40,18 +53,61 @@ function collectUseDirectives(source: string): string[] {
 }
 
 /**
- * Compile a single module file — populates registries but produces raw JS
- * without IIFE wrapping (so its declarations are in scope for the entry file).
- * Returns the JS code and the set of builtin function names used.
+ * Pre-register struct and trait names from module files so the Function
+ * constructor can resolve them during entry parsing. Does a lightweight
+ * token scan to find `struct <Name>` and `trait <Name>` patterns.
  */
-function compileModule(
+function preRegisterModuleTypes(
+    filename: string,
+    files: Record<string, string>,
+    visited: Set<string>
+): void {
+    if (visited.has(filename)) return;
+    visited.add(filename);
+
+    const source = files[filename];
+    if (source === undefined) return;
+
+    const tokens = scan(source);
+
+    // Recursively process dependencies first
+    const usePaths = collectUseDirectives(tokens);
+    for (const depPath of usePaths) {
+        preRegisterModuleTypes(depPath, files, visited);
+    }
+
+    // Scan for struct and trait declarations
+    for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i].type === TokenType.Struct) {
+            // struct <Name> { ... }
+            if (i + 1 < tokens.length && tokens[i + 1].type === TokenType.Identifier) {
+                const name = tokens[i + 1].text;
+                registerStruct(name, []);
+            }
+        }
+        if (tokens[i].type === TokenType.Trait) {
+            // trait <Name> { ... }
+            if (i + 1 < tokens.length && tokens[i + 1].type === TokenType.Identifier) {
+                const name = tokens[i + 1].text;
+                registerTrait(name, []);
+            }
+        }
+    }
+}
+
+/**
+ * Recursively link module dependencies into a single flattened array of expressions.
+ * Replaces each `use "path"` node with the target module's top-level expressions.
+ * Returns the flattened expressions, or null on error.
+ */
+function flattenModule(
     filename: string,
     files: Record<string, string>,
     visiting: Set<string>,
     visited: Set<string>,
     errors: { line: number; col: number; message: string; filename?: string }[]
-): { code: string; builtins: Set<string> } | null {
-    if (visited.has(filename)) return { code: "", builtins: new Set() };
+): Expression[] | null {
+    if (visited.has(filename)) return [];
     if (visiting.has(filename)) {
         errors.push({
             line: 0,
@@ -75,72 +131,188 @@ function compileModule(
 
     visiting.add(filename);
 
-    // Recursively compile dependencies first
-    const usePaths = collectUseDirectives(source);
-    const depCode: string[] = [];
-    const allBuiltins = new Set<string>();
-    for (const depPath of usePaths) {
-        const depResult = compileModule(depPath, files, visiting, visited, errors);
-        if (depResult === null) return null; // error propagated
-        if (depResult.code !== "") depCode.push(depResult.code);
-        for (const b of depResult.builtins) allBuiltins.add(b);
-    }
-
-    // Compile this module (allow Null type for definition-only modules)
+    // Parse without cascadeTypes — we'll resolve types on the unified AST
     const tokens = scan(source);
-    const { ast, errors: parseErrors } = parse(tokens, true);
+    const { ast, errors: parseErrors } = parse(tokens, true, true);
     if (parseErrors.length > 0) {
         for (const e of parseErrors) {
             errors.push({ line: e.line, col: e.col, message: e.message, filename });
         }
         return null;
     }
-    let js: string;
-    let moduleBuiltins: Set<string>;
-    try {
-        const result = writeJSModule(ast, true);
-        js = result.code;
-        moduleBuiltins = result.builtins;
-    } catch (e) {
+    if (!(ast instanceof Block)) {
         errors.push({
             line: 0,
             col: 0,
-            message: e instanceof Error ? e.message : String(e),
+            message: `Module '${filename}' has no top-level block.`,
             filename,
         });
         return null;
     }
 
-    // Collect this module's builtins
-    for (const b of moduleBuiltins) allBuiltins.add(b);
+    // Tag all expressions in this module with their source file
+    tagSourceFileTree(ast, filename);
 
-    // Register module-level variable names so importing files can resolve their types
-    if (ast instanceof Block) {
-        for (const expr of ast.expressions) {
-            let e = expr;
-            while (e instanceof DropValue) e = e.child;
-            if (e instanceof Assignment && e.name && e.value.type) {
-                registerModuleVar(e.name, e.value.type);
-            }
+    // Re-register functions so the per-module registry gets them with sourceFile
+    for (const expr of ast.expressions) {
+        let e = expr;
+        while (e instanceof DropValue) e = e.child;
+        if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
+            registerFunction(e);
+        }
+    }
+
+    // Recursively flatten dependencies, then replace UseModule nodes
+    const result: Expression[] = [];
+    for (const expr of ast.expressions) {
+        if (expr instanceof UseModule) {
+            const subExprs = flattenModule(expr.path, files, visiting, visited, errors);
+            if (subExprs === null) return null;
+            result.push(...subExprs);
+        } else {
+            result.push(expr);
         }
     }
 
     visiting.delete(filename);
     visited.add(filename);
-
-    // Concat dependency JS before this module's JS
-    const allCode = [...depCode, js].filter(Boolean).join("\n");
-    return { code: allCode, builtins: allBuiltins };
+    return result;
 }
 
 /**
- * Compile Gema source code to JavaScript.
+ * Recursively set sourceFile on every node in an expression tree.
+ */
+function tagSourceFileTree(node: Expression, sourceFile: string): void {
+    node.sourceFile = sourceFile;
+    const skipKeys = new Set(["parent", "type"]);
+    for (const key of Object.keys(node) as (keyof Expression)[]) {
+        if (skipKeys.has(key as string)) continue;
+        const val = (node as unknown as Record<string, unknown>)[key as string];
+        if (val instanceof Expression) {
+            tagSourceFileTree(val, sourceFile);
+        } else if (Array.isArray(val)) {
+            for (const item of val) {
+                if (item instanceof Expression) {
+                    tagSourceFileTree(item, sourceFile);
+                } else if (
+                    item &&
+                    typeof item === "object" &&
+                    "value" in (item as Record<string, unknown>)
+                ) {
+                    const kw = item as { value: Expression };
+                    if (kw.value instanceof Expression) {
+                        tagSourceFileTree(kw.value, sourceFile);
+                    }
+                } else if (
+                    item &&
+                    typeof item === "object" &&
+                    ("condition" in (item as Record<string, unknown>) ||
+                        "branch" in (item as Record<string, unknown>))
+                ) {
+                    const cb = item as { condition?: Expression; branch?: Expression };
+                    if (cb.condition instanceof Expression)
+                        tagSourceFileTree(cb.condition, sourceFile);
+                    if (cb.branch instanceof Expression) tagSourceFileTree(cb.branch, sourceFile);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Phase 0: Pre-register struct and trait names from dependency modules so the
+ * Function constructor can resolve type names during entry parsing.
+ */
+function preRegisterDependencies(
+    entryTokens: { type: TokenType; text: string }[],
+    files: Record<string, string>
+): void {
+    const visited = new Set<string>();
+    const usePaths = collectUseDirectives(entryTokens);
+    for (const depPath of usePaths) {
+        preRegisterModuleTypes(depPath, files, visited);
+    }
+}
+
+/**
+ * Phase 2: Link modules — flatten all `use` directives into a single array of
+ * expressions, tag every node with its source file, and record selective import
+ * rules. Entry functions are re-registered last so they take priority over
+ * module functions with the same name.
+ */
+function linkModules(
+    entryAst: Block,
+    entry: string,
+    files: Record<string, string>,
+    errors: { line: number; col: number; message: string; filename?: string }[]
+): Expression[] | null {
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const expressions: Expression[] = [];
+
+    for (const expr of entryAst.expressions) {
+        if (expr instanceof UseModule) {
+            if (expr.symbols && expr.symbols.length > 0) {
+                setSelectiveImportRule(entry, expr.path, new Set(expr.symbols));
+            }
+            const subExprs = flattenModule(expr.path, files, visiting, visited, errors);
+            if (subExprs === null) return null;
+            expressions.push(...subExprs);
+        } else {
+            tagSourceFileTree(expr, entry);
+            expressions.push(expr);
+        }
+    }
+
+    // Re-register entry functions after flattening so they take priority
+    for (const expr of expressions) {
+        if (expr.sourceFile !== entry) continue;
+        let e = expr;
+        while (e instanceof DropValue) e = e.child;
+        if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
+            registerFunction(e);
+        }
+    }
+
+    return expressions;
+}
+
+/**
+ * Phase 3: Set parent pointers, type-check the unified AST, and verify it
+ * produces a non-Null value. Returns null on error (errors are pushed into
+ * the `errors` array).
+ */
+function typeCheckBlock(
+    unifiedBlock: Block,
+    errors: { line: number; col: number; message: string; filename?: string }[]
+): boolean {
+    setParentPointers(unifiedBlock);
+    try {
+        unifiedBlock.cascadeTypes(true);
+    } catch (e) {
+        if (e instanceof ASTError) {
+            errors.push({ line: e.line, col: e.col, message: e.message });
+        } else if (e instanceof Error) {
+            errors.push({ line: 0, col: 0, message: e.message });
+        } else {
+            throw e;
+        }
+        return false;
+    }
+    if (unifiedBlock.type === "Null") {
+        errors.push({ line: 0, col: 0, message: "Program must end with a value expression." });
+        return false;
+    }
+    return true;
+}
+
+/**
  *
  * Single-file mode (backwards compatible):
- *   compile(source: string, mode, minify?)
+ *   compile(source: string, mode)
  *
  * Multi-file mode:
- *   compile(files: Record<string, string>, mode, entry?, minify?)
+ *   compile(files: Record<string, string>, mode, entry?)
  *
  * Returns the compiled JS and any compile-time errors.
  */
@@ -149,21 +321,16 @@ export function compile(
     mode: "immediate" | "inline" | "export" = "immediate",
     entry?: string
 ): CompileResult {
-    // Normalize arguments
     let files: Record<string, string>;
-
     if (typeof filesOrSource === "string") {
-        // Single-file mode: compile(source, mode, minify)
         files = { "main.gema": filesOrSource };
         entry = "main.gema";
     } else {
-        // Multi-file mode: compile(files, mode, entry?)
         files = filesOrSource;
         entry = entry ?? "main.gema";
     }
 
     resetRegistries();
-
     const errors: { line: number; col: number; message: string; filename?: string }[] = [];
 
     try {
@@ -184,97 +351,63 @@ export function compile(
             };
         }
 
-        // Phase 1: Resolve and compile all dependency modules
-        const visiting = new Set<string>();
-        const visited = new Set<string>();
-        const usePaths = collectUseDirectives(entrySource);
-        const moduleResults: { code: string; builtins: Set<string> }[] = [];
-        for (const depPath of usePaths) {
-            const depResult = compileModule(depPath, files, visiting, visited, errors);
-            if (depResult === null) break; // error occurred
-            if (depResult.code !== "") moduleResults.push(depResult);
-        }
+        const entryTokens = scan(entrySource);
 
-        if (errors.length > 0) {
-            return { js: "", result: null, errors, runtimeError: null };
-        }
+        // Phase 0: Pre-register struct/trait names from dependencies
+        preRegisterDependencies(entryTokens, files);
 
-        // Phase 2: Compile the entry file
-        const tokens = scan(entrySource);
-        const { ast, errors: parseErrors } = parse(tokens);
+        // Phase 1: Parse entry (AST only, no type resolution yet)
+        const { ast: entryAst, errors: parseErrors } = parse(entryTokens, false, true);
         if (parseErrors.length > 0) {
             for (const e of parseErrors) {
                 errors.push({ line: e.line, col: e.col, message: e.message, filename: entry });
             }
             return { js: "", result: null, errors, runtimeError: null };
         }
-
-        const entryResult = writeJSWithBuiltins(ast, mode);
-        const entryCode = entryResult.code;
-        const entryBuiltins = entryResult.builtins;
-
-        // Phase 3: Collect any monomorphized functions created during entry compilation
-        // that originated from module generics. Emit them before the entry code.
-        let monoCode = "";
-        const allBuiltins = new Set(entryBuiltins);
-        const allMonomorphized = getAllMonomorphized();
-        if (allMonomorphized.size > 0) {
-            const monoWriter = new JSWriter(ast);
-            for (const [, fn] of allMonomorphized) {
-                if (fn.isGeneric) continue;
-                fn.toJS(monoWriter);
-                monoWriter.write(";");
-                monoWriter.newLine();
-            }
-            for (const line of monoWriter.scope.lines) {
-                if (line.trim()) monoCode += line + "\n";
-            }
-            for (const b of monoWriter.builtins) allBuiltins.add(b);
+        if (!(entryAst instanceof Block)) {
+            return {
+                js: "",
+                result: null,
+                errors: [
+                    {
+                        line: 0,
+                        col: 0,
+                        message: "Entry file has no top-level block.",
+                        filename: entry,
+                    },
+                ],
+                runtimeError: null,
+            };
         }
 
-        // Merge builtins from all modules
-        for (const mod of moduleResults) {
-            for (const b of mod.builtins) allBuiltins.add(b);
+        // Phase 2: Link modules into a unified expression list
+        const linkedExprs = linkModules(entryAst, entry!, files, errors);
+        if (linkedExprs === null || errors.length > 0) {
+            return { js: "", result: null, errors, runtimeError: null };
         }
 
-        const builtinSection =
-            allBuiltins.size === 0
-                ? ""
-                : "// BUILTINS //\n" +
-                  Array.from(allBuiltins)
-                      .map((name) => BUILTINS[name])
-                      .join("\n") +
-                  "\n\n";
-
-        // Phase 5: Concatenate — builtins + module code + monomorphized code + entry code
-        const moduleCode = moduleResults
-            .map((m) => m.code)
-            .filter(Boolean)
-            .join("\n");
-        const programMarker = "// PROGRAM //";
-        const programIdx = entryCode.indexOf(programMarker);
-        if (programIdx !== -1) {
-            const afterProgram = entryCode.slice(programIdx + programMarker.length);
-            const js =
-                builtinSection + "// PROGRAM //\n" + moduleCode + "\n" + monoCode + afterProgram;
-            return { js, result: null, errors: [], runtimeError: null };
+        // Phase 3: Type-check the unified AST
+        const rootToken = { line: 0, col: 0, text: "", type: TokenType.LBrace };
+        const unifiedBlock = new Block(rootToken, linkedExprs);
+        if (!typeCheckBlock(unifiedBlock, errors)) {
+            return { js: "", result: null, errors, runtimeError: null };
         }
 
-        // Fallback for unusual output formats
-        const js = builtinSection + "// PROGRAM //\n" + moduleCode + "\n" + entryCode;
+        // Phase 3.5: Tree-shaking — remove unreachable definitions
+        const filteredBlock = treeShake(unifiedBlock, entry);
+
+        // Phase 4: Codegen
+        const js = writeJS(filteredBlock, mode);
         return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {
+        const message =
+            e instanceof ASTError ? e.message : e instanceof Error ? e.message : String(e);
+        const line = e instanceof ASTError ? e.line : 0;
+        const col = e instanceof ASTError ? e.col : 0;
         return {
             js: "",
             result: null,
-            errors: [
-                {
-                    line: 0,
-                    col: 0,
-                    message: e instanceof Error ? e.message : String(e),
-                    filename: entry,
-                },
-            ],
+            errors: [{ line, col, message, filename: entry }],
             runtimeError: null,
         };
     }

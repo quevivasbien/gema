@@ -84,7 +84,7 @@ func quicksort(iter: Iter[Int]): Iter[Int] {
         rest = (drop(1, iter));
         left = filter(\\x { x <= pivot }, rest);
         right = filter(\\x { x > pivot }, rest);
-        quicksort(left) + [pivot] + quicksort(right)
+        quicksort(left) + toIter([pivot]) + quicksort(right)
     }
 };
 
@@ -205,7 +205,7 @@ func tacnoc(a: T, b: T): T where T is Concatenatable {
 
 # Implement for strings
 func concat(a: Str, b: Str) { a + b };
-tacnoc("hello", "there")
+result_str = tacnoc("hello", "there");
 
 # Implement for integers (digit concatenation)
 func concat(a: Int, b: Int) {
@@ -215,14 +215,16 @@ func concat(a: Int, b: Int) {
   };
   a * 10 ^ getNDigits(b, 0) + b
 };
-tacnoc(123, 45)
+result_int = tacnoc(123, 45);
 
 # Implement for a struct
 struct Pair { first: Int, second: Int }
 func concat(a: Pair, b: Pair) {
   Pair(concat(a.first, b.first), concat(a.second, b.second))
 };
-tacnoc(Pair(1, 2), Pair(34, 56))`,
+result_pair = tacnoc(Pair(1, 2), Pair(34, 56));
+
+(result_str, result_int, result_pair)`,
         },
     },
     mandelbrot: {
@@ -261,7 +263,7 @@ grid = concat(map(\\y {
     toStr(map(\\x { isMandel(Complex(x, y)) }, xs))
 }, collect(linspace(-1., 1., 39))));
 grid`,
-        "complex.gema": `struct Complex { re: Float, im: Float }
+            "complex.gema": `struct Complex { re: Float, im: Float }
 
 func add(a: Complex, b: Complex): Complex {
     Complex(a.re + b.re, a.im + b.im)
@@ -272,7 +274,7 @@ func multiply(z: Complex, c: Complex): Complex {
             c.im + 2.0 * z.re * z.im)
 }
 
-func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }`
+func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }`,
         },
     },
 };

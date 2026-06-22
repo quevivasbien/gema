@@ -1,9 +1,9 @@
-import type { JSWriter } from "../write-js";
 import { TokenType, type Token } from "../tokens";
-import { ArrayType, CustomType, IterType, type Type } from "../types";
-import { Expression } from "./expression";
+import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller";
-import { deepEquals } from "../deep-equals";
+import { Expression } from "./expression";
+import { deepEquals } from "./type-utils";
+import { ArrayType, CustomType, IterType, type Type } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
 const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {
@@ -122,6 +122,13 @@ export class Binary extends Expression {
             throw this.error("Right-hand side of expression has null type");
         }
 
+        // Enforce that left-hand type == right-hand type for all binary ops
+        if (!deepEquals(ltype, rtype)) {
+            throw this.error(
+                `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
+            );
+        }
+
         const NUMERIC_OPS = [
             TokenType.Plus,
             TokenType.Minus,
@@ -231,7 +238,7 @@ export class Binary extends Expression {
             }
         }
         throw this.error(
-            `cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
+            `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
         );
     }
 

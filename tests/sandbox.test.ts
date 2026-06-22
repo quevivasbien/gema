@@ -1,5 +1,5 @@
 import { test } from "bun:test";
-import { testCompile } from "./helpers";
+import { testCompile, testCompileMulti } from "./helpers";
 
 // ============================================================
 // Sandbox preset tests — extracted from frontend/editor.js
@@ -103,7 +103,7 @@ func quicksort(iter: Iter[Int]): Iter[Int] {
         rest = (drop(1, iter));
         left = filter(\\x { x <= pivot }, rest);
         right = filter(\\x { x > pivot }, rest);
-        quicksort(left) + [pivot] + quicksort(right)
+        quicksort(left) + toIter([pivot]) + quicksort(right)
     }
 };
 
@@ -217,7 +217,7 @@ freq = countWords(words);
 
 test("sandbox: Generic functions", () => {
     testCompile(
-        `# Generic functions with trait bounds — concatenate in reverse
+        `# Generic functions with trait bounds
 
 trait Concatenatable {
   concat[(a: Self, b: Self): Self],
@@ -230,7 +230,7 @@ func tacnoc(a: T, b: T): T where T is Concatenatable {
 
 # Implement for strings
 func concat(a: Str, b: Str) { a + b };
-tacnoc("hello", "there")                     # "therehello"
+result_str = tacnoc("hello", "there");
 
 # Implement for integers (digit concatenation)
 func concat(a: Int, b: Int) {
@@ -240,18 +240,17 @@ func concat(a: Int, b: Int) {
   };
   a * 10 ^ getNDigits(b, 0) + b
 };
-tacnoc(123, 45)                              # 45123
+result_int = tacnoc(123, 45);
 
 # Implement for a struct
 struct Pair { first: Int, second: Int }
 func concat(a: Pair, b: Pair) {
   Pair(concat(a.first, b.first), concat(a.second, b.second))
 };
-func toStr(p: Pair) {
-  "(" + toStr(p.first) + ", " + toStr(p.second) + ")"
-};
-toStr(tacnoc(Pair(1, 2), Pair(34, 56)))      # (341, 562)`,
-        "(341, 562)"
+result_pair = tacnoc(Pair(1, 2), Pair(34, 56));
+
+(result_str, result_int, result_pair)`,
+        ["therehello", 45123n, { "first": 341n, "second": 562n } ]
     );
 });
 
@@ -287,5 +286,59 @@ mutating_state = [evens(), evens(), evens()];   # [0, 2, 0]
             [1n, 2n, 1n, 2n],
             [0n, 2n, 0n],
         ]
+    );
+});
+
+test("sandbox: Mandelbrot set", () => {
+    testCompileMulti(
+        {
+            "main.gema": `# ASCII Mandelbrot set visualization
+
+# Import module with definition and basic functions for a Complex type
+use "complex.gema"
+
+func mandelIter(z: Complex, c: Complex, i: Int): Bool {
+    if (i <= 0) { abs2(z) < 4.0 }
+    else { mandelIter(z * c, c, i - 1) }
+}
+
+func isMandel(c: Complex): Bool {
+    mandelIter(Complex(0.0, 0.0), c, 20)
+}
+
+func linspace(a: Float, b: Float, n: Int): Iter[Float] {
+    step = (b - a) / toFloat(n - 1);
+    map(\\i { a + step * toFloat(i) }, 0..(n - 1))
+}
+
+func concat(strs: Iter[Str]) {
+    reduce(\\(acc, x) { acc + x }, "", strs)
+}
+
+func toStr(arr: Iter[Bool]) {
+    strs = map(\\x { if x { "*" } else { " " } }, arr);
+    concat(strs) + "\\n"
+}
+
+grid = concat(map(\\y {
+    xs = collect(linspace(-1.75, 0.25, 9));
+    toStr(map(\\x { isMandel(Complex(x, y)) }, xs))
+}, collect(linspace(-1., 1., 39))));
+length(grid) > 0 # Just a basic assertion to check that the program ran`,
+            "complex.gema": `struct Complex { re: Float, im: Float }
+
+func add(a: Complex, b: Complex): Complex {
+    Complex(a.re + b.re, a.im + b.im)
+}
+
+func multiply(z: Complex, c: Complex): Complex {
+    Complex(c.re + z.re * z.re - z.im * z.im,
+            c.im + 2.0 * z.re * z.im)
+}
+
+func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }`,
+        },
+        "main.gema",
+        true
     );
 });

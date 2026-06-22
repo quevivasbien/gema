@@ -1,5 +1,5 @@
 import * as AST from "./ast/index";
-import { type Type, TemplateTypes, getType } from "./types";
+import { type Type, TemplateTypes, getType } from "./ast/types";
 import { TokenType, KEYWORDS, type Token } from "./tokens";
 
 interface ParseError {
@@ -1075,6 +1075,9 @@ class Parser {
         try {
             return cFunc();
         } catch (e) {
+            if (e instanceof AST.ASTError) {
+                return this.error(e.message);
+            }
             if (e instanceof Error) {
                 return this.error(e.message);
             }
@@ -1487,7 +1490,7 @@ class Parser {
         this.advance();
 
         return this.tryCreateASTExpression(
-            () => new AST.Function(rootToken, name, params, returnType, typeTraits, this.block())
+            () => new AST.FunctionDef(rootToken, name, params, returnType, typeTraits, this.block())
         );
     }
 
@@ -1497,16 +1500,67 @@ class Parser {
         }
         const rootToken = this.current();
         this.advance(); // consume 'use'
+        if (this.atEnd()) {
+            return this.error("Expected module path or symbol list after 'use'.");
+        }
+
+        // Case 1: use "path" — existing pattern
+        if (this.current().type === TokenType.String) {
+            let path = this.current().text;
+            // Strip surrounding quotes from string literal
+            if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
+                path = path.slice(1, -1);
+            }
+            this.advance(); // consume the string
+            return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path));
+        }
+
+        // Case 2: use (foo, bar) from "path"  or  use foo, bar from "path"
+        const symbols: string[] = [];
+        let hasParens = false;
+
+        if (this.current().type === TokenType.LParen) {
+            hasParens = true;
+            this.advance(); // consume '('
+        }
+
+        // Parse comma-separated identifier list
+        while (!this.atEnd() && this.current().type === TokenType.Identifier) {
+            symbols.push(this.current().text);
+            this.advance(); // consume the identifier
+            if (this.current().type === TokenType.Comma) {
+                this.advance(); // consume ','
+            } else {
+                break;
+            }
+        }
+
+        if (hasParens) {
+            if (this.atEnd() || this.current().type !== TokenType.RParen) {
+                return this.error("Expected ')' after symbol list.");
+            }
+            this.advance(); // consume ')'
+        }
+
+        if (symbols.length === 0) {
+            return this.error("Expected at least one symbol name.");
+        }
+
+        if (this.atEnd() || this.current().type !== TokenType.From) {
+            return this.error("Expected 'from' after symbol list.");
+        }
+        this.advance(); // consume 'from'
+
         if (this.atEnd() || this.current().type !== TokenType.String) {
-            return this.error("Expected module path string after 'use'.");
+            return this.error("Expected module path string after 'from'.");
         }
         let path = this.current().text;
-        // Strip surrounding quotes from string literal
         if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
             path = path.slice(1, -1);
         }
         this.advance(); // consume the string
-        return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path));
+
+        return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path, symbols));
     }
 
     structDef(): AST.Expression | null {
@@ -1639,6 +1693,9 @@ class Parser {
         try {
             return new AST.Block(rootToken, expressions);
         } catch (e) {
+            if (e instanceof AST.ASTError) {
+                return this.error(e.message);
+            }
             if (e instanceof Error) {
                 return this.error(e.message);
             }
@@ -1649,7 +1706,8 @@ class Parser {
 
 export function parse(
     tokens: Token[],
-    allowNullType: boolean = false
+    allowNullType: boolean = false,
+    skipCascadeTypes: boolean = false
 ): { ast: AST.Expression; errors: ParseError[] } {
     const parser = new Parser(tokens);
     const block = parser.block();
@@ -1657,27 +1715,29 @@ export function parse(
         // Set up parent pointers so cascadeTypes can use findEnclosing() for
         // upward tree walks (Return → enclosing Function, Break → enclosing ForLoop, etc.)
         AST.setParentPointers(block);
-        try {
-            block.cascadeTypes(true);
-        } catch (e) {
-            if (e instanceof AST.ASTError) {
-                parser.errors.push({
-                    line: e.line,
-                    col: e.col,
-                    message: e.message,
-                });
-            } else {
-                // Non-ASTError (e.g. from Function constructor validation).
-                // Report it without line/col info.
-                parser.errors.push({
-                    line: 0,
-                    col: 0,
-                    message: e instanceof Error ? e.message : String(e),
-                });
+        if (!skipCascadeTypes) {
+            try {
+                block.cascadeTypes(true);
+            } catch (e) {
+                if (e instanceof AST.ASTError) {
+                    parser.errors.push({
+                        line: e.line,
+                        col: e.col,
+                        message: e.message,
+                    });
+                } else {
+                    // Non-ASTError (e.g. from Function constructor validation).
+                    // Report it without line/col info.
+                    parser.errors.push({
+                        line: 0,
+                        col: 0,
+                        message: e instanceof Error ? e.message : String(e),
+                    });
+                }
             }
         }
     }
-    if (block.type === "Null" && !allowNullType) {
+    if (block.type === "Null" && !allowNullType && !skipCascadeTypes) {
         parser.errors.push({
             line: tokens[tokens.length - 1].line,
             col: tokens[tokens.length - 1].col,
