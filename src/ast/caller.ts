@@ -71,64 +71,6 @@ export type CallerResult =
 
 // ── Type conversion builtins ──
 
-const TYPE_CONVERSIONS: Record<
-    string,
-    Record<string, { returnType: Type; jsExpr: (arg: string) => string }>
-> = {
-    toStr: {
-        Int: { returnType: "Str", jsExpr: (a) => `String(${a})` },
-        Float: { returnType: "Str", jsExpr: (a) => `String(${a})` },
-        Bool: { returnType: "Str", jsExpr: (a) => `String(${a})` },
-    },
-    toInt: {
-        Float: { returnType: "Int", jsExpr: (a) => `BigInt(Math.trunc(${a}))` },
-        Bool: { returnType: "Int", jsExpr: (a) => `BigInt(${a})` },
-    },
-    toFloat: {
-        Int: { returnType: "Float", jsExpr: (a) => `Number(${a})` },
-    },
-    toBool: {
-        Int: { returnType: "Bool", jsExpr: (a) => `Boolean(${a})` },
-        Float: { returnType: "Bool", jsExpr: (a) => `Boolean(${a})` },
-    },
-};
-
-function findTypeConversion(
-    name: string,
-    inputType: Type
-): {
-    error: null;
-    result: {
-        kind: "type-conversion";
-        referToByName: string;
-        callerType: FuncType;
-        rootType: Type;
-        jsExpr: (arg: string) => string;
-    };
-} | null {
-    const byInput = TYPE_CONVERSIONS[name];
-    if (!byInput) return null;
-    let inputTypeKey: string | null = null;
-    if (inputType === "Int") inputTypeKey = "Int";
-    else if (inputType === "Float") inputTypeKey = "Float";
-    else if (inputType === "Bool") inputTypeKey = "Bool";
-    else if (inputType === "Str") inputTypeKey = "Str";
-    if (!inputTypeKey) return null;
-    const conversion = byInput[inputTypeKey];
-    if (!conversion) return null;
-    const fullName = functionNameWithParamTypes(name, [inputType]);
-    return {
-        error: null,
-        result: {
-            kind: "type-conversion",
-            referToByName: fullName,
-            callerType: new FuncType([inputType], conversion.returnType),
-            rootType: conversion.returnType,
-            jsExpr: conversion.jsExpr,
-        },
-    };
-}
-
 // ── Builtin function dispatch ──
 
 function findBuiltin(
@@ -1428,6 +1370,70 @@ function findBuiltin(
                 },
             };
         }
+        case "toStr": {
+            if (argTypes.length !== 1) return undefined;
+            if (argTypes[0] === "Int" || argTypes[0] === "Float" || argTypes[0] === "Bool") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toStr",
+                        callerType: new FuncType(argTypes, "Str"),
+                        rootType: "Str",
+                        builtinKind: "toStr",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "toInt": {
+            if (argTypes.length !== 1) return undefined;
+            if (argTypes[0] === "Float" || argTypes[0] === "Bool") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toInt",
+                        callerType: new FuncType(argTypes, "Int"),
+                        rootType: "Int",
+                        builtinKind: "toInt",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "toFloat": {
+            if (argTypes.length !== 1) return undefined;
+            if (argTypes[0] === "Int") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toFloat",
+                        callerType: new FuncType(argTypes, "Float"),
+                        rootType: "Float",
+                        builtinKind: "toFloat",
+                    },
+                };
+            }
+            return undefined;
+        }
+        case "toBool": {
+            if (argTypes.length !== 1) return undefined;
+            if (argTypes[0] === "Int" || argTypes[0] === "Float") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "toBool",
+                        callerType: new FuncType(argTypes, "Bool"),
+                        rootType: "Bool",
+                        builtinKind: "toBool",
+                    },
+                };
+            }
+            return undefined;
+        }
         default:
             return undefined;
     }
@@ -1966,15 +1972,7 @@ export function findCaller(
         walkNode = walkNode.parent;
     }
 
-    // Check for type conversion builtins
-    if (argTypes.length === 1) {
-        const conversionResult = findTypeConversion(name, argTypes[0]);
-        if (conversionResult) {
-            return conversionResult;
-        }
-    }
-
-    // Check for iterator/array builtins
+    // Check for iterator/array builtins (includes type conversions like toInt/toStr etc.)
     const builtinResult = findBuiltin(name, argTypes);
     if (builtinResult) {
         return builtinResult;

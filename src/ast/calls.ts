@@ -101,8 +101,6 @@ export class Call extends Expression {
     structFieldName: string = "";
     isStructConstructor: boolean = false;
     isStringIndexing: boolean = false;
-    isTypeConversion: boolean = false;
-    conversionJsExpr: ((arg: string) => string) | null = null;
     isBuiltin: boolean = false;
     builtinKind: string = "";
 
@@ -287,10 +285,6 @@ export class Call extends Expression {
 
         // Handle the discriminated union result kind
         switch (result.kind) {
-            case "type-conversion":
-                this.isTypeConversion = true;
-                this.conversionJsExpr = result.jsExpr;
-                break;
             case "builtin":
                 this.isBuiltin = true;
                 this.builtinKind = result.builtinKind;
@@ -689,17 +683,6 @@ export class Call extends Expression {
         if (this.isStructFieldAccess) {
             writer.write(writer.safeName(this.referToByName!));
             writer.write(`.${this.structFieldName}`);
-            return;
-        }
-        if (this.isTypeConversion && this.conversionJsExpr) {
-            const jsExpr = this.conversionJsExpr;
-            const conversionStr = jsExpr("%%ARG%%");
-            const parts = conversionStr.split("%%ARG%%");
-            writer.write(parts[0]);
-            this.args[0].toJS(writer);
-            if (parts.length > 1) {
-                writer.write(parts[1]);
-            }
             return;
         }
         if (this.isStringIndexing) {
@@ -1189,6 +1172,32 @@ export class Call extends Expression {
                     writer.write("].filter(x => ");
                     this.args[1]?.toJS(writer);
                     writer.write(".has(x)))");
+                    return;
+                case "toStr":
+                    writer.write("String(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "toInt":
+                    if (this.args[0]?.type === "Float") {
+                        writer.write("BigInt(Math.trunc(");
+                        this.args[0]?.toJS(writer);
+                        writer.write("))");
+                    } else {
+                        writer.write("BigInt(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(")");
+                    }
+                    return;
+                case "toFloat":
+                    writer.write("Number(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
+                case "toBool":
+                    writer.write("Boolean(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
                     return;
                 default:
                     throw new Error(`unknown builtin: ${this.builtinKind}`);
