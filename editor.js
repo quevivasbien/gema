@@ -4,6 +4,7 @@ import { keymap, Decoration } from "@codemirror/view";
 import { compile } from "../src/compiler.ts";
 
 import { Prec, StateEffect, StateField } from "@codemirror/state";
+import { indentUnit } from "@codemirror/language";
 import { indentWithTab, toggleComment } from "@codemirror/commands";
 
 import { PRESETS } from "./editor-presets.js";
@@ -167,6 +168,9 @@ function switchTab(index, view) {
 
     isSwitchingTab = false;
     renderTabs(view);
+
+    // Re-apply error highlights for the newly active file
+    highlightCurrentFileErrors(view);
 }
 
 function addTab(view) {
@@ -251,6 +255,7 @@ function createEditor(parent) {
             basicSetup,
             gema(),
             oneDark,
+            indentUnit.of("    "),
             Prec.highest(
                 keymap.of([
                     indentWithTab,
@@ -293,7 +298,10 @@ function createEditor(parent) {
 }
 
 /** Display error lines by highlighting them in the editor. */
+let lastErrors = []; // last compilation errors, used to re-highlight on tab switch
+
 function displayErrors(view, errors, files) {
+    lastErrors = errors;
     const outputEl = document.getElementById("output");
     const errorText = errors
         .map((err) => {
@@ -309,7 +317,22 @@ function displayErrors(view, errors, files) {
     outputEl.innerText = errorText;
     outputEl.className = "output-panel output-error";
 
-    const errorLines = errors.map((e) => e.line);
+    highlightCurrentFileErrors(view);
+}
+
+/** Highlight error lines in the editor that belong to the currently active file. */
+function highlightCurrentFileErrors(view) {
+    view.dispatch({ effects: clearErrors.of(null) });
+
+    const activeFile = currentFile();
+    if (!activeFile) return;
+
+    const fileErrors = lastErrors.filter(
+        (err) => err.filename === activeFile.name || (!err.filename && openFiles.length === 1)
+    );
+    if (fileErrors.length === 0) return;
+
+    const errorLines = fileErrors.map((e) => e.line);
     view.dispatch({ effects: addErrorLine.of(errorLines) });
 
     const firstErrorLine = Math.min(...errorLines);

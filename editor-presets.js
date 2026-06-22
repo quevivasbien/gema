@@ -84,7 +84,7 @@ func quicksort(iter: Iter[Int]): Iter[Int] {
         rest = (drop(1, iter));
         left = filter(\\x { x <= pivot }, rest);
         right = filter(\\x { x > pivot }, rest);
-        quicksort(left) + [pivot] + quicksort(right)
+        quicksort(left) + toIter([pivot]) + quicksort(right)
     }
 };
 
@@ -173,7 +173,7 @@ words = ["the", "quick", "brown", "fox", "jumps", "over",
 
 # Build a frequency dict manually
 func countWords(words: Arr[Str]): Dict[Str, Int] {
-    freq = trans(Dict([]:Tuple[Str, Int]));
+    freq = trans(Dict([]:Tup[Str, Int]));
     for w = words {
         count = freq(w);
         put(freq, w, (if isnone(count) { 0 } else { unwrap(count) }) + 1)
@@ -205,7 +205,7 @@ func tacnoc(a: T, b: T): T where T is Concatenatable {
 
 # Implement for strings
 func concat(a: Str, b: Str) { a + b };
-tacnoc("hello", "there")
+result_str = tacnoc("hello", "there");
 
 # Implement for integers (digit concatenation)
 func concat(a: Int, b: Int) {
@@ -215,54 +215,66 @@ func concat(a: Int, b: Int) {
   };
   a * 10 ^ getNDigits(b, 0) + b
 };
-tacnoc(123, 45)
+result_int = tacnoc(123, 45);
 
 # Implement for a struct
 struct Pair { first: Int, second: Int }
 func concat(a: Pair, b: Pair) {
   Pair(concat(a.first, b.first), concat(a.second, b.second))
 };
-tacnoc(Pair(1, 2), Pair(34, 56))`,
+result_pair = tacnoc(Pair(1, 2), Pair(34, 56));
+
+(result_str, result_int, result_pair)`,
         },
     },
     mandelbrot: {
         label: "Mandelbrot set",
         files: {
             "main.gema": `# ASCII Mandelbrot set visualization
-struct Complex { re: Float, im: Float }
+
+# Import module with definition and basic functions for a Complex type
+use "complex.gema"
+
+func mandelIter(z: Complex, c: Complex, i: Int): Bool {
+    if (i <= 0) { abs2(z) < 4.0 }
+    else { mandelIter(z * c, c, i - 1) }
+}
+
+func isMandel(c: Complex): Bool {
+    mandelIter(Complex(0.0, 0.0), c, 20)
+}
+
+func linspace(a: Float, b: Float, n: Int): Iter[Float] {
+    step = (b - a) / toFloat(n - 1);
+    map(\\i { a + step * toFloat(i) }, 0..(n - 1))
+}
+
+func concat(strs: Iter[Str]) {
+    reduce(\\(acc, x) { acc + x }, "", strs)
+}
+
+func toStr(arr: Iter[Bool]) {
+    strs = map(\\x { if x { "*" } else { " " } }, arr);
+    concat(strs) + "\\n"
+}
+
+grid = concat(map(\\y {
+    xs = collect(linspace(-1.75, 0.25, 39));
+    toStr(map(\\x { isMandel(Complex(x, y)) }, xs))
+}, collect(linspace(-1., 1., 39))));
+grid`,
+            "complex.gema": `struct Complex { re: Float, im: Float }
 
 func add(a: Complex, b: Complex): Complex {
     Complex(a.re + b.re, a.im + b.im)
 }
 
-func mul(z: Complex, c: Complex): Complex {
+func multiply(z: Complex, c: Complex): Complex {
     Complex(c.re + z.re * z.re - z.im * z.im,
             c.im + 2.0 * z.re * z.im)
 }
 
-func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }
-
-func mandelIter(z: Complex, c: Complex, i: Int): Bool {
-    if (i <= 0) { abs2(z) < 4.0 }
-    else { mandelIter(mul(z, c), c, i - 1) }
-}`,
-        },
-    },
-    multiModule: {
-        label: "Multi-Module Demo",
-        files: {
-            "main.gema": `# Main program using the "math" module
-use "math.gema"
-
-a = add(3, 4);
-b = mul(a, 2);
-c = square(5);
-[a, b, c]`,
-            "math.gema": `# Math utilities module
-func add(x: Int, y: Int): Int { x + y }
-func mul(x: Int, y: Int): Int { x * y }
-func square(x: Int): Int { x * x }
-`,
+func abs2(z: Complex): Float { z.re * z.re + z.im * z.im }`,
         },
     },
 };

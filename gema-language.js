@@ -10,6 +10,7 @@ const KEYWORDS = new Set([
     "is",
     "if",
     "else",
+    "mut",
     "for",
     "break",
     "continue",
