@@ -1,34 +1,32 @@
-import type { JSWriter } from "../write-js";
 import { TokenType, type Token } from "../tokens";
-import {
-    ArrayType,
-    IterType,
-    MutArrType,
-    TupleType,
-    DictType,
-    MutDictType,
-    MaybeType,
-    CustomType,
-    FuncType,
-    type Type,
-    type CallableType,
-    SetType,
-    MutSetType,
-} from "../types";
-import { Expression } from "./expression";
+import type { JSWriter } from "../write-js";
+import { findCaller } from "./caller";
+import { DropValue, Expression } from "./expression";
 import { Literal } from "./literals";
-import { Variable, Function, AnonymousFunction, Assignment, Block, RangeIter } from "./nodes";
+import { AnonymousFunction, Assignment, Block, FunctionDef, RangeIter, Variable } from "./nodes";
 import {
+    findFunction,
+    getAllMonomorphized,
     getStruct,
     isVarConsumed,
     markVarConsumed,
-    findFunction,
-    getAllMonomorphized,
 } from "./registries";
-import { findCaller } from "./caller";
-import { paramTypesMatchArgTypes } from "./type-utils";
-import { deepEquals } from "../deep-equals";
-import { DropValue } from "./expression";
+import { deepEquals, paramTypesMatchArgTypes } from "./type-utils";
+import {
+    ArrayType,
+    CustomType,
+    DictType,
+    FuncType,
+    IterType,
+    MaybeType,
+    MutArrType,
+    MutDictType,
+    MutSetType,
+    SetType,
+    TupleType,
+    type CallableType,
+    type Type,
+} from "./types";
 
 // ── Helpers ──
 
@@ -39,7 +37,7 @@ function findStructTypedVariable(
 ): { varName: string; structType: Type } | null {
     let node: Expression | null = startNode.parent;
     while (node) {
-        if (node instanceof Function || node instanceof AnonymousFunction) {
+        if (node instanceof FunctionDef || node instanceof AnonymousFunction) {
             for (const param of node.params) {
                 if (param.name === name && param.type instanceof CustomType) {
                     const structInfo = getStruct(param.type.name);
@@ -68,7 +66,7 @@ function findStructTypedVariable(
 function findStringTypedVariable(startNode: Expression, name: string): string | null {
     let node: Expression | null = startNode.parent;
     while (node) {
-        if (node instanceof Function || node instanceof AnonymousFunction) {
+        if (node instanceof FunctionDef || node instanceof AnonymousFunction) {
             for (const param of node.params) {
                 if (param.name === name && param.type === "Str") {
                     return name;
@@ -191,7 +189,7 @@ export class Call extends Expression {
                                 sib = sib.child;
                             }
                             if (
-                                sib instanceof Function &&
+                                sib instanceof FunctionDef &&
                                 sib.name === this.name &&
                                 !sib.isGeneric &&
                                 sib.params.length === totalArgs
@@ -532,7 +530,7 @@ export class Call extends Expression {
                 for (let j = olderSiblings.length - 1; j >= 0; j--) {
                     let sib = olderSiblings[j];
                     while (sib instanceof DropValue) sib = sib.child;
-                    if (sib instanceof Function && sib.name === this.name && !sib.isGeneric) {
+                    if (sib instanceof FunctionDef && sib.name === this.name && !sib.isGeneric) {
                         // Check that other arg types match (skip the function arg)
                         const fnParams = sib.params;
                         if (fnParams.length - 1 === otherArgTypes.length) {

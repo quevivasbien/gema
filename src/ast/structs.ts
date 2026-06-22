@@ -1,9 +1,9 @@
-import type { JSWriter } from "../write-js";
 import { TokenType, type Token } from "../tokens";
-import { deepEquals } from "../deep-equals";
-import { ArrayType, CustomType, substituteTypeParams, type Type } from "../types";
+import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import { getStruct, registerStruct } from "./registries";
+import { deepEquals } from "./type-utils";
+import { ArrayType, CustomType, substituteTypeParams, type Type } from "./types";
 
 export class ArrLit extends Expression {
     expressions: Expression[];

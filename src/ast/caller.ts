@@ -1,32 +1,36 @@
+import { functionNameWithParamTypes } from "./caller-utils";
+import type { Expression } from "./expression";
+import { DropValue } from "./expression";
+import { AnonymousFunction, Assignment, Block, FunctionDef } from "./nodes";
 import {
-    FuncType,
-    ArrayType,
-    IterType,
-    MutArrType,
-    TupleType,
-    MaybeType,
-    DictType,
-    SetType,
-    MutDictType,
-    MutSetType,
-    CustomType,
-    type Type,
-    type CallableType,
-} from "../types";
-import {
-    getStruct,
-    getTrait,
     findFunctionInModule,
     getSelectiveImportRules,
-    isVarConsumed,
+    getStruct,
+    getTrait,
     isCrossModuleRefAllowed,
+    isVarConsumed,
 } from "./registries";
-import { functionNameWithParamTypes } from "./caller-utils";
-import { deepEquals } from "../deep-equals";
-import { paramTypesMatchArgTypes, collectTraitsForTypeParam, looseMatch } from "./type-utils";
-import type { Expression } from "./expression";
-import { Block, Function, Assignment, AnonymousFunction } from "./nodes";
-import { DropValue } from "./expression";
+import {
+    collectTraitsForTypeParam,
+    deepEquals,
+    looseMatch,
+    paramTypesMatchArgTypes,
+} from "./type-utils";
+import {
+    ArrayType,
+    CustomType,
+    DictType,
+    FuncType,
+    IterType,
+    MaybeType,
+    MutArrType,
+    MutDictType,
+    MutSetType,
+    SetType,
+    TupleType,
+    type CallableType,
+    type Type,
+} from "./types";
 
 // ── Discriminated union for findCaller results ──
 
@@ -1486,7 +1490,7 @@ export function findCaller(
                 }
             }
             if (hasLocalVar) break;
-        } else if (scanNode instanceof Function) {
+        } else if (scanNode instanceof FunctionDef) {
             for (const param of scanNode.params) {
                 if (param.name === name) {
                     hasLocalVar = true;
@@ -1546,7 +1550,7 @@ export function findCaller(
 
                 // Direct match with a non-generic function
                 if (
-                    olderSibling instanceof Function &&
+                    olderSibling instanceof FunctionDef &&
                     !olderSibling.isGeneric &&
                     olderSibling.name === name &&
                     paramTypesMatchArgTypes(
@@ -1576,7 +1580,7 @@ export function findCaller(
 
                 // Generic function matching — attempt monomorphization
                 if (
-                    olderSibling instanceof Function &&
+                    olderSibling instanceof FunctionDef &&
                     olderSibling.isGeneric &&
                     olderSibling.params.length === argTypes.length
                 ) {
@@ -1707,7 +1711,7 @@ export function findCaller(
                     };
                 }
             }
-        } else if (walkNode instanceof Function) {
+        } else if (walkNode instanceof FunctionDef) {
             for (const param of walkNode.params) {
                 if (param.name === name) {
                     if (param.type instanceof FuncType) {
@@ -2045,7 +2049,7 @@ export function findCaller(
     // Fallback: inside a generic function body, check for trait functions
     let traitFn: Expression | null = parent;
     while (traitFn) {
-        if (traitFn instanceof Function && traitFn.isGeneric) {
+        if (traitFn instanceof FunctionDef && traitFn.isGeneric) {
             for (const tp of traitFn.typeParams) {
                 const traits = new Set<string>();
                 for (const param of traitFn.params) {

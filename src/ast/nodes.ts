@@ -1,38 +1,38 @@
-import type { JSWriter } from "../write-js";
 import { TokenType, type Token } from "../tokens";
-import { deepEquals } from "../deep-equals";
+import type { JSWriter } from "../write-js";
 import {
-    ArrayType,
-    IterType,
-    MutArrType,
-    TupleType,
-    substituteTypeParams,
-    isBuiltinTypeName,
-    collectCustomTypeNames,
-    FuncType,
-    CustomType,
-    TemplateTypes,
-    type Type,
-} from "../types";
-import { ASTError, Expression, DropValue } from "./expression";
-import {
-    functionNameWithParamTypes,
-    extractBindingsFromParams,
     checkTraitSatisfied,
+    extractBindingsFromParams,
+    functionNameWithParamTypes,
 } from "./caller-utils";
+import { ASTError, DropValue, Expression } from "./expression";
 import {
     findFunction,
-    registerFunction,
     getMonomorphized,
-    registerMonomorphized,
-    getTrait,
     getStruct,
-    isVarConsumed,
+    getTrait,
     isCrossModuleRefAllowed,
-    saveConsumedVars,
+    isVarConsumed,
+    registerFunction,
+    registerMonomorphized,
     restoreConsumedVars,
+    saveConsumedVars,
 } from "./registries";
 import { setParentPointers } from "./set-parent-pointers";
+import { deepEquals } from "./type-utils";
+import {
+    ArrayType,
+    collectCustomTypeNames,
+    CustomType,
+    FuncType,
+    isBuiltinTypeName,
+    IterType,
+    MutArrType,
+    substituteTypeParams,
+    TemplateTypes,
+    TupleType,
+    type Type,
+} from "./types";
 
 export class Block extends Expression {
     constructor(
@@ -440,11 +440,11 @@ export class Break extends Expression {
         let node: Expression | null = this.parent;
         while (node) {
             if (node instanceof ForLoop) return false;
-            if (node instanceof Function || node instanceof AnonymousFunction) return false;
+            if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
             if (node instanceof Block && node.isValueUsed) {
                 // A Block creates an IIFE context only when it's NOT the direct body of a function or loop
                 const isFunctionBody =
-                    node.parent instanceof Function || node.parent instanceof AnonymousFunction;
+                    node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
                 const isLoopBody = node.parent instanceof ForLoop;
                 if (
                     !isFunctionBody &&
@@ -497,10 +497,10 @@ export class Continue extends Expression {
         let node: Expression | null = this.parent;
         while (node) {
             if (node instanceof ForLoop) return false;
-            if (node instanceof Function || node instanceof AnonymousFunction) return false;
+            if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
             if (node instanceof Block && node.isValueUsed) {
                 const isFunctionBody =
-                    node.parent instanceof Function || node.parent instanceof AnonymousFunction;
+                    node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
                 const isLoopBody = node.parent instanceof ForLoop;
                 if (
                     !isFunctionBody &&
@@ -539,7 +539,7 @@ export class Return extends Expression {
         this.type = "Null"; // Return statements have type null, even if their values do not
         // Verify `return` is inside a function,
         // and let that function knows it needs to check that the return type matches
-        const fn = this.findEnclosing(Function) ?? this.findEnclosing(AnonymousFunction);
+        const fn = this.findEnclosing(FunctionDef) ?? this.findEnclosing(AnonymousFunction);
         if (fn) {
             fn.returnStatements.push(this);
         }
@@ -556,11 +556,11 @@ export class Return extends Expression {
     get needsException(): boolean {
         let node: Expression | null = this.parent;
         while (node) {
-            if (node instanceof Function || node instanceof AnonymousFunction) return false;
+            if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
             if (node instanceof Block && node.isValueUsed) {
                 // A Block creates an IIFE context only when it's NOT the direct body of a function
                 const isFunctionBody =
-                    node.parent instanceof Function || node.parent instanceof AnonymousFunction;
+                    node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
                 if (
                     !isFunctionBody &&
                     Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
@@ -896,13 +896,16 @@ export class Variable extends Expression {
                     olderSibling = olderSibling.child;
                 }
                 // Exact match on fullName (non-generic or already monomorphized)
-                if (olderSibling instanceof Function && olderSibling.fullName === this.fullName) {
+                if (
+                    olderSibling instanceof FunctionDef &&
+                    olderSibling.fullName === this.fullName
+                ) {
                     this.type = olderSibling.getFuncType();
                     return true;
                 }
                 // Generic function match — attempt monomorphization
                 if (
-                    olderSibling instanceof Function &&
+                    olderSibling instanceof FunctionDef &&
                     olderSibling.name === this.name &&
                     olderSibling.isGeneric
                 ) {
@@ -955,7 +958,7 @@ export class Variable extends Expression {
         let node: Expression | null = this.parent;
         while (node) {
             // Check Function/AnonymousFunction params
-            if (node instanceof Function || node instanceof AnonymousFunction) {
+            if (node instanceof FunctionDef || node instanceof AnonymousFunction) {
                 for (const param of node.params) {
                     if (param.name === this.name && param.type !== null) {
                         this.type = param.type;
@@ -1063,7 +1066,7 @@ export class Variable extends Expression {
                         }
                         if (sib instanceof DropValue) sib = sib.child;
                         if (
-                            sib instanceof Function &&
+                            sib instanceof FunctionDef &&
                             sib.name === this.name &&
                             sib.params.length === 0 &&
                             sib.fullName !== null
@@ -1210,7 +1213,7 @@ export class Assignment extends Expression {
                         }
                     }
                 }
-            } else if (node instanceof Function) {
+            } else if (node instanceof FunctionDef) {
                 for (const arg of node.params) {
                     if (arg.name === name) return { isMutable: false, type: arg.type };
                 }
@@ -1481,14 +1484,14 @@ export class AnonymousFunction extends Expression {
     }
 }
 
-export class Function extends Expression {
+export class FunctionDef extends Expression {
     name: string | null;
     params: { name: string; type: Type }[];
     returnType: Type;
     body: Block;
     fullName: string;
     typeParams: string[] = [];
-    monomorphizedVersions: Function[] = [];
+    monomorphizedVersions: FunctionDef[] = [];
     /** Need to maintain a list of any return statements this function has,
      * so we can check that they return a value whose type matches
      * the return type of this function */
@@ -1667,7 +1670,7 @@ export class Function extends Expression {
             type: substituteTypeParams(p.type, bindings),
         }));
 
-        const monomorphized = new Function(
+        const monomorphized = new FunctionDef(
             { line: this.line, col: this.col, text: this.name!, type: TokenType.Func },
             this.name!,
             clonedParams,
@@ -1732,7 +1735,7 @@ export class Function extends Expression {
         const clonedReturnType = bindings
             ? substituteTypeParams(this.returnType, bindings)
             : this.returnType;
-        const cloned = new Function(
+        const cloned = new FunctionDef(
             { line: this.line, col: this.col, text: this.name!, type: TokenType.Func },
             this.name!,
             clonedParams,

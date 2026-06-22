@@ -1,9 +1,9 @@
-import type { JSWriter } from "../write-js";
 import { TokenType, type Token } from "../tokens";
-import { ArrayType, CustomType, IterType, type Type } from "../types";
-import { Expression } from "./expression";
+import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller";
-import { deepEquals } from "../deep-equals";
+import { Expression } from "./expression";
+import { deepEquals } from "./type-utils";
+import { ArrayType, CustomType, IterType, type Type } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
 const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {

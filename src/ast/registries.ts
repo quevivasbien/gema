@@ -1,5 +1,5 @@
-import { type TemplateTypes, type Type } from "../types";
-import type { Function } from "./nodes";
+import type { FunctionDef } from "./nodes";
+import { type TemplateTypes, type Type } from "./types";
 
 // Global registry of trait definitions, keyed by trait name
 const traitRegistry: Map<string, { name: string; paramNames: string[]; types: TemplateTypes }[]> =
@@ -38,15 +38,15 @@ export function getStruct(
 }
 
 // Global cache of monomorphized functions, keyed by fullName
-const monomorphizedCache: Map<string, Function> = new Map();
+const monomorphizedCache: Map<string, FunctionDef> = new Map();
 
 // Global registry of all named functions, keyed by fullName (non-generic) or name (generic)
-const functionRegistry: Map<string, Function> = new Map();
+const functionRegistry: Map<string, FunctionDef> = new Map();
 
 // Per-module function registries: modulePath → fullName → Function
-const functionRegistryByModule = new Map<string, Map<string, Function>>();
+const functionRegistryByModule = new Map<string, Map<string, FunctionDef>>();
 
-export function registerFunction(fn: Function): void {
+export function registerFunction(fn: FunctionDef): void {
     if (!fn.isGeneric) {
         functionRegistry.set(fn.fullName, fn);
         // Also index by sourceFile for scoped lookups
@@ -61,7 +61,7 @@ export function registerFunction(fn: Function): void {
     }
 }
 
-export function findFunction(fullName: string): Function | undefined {
+export function findFunction(fullName: string): FunctionDef | undefined {
     return functionRegistry.get(fullName) ?? monomorphizedCache.get(fullName);
 }
 
@@ -74,7 +74,7 @@ export function findFunctionInModule(
     fullName: string,
     modulePath: string | undefined,
     getImportRules: (sourceModule: string) => Map<string, Set<string>> | undefined
-): Function | undefined {
+): FunctionDef | undefined {
     if (!modulePath) {
         // No module context — fall back to global lookup
         return findFunction(fullName);
@@ -105,11 +105,11 @@ export function findFunctionInModule(
     return monomorphizedCache.get(fullName);
 }
 
-export function getMonomorphized(fullName: string): Function | undefined {
+export function getMonomorphized(fullName: string): FunctionDef | undefined {
     return monomorphizedCache.get(fullName);
 }
 
-export function registerMonomorphized(fullName: string, fn: Function): void {
+export function registerMonomorphized(fullName: string, fn: FunctionDef): void {
     monomorphizedCache.set(fullName, fn);
     // Also index monomorphized functions in per-module registry
     if (fn.sourceFile) {
@@ -122,7 +122,7 @@ export function registerMonomorphized(fullName: string, fn: Function): void {
     }
 }
 
-export function getAllMonomorphized(): Map<string, Function> {
+export function getAllMonomorphized(): Map<string, FunctionDef> {
     return monomorphizedCache;
 }
 

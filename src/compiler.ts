@@ -1,20 +1,23 @@
-import { scan } from "./scan";
-import { parse } from "./parse";
-import { writeJS } from "./write-js";
-import { TokenType } from "./tokens";
 import {
-    resetRegistries,
+    ASTError,
+    Block,
+    DropValue,
+    Expression,
+    FunctionDef,
+    registerFunction,
     registerStruct,
     registerTrait,
+    resetRegistries,
+    setParentPointers,
     setSelectiveImportRule,
-    registerFunction,
-    getSelectiveImportRules,
+    UseModule,
 } from "./ast";
-import { setParentPointers } from "./ast/set-parent-pointers";
-import { ASTError, Expression, DropValue } from "./ast/expression";
-import { Block, UseModule, Function, Assignment } from "./ast/nodes";
-import { StructDef } from "./ast/structs";
-import { computeReachable } from "./ast/reachability";
+import { parse } from "./parse";
+import { scan } from "./scan";
+import { TokenType } from "./tokens";
+import { writeJS } from "./write-js";
+
+import { treeShake } from "./tree-shake";
 
 interface CompileResult {
     js: string;
@@ -154,7 +157,7 @@ function flattenModule(
     for (const expr of ast.expressions) {
         let e = expr;
         while (e instanceof DropValue) e = e.child;
-        if (e instanceof Function && !e.isGeneric && e.fullName) {
+        if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
             registerFunction(e);
         }
     }
@@ -217,7 +220,93 @@ function tagSourceFileTree(node: Expression, sourceFile: string): void {
 }
 
 /**
- * Compile Gema source code to JavaScript.
+ * Phase 0: Pre-register struct and trait names from dependency modules so the
+ * Function constructor can resolve type names during entry parsing.
+ */
+function preRegisterDependencies(
+    entryTokens: { type: TokenType; text: string }[],
+    files: Record<string, string>
+): void {
+    const visited = new Set<string>();
+    const usePaths = collectUseDirectives(entryTokens);
+    for (const depPath of usePaths) {
+        preRegisterModuleTypes(depPath, files, visited);
+    }
+}
+
+/**
+ * Phase 2: Link modules — flatten all `use` directives into a single array of
+ * expressions, tag every node with its source file, and record selective import
+ * rules. Entry functions are re-registered last so they take priority over
+ * module functions with the same name.
+ */
+function linkModules(
+    entryAst: Block,
+    entry: string,
+    files: Record<string, string>,
+    errors: { line: number; col: number; message: string; filename?: string }[]
+): Expression[] | null {
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const expressions: Expression[] = [];
+
+    for (const expr of entryAst.expressions) {
+        if (expr instanceof UseModule) {
+            if (expr.symbols && expr.symbols.length > 0) {
+                setSelectiveImportRule(entry, expr.path, new Set(expr.symbols));
+            }
+            const subExprs = flattenModule(expr.path, files, visiting, visited, errors);
+            if (subExprs === null) return null;
+            expressions.push(...subExprs);
+        } else {
+            tagSourceFileTree(expr, entry);
+            expressions.push(expr);
+        }
+    }
+
+    // Re-register entry functions after flattening so they take priority
+    for (const expr of expressions) {
+        if (expr.sourceFile !== entry) continue;
+        let e = expr;
+        while (e instanceof DropValue) e = e.child;
+        if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
+            registerFunction(e);
+        }
+    }
+
+    return expressions;
+}
+
+/**
+ * Phase 3: Set parent pointers, type-check the unified AST, and verify it
+ * produces a non-Null value. Returns null on error (errors are pushed into
+ * the `errors` array).
+ */
+function typeCheckBlock(
+    unifiedBlock: Block,
+    errors: { line: number; col: number; message: string; filename?: string }[]
+): boolean {
+    setParentPointers(unifiedBlock);
+    try {
+        unifiedBlock.cascadeTypes(true);
+    } catch (e) {
+        if (e instanceof ASTError) {
+            errors.push({ line: e.line, col: e.col, message: e.message });
+        } else if (e instanceof Error) {
+            errors.push({ line: 0, col: 0, message: e.message });
+        } else {
+            throw e;
+        }
+        return false;
+    }
+    if (unifiedBlock.type === "Null") {
+        errors.push({ line: 0, col: 0, message: "Program must end with a value expression." });
+        return false;
+    }
+    return true;
+}
+
+/**
  *
  * Single-file mode (backwards compatible):
  *   compile(source: string, mode)
@@ -232,9 +321,7 @@ export function compile(
     mode: "immediate" | "inline" | "export" = "immediate",
     entry?: string
 ): CompileResult {
-    // Normalize arguments
     let files: Record<string, string>;
-
     if (typeof filesOrSource === "string") {
         files = { "main.gema": filesOrSource };
         entry = "main.gema";
@@ -244,7 +331,6 @@ export function compile(
     }
 
     resetRegistries();
-
     const errors: { line: number; col: number; message: string; filename?: string }[] = [];
 
     try {
@@ -267,16 +353,10 @@ export function compile(
 
         const entryTokens = scan(entrySource);
 
-        // Phase 0: Pre-register struct and trait names from all dependency modules
-        // before parsing the entry file. This ensures the Function constructor
-        // can resolve type names like struct names from modules.
-        const preRegVisited = new Set<string>();
-        const usePaths = collectUseDirectives(entryTokens);
-        for (const depPath of usePaths) {
-            preRegisterModuleTypes(depPath, files, preRegVisited);
-        }
+        // Phase 0: Pre-register struct/trait names from dependencies
+        preRegisterDependencies(entryTokens, files);
 
-        // Phase 1: Parse the entry file (AST only, no type resolution yet)
+        // Phase 1: Parse entry (AST only, no type resolution yet)
         const { ast: entryAst, errors: parseErrors } = parse(entryTokens, false, true);
         if (parseErrors.length > 0) {
             for (const e of parseErrors) {
@@ -292,7 +372,7 @@ export function compile(
                     {
                         line: 0,
                         col: 0,
-                        message: `Entry file has no top-level block.`,
+                        message: "Entry file has no top-level block.",
                         filename: entry,
                     },
                 ],
@@ -300,160 +380,23 @@ export function compile(
             };
         }
 
-        // Phase 2: Link modules — flatten all `use` directives into the entry's Block
-        const visiting = new Set<string>();
-        const visited = new Set<string>();
-        const linkedExpressions: Expression[] = [];
-
-        for (const expr of entryAst.expressions) {
-            if (expr instanceof UseModule) {
-                // Record selective import rules in the global registry
-                if (expr.symbols && expr.symbols.length > 0) {
-                    setSelectiveImportRule(entry!, expr.path, new Set(expr.symbols));
-                }
-                const subExprs = flattenModule(expr.path, files, visiting, visited, errors);
-                if (subExprs === null) {
-                    return { js: "", result: null, errors, runtimeError: null };
-                }
-                linkedExpressions.push(...subExprs);
-            } else {
-                // Tag entry expressions with the entry filename
-                tagSourceFileTree(expr, entry!);
-                linkedExpressions.push(expr);
-            }
-        }
-
-        // Re-register entry functions so they take priority over module functions
-        // that may have been registered during flattenModule above.
-        for (const expr of linkedExpressions) {
-            if (!expr.sourceFile || expr.sourceFile !== entry) continue;
-            let e = expr;
-            while (e instanceof DropValue) e = e.child;
-            if (e instanceof Function && !e.isGeneric && e.fullName) {
-                registerFunction(e);
-            }
-        }
-
-        if (errors.length > 0) {
+        // Phase 2: Link modules into a unified expression list
+        const linkedExprs = linkModules(entryAst, entry!, files, errors);
+        if (linkedExprs === null || errors.length > 0) {
             return { js: "", result: null, errors, runtimeError: null };
         }
 
-        // Build the unified Block AST
-        const rootToken = { line: 0, col: 0, text: "", type: TokenType.LBrace };
-        const unifiedBlock = new Block(rootToken, linkedExpressions);
-
         // Phase 3: Type-check the unified AST
-        // Selective import validation happens inside Call.cascadeTypes() and
-        // similar resolution methods, which check the target function's
-        // sourceFile against the call site's sourceFile.
-        setParentPointers(unifiedBlock);
-        try {
-            unifiedBlock.cascadeTypes(true);
-        } catch (e) {
-            if (e instanceof ASTError) {
-                errors.push({ line: e.line, col: e.col, message: e.message });
-                return { js: "", result: null, errors, runtimeError: null };
-            }
-            if (e instanceof Error) {
-                errors.push({ line: 0, col: 0, message: e.message });
-                return { js: "", result: null, errors, runtimeError: null };
-            }
-            throw e;
-        }
-
-        if (unifiedBlock.type === "Null") {
-            // If after linking the last expression is still Null, it's an error
-            // (module-only programs with no value expression)
-            errors.push({ line: 0, col: 0, message: "Program must end with a value expression." });
+        const rootToken = { line: 0, col: 0, text: "", type: TokenType.LBrace };
+        const unifiedBlock = new Block(rootToken, linkedExprs);
+        if (!typeCheckBlock(unifiedBlock, errors)) {
             return { js: "", result: null, errors, runtimeError: null };
         }
 
         // Phase 3.5: Tree-shaking — remove unreachable definitions
-        const reachable = computeReachable(unifiedBlock);
+        const filteredBlock = treeShake(unifiedBlock, entry);
 
-        // When multiple modules define the same fullName, only keep the one
-        // from the module allowed by the entry's selective import rules.
-        const keptFullNames = new Map<string, boolean>(); // fullName → already kept
-        const filteredExprs = unifiedBlock.expressions.filter((expr) => {
-            let e = expr;
-            while (e instanceof DropValue) e = e.child;
-            // Keep concrete functions only if reachable
-            if (e instanceof Function && !e.isGeneric && e.fullName) {
-                if (!reachable.has(e.fullName)) return false;
-                // Deduplicate: if multiple modules define the same fullName,
-                // prefer the one from the module allowed by import rules.
-                if (keptFullNames.has(e.fullName)) return false;
-                if (e.sourceFile && e.sourceFile !== entry) {
-                    const rules = getSelectiveImportRules(entry!);
-                    if (rules) {
-                        const dollarIdx = e.fullName.indexOf("$");
-                        const baseName =
-                            dollarIdx === -1 ? e.fullName : e.fullName.slice(0, dollarIdx);
-                        const allowed = rules.get(e.sourceFile);
-                        // If this module has selective import rules and the
-                        // name is NOT in the allowed list, check if it might
-                        // be a duplicate from another module that does allow it.
-                        if (allowed && !allowed.has(baseName)) {
-                            // Look for another definition of this fullName
-                            // from a module that allows this name
-                            for (const other of unifiedBlock.expressions) {
-                                let oe = other;
-                                while (oe instanceof DropValue) oe = oe.child;
-                                if (
-                                    oe === e ||
-                                    !(oe instanceof Function) ||
-                                    oe.fullName !== e.fullName
-                                )
-                                    continue;
-                                const otherRules = rules.get(oe.sourceFile ?? "");
-                                if (!otherRules || otherRules.has(baseName)) {
-                                    return false; // another module has a better claim
-                                }
-                            }
-                            // No other module claims it — keep it (transitive dep)
-                        }
-                    }
-                }
-                keptFullNames.set(e.fullName, true);
-                return true;
-            }
-            // Keep top-level variable assignments (non-reassignment) only if reachable
-            if (e instanceof Assignment && e.name && !e.isReassignment) {
-                if (!reachable.has(e.name)) return false;
-                // Deduplicate variable names across modules
-                if (keptFullNames.has(e.name)) return false;
-                if (e.sourceFile && e.sourceFile !== entry) {
-                    const rules = getSelectiveImportRules(entry!);
-                    if (rules) {
-                        const allowed = rules.get(e.sourceFile);
-                        if (allowed && !allowed.has(e.name)) {
-                            // Check if another module has a better claim
-                            for (const other of unifiedBlock.expressions) {
-                                let oe = other;
-                                while (oe instanceof DropValue) oe = oe.child;
-                                if (oe === e || !(oe instanceof Assignment) || oe.name !== e.name)
-                                    continue;
-                                const otherRules = rules.get(oe.sourceFile ?? "");
-                                if (!otherRules || otherRules.has(e.name)) {
-                                    return false;
-                                }
-                            }
-                        }
-                    }
-                }
-                keptFullNames.set(e.name, true);
-                return true;
-            }
-            // Keep structs only if reachable (referenced in some type)
-            if (e instanceof StructDef && e.name) {
-                return reachable.has(e.name);
-            }
-            // Keep everything else (traits, generics, entry expressions, calls, etc.)
-            return true;
-        });
-        const filteredBlock = new Block(rootToken, filteredExprs);
-
-        // Phase 4: Codegen — one pass over the filtered AST
+        // Phase 4: Codegen
         const js = writeJS(filteredBlock, mode);
         return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {

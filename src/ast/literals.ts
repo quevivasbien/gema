@@ -1,7 +1,7 @@
-import type { JSWriter } from "../write-js";
 import type { Token } from "../tokens";
-import { type Type } from "../types";
+import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
+import { type Type } from "./types";
 
 export class Literal extends Expression {
     value: string;

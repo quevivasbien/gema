@@ -1,24 +1,24 @@
-import type { Type } from "../types";
-import {
-    ArrayType,
-    IterType,
-    MutArrType,
-    TupleType,
-    DictType,
-    MutDictType,
-    SetType,
-    MutSetType,
-    MaybeType,
-    FuncType,
-    CustomType,
-} from "../types";
+import { Call } from "./calls";
+import { DropValue, Expression } from "./expression";
+import { Assignment, Block, ForLoop, FunctionDef, If, TupleUnpack, Variable } from "./nodes";
+import { Binary } from "./operators";
 import { findFunction } from "./registries";
-import { Block, Function, Assignment, Variable, If, ForLoop, TupleUnpack } from "./nodes";
 import { StructDef } from "./structs";
 import { Trait } from "./traits";
-import { Call } from "./calls";
-import { Binary } from "./operators";
-import { DropValue, Expression } from "./expression";
+import type { Type } from "./types";
+import {
+    ArrayType,
+    CustomType,
+    DictType,
+    FuncType,
+    IterType,
+    MaybeType,
+    MutArrType,
+    MutDictType,
+    MutSetType,
+    SetType,
+    TupleType,
+} from "./types";
 
 /**
  * Collect all CustomType names referenced anywhere in a type tree.
@@ -65,7 +65,7 @@ export function collectReferences(
         referencedNames.add(node.referToByName);
     } else if (node instanceof Variable && node.fullName) {
         referencedNames.add(node.fullName);
-    } else if (node instanceof Function && node.fullName) {
+    } else if (node instanceof FunctionDef && node.fullName) {
         referencedNames.add(node.fullName);
     } else if (node instanceof Assignment && node.name) {
         referencedNames.add(node.name);
@@ -160,7 +160,7 @@ export function computeReachable(block: Block): Set<string> {
     for (const expr of block.expressions) {
         let e = expr;
         while (e instanceof DropValue) e = e.child;
-        if (e instanceof Function) continue;
+        if (e instanceof FunctionDef) continue;
         if (e instanceof StructDef) continue;
         if (e instanceof Trait) continue;
         if (e instanceof Assignment) continue;

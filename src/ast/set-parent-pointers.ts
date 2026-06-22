@@ -1,25 +1,25 @@
 import type { Expression } from "./expression";
 // Import all Expression subclass types for instanceof checks
+import { Call, DirectCall } from "./calls";
+import { DropValue, ErrorExpression } from "./expression";
+import { Literal } from "./literals";
 import {
-    Block,
-    If,
-    ForLoop,
-    Return,
-    UseModule,
-    Assignment,
-    Function,
     AnonymousFunction,
-    Variable,
+    Assignment,
+    Block,
+    ForLoop,
+    FunctionDef,
+    If,
+    RangeIter,
+    Return,
     TupleLit,
     TupleUnpack,
-    RangeIter,
+    UseModule,
+    Variable,
 } from "./nodes";
-import { Call, DirectCall } from "./calls";
-import { Unary, Binary } from "./operators";
-import { Literal } from "./literals";
-import { ArrLit, StructDef, FieldAccess, FieldAssignment } from "./structs";
+import { Binary, Unary } from "./operators";
+import { ArrLit, FieldAccess, FieldAssignment, StructDef } from "./structs";
 import { Trait } from "./traits";
-import { DropValue, ErrorExpression } from "./expression";
 
 /**
  * Walk an AST tree and set the `parent` pointer on every child node.
@@ -48,7 +48,7 @@ export function setParentPointers(node: Expression, parent: Expression | null = 
         setParentPointers(node.value, node);
     } else if (node instanceof DropValue) {
         setParentPointers(node.child, node);
-    } else if (node instanceof Function) {
+    } else if (node instanceof FunctionDef) {
         setParentPointers(node.body, node);
     } else if (node instanceof AnonymousFunction) {
         setParentPointers(node.body, node);

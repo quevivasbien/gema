@@ -1,15 +1,14 @@
-import { deepEquals } from "../deep-equals";
+import { findFunction, getTrait } from "./registries";
+import { deepEquals, typesMatchWithConversion } from "./type-utils";
 import {
-    FuncType,
     ArrayType,
-    IterType,
-    MutArrType,
-    MaybeType,
     CustomType,
+    FuncType,
+    IterType,
+    MaybeType,
+    MutArrType,
     type Type,
-} from "../types";
-import { getTrait, findFunction } from "./registries";
-import { typesMatchWithConversion } from "./type-utils";
+} from "./types";
 
 /** Produce a stable, readable name fragment for a type. */
 export function typeToName(t: Type): string {

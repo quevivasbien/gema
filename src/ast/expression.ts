@@ -1,6 +1,6 @@
-import type { JSWriter } from "../write-js";
 import type { Token } from "../tokens";
-import { type Type } from "../types";
+import type { JSWriter } from "../write-js";
+import { type Type } from "./types";
 
 export class ASTError {
     constructor(

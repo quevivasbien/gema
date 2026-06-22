@@ -1,5 +1,5 @@
 import * as AST from "./ast/index";
-import { type Type, TemplateTypes, getType } from "./types";
+import { type Type, TemplateTypes, getType } from "./ast/types";
 import { TokenType, KEYWORDS, type Token } from "./tokens";
 
 interface ParseError {
@@ -1490,7 +1490,7 @@ class Parser {
         this.advance();
 
         return this.tryCreateASTExpression(
-            () => new AST.Function(rootToken, name, params, returnType, typeTraits, this.block())
+            () => new AST.FunctionDef(rootToken, name, params, returnType, typeTraits, this.block())
         );
     }
 
