@@ -5,17 +5,20 @@ const KEYWORDS = new Set([
     "or",
     "func",
     "struct",
+    "enum",
     "trait",
     "where",
     "is",
+    "match",
     "if",
     "else",
-    "mut",
     "for",
     "break",
     "continue",
     "return",
+    "mut",
     "use",
+    "from",
 ]);
 
 const TYPE_NAMES = new Set([

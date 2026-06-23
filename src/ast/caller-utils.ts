@@ -3,6 +3,7 @@ import { deepEquals, typesMatchWithConversion } from "./type-utils";
 import {
     ArrayType,
     CustomType,
+    EnumType,
     FuncType,
     IterType,
     MaybeType,
@@ -14,6 +15,7 @@ import {
 export function typeToName(t: Type): string {
     if (typeof t === "string") return t;
     if (t instanceof CustomType) return t.name;
+    if (t instanceof EnumType) return t.name;
     if (t instanceof ArrayType) return `Arr_${typeToName(t.innerType)}`;
     if (t instanceof IterType) return `Iter_${typeToName(t.innerType)}`;
     if (t instanceof MutArrType) return `MutArr_${typeToName(t.innerType)}`;

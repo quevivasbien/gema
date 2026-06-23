@@ -415,3 +415,119 @@ test("duplicate variant name errors", () => {
         "Duplicate"
     );
 });
+
+test("enums with traits", () => {
+    testCompile(
+        `
+        enum Foo {
+            a,
+            b,
+        }
+
+        trait Bim {
+            bim[(x: Self): Self]
+        }
+
+        func neeb(x: T): Arr[T] where T is Bim {
+            [bim(x)]
+        }
+
+        func bim(x: Foo) {
+            x
+        }
+
+        neeb(Foo.a)
+        `,
+        [0]
+    );
+});
+
+test("enums with traits -- trait is not implemented", () => {
+    testParseExpectError(
+        `
+        enum Foo {
+            a,
+            b,
+        }
+
+        trait Bim {
+            bim[(x: Self): Self]
+        }
+
+        func neeb(x: T): Arr[T] where T is Bim {
+            [bim(x)]
+        }
+
+        neeb(Foo.a)
+        `
+    );
+});
+
+test("enums with traits -- trait implemented for one enum type but not another", () => {
+    testParseExpectError(
+        `
+        enum Foo {
+            a: Int
+            b,
+        }
+
+        enum Bar {
+            a,
+            b: Int,
+        }
+
+        trait Bim {
+            bim[(x: Self): Self]
+        }
+
+        func neeb(x: T): Arr[T] where T is Bim {
+            [bim(x)]
+        }
+
+        func bim(x: Foo) {
+            x
+        }
+
+        # Bim is implemented for Foo but not for Bar; this should not work!
+        (neeb(Foo.a(1)), neeb(Bar.a))
+        `
+    );
+});
+
+test("enums with traits -- trait implemented for both enum types", () => {
+    testCompile(
+        `
+        enum Foo {
+            a: Int
+            b,
+        }
+
+        enum Bar {
+            a,
+            b: Int,
+        }
+
+        trait Bim {
+            bim[(x: Self): Self]
+        }
+
+        func neeb(x: T): Arr[T] where T is Bim {
+            [bim(x)]
+        }
+
+        func bim(x: Foo) {
+            x
+        }
+
+        func bim(x: Bar) {
+            match x {
+                a { x },
+                b(i) { Bar.b(i + 1)}
+            }
+        }
+
+        (neeb(Foo.a(1)), neeb(Bar.b(1)))
+        `,
+        [[{ $tag: 0, $val: 1n }], [{ $tag: 1, $val: 2n }]]
+    );
+});

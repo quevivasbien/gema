@@ -167,7 +167,8 @@ export class FieldAccess extends Expression {
 
             // Tagged variant: emit a factory function so DirectCall can invoke it
             if (variant.type !== null) {
-                writer.write(`function($$val) { return {"$tag": ${vIdx}, "$val": $$val}; }`);
+                // TODO: This could be made more efficient if we check ahead of time whether this is immediately invoked
+                writer.write(`($$val) => { return { "$tag": ${vIdx}, "$val": $$val }; }`);
                 return;
             }
 
