@@ -38,6 +38,8 @@ export {
     ForLoop,
     FunctionDef,
     If,
+    Match,
+    NoneLit,
     RangeIter,
     Return,
     UseModule,

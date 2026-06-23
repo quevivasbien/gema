@@ -1370,6 +1370,19 @@ function findBuiltin(
                 },
             };
         }
+        case "some": {
+            if (argTypes.length !== 1) return undefined;
+            return {
+                error: null,
+                result: {
+                    kind: "builtin",
+                    referToByName: "some",
+                    callerType: new FuncType(argTypes, new MaybeType(argTypes[0])),
+                    rootType: new MaybeType(argTypes[0]),
+                    builtinKind: "some",
+                },
+            };
+        }
         case "toStr": {
             if (argTypes.length !== 1) return undefined;
             if (argTypes[0] === "Int" || argTypes[0] === "Float" || argTypes[0] === "Bool") {

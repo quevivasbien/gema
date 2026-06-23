@@ -27,6 +27,7 @@ import {
     FuncType,
     isBuiltinTypeName,
     IterType,
+    MaybeType,
     MutArrType,
     substituteTypeParams,
     TemplateTypes,
@@ -95,6 +96,203 @@ export class Block extends Expression {
             );
         }
         return lastExpr.type !== "Null";
+    }
+}
+
+// ── None literal (none:Type) ──────────────────────────────
+
+export class NoneLit extends Expression {
+    annotatedType: Type;
+
+    constructor(token: Token, annotatedType: Type) {
+        super(token.line, token.col);
+        this.annotatedType = annotatedType;
+        this.type = new MaybeType(annotatedType);
+    }
+
+    cascadeTypes(valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+        // No children to cascade — type is already set from annotation
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new NoneLit(
+            { line: this.line, col: this.col, text: "none", type: TokenType.None },
+            substituteTypeParams(this.annotatedType, bindings ?? new Map())
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write("undefined");
+    }
+}
+
+// ── Match expression ─────────────────────────────────────
+
+export class Match extends Expression {
+    scrutinee: Expression;
+    /** The `some(value)` arm: binding name and body expression, or null if absent. */
+    someArm: { binding: string; bindingType: Type; body: Expression } | null;
+    /** The `none` arm body, or null if absent. */
+    noneArm: Expression | null;
+
+    constructor(
+        token: Token,
+        scrutinee: Expression,
+        someArm: { binding: string; body: Expression } | null,
+        noneArm: Expression | null
+    ) {
+        super(token.line, token.col);
+        this.scrutinee = scrutinee;
+        if (someArm) {
+            this.someArm = {
+                binding: someArm.binding,
+                bindingType: null as unknown as Type,
+                body: someArm.body,
+            };
+        } else {
+            this.someArm = null;
+        }
+        this.noneArm = noneArm;
+    }
+
+    cascadeTypes(valueUsed: boolean): void {
+        this.isValueUsed = valueUsed;
+
+        // Cascade scrutinee — must be Maybe[T]
+        this.scrutinee.cascadeTypes(true);
+        if (!(this.scrutinee.type instanceof MaybeType)) {
+            throw this.error(
+                `match expression requires a Maybe type, but found ${this.scrutinee.type}`
+            );
+        }
+        const innerType = this.scrutinee.type.innerType;
+
+        // Determine the common arm type
+        let commonType: Type | null = null;
+
+        if (this.someArm) {
+            this.someArm.bindingType = innerType;
+            this.someArm.body.cascadeTypes(valueUsed);
+            commonType = this.someArm.body.type;
+        }
+
+        if (this.noneArm) {
+            this.noneArm.cascadeTypes(valueUsed);
+            if (commonType === null) {
+                commonType = this.noneArm.type;
+            } else if (!deepEquals(commonType, this.noneArm.type)) {
+                throw this.error(
+                    `match arms must have the same type, but found ${commonType} and ${this.noneArm.type}`
+                );
+            }
+        }
+
+        if (this.someArm && this.noneArm) {
+            if (!deepEquals(this.someArm.body.type, this.noneArm.type)) {
+                throw this.error(
+                    `match arms must have the same type, but found ${this.someArm.body.type} and ${this.noneArm.type}`
+                );
+            }
+        }
+
+        // If one of the match arms is not included, match statement always has type "Null"
+        this.type =
+            this.someArm !== null && this.noneArm !== null ? (commonType ?? "Null") : "Null";
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
+        return new Match(
+            { line: this.line, col: this.col, text: "match", type: TokenType.Match },
+            this.scrutinee.clone(bindings),
+            this.someArm
+                ? {
+                      binding: this.someArm.binding,
+                      body: this.someArm.body.clone(bindings),
+                  }
+                : null,
+            this.noneArm ? this.noneArm.clone(bindings) : null
+        );
+    }
+
+    toJS(writer: JSWriter): void {
+        const hasSome = this.someArm !== null;
+        const hasNone = this.noneArm !== null;
+
+        // If the scrutinee might have side effects, capture it in a temp variable.
+        // We always capture to keep codegen simple and correct.
+        const scrutVar = writer.uniqueName("$match$");
+
+        const needsIIFE = this.isValueUsed && hasSome && hasNone;
+
+        if (needsIIFE) {
+            writer.write("(() => {");
+            writer.iifeDepth++;
+            writer.indentIn();
+            writer.newLine();
+        }
+
+        // Declare and evaluate scrutinee
+        writer.write(`const ${writer.safeName(scrutVar)} = `);
+        this.scrutinee.toJS(writer);
+        writer.write(";");
+        writer.newLine();
+
+        if (hasSome) {
+            writer.write("if (");
+            writer.write(`${writer.safeName(scrutVar)} !== undefined`);
+            writer.write(") {");
+            writer.indentIn();
+            writer.newLine();
+
+            // Introduce the binding variable
+            if (this.someArm) {
+                writer.write(
+                    `const ${writer.safeName(this.someArm.binding)} = ${writer.safeName(scrutVar)};`
+                );
+                writer.newLine();
+            }
+
+            if (this.isValueUsed) {
+                writer.write("return ");
+            }
+            this.someArm!.body.toJS(writer);
+            writer.write(";");
+            writer.indentOut();
+            writer.newLine();
+
+            writer.write("}");
+        }
+
+        if (hasNone) {
+            if (hasSome) {
+                writer.write(" else ");
+            } else {
+                writer.write("if (");
+                writer.write(`${writer.safeName(scrutVar)} === undefined`);
+                writer.write(") ");
+            }
+            writer.write("{");
+            writer.indentIn();
+            writer.newLine();
+
+            if (this.isValueUsed) {
+                writer.write("return ");
+            }
+            this.noneArm!.toJS(writer);
+            writer.write(";");
+            writer.indentOut();
+            writer.newLine();
+
+            writer.write("}");
+        }
+
+        if (needsIIFE) {
+            writer.indentOut();
+            writer.newLine();
+            writer.iifeDepth--;
+            writer.write("})()");
+        }
     }
 }
 
@@ -980,6 +1178,17 @@ export class Variable extends Expression {
                     innerType = "Str";
                 }
                 this.type = innerType;
+                this.fullName = this.name;
+                return;
+            }
+            // Check Match `some(value)` binding
+            // (only if this Variable is inside the someArm body, not the scrutinee itself)
+            if (
+                node instanceof Match &&
+                node.someArm?.binding === this.name &&
+                this !== node.scrutinee
+            ) {
+                this.type = node.someArm.bindingType;
                 this.fullName = this.name;
                 return;
             }

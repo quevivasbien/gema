@@ -213,6 +213,16 @@ PARSE_RULES[TokenType.Return] = {
     infix: null,
     precedence: Precedence.None,
 };
+PARSE_RULES[TokenType.None] = {
+    prefix: parseNone,
+    infix: null,
+    precedence: Precedence.None,
+};
+PARSE_RULES[TokenType.Match] = {
+    prefix: parseMatchExpression,
+    infix: null,
+    precedence: Precedence.None,
+};
 
 // Define default rules
 Object.values(TokenType).forEach((tokenType) => {
@@ -1022,6 +1032,110 @@ function parseReturn(parser: Parser): AST.Expression {
         throw new Error("Expected expression after `return`");
     }
     return new AST.Return(startToken, value);
+}
+
+function parseNone(parser: Parser): AST.Expression {
+    const token = parser.previous(); // should be 'none'
+    if (parser.atEnd() || parser.current().type !== TokenType.Colon) {
+        return parser.error("Expected ':Type' after 'none'");
+    }
+    parser.advance(); // consume ':'
+    const annotatedType = parser.getTypeName();
+    if (!annotatedType) {
+        return parser.error("Expected type annotation after 'none:'");
+    }
+    return parser.tryCreateASTExpression(() => new AST.NoneLit(token, annotatedType));
+}
+
+function parseMatchExpression(parser: Parser): AST.Expression {
+    const rootToken = parser.previous(); // should be 'match'
+
+    // Parse the scrutinee expression
+    const scrutinee = parser.expression();
+    if (scrutinee === null) {
+        return parser.error("Expected expression after 'match'");
+    }
+
+    // Expect '{'
+    if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
+        return parser.error("Expected '{' after match scrutinee");
+    }
+    parser.advance(); // consume '{'
+
+    let someArm: { binding: string; body: AST.Expression } | null = null;
+    let noneArm: AST.Expression | null = null;
+
+    while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
+        // Skip leading commas (allow trailing comma after last arm)
+        if (parser.current().type === TokenType.Comma) {
+            parser.advance();
+            continue;
+        }
+
+        if (parser.current().type === TokenType.None) {
+            // `none` arm
+            if (noneArm !== null) {
+                return parser.error("Duplicate 'none' arm in match expression");
+            }
+            parser.advance(); // consume 'none'
+
+            const body = parser.expression();
+            if (body === null) {
+                return parser.error("Expected expression after 'none' in match arm");
+            }
+            noneArm = body;
+        } else if (
+            parser.current().type === TokenType.Identifier &&
+            parser.current().text === "some" &&
+            parser.peek()?.type === TokenType.LParen
+        ) {
+            // `some(ident)` arm
+            if (someArm !== null) {
+                return parser.error("Duplicate 'some' arm in match expression");
+            }
+            parser.advance(); // consume 'some'
+            parser.advance(); // consume '('
+
+            if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+                return parser.error("Expected variable name after 'some('");
+            }
+            const binding = parser.current().text;
+            parser.advance(); // consume binding name
+
+            if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
+                return parser.error("Expected ')' after binding name in 'some(...)'");
+            }
+            parser.advance(); // consume ')'
+
+            const body = parser.expression();
+            if (body === null) {
+                return parser.error("Expected expression after 'some(...)' in match arm");
+            }
+            someArm = { binding, body };
+        } else {
+            return parser.error(
+                "Expected match arm: 'some(identifier) expression' or 'none expression'"
+            );
+        }
+
+        // Optional comma after arm
+        if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+            parser.advance();
+        }
+    }
+
+    if (parser.atEnd()) {
+        return parser.error("Unterminated match expression");
+    }
+    parser.advance(); // consume '}'
+
+    if (someArm === null && noneArm === null) {
+        return parser.error("Match expression must have at least one arm");
+    }
+
+    return parser.tryCreateASTExpression(
+        () => new AST.Match(rootToken, scrutinee, someArm, noneArm)
+    );
 }
 
 class Parser {

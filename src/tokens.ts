@@ -52,6 +52,8 @@ export enum TokenType {
     Return = "return",
     Use = "use",
     From = "from",
+    None = "none",
+    Match = "match",
     Pipe = "|",
     // In-place assignment operators
     PlusEqual = "+=",

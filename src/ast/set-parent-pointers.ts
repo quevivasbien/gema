@@ -10,6 +10,7 @@ import {
     ForLoop,
     FunctionDef,
     If,
+    Match,
     RangeIter,
     Return,
     TupleLit,
@@ -42,6 +43,14 @@ export function setParentPointers(node: Expression, parent: Expression | null = 
     } else if (node instanceof ForLoop) {
         if (node.iter) setParentPointers(node.iter, node);
         setParentPointers(node.body, node);
+    } else if (node instanceof Match) {
+        setParentPointers(node.scrutinee, node);
+        if (node.someArm) {
+            setParentPointers(node.someArm.body, node);
+        }
+        if (node.noneArm) {
+            setParentPointers(node.noneArm, node);
+        }
     } else if (node instanceof Return) {
         setParentPointers(node.value, node);
     } else if (node instanceof Assignment) {

@@ -239,3 +239,157 @@ test("unsafe call in map iterator", () => {
         [5n, 4n, 3n, 2n, 1n]
     );
 });
+
+// ── `some()` builtin ─────────────────────────────────────
+
+test("some wraps a value", () => {
+    testCompile("some(42)", 42n);
+});
+
+test("some returns Maybe type (cannot be used directly)", () => {
+    testParseExpectError("some(42) + 1");
+});
+
+test("some result can be unwrapped", () => {
+    testCompile("unwrap(some(42))", 42n);
+});
+
+test("some result isnone returns false", () => {
+    testCompile("isnone(some(42))", false);
+});
+
+test("some with string type", () => {
+    testCompile('unwrap(some("hello"))', "hello");
+});
+
+test("some can be chained with unwrap default", () => {
+    testCompile("unwrap(some(7), 0)", 7n);
+});
+
+// ── `none` keyword ──────────────────────────────────────
+
+test("none creates Maybe type (cannot be used directly)", () => {
+    testParseExpectError("none:Int + 1");
+});
+
+test("none can be used with unwrap default", () => {
+    testCompile("unwrap(none:Int, 42)", 42n);
+});
+
+test("none result isnone returns true", () => {
+    testCompile("isnone(none:Int)", true);
+});
+
+test("none with string type", () => {
+    testCompile('unwrap(none:Str, "default")', "default");
+});
+
+test("none with inferred usage in if-else", () => {
+    testCompile(
+        `
+        x = none:Int;
+        if isnone(x) {
+            -1
+        } else {
+            unwrap(x)
+        }
+        `,
+        -1n
+    );
+});
+
+// ── `match` expression ───────────────────────────────────
+
+test("match some extracts value", () => {
+    testCompile("match some(42) { some(v) v, none 0 }", 42n);
+});
+
+test("match none returns default", () => {
+    testCompile("match none:Int { some(v) v, none 0 }", 0n);
+});
+
+test("match some with expression", () => {
+    testCompile("match some(5) { some(v) v * 2, none -1 }", 10n);
+});
+
+test("match some with block expression", () => {
+    testCompile("match some(5) { some(v) { w = v * 2; w + 1 }, none -1 }", 11n);
+});
+
+test("match some from array access", () => {
+    testCompile(
+        `
+        x = [10, 20, 30](1);
+        match x { some(v) v, none -1 }
+        `,
+        20n
+    );
+});
+
+test("match none from out-of-bounds access", () => {
+    testCompile(
+        `
+        x = [10, 20, 30](99);
+        match x { some(v) v, none -1 }
+        `,
+        -1n
+    );
+});
+
+test("match on function returning Maybe", () => {
+    testCompile(
+        `
+        func safeHead(arr: Arr[Int]): Maybe[Int] {
+            arr(0)
+        };
+        match safeHead([10, 20, 30]) { some(v) v, none -1 }
+        `,
+        10n
+    );
+});
+
+test("match on function returning Maybe with out-of-bounds", () => {
+    testCompile(
+        `
+        func safeHead(arr: Arr[Int]): Maybe[Int] {
+            arr(0)
+        };
+        match safeHead([]:Int) { some(v) v, none -1 }
+        `,
+        -1n
+    );
+});
+
+test("match on value of variable with same name as unwrapped var", () => {
+    testCompile(
+        `
+        x = some(1);
+        match x {
+            some(x) x + 1,
+            none 1
+        }
+        `,
+        2n
+    );
+});
+
+test("match type mismatch errors", () => {
+    testParseExpectError('match some(42) { some(v) v, none "hello" }');
+});
+
+test("match on non-Maybe type errors", () => {
+    testParseExpectError("match 42 { some(v) v, none 0 }");
+});
+
+test("match value used as expression", () => {
+    testCompile("(match some(3) { some(v) v + 1, none 0 }) + 10", 14n);
+});
+
+test("match some arm uses binding in expression", () => {
+    testCompile("match some(7) { some(n) n * n, none 0 }", 49n);
+});
+
+test("match without check for all conditions has null type", () => {
+    testParseExpectError("match some(1) { some(v) v }", "cannot have Null type");
+    testParseExpectError("match some(1) { none 1 }", "cannot have Null type");
+});

@@ -73,11 +73,17 @@ export function testParse(text: string) {
 /**
  * Parse a program and assert at least one error. Returns the AST.
  */
-export function testParseExpectError(text: string) {
+export function testParseExpectError(text: string, expectedMessage?: string) {
     resetRegistries();
     const tokens = scan(text);
     const { errors } = parse(tokens);
     expect(errors.length).toBeGreaterThan(0);
+    const messages = errors.map((e: { message: string }) => e.message);
+    if (expectedMessage !== undefined) {
+        const combined = messages.join("\n");
+        expect(combined).toInclude(expectedMessage);
+    }
+    return messages;
 }
 
 /**

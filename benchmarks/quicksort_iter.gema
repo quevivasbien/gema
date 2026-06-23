@@ -7,7 +7,7 @@ func quicksort(arr: Iter[Int]): Iter[Int] {
         rest = (drop(1, arr));
         left = filter(\x { x <= pivot }, rest);
         right = filter(\x { x > pivot }, rest);
-        quicksort(left) + [pivot] + quicksort(right)
+        quicksort(left) + toIter([pivot]) + quicksort(right)
     }
 };
 

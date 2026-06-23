@@ -1092,6 +1092,10 @@ export class Call extends Expression {
                     this.args[0]?.toJS(writer);
                     writer.write(" === undefined");
                     return;
+                case "some":
+                    // `some` is a pure type-system construct; at runtime it's a no-op
+                    this.args[0].toJS(writer);
+                    return;
                 case "contains":
                     if (
                         this.args[0]?.type instanceof ArrayType ||
