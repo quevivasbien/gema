@@ -3,7 +3,7 @@ import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller";
 import { Expression } from "./expression";
 import { deepEquals } from "./type-utils";
-import { ArrayType, CustomType, IterType, type Type } from "./types";
+import { ArrayType, CustomType, EnumType, IterType, type Type } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
 const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {
@@ -217,6 +217,17 @@ export class Binary extends Expression {
                 this.type = ltype;
                 return;
             }
+        }
+
+        // Enum types support == and != (they compare by value at runtime)
+        if (
+            ltype instanceof EnumType &&
+            rtype instanceof EnumType &&
+            ltype.name === rtype.name &&
+            (this.operator === TokenType.EqualEqual || this.operator === TokenType.BangEqual)
+        ) {
+            this.type = "Bool";
+            return;
         }
 
         // Try operator overloading for user-defined types

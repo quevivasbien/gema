@@ -5,12 +5,14 @@ export {
     findFunctionInModule,
     getAllMonomorphized,
     getMonomorphized,
+    getEnum,
     getSelectiveImportRules,
     getStruct,
     getTrait,
     isCrossModuleRefAllowed,
     isVarConsumed,
     markVarConsumed,
+    registerEnum,
     registerFunction,
     registerMonomorphized,
     registerStruct,
@@ -38,8 +40,6 @@ export {
     ForLoop,
     FunctionDef,
     If,
-    Match,
-    NoneLit,
     RangeIter,
     Return,
     UseModule,
@@ -51,6 +51,18 @@ export { Call, DirectCall } from "./calls";
 
 // Tuples
 export { TupleLit, TupleUnpack } from "./nodes";
+
+// Enums and match
+export {
+    EnumDef,
+    Match,
+    NoneLit,
+    type ElseArm,
+    type MatchArm,
+    type NoneArm,
+    type SomeArm,
+    type VariantArm,
+} from "./enums";
 
 // Structs and arrays
 export { ArrLit, FieldAccess, FieldAssignment, StructDef } from "./structs";

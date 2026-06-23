@@ -3,6 +3,7 @@ import type { Expression } from "./expression";
 import { Call, DirectCall } from "./calls";
 import { DropValue, ErrorExpression } from "./expression";
 import { Literal } from "./literals";
+import { EnumDef, Match, NoneLit } from "./enums";
 import {
     AnonymousFunction,
     Assignment,
@@ -10,7 +11,6 @@ import {
     ForLoop,
     FunctionDef,
     If,
-    Match,
     RangeIter,
     Return,
     TupleLit,
@@ -45,12 +45,17 @@ export function setParentPointers(node: Expression, parent: Expression | null = 
         setParentPointers(node.body, node);
     } else if (node instanceof Match) {
         setParentPointers(node.scrutinee, node);
-        if (node.someArm) {
-            setParentPointers(node.someArm.body, node);
+        for (const arm of node.arms) {
+            if (arm.kind === "some" || arm.kind === "variant") {
+                setParentPointers(arm.body, node);
+            } else if (arm.kind === "none" || arm.kind === "else") {
+                setParentPointers(arm.body, node);
+            }
         }
-        if (node.noneArm) {
-            setParentPointers(node.noneArm, node);
-        }
+    } else if (node instanceof EnumDef) {
+        // Leaf node — no children
+    } else if (node instanceof NoneLit) {
+        // Leaf node — no children
     } else if (node instanceof Return) {
         setParentPointers(node.value, node);
     } else if (node instanceof Assignment) {

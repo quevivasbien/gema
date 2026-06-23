@@ -2,6 +2,7 @@ import {
     Assignment,
     Block,
     DropValue,
+    EnumDef,
     type Expression,
     FunctionDef,
     StructDef,
@@ -105,6 +106,9 @@ function shouldKeepDefinition(
     }
 
     if (e instanceof StructDef && e.name) {
+        return reachable.has(e.name);
+    }
+    if (e instanceof EnumDef && e.name) {
         return reachable.has(e.name);
     }
 

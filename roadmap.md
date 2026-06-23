@@ -192,7 +192,12 @@ a = OptionalInt.value(1);
 b = OptionalInt.missing;
 ```
 
-If at least one variance
+If at least one variant has contents, we need to represent the enum in the tagged object format:
+
+```
+OptionalInt.value(1) -> { "$tag": 0, "$val": 1n }
+OptionalInt.missing -> { "$tag": 1, "$val": null }
+```
 
 For now, we are supporting only one value per tag, but in the future we might support something like this:
 
@@ -232,9 +237,38 @@ func square(n: Number): Number {
     decimal(d) Number.decimal(d * d),
   }
 }
+
+enum OptionalInt {
+  value: Int,
+  missing
+}
+
+func unwrapOptional(oi: OptionalInt, fallback: Int) {
+  match oi {
+    value(i) { i },
+    missing { fallback }
+  }
+}
 ```
 
 This would be handled via JS switch statements.
+
+If match statements do not match all the possible values, they automatically have type Null. Match statements can include an `else` clause to catch any other possible values (acts as the default switch fallthrough).
+
+```gema
+enum Grade { a, b, c }
+
+g = Grade.a;
+score = match g {
+  a { 100 },
+  else { 50 }
+};
+
+# This is not legal, since we can't assign a variable to a Null value
+sklore = match g {
+  a { 100 }
+};
+```
 
 ## Tentative: remove `:` from type annotations.
 
@@ -247,6 +281,8 @@ Don't require param types when referencing functions in a context where it's inf
 Go back to allowing generic types in functions to not specify a trait bound.
 
 Fix weird error message when trying to compile an empty program: "Error in main.gema at line 1, column 1: can't access property "line", Z is undefined"
+
+if/else exprs should not require {}
 
 range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
 
@@ -281,8 +317,6 @@ When transing an expression that is not a variable, there is no need for a copy 
 We can completely omit branches of the AST that do not operate on pre-existing mutable variables (or have other side effects) and are dropped.
 
 Relatively easy win: Block expressions that contain only a single expression do not need to be wrapped in an IIFE.
-
-Match expressions are not removed during tree shaking.
 
 Optimizations for StepIterator: can be made more efficient when stepping over ranges or arrays.
 

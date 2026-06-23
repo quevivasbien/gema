@@ -1,9 +1,16 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
-import { getStruct, registerStruct } from "./registries";
+import { getEnum, getStruct, registerStruct } from "./registries";
 import { deepEquals } from "./type-utils";
-import { ArrayType, CustomType, substituteTypeParams, type Type } from "./types";
+import {
+    ArrayType,
+    CustomType,
+    EnumType,
+    FuncType,
+    substituteTypeParams,
+    type Type,
+} from "./types";
 
 export class ArrLit extends Expression {
     expressions: Expression[];
@@ -107,6 +114,26 @@ export class FieldAccess extends Expression {
         if (this.obj.type === null) {
             throw this.error("unable to resolve type of object");
         }
+
+        if (this.obj.type instanceof EnumType) {
+            const enumInfo = getEnum(this.obj.type.name);
+            if (!enumInfo) {
+                throw this.error(`enum ${this.obj.type.name} not found in registry`);
+            }
+            const variant = enumInfo.variants.find((v) => v.name === this.fieldName);
+            if (!variant) {
+                throw this.error(`enum ${enumInfo.name} has no variant named "${this.fieldName}"`);
+            }
+            // Tagged variant: resolves to a constructor function (valueType → Enum)
+            if (variant.type !== null) {
+                this.type = new FuncType([variant.type], this.obj.type);
+            } else {
+                // Plain variant: resolves to the enum type itself
+                this.type = this.obj.type;
+            }
+            return;
+        }
+
         if (!(this.obj.type instanceof CustomType)) {
             throw this.error(`cannot access field on non-struct type ${this.obj.type}`);
         }
@@ -126,6 +153,29 @@ export class FieldAccess extends Expression {
     }
 
     toJS(writer: JSWriter): void {
+        if (this.obj.type instanceof EnumType) {
+            const enumInfo = getEnum(this.obj.type.name)!;
+            const vIdx = enumInfo.variants.findIndex((v) => v.name === this.fieldName);
+            if (vIdx === -1) return; // shouldn't happen
+            const variant = enumInfo.variants[vIdx];
+
+            // Plain enum (no tagged variants): emit tag index as number
+            if (!this.obj.type.isTagged) {
+                writer.write(String(vIdx));
+                return;
+            }
+
+            // Tagged variant: emit a factory function so DirectCall can invoke it
+            if (variant.type !== null) {
+                writer.write(`function($$val) { return {"$tag": ${vIdx}, "$val": $$val}; }`);
+                return;
+            }
+
+            // Plain variant in a mixed/tagged enum: emit the object directly
+            writer.write(`{"$tag": ${vIdx}, "$val": null}`);
+            return;
+        }
+
         writer.write("(");
         this.obj.toJS(writer);
         writer.write(`).${this.fieldName}`);

@@ -1,5 +1,11 @@
 import type { FunctionDef } from "./nodes";
-import { type TemplateTypes, type Type } from "./types";
+import {
+    EnumType,
+    type EnumVariant,
+    setEnumTypeResolver,
+    type TemplateTypes,
+    type Type,
+} from "./types";
 
 // Global registry of trait definitions, keyed by trait name
 const traitRegistry: Map<string, { name: string; paramNames: string[]; types: TemplateTypes }[]> =
@@ -35,6 +41,26 @@ export function getStruct(
     name: string
 ): { name: string; fields: { name: string; type: Type; mutable: boolean }[] } | undefined {
     return structRegistry.get(name);
+}
+
+// Global registry of enum definitions, keyed by enum name
+const enumRegistry: Map<string, { name: string; variants: EnumVariant[] }> = new Map();
+
+export function registerEnum(name: string, variants: EnumVariant[]): void {
+    enumRegistry.set(name, { name, variants });
+}
+
+// Register the enum type resolver so getType() can return EnumType for enum names
+setEnumTypeResolver((name: string) => {
+    const enumInfo = enumRegistry.get(name);
+    if (enumInfo) {
+        return new EnumType(enumInfo.name, enumInfo.variants);
+    }
+    return null;
+});
+
+export function getEnum(name: string): { name: string; variants: EnumVariant[] } | undefined {
+    return enumRegistry.get(name);
 }
 
 // Global cache of monomorphized functions, keyed by fullName
@@ -213,6 +239,7 @@ export function isCrossModuleRefAllowed(
 export function resetRegistries(): void {
     traitRegistry.clear();
     structRegistry.clear();
+    enumRegistry.clear();
     functionRegistry.clear();
     monomorphizedCache.clear();
     consumedVars.clear();

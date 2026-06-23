@@ -3,6 +3,7 @@ import {
     ArrayType,
     CustomType,
     DictType,
+    EnumType,
     FuncType,
     isBuiltinTypeName,
     IterType,
@@ -102,6 +103,17 @@ export function deepEquals(a: unknown, b: unknown): boolean {
     // MaybeType
     if (a instanceof MaybeType && b instanceof MaybeType) {
         return deepEquals(a.innerType, b.innerType);
+    }
+
+    // EnumType
+    if (a instanceof EnumType && b instanceof EnumType) {
+        if (a.name !== b.name) return false;
+        if (a.variants.length !== b.variants.length) return false;
+        for (let i = 0; i < a.variants.length; i++) {
+            if (a.variants[i].name !== b.variants[i].name) return false;
+            if (!deepEquals(a.variants[i].type, b.variants[i].type)) return false;
+        }
+        return true;
     }
 
     // FuncType

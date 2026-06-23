@@ -46,6 +46,10 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
         collectCustomTypeNames(type.innerType, names);
     } else if (type instanceof MaybeType) {
         collectCustomTypeNames(type.innerType, names);
+    } else if (type instanceof EnumType) {
+        for (const v of type.variants) {
+            if (v.type) collectCustomTypeNames(v.type, names);
+        }
     }
 }
 
@@ -93,6 +97,15 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     }
     if (type instanceof MaybeType) {
         return new MaybeType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof EnumType) {
+        return new EnumType(
+            type.name,
+            type.variants.map((v) => ({
+                name: v.name,
+                type: v.type ? substituteTypeParams(v.type, bindings) : null,
+            }))
+        );
     }
     return type;
 }
@@ -256,6 +269,38 @@ export class MaybeType {
     }
 }
 
+export interface EnumVariant {
+    name: string;
+    type: Type | null;
+}
+
+export class EnumType {
+    constructor(
+        public name: string,
+        public variants: EnumVariant[]
+    ) {}
+
+    toString(): string {
+        return this.name;
+    }
+
+    /** Return the index of a variant by name, or -1 if not found. */
+    variantIndex(variantName: string): number {
+        return this.variants.findIndex((v) => v.name === variantName);
+    }
+
+    /** Return the type of a variant's value, or null if plain. */
+    variantType(variantName: string): Type | null {
+        const v = this.variants.find((v) => v.name === variantName);
+        return v ? v.type : null;
+    }
+
+    /** True if at least one variant has a value type (tagged union). */
+    get isTagged(): boolean {
+        return this.variants.some((v) => v.type !== null);
+    }
+}
+
 export class CustomType {
     name: string;
     traits: string[];
@@ -293,6 +338,7 @@ export type Type =
     | SetType
     | MutSetType
     | MaybeType
+    | EnumType
     | CustomType
     | "Self";
 
@@ -424,5 +470,16 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         return new MaybeType(templateTypes.types[0]);
     }
 
+    // Check if this is a registered enum type (lazy lookup to avoid circular imports)
+    if (resolveEnumType) {
+        const enumType = resolveEnumType(typeName);
+        if (enumType) return enumType;
+    }
     return new CustomType(typeName);
+}
+
+// Lazy enum type resolver — set by registries to avoid circular imports
+let resolveEnumType: ((name: string) => EnumType | null) | null = null;
+export function setEnumTypeResolver(resolver: ((name: string) => EnumType | null) | null): void {
+    resolveEnumType = resolver;
 }

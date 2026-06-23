@@ -68,6 +68,11 @@ PARSE_RULES[TokenType.Trait] = {
     infix: null,
     precedence: Precedence.None,
 };
+PARSE_RULES[TokenType.Enum] = {
+    prefix: parseEnum,
+    infix: null,
+    precedence: Precedence.None,
+};
 
 // AST.Literals
 PARSE_RULES[TokenType.Integer] = {
@@ -594,6 +599,58 @@ function parseTrait(parser: Parser): AST.Expression {
     }
 }
 
+function parseEnum(parser: Parser): AST.Expression {
+    const rootToken = parser.previous(); // should be 'enum'
+    if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+        return parser.error("Expected enum name after 'enum'");
+    }
+    const name = parser.current().text;
+    parser.advance(); // consume enum name
+
+    if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
+        return parser.error("Expected '{' after enum name.");
+    }
+    parser.advance(); // consume '{'
+
+    const variants: { name: string; type: Type | null }[] = [];
+    const seenNames = new Set<string>();
+
+    while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
+        if (parser.current().type !== TokenType.Identifier) {
+            return parser.error("Expected variant name.");
+        }
+        const variantName = parser.current().text;
+        if (seenNames.has(variantName)) {
+            return parser.error(`Duplicate variant name '${variantName}' in enum ${name}.`);
+        }
+        seenNames.add(variantName);
+        parser.advance(); // consume variant name
+
+        let variantType: Type | null = null;
+        // Check for optional type annotation: variant: Type
+        if (!parser.atEnd() && parser.current().type === TokenType.Colon) {
+            parser.advance(); // consume ':'
+            variantType = parser.getTypeName();
+            if (!variantType) {
+                return parser.error("Invalid type annotation for enum variant.");
+            }
+        }
+
+        variants.push({ name: variantName, type: variantType });
+
+        if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
+            parser.advance();
+        }
+    }
+
+    if (parser.atEnd()) {
+        return parser.error("Unterminated enum definition.");
+    }
+    parser.advance(); // consume '}'
+
+    return parser.tryCreateASTExpression(() => new AST.EnumDef(rootToken, name, variants));
+}
+
 function parseInt(parser: Parser): AST.Expression {
     const token = parser.previous();
     return new AST.Literal(token, "Int");
@@ -1062,8 +1119,7 @@ function parseMatchExpression(parser: Parser): AST.Expression {
     }
     parser.advance(); // consume '{'
 
-    let someArm: { binding: string; body: AST.Expression } | null = null;
-    let noneArm: AST.Expression | null = null;
+    const arms: AST.MatchArm[] = [];
 
     while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
         // Skip leading commas (allow trailing comma after last arm)
@@ -1073,48 +1129,59 @@ function parseMatchExpression(parser: Parser): AST.Expression {
         }
 
         if (parser.current().type === TokenType.None) {
-            // `none` arm
-            if (noneArm !== null) {
-                return parser.error("Duplicate 'none' arm in match expression");
-            }
+            // `none` arm (Maybe)
             parser.advance(); // consume 'none'
-
             const body = parser.expression();
             if (body === null) {
                 return parser.error("Expected expression after 'none' in match arm");
             }
-            noneArm = body;
+            arms.push({ kind: "none", body });
+        } else if (parser.current().type === TokenType.Else) {
+            // `else` arm (catch-all for enums)
+            parser.advance(); // consume 'else'
+            const body = parser.expression();
+            if (body === null) {
+                return parser.error("Expected expression after 'else' in match arm");
+            }
+            arms.push({ kind: "else", body });
         } else if (
             parser.current().type === TokenType.Identifier &&
-            parser.current().text === "some" &&
             parser.peek()?.type === TokenType.LParen
         ) {
-            // `some(ident)` arm
-            if (someArm !== null) {
-                return parser.error("Duplicate 'some' arm in match expression");
-            }
-            parser.advance(); // consume 'some'
+            // Arm with binding: variantName(ident) body  — or  some(ident) body for Maybe
+            const variantName = parser.current().text;
+            parser.advance(); // consume identifier
             parser.advance(); // consume '('
 
             if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
-                return parser.error("Expected variable name after 'some('");
+                return parser.error("Expected variable name after '('");
             }
             const binding = parser.current().text;
             parser.advance(); // consume binding name
 
             if (parser.atEnd() || parser.current().type !== TokenType.RParen) {
-                return parser.error("Expected ')' after binding name in 'some(...)'");
+                return parser.error("Expected ')' after binding name");
             }
             parser.advance(); // consume ')'
 
             const body = parser.expression();
             if (body === null) {
-                return parser.error("Expected expression after 'some(...)' in match arm");
+                return parser.error("Expected expression after arm pattern");
             }
-            someArm = { binding, body };
+            arms.push({ kind: "variant", variantName, binding, bindingType: null, body });
+        } else if (parser.current().type === TokenType.Identifier) {
+            // Plain arm without binding: variantName body  (or { block })
+            const variantName = parser.current().text;
+            parser.advance(); // consume identifier
+
+            const body = parser.expression();
+            if (body === null) {
+                return parser.error("Expected expression after arm name");
+            }
+            arms.push({ kind: "variant", variantName, binding: null, bindingType: null, body });
         } else {
             return parser.error(
-                "Expected match arm: 'some(identifier) expression' or 'none expression'"
+                "Expected match arm: 'name body', 'name(ident) body', 'none body', or 'else body'"
             );
         }
 
@@ -1129,13 +1196,11 @@ function parseMatchExpression(parser: Parser): AST.Expression {
     }
     parser.advance(); // consume '}'
 
-    if (someArm === null && noneArm === null) {
+    if (arms.length === 0) {
         return parser.error("Match expression must have at least one arm");
     }
 
-    return parser.tryCreateASTExpression(
-        () => new AST.Match(rootToken, scrutinee, someArm, noneArm)
-    );
+    return parser.tryCreateASTExpression(() => new AST.Match(rootToken, scrutinee, arms));
 }
 
 class Parser {
