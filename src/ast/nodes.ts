@@ -1,5 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
+import type { RustWriter } from "../write-rust";
 import {
     checkTraitSatisfied,
     extractBindingsFromParams,
@@ -36,7 +37,21 @@ import {
     TupleType,
     type Type,
 } from "./types";
-import type { RustWriter } from "../write-rust";
+
+// ── Helper: Map Gema type to Rust type name string ──
+function rustTypeName(type: Type | null): string {
+    if (type === null || type === "Null") return "()";
+    if (type === "Int") return "i64";
+    if (type === "Float") return "f64";
+    if (type === "Bool") return "bool";
+    if (type === "Str") return "Rc<String>";
+    if (type instanceof ArrayType) return `Rc<Vec<${rustTypeName(type.innerType)}>>`;
+    if (type instanceof FuncType) {
+        const params = type.paramTypes.map((t) => rustTypeName(t)).join(", ");
+        return `Box<dyn Fn(${params}) -> ${rustTypeName(type.returnType)}>`;
+    }
+    return "i64";
+}
 
 export class Block extends Expression {
     constructor(
@@ -94,11 +109,24 @@ export class Block extends Expression {
         const lastExpr = this.expressions[this.expressions.length - 1];
         writer.beginScope();
         for (const expression of this.expressions.slice(0, -1)) {
-            expression.toJS(writer);
-            writer.write(";");
+            expression.toRust(writer);
+            // For non-last expressions, add semicolon to discard value (except for let statements which already handle their own semicolons)
+            if (!(expression instanceof Assignment)) {
+                writer.write(";");
+            }
             writer.newLine();
         }
-        lastExpr.toJS(writer);
+        // Last expression: don't add semicolon so its value becomes the block's return value
+        if (lastExpr instanceof Assignment && !lastExpr.isDropped) {
+            // `let` is a statement in Rust, not an expression.
+            // Emit `let name = value;` then `name` as the block's value.
+            lastExpr.toRust(writer);
+            writer.write(";");
+            writer.newLine();
+            writer.write(writer.safeName(lastExpr.name));
+        } else {
+            lastExpr.toRust(writer);
+        }
         writer.endScope();
     }
 
@@ -260,6 +288,39 @@ export class If extends Expression {
                 });
                 writer.endScope();
             });
+        }
+    }
+
+    toRust(writer: RustWriter): void {
+        if (this.hasElse) {
+            let first = true;
+            for (const { condition, branch } of this.conditionalBranches) {
+                if (first) {
+                    writer.write("if ");
+                    first = false;
+                } else {
+                    writer.write(" else if ");
+                }
+                condition.toRust(writer);
+                writer.write(" ");
+                branch.toRust(writer);
+            }
+            writer.write(" else ");
+            this.elseBranch.toRust(writer);
+        } else {
+            // No else — emit plain if chain
+            let first = true;
+            for (const { condition, branch } of this.conditionalBranches) {
+                if (first) {
+                    writer.write("if ");
+                    first = false;
+                } else {
+                    writer.write(" else if ");
+                }
+                condition.toRust(writer);
+                writer.write(" ");
+                branch.toRust(writer);
+            }
         }
     }
 }
@@ -431,6 +492,11 @@ export class ForLoop extends Expression {
         writer.newLine();
         writer.write(`${safeIterVar}.reset()`);
     }
+
+    toRust(_writer: RustWriter): void {
+        // For loops not yet supported in Rust target — throw a descriptive error
+        throw new Error("for loops are not yet supported in the Rust compilation target");
+    }
 }
 
 export class Break extends Expression {
@@ -482,6 +548,10 @@ export class Break extends Expression {
         } else {
             writer.write("break");
         }
+    }
+
+    toRust(writer: RustWriter): void {
+        writer.write("break");
     }
 }
 
@@ -538,6 +608,10 @@ export class Continue extends Expression {
         } else {
             writer.write("continue");
         }
+    }
+
+    toRust(writer: RustWriter): void {
+        writer.write("continue");
     }
 }
 
@@ -600,6 +674,11 @@ export class Return extends Expression {
             this.value.toJS(writer);
         }
     }
+
+    toRust(writer: RustWriter): void {
+        writer.write("return ");
+        this.value.toRust(writer);
+    }
 }
 
 /**
@@ -621,6 +700,10 @@ export class UseModule extends Expression {
     }
 
     toJS(_writer: JSWriter): void {
+        // No runtime code generated for `use` directives.
+    }
+
+    toRust(_writer: RustWriter): void {
         // No runtime code generated for `use` directives.
     }
 
@@ -710,6 +793,11 @@ export class RangeIter extends Expression {
         }
         writer.write(")");
     }
+
+    toRust(_writer: RustWriter): void {
+        // Range iterators not yet supported in Rust target
+        throw new Error("range iterators are not yet supported in the Rust compilation target");
+    }
 }
 
 export class TupleLit extends Expression {
@@ -750,6 +838,11 @@ export class TupleLit extends Expression {
             elem.toJS(writer);
         });
         writer.write("]");
+    }
+
+    toRust(_writer: RustWriter): void {
+        // Tuples not yet supported in Rust target
+        throw new Error("tuples are not yet supported in the Rust compilation target");
     }
 }
 
@@ -857,6 +950,11 @@ export class TupleUnpack extends Expression {
             }
             writer.write(`, ${tmpName})`);
         }
+    }
+
+    toRust(_writer: RustWriter): void {
+        // Tuple unpacking not yet supported in Rust target
+        throw new Error("tuple unpacking is not yet supported in the Rust compilation target");
     }
 }
 
@@ -1163,6 +1261,13 @@ export class Variable extends Expression {
             writer.write(".clone()");
         }
     }
+
+    toRust(writer: RustWriter): void {
+        if (this.fullName === undefined) {
+            throw this.error(`type of variable ${this} not resolved`);
+        }
+        writer.write(writer.safeName(this.fullName));
+    }
 }
 
 export class Assignment extends Expression {
@@ -1357,6 +1462,27 @@ export class Assignment extends Expression {
             }
         }
     }
+
+    toRust(writer: RustWriter): void {
+        const safeName = writer.safeName(this.name);
+        if (this.isReassignment) {
+            writer.write(`${safeName} = `);
+            this.value.toRust(writer);
+        } else {
+            // `let` is a statement in Rust, not an expression.
+            // We emit `let name = value;` always with semicolon.
+            // If this is the last expression in a block and not dropped,
+            // Block.toRust will detect that and add a trailing `name` reference.
+            writer.write(`let ${safeName} = `);
+            this.value.toRust(writer);
+            if (this.isDropped) {
+                writer.write(";");
+            }
+            // Note: if not dropped, we DON'T add semicolon here — Block.toRust
+            // will add the semicolon for non-last expressions, and for the last
+            // expression it will handle the value-propagation.
+        }
+    }
 }
 
 export class AnonymousFunction extends Expression {
@@ -1525,6 +1651,11 @@ export class AnonymousFunction extends Expression {
             writer.write("}");
         }
         writer.endFunction();
+    }
+
+    toRust(_writer: RustWriter): void {
+        // Anonymous functions not yet supported in Rust target
+        throw new Error("anonymous functions are not yet supported in the Rust compilation target");
     }
 }
 
@@ -1873,6 +2004,40 @@ export class FunctionDef extends Expression {
             writer.newLine();
             writer.write("}");
         }
+        writer.endFunction();
+    }
+
+    toRust(writer: RustWriter): void {
+        if (this.isGeneric) {
+            for (const v of this.monomorphizedVersions) {
+                v.toRust(writer);
+                writer.write(";");
+                writer.newLine();
+            }
+            return;
+        }
+        writer.write(`fn ${writer.safeName(this.fullName)}(`);
+        writer.write(
+            this.params.map((p) => `${writer.safeName(p.name)}: ${rustTypeName(p.type)}`).join(", ")
+        );
+        const retType = this.returnType === "Null" ? null : rustTypeName(this.returnType);
+        if (retType) {
+            writer.write(`) -> ${retType} `);
+        } else {
+            writer.write(") ");
+        }
+        writer.beginFunction();
+        this.body.expressions.slice(0, -1).forEach((expr) => {
+            expr.toRust(writer);
+            writer.write(";");
+            writer.newLine();
+        });
+        const lastExpr = this.body.expressions[this.body.expressions.length - 1];
+        if (Block.lastExprShouldReturn(lastExpr)) {
+            writer.write("return ");
+        }
+        lastExpr.toRust(writer);
+        writer.write(";");
         writer.endFunction();
     }
 }

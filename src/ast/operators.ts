@@ -94,6 +94,20 @@ export class Unary extends Expression {
         this.child.toJS(writer);
         writer.write("))");
     }
+
+    toRust(writer: RustWriter): void {
+        if (this.operator === TokenType.Minus) {
+            writer.write("-(");
+            this.child.toRust(writer);
+            writer.write(")");
+        } else if (this.operator === TokenType.Bang) {
+            writer.write("!(");
+            this.child.toRust(writer);
+            writer.write(")");
+        } else {
+            throw this.error(`unexpected unary operator: ${this.operator}`);
+        }
+    }
 }
 
 export class Binary extends Expression {
@@ -351,78 +365,96 @@ export class Binary extends Expression {
         if (this.overloadedAs) {
             writer.write(writer.safeName(this.overloadedAs.name));
             writer.write("(");
-            this.left.toJS(writer);
+            this.left.toRust(writer);
             writer.write(", ");
-            this.right.toJS(writer);
+            this.right.toRust(writer);
             writer.write(")");
             return;
         }
         // Handle + for arrays (array concatenation)
         if (this.left.type instanceof ArrayType && this.right.type instanceof ArrayType) {
-            // if (this.operator === TokenType.Plus) {
-            //     writer.write("[...");
-            //     this.left.toJS(writer);
-            //     writer.write(", ...");
-            //     this.right.toJS(writer);
-            //     writer.write("]");
-            //     return;
-            // } else if (this.operator === TokenType.EqualEqual) {
-            //     writer.useBuiltin("$arrayEq$");
-            //     writer.write("$arrayEq$(");
-            //     this.left.toJS(writer);
-            //     writer.write(", ");
-            //     this.right.toJS(writer);
-            //     writer.write(")");
-            //     return;
-            // }
-            throw new Error("array concat not yet supported");
+            if (this.operator === TokenType.Plus) {
+                // Clone both Rc<Vec<T>>, extend one with the other
+                writer.write("Rc::new({ let mut v = (*");
+                this.left.toRust(writer);
+                writer.write(").clone(); v.extend((*");
+                this.right.toRust(writer);
+                writer.write(").clone()); v })");
+                return;
+            } else if (this.operator === TokenType.EqualEqual) {
+                writer.useBuiltin("gema_array_eq");
+                writer.write("gema_array_eq(&");
+                this.left.toRust(writer);
+                writer.write(", &");
+                this.right.toRust(writer);
+                writer.write(")");
+                return;
+            }
+            throw new Error("array operations not yet fully supported");
         }
-        // Handle + for iterators (iterator concatenation)
-        if (this.left.type instanceof IterType || this.right.type instanceof IterType) {
-            // if (this.operator === TokenType.Plus) {
-            //     writer.useBuiltin("$ConcatIterator$");
-            //     writer.write("new $ConcatIterator$(");
-            //     if (this.left.type instanceof ArrayType) {
-            //         writer.useBuiltin("$ArrayIterator$");
-            //         writer.write("new $ArrayIterator$(");
-            //         this.left.toJS(writer);
-            //         writer.write("), ");
-            //     } else {
-            //         this.left.toJS(writer);
-            //         writer.write(", ");
-            //     }
-            //     if (this.right.type instanceof ArrayType) {
-            //         writer.useBuiltin("$ArrayIterator$");
-            //         writer.write("new $ArrayIterator$(");
-            //         this.right.toJS(writer);
-            //         writer.write("))");
-            //     } else {
-            //         this.right.toJS(writer);
-            //         writer.write(")");
-            //     }
-            //     return;
-            // }
-            throw new Error("iterator concat not yet supported");
+        // Handle + for string concatenation
+        if (
+            this.left.type === "Str" &&
+            this.right.type === "Str" &&
+            this.operator === TokenType.Plus
+        ) {
+            writer.useBuiltin("gema_str_concat");
+            writer.write("gema_str_concat(&");
+            this.left.toRust(writer);
+            writer.write(", &");
+            this.right.toRust(writer);
+            writer.write(")");
+            return;
+        }
+        // Handle == and != for strings (Rc comparison via deref)
+        if (this.left.type === "Str" && this.right.type === "Str") {
+            if (this.operator === TokenType.EqualEqual) {
+                writer.write("(*");
+                this.left.toRust(writer);
+                writer.write(" == *");
+                this.right.toRust(writer);
+                writer.write(")");
+                return;
+            } else if (this.operator === TokenType.BangEqual) {
+                writer.write("(*");
+                this.left.toRust(writer);
+                writer.write(" != *");
+                this.right.toRust(writer);
+                writer.write(")");
+                return;
+            }
         }
         if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
             writer.write("(");
-            this.left.toJS(writer);
+            this.left.toRust(writer);
             writer.write(` ${OPERATOR_TRANSLATIONS[this.operator]} `);
-            this.right.toJS(writer);
+            this.right.toRust(writer);
             writer.write(")");
             return;
         } else if (this.operator === TokenType.Percent) {
-            writer.useBuiltin("$mod$");
-            writer.write("$mod$(");
-            this.left.toJS(writer);
+            writer.useBuiltin("gema_mod");
+            writer.write("gema_mod(");
+            this.left.toRust(writer);
             writer.write(", ");
-            this.right.toJS(writer);
+            this.right.toRust(writer);
             writer.write(")");
             return;
         } else if (this.operator === TokenType.Caret) {
-            this.left.toJS(writer);
-            writer.write(" ** ");
-            this.right.toJS(writer);
+            if (this.left.type === "Float" || this.right.type === "Float") {
+                writer.useBuiltin("gema_pow_f64");
+                writer.write("gema_pow_f64(");
+                this.left.toRust(writer);
+                writer.write(", ");
+                this.right.toRust(writer);
+                writer.write(")");
+            } else {
+                writer.useBuiltin("gema_pow_i64");
+                writer.write("gema_pow_i64(");
+                this.left.toRust(writer);
+                writer.write(", ");
+                this.right.toRust(writer);
+                writer.write(")");
+            }
             return;
         }
         throw this.error(`tried to use token ${this.operator} as binary operator`);

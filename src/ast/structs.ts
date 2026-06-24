@@ -1,5 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
+import type { RustWriter } from "../write-rust";
 import { Expression } from "./expression";
 import { getEnum, getStruct, registerStruct } from "./registries";
 import { deepEquals } from "./type-utils";
@@ -67,6 +68,15 @@ export class ArrLit extends Expression {
         });
         writer.write("]");
     }
+
+    toRust(writer: RustWriter): void {
+        writer.write("Rc::new(vec![");
+        this.expressions.forEach((expr, i) => {
+            if (i > 0) writer.write(", ");
+            expr.toRust(writer);
+        });
+        writer.write("])");
+    }
 }
 
 export class StructDef extends Expression {
@@ -97,6 +107,10 @@ export class StructDef extends Expression {
 
     toJS(_writer: JSWriter): void {
         // Struct definitions are for type-checking only; not emitted to JS
+    }
+
+    toRust(_writer: RustWriter): void {
+        // Struct definitions are for type-checking only; not emitted to Rust
     }
 }
 
@@ -181,6 +195,16 @@ export class FieldAccess extends Expression {
         this.obj.toJS(writer);
         writer.write(`).${this.fieldName}`);
     }
+
+    toRust(writer: RustWriter): void {
+        if (this.obj.type instanceof EnumType) {
+            // Enum variant access not yet supported in Rust target
+            throw new Error("enum field access not yet supported in Rust target");
+        }
+        writer.write("(");
+        this.obj.toRust(writer);
+        writer.write(`).${this.fieldName}`);
+    }
 }
 
 export class FieldAssignment extends Expression {
@@ -242,5 +266,10 @@ export class FieldAssignment extends Expression {
         this.obj.toJS(writer);
         writer.write(`.${this.fieldName} = `);
         this.value.toJS(writer);
+    }
+
+    toRust(_writer: RustWriter): void {
+        // Field assignment not yet supported in Rust target (no mutable fields in POC)
+        throw new Error("field assignment is not yet supported in the Rust compilation target");
     }
 }

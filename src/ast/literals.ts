@@ -46,15 +46,16 @@ export class Literal extends Expression {
     toRust(compiler: RustWriter): void {
         switch (this.type) {
             case "Int":
-                // The regex replace here is to remove leading zeros so we don't attempt to represent them as octal
-                compiler.write(`${this.value.replace(/^0+(?=.)/, "")}n`);
+                // Remove leading zeros (Rust doesn't allow octal)
+                compiler.write(this.value.replace(/^0+(?=.)/, ""));
                 break;
             case "Float":
-                // The regex replace here is to remove extra leading zeros so we don't attempt to represent them as octal
+                // Remove leading zeros
                 compiler.write(this.value.replace(/^0+?(?=0\.|[^0])/, ""));
                 break;
             case "Str":
-                compiler.write(this.value);
+                // Emit as Rc::new("...".to_string())
+                compiler.write(`Rc::new(${this.value}.to_string())`);
                 break;
             case "Bool":
                 compiler.write(this.value);

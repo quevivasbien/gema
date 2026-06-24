@@ -1,5 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
+import type { RustWriter } from "../write-rust";
 import { findCaller } from "./caller";
 import { DropValue, Expression } from "./expression";
 import { Literal } from "./literals";
@@ -1344,6 +1345,179 @@ export class Call extends Expression {
             throw new Error(`unknown caller type: ${this.callerType}`);
         }
     }
+
+    toRust(writer: RustWriter): void {
+        if (this.referToByName === undefined) {
+            throw new Error("caller name not resolved");
+        }
+        if (this.isStructFieldAccess) {
+            writer.write(writer.safeName(this.referToByName!));
+            writer.write(`.${this.structFieldName}`);
+            return;
+        }
+        if (this.isStringIndexing) {
+            writer.useBuiltin("gema_str_index");
+            writer.write("gema_str_index(&");
+            writer.write(writer.safeName(this.referToByName!));
+            writer.write(", ");
+            this.args[0].toRust(writer);
+            writer.write(")");
+            return;
+        }
+        if (this.isBuiltin) {
+            switch (this.builtinKind) {
+                case "toStr":
+                    if (this.args[0]?.type === "Int") {
+                        writer.useBuiltin("gema_to_string_i64");
+                        writer.write("gema_to_string_i64(");
+                    } else if (this.args[0]?.type === "Float") {
+                        writer.useBuiltin("gema_to_string_f64");
+                        writer.write("gema_to_string_f64(");
+                    } else if (this.args[0]?.type === "Bool") {
+                        writer.useBuiltin("gema_to_string_bool");
+                        writer.write("gema_to_string_bool(");
+                    } else if (this.args[0]?.type === "Str") {
+                        writer.useBuiltin("gema_to_string_rc_string");
+                        writer.write("gema_to_string_rc_string(&");
+                    } else {
+                        throw new Error(`toStr not supported for type ${this.args[0]?.type}`);
+                    }
+                    this.args[0]?.toRust(writer);
+                    writer.write(")");
+                    return;
+                case "toInt":
+                    if (this.args[0]?.type === "Float") {
+                        writer.write("(");
+                        this.args[0]?.toRust(writer);
+                        writer.write(" as i64)");
+                    } else if (this.args[0]?.type === "Bool") {
+                        writer.write("if ");
+                        this.args[0]?.toRust(writer);
+                        writer.write(" { 1i64 } else { 0i64 }");
+                    } else if (this.args[0]?.type === "Str") {
+                        writer.write("(");
+                        this.args[0]?.toRust(writer);
+                        writer.write(".parse::<i64>().unwrap_or(0))");
+                    } else {
+                        throw new Error(`toInt not supported for type ${this.args[0]?.type}`);
+                    }
+                    return;
+                case "toFloat":
+                    if (this.args[0]?.type === "Int") {
+                        writer.write("(");
+                        this.args[0]?.toRust(writer);
+                        writer.write(" as f64)");
+                    } else if (this.args[0]?.type === "Bool") {
+                        writer.write("if ");
+                        this.args[0]?.toRust(writer);
+                        writer.write(" { 1.0f64 } else { 0.0f64 }");
+                    } else if (this.args[0]?.type === "Str") {
+                        writer.write("(");
+                        this.args[0]?.toRust(writer);
+                        writer.write(".parse::<f64>().unwrap_or(0.0))");
+                    } else {
+                        throw new Error(`toFloat not supported for type ${this.args[0]?.type}`);
+                    }
+                    return;
+                case "toBool":
+                    writer.write("(");
+                    this.args[0]?.toRust(writer);
+                    writer.write(" != 0)");
+                    return;
+                case "length":
+                    if (this.args[0]?.type instanceof ArrayType) {
+                        writer.useBuiltin("gema_array_len");
+                        writer.write("gema_array_len(&");
+                        this.args[0]?.toRust(writer);
+                        writer.write(")");
+                    } else if (this.args[0]?.type === "Str") {
+                        writer.write("(");
+                        this.args[0]?.toRust(writer);
+                        writer.write(".len() as i64)");
+                    } else {
+                        throw new Error(`length not supported for type ${this.args[0]?.type}`);
+                    }
+                    return;
+                case "last":
+                    if (this.args[0]?.type instanceof ArrayType) {
+                        writer.useBuiltin("gema_array_get");
+                        writer.write("gema_array_get(&");
+                        this.args[0]?.toRust(writer);
+                        writer.write(", ");
+                        writer.useBuiltin("gema_array_len");
+                        writer.write("gema_array_len(&");
+                        this.args[0]?.toRust(writer);
+                        writer.write(") - 1)");
+                    } else {
+                        throw new Error(`last not supported for type ${this.args[0]?.type}`);
+                    }
+                    return;
+                case "isnone":
+                    writer.write("false /* POC: no Maybe type in Rust */");
+                    return;
+                case "some":
+                    this.args[0].toRust(writer);
+                    return;
+                case "contains":
+                    if (this.args[0]?.type instanceof ArrayType) {
+                        writer.write("(");
+                        this.args[0]?.toRust(writer);
+                        writer.write(".contains(&");
+                        this.args[1]?.toRust(writer);
+                        writer.write("))");
+                    } else if (this.args[0]?.type === "Str") {
+                        writer.write("(");
+                        this.args[0]?.toRust(writer);
+                        writer.write(".contains(&");
+                        this.args[1]?.toRust(writer);
+                        writer.write(".as_str()))");
+                    } else {
+                        throw new Error(`contains not supported for type ${this.args[0]?.type}`);
+                    }
+                    return;
+                default:
+                    throw new Error(
+                        `builtin '${this.builtinKind}' not yet supported in Rust target`
+                    );
+            }
+        }
+        if (this.callerType instanceof FuncType) {
+            if (this.isStructConstructor) {
+                const structInfo = getStruct(this.name)!;
+                writer.write(`${this.name} { `);
+                this.args.forEach((arg, i) => {
+                    if (i > 0) writer.write(", ");
+                    writer.write(`${structInfo.fields[i].name}: `);
+                    arg.toRust(writer);
+                });
+                writer.write(" }");
+            } else {
+                writer.write(writer.safeName(this.referToByName));
+                writer.write("(");
+                this.args.forEach((arg, i) => {
+                    if (i > 0) writer.write(", ");
+                    arg.toRust(writer);
+                });
+                writer.write(")");
+            }
+        } else if (this.callerType instanceof ArrayType || this.callerType instanceof MutArrType) {
+            writer.write(writer.safeName(this.referToByName));
+            this.args.forEach((arg) => {
+                writer.write("[");
+                arg.toRust(writer);
+                writer.write(" as usize]");
+            });
+        } else if (this.callerType instanceof TupleType) {
+            writer.write(writer.safeName(this.referToByName));
+            this.args.forEach((arg) => {
+                writer.write("[");
+                arg.toRust(writer);
+                writer.write(" as usize]");
+            });
+        } else {
+            throw new Error(`unknown caller type: ${this.callerType}`);
+        }
+    }
 }
 
 // ── DirectCall (expression-based call, e.g., anon function call) ──
@@ -1711,6 +1885,74 @@ export class DirectCall extends Expression {
                 writer.write(")");
             } else {
                 throw new Error(`unknown caller type: ${this.caller.type}`);
+            }
+        }
+    }
+
+    toRust(writer: RustWriter): void {
+        if (this.caller.type === "Str") {
+            if (this.args.length >= 1) {
+                if (this.isUnsafe) {
+                    writer.useBuiltin("gema_str_index");
+                    writer.write("gema_str_index(&");
+                    this.caller.toRust(writer);
+                    writer.write(", ");
+                    this.args[0].toRust(writer);
+                    writer.write(")");
+                } else {
+                    // Maybe-wrapped index: use helper that returns Rc<String>
+                    writer.useBuiltin("gema_str_index");
+                    writer.write("gema_str_index(&");
+                    this.caller.toRust(writer);
+                    writer.write(", ");
+                    this.args[0].toRust(writer);
+                    writer.write(")");
+                }
+            }
+        } else if (this.caller.type instanceof CustomType && getStruct(this.caller.type.name)) {
+            const fieldName =
+                this.args[0] instanceof Literal ? this.args[0].value.slice(1, -1) : "";
+            writer.write("(");
+            this.caller.toRust(writer);
+            writer.write(").");
+            // Use safeName for field (might be needed if field conflicts with reserved word)
+            // For now just use the field name directly
+            writer.write(fieldName);
+        } else {
+            writer.write("(");
+            this.caller.toRust(writer);
+            writer.write(")");
+            if (this.caller.type instanceof FuncType) {
+                writer.write("(");
+                this.args.forEach((arg, i) => {
+                    if (i > 0) writer.write(", ");
+                    arg.toRust(writer);
+                });
+                writer.write(")");
+            } else if (
+                this.caller.type instanceof ArrayType ||
+                this.caller.type instanceof MutArrType
+            ) {
+                this.args.forEach((arg) => {
+                    writer.write("[");
+                    arg.toRust(writer);
+                    writer.write(" as usize]");
+                });
+            } else if (this.caller.type instanceof TupleType) {
+                this.args.forEach((arg) => {
+                    writer.write("[");
+                    arg.toRust(writer);
+                    writer.write(" as usize]");
+                });
+            } else if (
+                this.caller.type instanceof DictType ||
+                this.caller.type instanceof MutDictType
+            ) {
+                writer.write(".get(&");
+                this.args[0]?.toRust(writer);
+                writer.write(")");
+            } else {
+                throw new Error(`unknown caller type for Rust: ${this.caller.type}`);
             }
         }
     }

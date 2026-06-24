@@ -1,5 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
+import type { RustWriter } from "../write-rust";
 import { Expression } from "./expression";
 import { registerEnum } from "./registries";
 import { deepEquals } from "./type-utils";
@@ -58,6 +59,11 @@ export class NoneLit extends Expression {
 
     toJS(writer: JSWriter): void {
         writer.write("undefined");
+    }
+
+    toRust(_writer: RustWriter): void {
+        // none literals not yet supported in Rust target
+        throw new Error("none literals are not yet supported in the Rust compilation target");
     }
 }
 
@@ -256,6 +262,11 @@ export class Match extends Expression {
         } else if (isEnum) {
             this.toJSEnum(writer);
         }
+    }
+
+    toRust(_writer: RustWriter): void {
+        // Match expressions not yet supported in Rust target
+        throw new Error("match expressions are not yet supported in the Rust compilation target");
     }
 
     private toJSMaybe(writer: JSWriter): void {

@@ -108,7 +108,7 @@ for (const [name, content] of Object.entries(files)) {
     sourceLines[name] = content.split("\n");
 }
 
-let target = values.target;
+const target = values.target;
 if (target !== "js" && target !== "rust") {
     throw new Error(`Invalid target ${target} -- expected 'js' or 'rust'.`);
 }

@@ -1,4 +1,5 @@
 import type { Token } from "../tokens";
+import type { RustWriter } from "../write-rust";
 import { Expression } from "./expression";
 import { registerTrait } from "./registries";
 import { paramTypesMatchArgTypes } from "./type-utils";
@@ -71,5 +72,9 @@ export class Trait extends Expression {
 
     toJS(_writer: never): void {
         // Traits are solely for type checking and aren't converted to JS.
+    }
+
+    toRust(_writer: RustWriter): void {
+        // Traits are solely for type checking and aren't converted to Rust.
     }
 }

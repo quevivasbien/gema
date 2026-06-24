@@ -9,7 +9,7 @@ import { resetRegistries } from "../src/ast/index";
  * Asserts the final expression equals expectEqual.
  */
 export function testCompile(text: string, expectEqual: unknown) {
-    const result = compile(text, "immediate");
+    const result = compile(text, "js", "immediate");
     if (result.errors.length > 0) {
         throw new Error(
             "Compile errors:\n" +
@@ -96,7 +96,7 @@ export function testCompileMulti(
     entry: string,
     expectEqual: unknown
 ) {
-    const result = compile(files, "immediate", entry);
+    const result = compile(files, "js", "immediate", entry);
     if (result.errors.length > 0) {
         throw new Error(
             "Compile errors:\n" +
@@ -141,7 +141,7 @@ export function testCompileMultiExpectError(
     entry: string,
     expectedMessage?: string
 ): string[] {
-    const result = compile(files, "immediate", entry);
+    const result = compile(files, "js", "immediate", entry);
     expect(result.errors.length).toBeGreaterThan(0);
     const messages = result.errors.map((e: { message: string }) => e.message);
     if (expectedMessage !== undefined) {
