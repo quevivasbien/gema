@@ -35,6 +35,7 @@ const TYPE_NAMES = new Set([
     "MutDict",
     "Set",
     "MutSet",
+    "Tup",
 ]);
 
 // A very simple parser for use in syntax highlighting

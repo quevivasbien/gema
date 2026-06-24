@@ -174,3 +174,30 @@ test("MutSet: unsafeTrans is a no-op", () => {
 test("MutSet: detrans is a no-op", () => {
     requireIdenticalCompilation(`detrans(trans(Set([1, 2])))`, `trans(Set([1, 2]))`);
 });
+
+// ── Monomorphization with different Dict/Set types ──────
+// Note: these tests verify that typeToName correctly distinguishes types.
+// If they fail with "function foo[...] not found", the monomorphization
+// cache is likely creating colliding function signatures.
+
+test("Dict: monomorphization with different value types", () => {
+    testCompile(
+        `
+        func foo(d: Dict[Str, Int]) { contains(d, "a") }
+        func foo(d: Dict[Str, Str]) { contains(d, "a") }
+        foo(Dict([]:Tup[Str, Int]))
+        `,
+        false
+    );
+});
+
+test("Set: monomorphization with different inner types", () => {
+    testCompile(
+        `
+        func foo(s: Set[Int]) { contains(s, 1) }
+        func foo(s: Set[Str]) { contains(s, "a") }
+        foo(Set([]:Int))
+        `,
+        false
+    );
+});

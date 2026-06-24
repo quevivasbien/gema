@@ -203,3 +203,27 @@ test("tuple: operations on list of tuples", () => {
 test("tuple: struct with tuple field", () => {
     testCompile("struct P { p: Tup[Float, Float] } P((1.0,2.0)).p(0)", 1.0);
 });
+
+// ── Monomorphization with different tuple sizes ──────────
+
+test("tuple: monomorphization with different tuple sizes", () => {
+    testCompile(
+        `
+        func foo(t: Tup[Int, Int]) { t(0) + t(1) }
+        func foo(t: Tup[Int, Int, Int]) { t(0) + t(1) + t(2) }
+        foo((1, 2)) + foo((1, 2, 3))
+        `,
+        9n
+    );
+});
+
+test("tuple: monomorphization with mixed types", () => {
+    testCompile(
+        `
+        func bar(t: Tup[Int, Str]) { t(0) }
+        func bar(t: Tup[Str, Int]) { length(t(0)) }
+        bar((1, "hello")) + bar(("abc", 0))
+        `,
+        4n
+    );
+});

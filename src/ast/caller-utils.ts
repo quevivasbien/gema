@@ -3,11 +3,16 @@ import { deepEquals, typesMatchWithConversion } from "./type-utils";
 import {
     ArrayType,
     CustomType,
+    DictType,
     EnumType,
     FuncType,
     IterType,
     MaybeType,
     MutArrType,
+    MutDictType,
+    MutSetType,
+    SetType,
+    TupleType,
     type Type,
 } from "./types";
 
@@ -19,6 +24,12 @@ export function typeToName(t: Type): string {
     if (t instanceof ArrayType) return `Arr_${typeToName(t.innerType)}`;
     if (t instanceof IterType) return `Iter_${typeToName(t.innerType)}`;
     if (t instanceof MutArrType) return `MutArr_${typeToName(t.innerType)}`;
+    if (t instanceof TupleType) return `Tup_${t.types.map(typeToName).join("_")}`;
+    if (t instanceof DictType) return `Dict_${typeToName(t.keyType)}_${typeToName(t.valueType)}`;
+    if (t instanceof MutDictType)
+        return `MutDict_${typeToName(t.keyType)}_${typeToName(t.valueType)}`;
+    if (t instanceof SetType) return `Set_${typeToName(t.innerType)}`;
+    if (t instanceof MutSetType) return `MutSet_${typeToName(t.innerType)}`;
     if (t instanceof FuncType)
         return `Func_${t.paramTypes.map(typeToName).join("_")}_${typeToName(t.returnType)}`;
     if (t instanceof MaybeType) return `Maybe_${typeToName(t.innerType)}`;
