@@ -1,5 +1,6 @@
 import type { Token } from "../tokens";
 import type { JSWriter } from "../write-js";
+import type { RustWriter } from "../write-rust";
 import { type Type } from "./types";
 
 export class ASTError {
@@ -45,6 +46,10 @@ export abstract class Expression {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`);
     }
 
+    toRust(_writer: RustWriter): void {
+        throw new Error(`\`toRust\` not implemented for ${this.constructor.name}.`);
+    }
+
     // Deep-clone this expression tree, optionally substituting type parameters
     abstract clone(bindings?: Map<string, Type>): Expression;
 }
@@ -81,6 +86,10 @@ export class DropValue extends Expression {
 
     toJS(writer: JSWriter): void {
         this.child.toJS(writer);
+    }
+
+    toRust(writer: RustWriter): void {
+        this.child.toRust(writer);
     }
 
     clone(bindings?: Map<string, Type>): Expression {

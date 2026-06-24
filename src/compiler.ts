@@ -18,6 +18,7 @@ import { TokenType } from "./tokens";
 import { writeJS } from "./write-js";
 
 import { treeShake } from "./tree-shake";
+import { writeRust } from "./write-rust";
 
 interface CompileResult {
     js: string;
@@ -327,6 +328,7 @@ function typeCheckBlock(
  */
 export function compile(
     filesOrSource: Record<string, string> | string,
+    target: "js" | "rust" = "js",
     mode: "immediate" | "inline" | "export" = "immediate",
     entry?: string
 ): CompileResult {
@@ -406,7 +408,7 @@ export function compile(
         const filteredBlock = treeShake(unifiedBlock, entry);
 
         // Phase 4: Codegen
-        const js = writeJS(filteredBlock, mode);
+        const js = target === "js" ? writeJS(filteredBlock, mode) : writeRust(filteredBlock, mode);
         return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {
         const message =

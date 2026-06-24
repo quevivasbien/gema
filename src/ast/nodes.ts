@@ -36,6 +36,7 @@ import {
     TupleType,
     type Type,
 } from "./types";
+import type { RustWriter } from "../write-rust";
 
 export class Block extends Expression {
     constructor(
@@ -87,6 +88,18 @@ export class Block extends Expression {
             writer.iifeDepth--;
             writer.write(")()");
         }
+    }
+
+    toRust(writer: RustWriter): void {
+        const lastExpr = this.expressions[this.expressions.length - 1];
+        writer.beginScope();
+        for (const expression of this.expressions.slice(0, -1)) {
+            expression.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+        }
+        lastExpr.toJS(writer);
+        writer.endScope();
     }
 
     static lastExprShouldReturn(lastExpr: Expression): boolean {

@@ -1,5 +1,6 @@
 import type { Token } from "../tokens";
 import type { JSWriter } from "../write-js";
+import type { RustWriter } from "../write-rust";
 import { Expression } from "./expression";
 import { type Type } from "./types";
 
@@ -25,7 +26,7 @@ export class Literal extends Expression {
         switch (this.type) {
             case "Int":
                 // The regex replace here is to remove leading zeros so we don't attempt to represent them as octal
-                compiler.write(`${this.value.replace(/^0+(?=.)/, "")}n`);
+                compiler.write(`${this.value.replace(/^0+(?=.)/, "")}`);
                 break;
             case "Float":
                 // The regex replace here is to remove extra leading zeros so we don't attempt to represent them as octal
@@ -37,8 +38,26 @@ export class Literal extends Expression {
             case "Bool":
                 compiler.write(this.value);
                 break;
-            case "Null":
-                compiler.write("undefined");
+            default:
+                throw this.error(`cannot use token ${this.value} as literal type`);
+        }
+    }
+
+    toRust(compiler: RustWriter): void {
+        switch (this.type) {
+            case "Int":
+                // The regex replace here is to remove leading zeros so we don't attempt to represent them as octal
+                compiler.write(`${this.value.replace(/^0+(?=.)/, "")}n`);
+                break;
+            case "Float":
+                // The regex replace here is to remove extra leading zeros so we don't attempt to represent them as octal
+                compiler.write(this.value.replace(/^0+?(?=0\.|[^0])/, ""));
+                break;
+            case "Str":
+                compiler.write(this.value);
+                break;
+            case "Bool":
+                compiler.write(this.value);
                 break;
             default:
                 throw this.error(`cannot use token ${this.value} as literal type`);

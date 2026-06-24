@@ -32,6 +32,10 @@ const { values, positionals } = parseArgs({
             type: "string",
             short: "e",
         },
+        target: {
+            type: "string",
+            short: "t",
+        },
         help: {
             type: "boolean",
             short: "h",
@@ -52,8 +56,9 @@ Arguments:
 
 Options:
   -e, --entry <file>      Entry point filename (default: main.gema)
+  -t, --target <js|rust>  Whether to generate JavaScript (js) or Rust (rust) code (default: js)
   -o, --output <file>     Output file path (default: same name as entry with .js)
-  -m, --minify            Minify the compiled code using Bun.Transpiler
+  -m, --minify            Minify the compiled code using Bun.Transpiler (only relevant for JS target)
   -h, --help              Show this help message
 
 Examples:
@@ -103,7 +108,11 @@ for (const [name, content] of Object.entries(files)) {
     sourceLines[name] = content.split("\n");
 }
 
-const result = compile(files, "export", entry);
+let target = values.target;
+if (target !== "js" && target !== "rust") {
+    throw new Error(`Invalid target ${target} -- expected 'js' or 'rust'.`);
+}
+const result = compile(files, target, "export", entry);
 
 if (result.errors && result.errors.length > 0) {
     console.error("Compilation failed:");
@@ -159,7 +168,8 @@ if (values.output) {
 } else {
     const dir = dirname(resolve(positionals[0]));
     const name = basename(entry, extname(entry));
-    outputPath = resolve(dir, name + ".js");
+    const extension = target === "js" ? ".js" : ".rs";
+    outputPath = resolve(dir, name + extension);
 }
 
 // Write output

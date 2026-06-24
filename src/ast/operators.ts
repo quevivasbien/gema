@@ -1,5 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
+import type { RustWriter } from "../write-rust";
 import { findCaller } from "./caller";
 import { Expression } from "./expression";
 import { deepEquals } from "./type-utils";
@@ -321,6 +322,87 @@ export class Binary extends Expression {
                 }
                 return;
             }
+        }
+        if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
+            writer.write("(");
+            this.left.toJS(writer);
+            writer.write(` ${OPERATOR_TRANSLATIONS[this.operator]} `);
+            this.right.toJS(writer);
+            writer.write(")");
+            return;
+        } else if (this.operator === TokenType.Percent) {
+            writer.useBuiltin("$mod$");
+            writer.write("$mod$(");
+            this.left.toJS(writer);
+            writer.write(", ");
+            this.right.toJS(writer);
+            writer.write(")");
+            return;
+        } else if (this.operator === TokenType.Caret) {
+            this.left.toJS(writer);
+            writer.write(" ** ");
+            this.right.toJS(writer);
+            return;
+        }
+        throw this.error(`tried to use token ${this.operator} as binary operator`);
+    }
+
+    toRust(writer: RustWriter): void {
+        if (this.overloadedAs) {
+            writer.write(writer.safeName(this.overloadedAs.name));
+            writer.write("(");
+            this.left.toJS(writer);
+            writer.write(", ");
+            this.right.toJS(writer);
+            writer.write(")");
+            return;
+        }
+        // Handle + for arrays (array concatenation)
+        if (this.left.type instanceof ArrayType && this.right.type instanceof ArrayType) {
+            // if (this.operator === TokenType.Plus) {
+            //     writer.write("[...");
+            //     this.left.toJS(writer);
+            //     writer.write(", ...");
+            //     this.right.toJS(writer);
+            //     writer.write("]");
+            //     return;
+            // } else if (this.operator === TokenType.EqualEqual) {
+            //     writer.useBuiltin("$arrayEq$");
+            //     writer.write("$arrayEq$(");
+            //     this.left.toJS(writer);
+            //     writer.write(", ");
+            //     this.right.toJS(writer);
+            //     writer.write(")");
+            //     return;
+            // }
+            throw new Error("array concat not yet supported");
+        }
+        // Handle + for iterators (iterator concatenation)
+        if (this.left.type instanceof IterType || this.right.type instanceof IterType) {
+            // if (this.operator === TokenType.Plus) {
+            //     writer.useBuiltin("$ConcatIterator$");
+            //     writer.write("new $ConcatIterator$(");
+            //     if (this.left.type instanceof ArrayType) {
+            //         writer.useBuiltin("$ArrayIterator$");
+            //         writer.write("new $ArrayIterator$(");
+            //         this.left.toJS(writer);
+            //         writer.write("), ");
+            //     } else {
+            //         this.left.toJS(writer);
+            //         writer.write(", ");
+            //     }
+            //     if (this.right.type instanceof ArrayType) {
+            //         writer.useBuiltin("$ArrayIterator$");
+            //         writer.write("new $ArrayIterator$(");
+            //         this.right.toJS(writer);
+            //         writer.write("))");
+            //     } else {
+            //         this.right.toJS(writer);
+            //         writer.write(")");
+            //     }
+            //     return;
+            // }
+            throw new Error("iterator concat not yet supported");
         }
         if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
             writer.write("(");
