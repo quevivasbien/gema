@@ -344,8 +344,6 @@ export class Call extends Expression {
         }
 
         // Tuple literal index resolution: tup(0) → exact element type at index 0
-
-        // Tuple literal index resolution: tup(0) → exact element type at index 0
         if (
             this.callerType instanceof TupleType &&
             this.args.length === 1 &&

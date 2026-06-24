@@ -216,3 +216,52 @@ test("functions: generic type must appear in at least one param", () => {
         `
     );
 });
+
+test("recursive function with tail call optimization", () => {
+    testCompile(
+        `
+        func sumUpto(n: Int) {
+            func f(n: Int, res: Int): Int {
+                if n <= 0 { return res };
+                f(n - 1, res + n)
+            };
+            f(n, 0)
+        }
+        # This is enough to exceed the max recursion depth limit in most JS runtimes
+        sumUpto(10000)
+        `,
+        50005000n
+    );
+});
+
+test("recursive function with tail call optimization and keyword args", () => {
+    testCompile(
+        `
+        func sumUpto(n: Int) {
+            func f(n: Int, res: Int): Int {
+                if n <= 0 { return res };
+                f(res=res + n, n=n-1)
+            };
+            f(n, 0)
+        }
+        sumUpto(10)
+        `,
+        55n
+    );
+});
+
+test("recursive function with tail call optimization and JS reserved keyword", () => {
+    testCompile(
+        `
+        func sumUpto(n: Int) {
+            func f(n: Int, class: Int): Int {
+                if n <= 0 { return class };
+                f(n - 1, class + n)
+            };
+            f(n, 0)
+        }
+        sumUpto(10)
+        `,
+        55n
+    );
+});

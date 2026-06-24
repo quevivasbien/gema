@@ -276,7 +276,29 @@ The `:` that we have as part of our type annotations is not really needed--it's 
 
 ## Misc improvements and bug fixes
 
+Tail-call optimization for if / else branching. Currently, this will use TCO:
+
+```gema
+func f(n: Int, res: Int): Int {
+    if n <= 0 { return res };
+    f(n - 1, res + n)
+};
+```
+
+but this will not:
+
+```gema
+func f(n: Int, res: Int): Int {
+    if n <= 0 { res }
+    else { f(n - 1, res + n) }
+};
+```
+
 Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
+
+Allow lambdas not just in builtin functions -- if there is a function that _could_ match, we take that match (will need to think through the details here more).
+
+When resolving callers, keep track of the closest match so far, so this can be reported in the error message if no match is found.
 
 Go back to allowing generic types in functions to not specify a trait bound.
 
@@ -285,20 +307,6 @@ Fix weird error message when trying to compile an empty program: "Error in main.
 if/else exprs should not require {}
 
 Make sure all the builtins follow the `f(<func>, <values>..., <container>)` idiom so they are easily chainable.
-
-Tuples and maybe other builtin types don't seem to monomorphize correctly (I noticed a toStr function I wrote for tuples had a `toStr$Null` signature when I used it, which isn't right) -- I suspect this is the same flavor of error I saw earlier with enums. Example of test where this causes incorrect behavior:
-
-```gema
-func foo(t: Tup[Int, Int]) {
-    t(0) + t(1)
-}
-
-func foo(t: Tup[Int, Int, Int]) {
-    t(0) + t(1) + t(2)
-}
-
-foo((1,2)) + foo((1,2,3))  # Gives 6 instead of the intended 9, since we materialize foo for only the first call type
-```
 
 range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
 

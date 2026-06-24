@@ -36,6 +36,7 @@ import {
     TupleType,
     type Type,
 } from "./types";
+import { Call } from "./calls";
 
 export class Block extends Expression {
     constructor(
@@ -1817,6 +1818,27 @@ export class FunctionDef extends Expression {
         return this.body.expressions.some((e) => check(e));
     }
 
+    /** Figure out if this is a recursive function that supports tail-call optimization
+     * i.e., if the final expression in the function is a call to the function itself
+     * Returns the last expression as a Call, or null if not a tail call
+     */
+    private getTailCall(): Call | null {
+        if (this.isGeneric) {
+            // Don't bother figuring this out unless we're dealing with a concrete function def
+            return null;
+        }
+        const lastExpr = this.body.expressions[this.body.expressions.length - 1];
+        if (!(lastExpr instanceof Call)) {
+            // TODO: We might also want to look for DirectCalls, but not needed for an MVP
+            return null;
+        }
+        // Check if the lastExpr is a call to _this_ function
+        if (lastExpr.referToByName !== this.fullName) {
+            return null;
+        }
+        return lastExpr;
+    }
+
     toJS(writer: JSWriter): void {
         if (this.isGeneric) {
             for (const v of this.monomorphizedVersions) {
@@ -1837,16 +1859,49 @@ export class FunctionDef extends Expression {
             writer.indentIn();
             writer.newLine();
         }
-        this.body.expressions.slice(0, -1).forEach((expr) => {
-            expr.toJS(writer);
+        const tailCall = this.getTailCall();
+        if (tailCall !== null) {
+            // Tail call optimization
+            // Need to create temp vars for each param, in case the updated value of one relies on the current value of others
+            const tempArgNames = this.params.map((p) => {
+                const name = writer.uniqueName(p.name);
+                writer.declareVariable(name);
+                return name;
+            });
+            writer.write("while (true) {");
+            writer.indentIn();
             writer.newLine();
-        });
-        const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-        if (Block.lastExprShouldReturn(lastExpr)) {
-            writer.write("return ");
+            this.body.expressions.slice(0, -1).forEach((expr) => {
+                expr.toJS(writer);
+                writer.newLine();
+            });
+            // Instead of returning the call to self, we reassign the args of this function to those passed to the call
+            for (let i = 0; i < this.params.length; i++) {
+                writer.write(`${tempArgNames[i]} = `);
+                tailCall.args[i].toJS(writer);
+                writer.write(";");
+                writer.newLine();
+            }
+            for (let i = 0; i < this.params.length; i++) {
+                writer.write(`${writer.safeName(this.params[i].name)} = ${tempArgNames[i]};`);
+                writer.newLine();
+            }
+            writer.indentOut();
+            writer.newLine();
+            writer.write("}");
+        } else {
+            // No tail call optimization
+            this.body.expressions.slice(0, -1).forEach((expr) => {
+                expr.toJS(writer);
+                writer.newLine();
+            });
+            const lastExpr = this.body.expressions[this.body.expressions.length - 1];
+            if (Block.lastExprShouldReturn(lastExpr)) {
+                writer.write("return ");
+            }
+            lastExpr.toJS(writer);
+            writer.write(";");
         }
-        lastExpr.toJS(writer);
-        writer.write(";");
         if (needsTry) {
             writer.indentOut();
             writer.newLine();
