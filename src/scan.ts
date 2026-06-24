@@ -80,11 +80,7 @@ class Scanner {
         while (/^\d$/.test(this.text[this.index])) {
             this.index += 1;
         }
-        if (
-            this.text[this.index] === "." &&
-            this.text[this.index + 1] !== "." &&
-            this.text[this.index + 1] !== undefined
-        ) {
+        if (this.text[this.index] === "." && this.text[this.index + 1] !== ".") {
             this.index += 1;
             while (/^\d$/.test(this.text[this.index])) {
                 this.index += 1;

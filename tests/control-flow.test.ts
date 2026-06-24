@@ -509,6 +509,21 @@ test("return: if/elseif/else with mismatch in type", () => {
     );
 });
 
+test("return: return followed by semicolon", () => {
+    testCompile(
+        `
+        func foo(): Int {
+            if true {
+                return 99;
+            }
+            0
+        };
+        foo()
+        `,
+        99n
+    );
+});
+
 test("return: return inside block inside function", () => {
     testCompile(
         `

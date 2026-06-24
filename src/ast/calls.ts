@@ -280,6 +280,20 @@ export class Call extends Expression {
                     return;
                 }
             }
+            // String slicing fallback: strVar(a..b), strVar(..b), strVar(a..), strVar(..)
+            if (
+                allArgTypes.length === 1 &&
+                allArgTypes[0] instanceof IterType &&
+                allArgTypes[0].innerType === "Int" &&
+                this.args[0] instanceof RangeIter &&
+                findStringTypedVariable(this, this.name) !== null
+            ) {
+                this.callerType = new FuncType(allArgTypes, "Str");
+                this.type = "Str";
+                this.referToByName = this.name;
+                this.args[0].cascadeTypes(true);
+                return;
+            }
             throw this.error(error);
         }
 
@@ -690,6 +704,26 @@ export class Call extends Expression {
             writer.write("[");
             this.args[0].toJS(writer);
             writer.write("]");
+            return;
+        }
+        // String slicing via variable: strVar(a..b)
+        if (this.type === "Str" && this.args[0] instanceof RangeIter) {
+            const range = this.args[0];
+            writer.write(writer.safeName(this.referToByName!));
+            writer.write(".slice(");
+            if (range.start !== null) {
+                writer.write("Number(");
+                range.start.toJS(writer);
+                writer.write(")");
+            } else {
+                writer.write("0");
+            }
+            if (range.end !== null) {
+                writer.write(", Number(");
+                range.end.toJS(writer);
+                writer.write(") + 1");
+            }
+            writer.write(")");
             return;
         }
         if (this.isBuiltin) {

@@ -1084,7 +1084,9 @@ function parseReturn(parser: Parser): AST.Expression {
         };
         return new AST.Return(startToken, new AST.Literal(nullToken, "Null"));
     }
-    const value = parser.expression();
+    // Use parseWithPrecedence instead of expression() so the value isn't
+    // wrapped in a DropValue when followed by a semicolon (e.g., "return 99;").
+    const value = parser.parseWithPrecedence(Precedence.None + 1);
     if (value === null) {
         throw new Error("Expected expression after `return`");
     }

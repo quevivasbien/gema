@@ -286,6 +286,8 @@ if/else exprs should not require {}
 
 Make sure all the builtins follow the `f(<func>, <values>..., <container>)` idiom so they are easily chainable.
 
+Tuples and other builtin types don't seem to monomorphize correctly (I noticed a toStr function I wrote for tuples had a `toStr$Null` signature when I used it, which isn't right) -- I suspect this is the same flavor of error I saw earlier with enums.
+
 range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
 
 ```gema

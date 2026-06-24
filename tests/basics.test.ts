@@ -5,9 +5,22 @@ import { testCompile, testParse, testParseExpectError } from "./helpers";
 test("compile literals", () => {
     testCompile(`1`, 1n);
     testCompile(`1.23`, 1.23);
+    testCompile(`1.`, 1);
     testCompile(`true`, true);
     testCompile(`false`, false);
     testCompile(`"hello"`, "hello");
+});
+
+test("compile integers with leading zeros", () => {
+    testCompile("01", 1n);
+    testCompile("0152", 152n);
+    testCompile("00152", 152n);
+});
+
+test("compile floats with leading zeros", () => {
+    testCompile("00.1", 0.1);
+    testCompile("01.52", 1.52);
+    testCompile("000152.", 152);
 });
 
 test("compile binary expressions", () => {

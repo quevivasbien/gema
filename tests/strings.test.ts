@@ -68,6 +68,12 @@ test("string: slice with .. (full copy)", () => {
     testCompile('"hello"(..)', "hello");
 });
 
+test("string: slice string variable", () => {
+    testCompile('x = "hello"; x(1..2)', "el");
+    testCompile('x = "hello"; x(..2)', "hel");
+    testCompile('x = "hello"; x(1..)', "ello");
+});
+
 // ============================================================
 // String ops — contains and find
 // ============================================================
