@@ -276,7 +276,7 @@ The `:` that we have as part of our type annotations is not really needed--it's 
 
 ## Misc improvements and bug fixes
 
-Tail-call optimization for if / else branching. Currently, this will use TCO:
+### Tail-call optimization for if / else branching. Currently, this will use TCO:
 
 ```gema
 func f(n: Int, res: Int): Int {
@@ -294,21 +294,31 @@ func f(n: Int, res: Int): Int {
 };
 ```
 
-Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
+Maybe the most straightforward way to support this and any other deep recursion case is to detect any other case where we have a recursive function (beside the easily TCO-optimized case we already support) and use trampoline functions in these cases.
 
-Allow lambdas not just in builtin functions -- if there is a function that _could_ match, we take that match (will need to think through the details here more).
+### JSWriter's uniqueName might cause collisions when variables end in an integer
 
-When resolving callers, keep track of the closest match so far, so this can be reported in the error message if no match is found.
+### Others
 
-Go back to allowing generic types in functions to not specify a trait bound.
+- Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
 
-Fix weird error message when trying to compile an empty program: "Error in main.gema at line 1, column 1: can't access property "line", Z is undefined"
+- Allow lambdas not just in builtin functions -- if there is a function that _could_ match, we take that match (will need to think through the details here more).
 
-if/else exprs should not require {}
+- When resolving callers, keep track of the closest match so far, so this can be reported in the error message if no match is found.
 
-Make sure all the builtins follow the `f(<func>, <values>..., <container>)` idiom so they are easily chainable.
+- Go back to allowing generic types in functions to not specify a trait bound.
 
-range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
+- Fix weird error message when trying to compile an empty program: "Error in main.gema at line 1, column 1: can't access property "line", Z is undefined"
+
+- if/else exprs should not require {}
+
+- Make sure all the builtins follow the `f(<func>, <values>..., <container>)` idiom so they are easily chainable.
+
+- Allow underscores in numeric literals
+
+### range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
+
+-- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
 
 ```gema
 trait Any {}
