@@ -37,21 +37,30 @@ func fizzbuzz(n: Int): Str {
     fibonacci: {
         label: "Fibonacci",
         files: {
-            "main.gema": `# Fibonacci sequence shown three ways
+            "main.gema": `# Fibonacci sequence shown four ways
 
-# 1. Recursive
+# 1. Naive recursion
 func fibRec(n: Int): Int {
     if (n <= 1) { n }
     else { fibRec(n - 1) + fibRec(n - 2) }
 };
 
-# 2. With iterate
-fibs = iterate(\\pair { (pair(1), pair(0) + pair(1)) }, (0, 1))
-       | map(\\p { p(0) })
-       | take(10)
-       | collect;
+# 2. More efficient recursion
+func fibRecTCO(n: Int) {
+    func f(i: Int, prev: Int, prevprev: Int): Int {
+        if i == n { return prev }
+        # Last expr in f is a call to itself; this is tail-call optimized, allowing infinite recursion depth
+        f(i + 1, prev + prevprev, prev)
+    };
+    if (n <= 1) { n }
+    else { f(1, 1, 0) }
+}
 
-# 3. Imperative with mutable vars
+# 3. With iterate (generates an infinite sequence of Fibonacci numbers)
+fibs = iterate(\\pair { (pair(1), pair(0) + pair(1)) }, (0, 1))
+       | map(\\p { p(0) });
+
+# 4. Imperative with mutable vars
 func fibLoop(n: Int): Int {
     if (n <= 1) { n }
     else {
@@ -66,9 +75,7 @@ func fibLoop(n: Int): Int {
     }
 };
 
-loop10 = 0..9 | map(fibLoop[Int]) | collect;
-
-[fibRec(9), fibs(9) | unwrap, loop10(9) | unwrap]`,
+(fibRec(9), fibRecTCO(9), fibs(9) | unwrap, fibLoop(9))`,
         },
     },
     quicksort: {
