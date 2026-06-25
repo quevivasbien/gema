@@ -5,7 +5,7 @@ import { CustomType, type FuncType, type Type } from "./types";
 /**
  * Search the enclosing block for a generic TAF matching the given type name and field name.
  * If found, monomorphize it and return the function type + fullName.
- * Uses duck-typing to avoid circular imports with nodes.ts.
+ * Walks the AST via base-class methods (getExpressions, parent) to avoid circular imports.
  */
 export function resolveGenericTaf(
     parent: Expression | null,
@@ -15,13 +15,12 @@ export function resolveGenericTaf(
 ): { funcType: FuncType; fullName: string } | null {
     let node: Expression | null = parent;
     while (node) {
-        // Duck-type check for Block: expressions is an array
-        const expressions = (node as unknown as Record<string, unknown>).expressions;
-        if (Array.isArray(expressions)) {
-            for (const rawExpr of expressions) {
+        const exprs = node.getExpressions();
+        if (exprs) {
+            for (const rawExpr of exprs) {
                 let e = rawExpr;
                 while (e instanceof DropValue) e = e.child;
-                const eRecord = e as Record<string, unknown>;
+                const eRecord = e as unknown as Record<string, unknown>;
 
                 // Duck-type check for FunctionDef: has isGeneric, typeAssociatedName, tafMonomorphize
                 if (
@@ -97,8 +96,8 @@ export function resolveGenericTaf(
                 }
             }
         }
-        // Walk up: duck-type check for parent property
-        node = (node as unknown as Record<string, unknown>).parent as Expression | null;
+        // Walk up via parent pointer
+        node = node.parent;
     }
     return null;
 }

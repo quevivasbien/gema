@@ -10,7 +10,6 @@ import {
     EnumType,
     FuncType,
     substituteTypeParams,
-    TemplateTypes,
     type Type,
 } from "./types";
 
@@ -144,20 +143,12 @@ export class FieldAccess extends Expression {
         }
         const objTypeName = this.obj.type.name;
 
-        // Build TAF search key, incorporating template types if the object has templates (Variable)
+        // Build TAF search key, incorporating template types if the object has templates (e.g., Arr[Int])
         const tafPrefix = `${objTypeName}.${this.fieldName}`;
-        const hasTemplates =
-            this.obj instanceof Expression &&
-            "templateTypes" in (this.obj as object) &&
-            (this.obj as unknown as Record<string, unknown>).templateTypes instanceof
-                TemplateTypes &&
-            !(
-                (this.obj as unknown as Record<string, unknown>).templateTypes as TemplateTypes
-            ).empty();
-        if (hasTemplates) {
+        const objTemplates = this.obj.getTemplateTypes();
+        if (objTemplates && !objTemplates.empty()) {
             // For Arr[Int].empty(), also try Arr[Int].empty as search key
-            const templatedPrefix = `${objTypeName}${(this.obj as unknown as Record<string, unknown>).templateTypes}.${this.fieldName}`;
-            // Try templated version first (concrete TAFs like Arr[Int].empty)
+            const templatedPrefix = `${objTypeName}${objTemplates}.${this.fieldName}`;
             const templatedDef =
                 findFunctionByPrefix(templatedPrefix + "$") ??
                 findFunctionByPrefix(templatedPrefix);
@@ -170,15 +161,7 @@ export class FieldAccess extends Expression {
 
         // Helper: try to find and monomorphize a generic TAF among sibling definitions
         const tryResolveGenericTaf = (): boolean => {
-            const callTemplateTypes =
-                this.obj instanceof Expression &&
-                typeof (this.obj as unknown as Record<string, unknown>).templateTypes !==
-                    "undefined"
-                    ? (
-                          (this.obj as unknown as Record<string, unknown>)
-                              .templateTypes as TemplateTypes
-                      ).types
-                    : [];
+            const callTemplateTypes = this.obj.getTemplateTypes()?.types ?? [];
             const result = resolveGenericTaf(
                 this.parent,
                 objTypeName,

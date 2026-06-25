@@ -40,6 +40,10 @@ import {
 import { Call } from "./calls";
 
 export class Block extends Expression {
+    getExpressions(): Expression[] | null {
+        return this.expressions;
+    }
+
     constructor(
         rootToken: Token,
         public expressions: Expression[]
@@ -859,6 +863,10 @@ export class Variable extends Expression {
         super(token.line, token.col);
         this.name = token.text;
         this.templateTypes = templateTypes;
+    }
+
+    getTemplateTypes(): TemplateTypes | null {
+        return this.templateTypes;
     }
 
     toString(): string {

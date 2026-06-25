@@ -1,6 +1,6 @@
 import type { Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import { type Type } from "./types";
+import { type Type, type TemplateTypes } from "./types";
 
 export class ASTError {
     constructor(
@@ -36,6 +36,22 @@ export abstract class Expression {
             if (node instanceof type) return node;
             node = node.parent;
         }
+        return null;
+    }
+
+    /**
+     * Return template types if this expression carries them (e.g. Variable `Arr[Int]`),
+     * or null otherwise. Subclasses with template types (Variable) override this.
+     */
+    getTemplateTypes(): TemplateTypes | null {
+        return null;
+    }
+
+    /**
+     * Return child expressions if this node is a block-like container,
+     * or null otherwise. Subclasses with expression lists (Block) override this.
+     */
+    getExpressions(): Expression[] | null {
         return null;
     }
 
