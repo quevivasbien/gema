@@ -39,8 +39,22 @@ import {
 } from "./types";
 import { Call } from "./calls";
 
+function lastExprShouldReturn(lastExpr: Expression): boolean {
+    // Recurse through nested blocks to check if the ultimate last expression
+    // is a value-producing expression or a control flow node.
+    const childExprs = lastExpr.getExpressions();
+    if (childExprs !== null) {
+        return lastExprShouldReturn(childExprs[childExprs.length - 1]);
+    }
+    return lastExpr.type !== "Null";
+}
+
 export class Block extends Expression {
     getExpressions(): Expression[] | null {
+        return this.expressions;
+    }
+
+    getAllChildren(): Expression[] {
         return this.expressions;
     }
 
@@ -72,7 +86,7 @@ export class Block extends Expression {
 
     toJS(writer: JSWriter): void {
         const lastExpr = this.expressions[this.expressions.length - 1];
-        const shouldReturn = this.isValueUsed && Block.lastExprShouldReturn(lastExpr);
+        const shouldReturn = this.isValueUsed && lastExprShouldReturn(lastExpr);
         if (shouldReturn) {
             writer.write("(() => ");
             writer.iifeDepth++;
@@ -94,22 +108,12 @@ export class Block extends Expression {
             writer.write(")()");
         }
     }
-
-    static lastExprShouldReturn(lastExpr: Expression): boolean {
-        // Recurse through nested blocks to check if the ultimate last expression
-        // is a value-producing expression or a control flow node.
-        if (lastExpr instanceof Block) {
-            return Block.lastExprShouldReturn(
-                lastExpr.expressions[lastExpr.expressions.length - 1]
-            );
-        }
-        return lastExpr.type !== "Null";
-    }
 }
 
 export class If extends Expression {
-    conditionalBranches: { condition: Expression; branch: Block }[];
-    elseBranch: Block;
+    // TODO: Parser shuold reflect that any Expression type is permissible for the branches
+    conditionalBranches: { condition: Expression; branch: Expression }[];
+    elseBranch: Expression; // TODO: Shouldn't this be optional?
     hasElse: boolean;
 
     constructor(
@@ -120,27 +124,17 @@ export class If extends Expression {
     ) {
         super(rootToken.line, rootToken.col);
 
-        conditionalBranches.forEach(({ branch }) => {
-            if (!(branch instanceof Block)) {
-                throw new Error("branch of if statement must be a block (enclosed by '{' and '}')");
-            }
-        });
-        if (!(elseBranch instanceof Block)) {
-            throw new Error("else branch of if statement must be a block");
-        }
-
-        this.conditionalBranches = conditionalBranches as {
-            condition: Expression;
-            branch: Block;
-        }[];
+        this.conditionalBranches = conditionalBranches;
         this.elseBranch = elseBranch;
         this.hasElse = hasElse;
     }
 
-    /** Check if a block's last expression is a control flow node (Break/Continue/Return) */
-    static branchEndsInControlFlow(branch: Block): boolean {
-        const last = branch.expressions[branch.expressions.length - 1];
-        return last instanceof Break || last instanceof Continue || last instanceof Return;
+    getAllChildren(): Expression[] {
+        return [
+            ...this.conditionalBranches.map((b) => b.condition),
+            ...this.conditionalBranches.map((b) => b.branch),
+            this.elseBranch,
+        ];
     }
 
     cascadeTypes(valueUsed: boolean): void {
@@ -180,89 +174,69 @@ export class If extends Expression {
         return cloned;
     }
 
-    toJS(writer: JSWriter): void {
-        if (this.hasElse && this.isValueUsed) {
-            // Value-producing if-else: wrap in IIFE so the value can be captured
-            writer.write("(() => {");
-            writer.iifeDepth++;
-            writer.indentIn();
-            writer.newLine();
-            this.conditionalBranches.forEach(({ condition, branch }) => {
-                writer.write("if (");
-                condition.toJS(writer);
-                writer.write(") ");
-                writer.beginScope();
-                branch.expressions.forEach((expr, i) => {
-                    if (i === branch.expressions.length - 1 && Block.lastExprShouldReturn(expr)) {
-                        writer.write("return ");
-                    }
-                    expr.toJS(writer);
-                    writer.write(";");
-                    writer.newLine();
-                });
-                writer.endScope();
-                writer.write(" else ");
-            });
-            writer.beginScope();
-            this.elseBranch.expressions.forEach((expr, i) => {
-                if (
-                    i === this.elseBranch!.expressions.length - 1 &&
-                    Block.lastExprShouldReturn(expr)
-                ) {
+    private branchToJS(writer: JSWriter, branch: Expression) {
+        writer.beginScope();
+        const childExprs = branch.getExpressions();
+        if (childExprs !== null) {
+            // Branch is a block containing a sequence of expressions
+            // Here we override the typical Block compilation to provide a bit terser syntax
+            childExprs.forEach((expr, i) => {
+                if (i === childExprs.length - 1 && lastExprShouldReturn(expr)) {
                     writer.write("return ");
                 }
                 expr.toJS(writer);
                 writer.write(";");
                 writer.newLine();
             });
-            writer.endScope();
+        } else {
+            // Branch contains a single expression
+            if (branch.type !== "Null") {
+                writer.write("return ");
+            }
+            branch.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+        }
+        writer.endScope();
+    }
+
+    toJS(writer: JSWriter): void {
+        const shouldWrapInIIFE = this.hasElse && this.isValueUsed;
+        if (shouldWrapInIIFE) {
+            writer.write("(() => {");
+            writer.iifeDepth++;
+            writer.indentIn();
+            writer.newLine();
+        }
+        this.conditionalBranches.forEach(({ condition, branch }) => {
+            writer.write("if (");
+            condition.toJS(writer);
+            writer.write(") ");
+            this.branchToJS(writer, branch);
+            writer.write(" else ");
+        });
+        this.branchToJS(writer, this.elseBranch);
+        if (shouldWrapInIIFE) {
             writer.indentOut();
             writer.newLine();
             writer.iifeDepth--;
             writer.write("})()");
-        } else if (this.hasElse) {
-            // Statement if-else (value not used): plain if/else/else chain, no IIFE
-            this.conditionalBranches.forEach(({ condition, branch }, i) => {
-                writer.write(i === 0 ? "if (" : " else if (");
-                condition.toJS(writer);
-                writer.write(") ");
-                writer.beginScope();
-                branch.expressions.forEach((expr) => {
-                    expr.toJS(writer);
-                    writer.newLine();
-                });
-                writer.endScope();
-            });
-            writer.write(" else ");
-            writer.beginScope();
-            this.elseBranch.expressions.forEach((expr) => {
-                expr.toJS(writer);
-                writer.newLine();
-            });
-            writer.endScope();
-        } else {
-            // Else-less if chain: all branches are else-if (no final else)
-            this.conditionalBranches.forEach(({ condition, branch }, i) => {
-                writer.write(i === 0 ? "if (" : " else if (");
-                condition.toJS(writer);
-                writer.write(") ");
-                writer.beginScope();
-                branch.expressions.forEach((expr) => {
-                    expr.toJS(writer);
-                    writer.newLine();
-                });
-                writer.endScope();
-            });
         }
     }
 }
 
 export class ForLoop extends Expression {
+    // TODO: Parser should reflect that any Expression type is permissible for the body
     varName: string | null;
     iter: Expression | null;
-    body: Block;
+    body: Expression;
 
-    constructor(startToken: Token, varName: string | null, iter: Expression | null, body: Block) {
+    constructor(
+        startToken: Token,
+        varName: string | null,
+        iter: Expression | null,
+        body: Expression
+    ) {
         super(startToken.line, startToken.col);
         this.varName = varName;
         this.iter = iter;
@@ -277,17 +251,19 @@ export class ForLoop extends Expression {
             if (this.iter.type === null) {
                 throw this.error("unable to resolve type of iterator");
             }
-            let _innerType: Type;
-            if (this.iter.type instanceof ArrayType) {
-                _innerType = this.iter.type.innerType;
-            } else if (this.iter.type instanceof IterType) {
-                _innerType = this.iter.type.innerType;
-            } else if (this.iter.type instanceof MutArrType) {
-                _innerType = this.iter.type.innerType;
-            } else {
+            // We don't need to save the iter type, but we do need to check that it's valid to iterate over
+            if (
+                !(
+                    this.iter.type instanceof ArrayType ||
+                    this.iter.type instanceof IterType ||
+                    this.iter.type instanceof MutArrType
+                )
+            ) {
                 throw this.error(`cannot iterate over object of type ${this.iter.type}`);
             }
         }
+        // For loop will always have "Null" type, but we still need to cascade the types
+        // for the body to make sure it's valid.
         this.body.cascadeTypes(false);
     }
 
@@ -302,24 +278,51 @@ export class ForLoop extends Expression {
 
     /** Walk the body subtree to check if any Break/Continue needs exception handling. */
     private bodyNeedsException(expr: Expression): boolean {
-        if (expr instanceof Break || expr instanceof Continue) return expr.needsException;
-        if (expr instanceof DropValue) return this.bodyNeedsException(expr.child);
-        if (expr instanceof Block) return expr.expressions.some((e) => this.bodyNeedsException(e));
-        if (expr instanceof If) {
-            return (
-                expr.conditionalBranches.some((b) => this.bodyNeedsException(b.branch)) ||
-                this.bodyNeedsException(expr.elseBranch)
-            );
-        }
+        if (expr.needsExceptionForControlFlow()) return true;
         if (expr instanceof ForLoop) return false; // break/continue in nested loops are handled by that loop
-        // Recurse into common wrapper nodes
-        for (const key of ["child", "value"] as const) {
-            const child = (expr as unknown as Record<string, Expression | undefined>)[key];
-            if (child && typeof child === "object" && child.constructor?.name) {
-                if (this.bodyNeedsException(child)) return true;
-            }
+        return expr.getAllChildren().some((e) => this.bodyNeedsException(e));
+    }
+
+    private innerLoopToJS(writer: JSWriter) {
+        const childExprs = this.body.getExpressions();
+        const needsTry =
+            childExprs === null
+                ? this.bodyNeedsException(this.body)
+                : childExprs.some((e) => this.bodyNeedsException(e));
+        if (needsTry) {
+            writer.useBuiltin("$Continue$");
+            writer.useBuiltin("$Break$");
+            writer.write("try {");
+            writer.indentIn();
+            writer.newLine();
         }
-        return false;
+        if (childExprs === null) {
+            // Single-expression body
+            this.body.toJS(writer);
+            writer.write(";");
+            writer.newLine();
+        } else {
+            childExprs.forEach((expr) => {
+                expr.toJS(writer);
+                writer.write(";");
+                writer.newLine();
+            });
+        }
+        if (needsTry) {
+            writer.indentOut();
+            writer.newLine();
+            writer.write("} catch (e$$) {");
+            writer.indentIn();
+            writer.newLine();
+            writer.write("if (e$$ instanceof $Continue$) { continue; }");
+            writer.newLine();
+            writer.write("if (e$$ instanceof $Break$) { break; }");
+            writer.newLine();
+            writer.write("throw e$$;");
+            writer.indentOut();
+            writer.newLine();
+            writer.write("}");
+        }
     }
 
     toJS(writer: JSWriter): void {
@@ -328,44 +331,22 @@ export class ForLoop extends Expression {
             writer.write("while (true) {");
             writer.indentIn();
             writer.newLine();
-            const needsTry = this.body.expressions.some((e) => this.bodyNeedsException(e));
-            if (needsTry) {
-                writer.useBuiltin("$Continue$");
-                writer.useBuiltin("$Break$");
-                writer.write("try {");
-                writer.indentIn();
-                writer.newLine();
-            }
-            this.body.expressions.forEach((expr) => {
-                expr.toJS(writer);
-                writer.write(";");
-                writer.newLine();
-            });
-            if (needsTry) {
-                writer.indentOut();
-                writer.newLine();
-                writer.write("} catch (e$$) {");
-                writer.indentIn();
-                writer.newLine();
-                writer.write("if (e$$ instanceof $Continue$) { continue; }");
-                writer.newLine();
-                writer.write("if (e$$ instanceof $Break$) { break; }");
-                writer.newLine();
-                writer.write("throw e$$;");
-                writer.indentOut();
-                writer.newLine();
-                writer.write("}");
-            }
+            this.innerLoopToJS(writer);
             writer.indentOut();
             writer.newLine();
             writer.write("}");
             writer.newLine();
             return;
         }
+        if (this.varName === null) {
+            throw new Error(
+                "Should not have iterator in for loop with undefined iterator variable name!"
+            );
+        }
 
         const iterVar = writer.uniqueName("$iter$");
         const safeIterVar = writer.safeName(iterVar);
-        const safeVarName = writer.safeName(this.varName!);
+        const safeVarName = writer.safeName(this.varName);
 
         if (this.iter.type instanceof ArrayType || this.iter.type instanceof MutArrType) {
             writer.useBuiltin("$ArrayIterator$");
@@ -388,36 +369,8 @@ export class ForLoop extends Expression {
         writer.write(`if (${safeVarName} === undefined) break;`);
         writer.newLine();
 
-        const needsTry = this.body.expressions.some((e) => this.bodyNeedsException(e));
-        if (needsTry) {
-            writer.useBuiltin("$Continue$");
-            writer.useBuiltin("$Break$");
-            writer.write("try {");
-            writer.indentIn();
-            writer.newLine();
-        }
+        this.innerLoopToJS(writer);
 
-        this.body.expressions.forEach((expr) => {
-            expr.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-        });
-
-        if (needsTry) {
-            writer.indentOut();
-            writer.newLine();
-            writer.write("} catch (e$$) {");
-            writer.indentIn();
-            writer.newLine();
-            writer.write("if (e$$ instanceof $Continue$) { continue; }");
-            writer.newLine();
-            writer.write("if (e$$ instanceof $Break$) { break; }");
-            writer.newLine();
-            writer.write("throw e$$;");
-            writer.indentOut();
-            writer.newLine();
-            writer.write("}");
-        }
         writer.indentOut();
         writer.newLine();
         writer.write("}");
@@ -430,6 +383,10 @@ export class Break extends Expression {
     constructor(startToken: Token) {
         super(startToken.line, startToken.col);
         this.type = "Null";
+    }
+
+    isSpecialControlFlow(): boolean {
+        return true;
     }
 
     cascadeTypes(valueUsed: boolean): void {
@@ -445,11 +402,12 @@ export class Break extends Expression {
     }
 
     /** True if this break is inside an IIFE (computed lazily via parent pointers) */
-    get needsException(): boolean {
+    needsExceptionForControlFlow(): boolean {
         let node: Expression | null = this.parent;
         while (node) {
             if (node instanceof ForLoop) return false;
             if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
+            // TODO: Checking specifically for a Block might cause problems if we allow loop bodies to contain any expression
             if (node instanceof Block && node.isValueUsed) {
                 // A Block creates an IIFE context only when it's NOT the direct body of a function or loop
                 const isFunctionBody =
@@ -458,7 +416,7 @@ export class Break extends Expression {
                 if (
                     !isFunctionBody &&
                     !isLoopBody &&
-                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
+                    lastExprShouldReturn(node.expressions[node.expressions.length - 1])
                 )
                     return true;
             }
@@ -469,7 +427,7 @@ export class Break extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        if (this.needsException) {
+        if (this.needsExceptionForControlFlow()) {
             writer.useBuiltin("$Break$");
             writer.write("throw new $Break$()");
         } else {
@@ -502,11 +460,12 @@ export class Continue extends Expression {
     }
 
     /** True if this continue is inside an IIFE (computed lazily via parent pointers) */
-    get needsException(): boolean {
+    needsExceptionForControlFlow(): boolean {
         let node: Expression | null = this.parent;
         while (node) {
             if (node instanceof ForLoop) return false;
             if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
+            // TODO: Checking specifically for a Block might cause problems if we allow loop bodies to contain any expression
             if (node instanceof Block && node.isValueUsed) {
                 const isFunctionBody =
                     node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
@@ -514,7 +473,7 @@ export class Continue extends Expression {
                 if (
                     !isFunctionBody &&
                     !isLoopBody &&
-                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
+                    lastExprShouldReturn(node.expressions[node.expressions.length - 1])
                 )
                     return true;
             }
@@ -525,7 +484,7 @@ export class Continue extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        if (this.needsException) {
+        if (this.needsExceptionForControlFlow()) {
             writer.useBuiltin("$Continue$");
             writer.write("throw new $Continue$()");
         } else {
@@ -562,7 +521,7 @@ export class Return extends Expression {
     }
 
     /** True if this return is inside an IIFE (computed lazily via parent pointers) */
-    get needsException(): boolean {
+    needsExceptionForControlFlow(): boolean {
         let node: Expression | null = this.parent;
         while (node) {
             if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
@@ -572,7 +531,7 @@ export class Return extends Expression {
                     node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
                 if (
                     !isFunctionBody &&
-                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
+                    lastExprShouldReturn(node.expressions[node.expressions.length - 1])
                 )
                     return true;
             }
@@ -583,7 +542,7 @@ export class Return extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        if (this.needsException) {
+        if (this.needsExceptionForControlFlow()) {
             writer.useBuiltin("$Return$");
             writer.write("throw new $Return$(");
             this.value.toJS(writer);
@@ -1219,18 +1178,26 @@ export class Variable extends Expression {
 
 export class Assignment extends Expression {
     name: string;
+    value: Expression;
+    isDropped: boolean;
     isMutable: boolean = false;
     isReassignment: boolean = false;
 
     constructor(
         variableToken: Token,
-        public value: Expression,
-        public isDropped: boolean,
+        value: Expression,
+        isDropped: boolean,
         isMutable: boolean = false
     ) {
         super(variableToken.line, variableToken.col);
+        this.value = value;
+        this.isDropped = isDropped;
         this.name = variableToken.text;
         this.isMutable = isMutable;
+    }
+
+    getAllChildren(): Expression[] {
+        return [this.value];
     }
 
     /** Scan older siblings in the immediate enclosing Block for a variable definition. */
@@ -1521,7 +1488,7 @@ export class AnonymousFunction extends Expression {
     /** Walk the body subtree to check if any Return needs exception handling. */
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
-            if (expr instanceof Return) return expr.needsException;
+            if (expr instanceof Return) return expr.needsExceptionForControlFlow();
             if (expr instanceof DropValue) return check(expr.child);
             if (expr instanceof Block) return expr.expressions.some((e) => check(e));
             if (expr instanceof If) {
@@ -1558,7 +1525,7 @@ export class AnonymousFunction extends Expression {
             writer.newLine();
         });
         const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-        if (Block.lastExprShouldReturn(lastExpr)) {
+        if (lastExprShouldReturn(lastExpr)) {
             writer.write("return ");
         }
         lastExpr.toJS(writer);
@@ -1981,7 +1948,7 @@ export class FunctionDef extends Expression {
     /** Walk the body subtree to check if any Return needs exception handling. */
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
-            if (expr instanceof Return) return expr.needsException;
+            if (expr instanceof Return) return expr.needsExceptionForControlFlow();
             if (expr instanceof DropValue) return check(expr.child);
             if (expr instanceof Block) return expr.expressions.some((e) => check(e));
             if (expr instanceof If) {
@@ -2081,7 +2048,7 @@ export class FunctionDef extends Expression {
                 writer.newLine();
             });
             const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-            if (Block.lastExprShouldReturn(lastExpr)) {
+            if (lastExprShouldReturn(lastExpr)) {
                 writer.write("return ");
             }
             lastExpr.toJS(writer);

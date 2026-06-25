@@ -55,6 +55,22 @@ export abstract class Expression {
         return null;
     }
 
+    /**
+     * Gets _all_ expression nodes contained by this expression
+     * Used so that third-parties can recursively walk down the AST
+     */
+    getAllChildren(): Expression[] {
+        return [];
+    }
+
+    /**
+     * Whether an expression is a special control flow expression (break, continue, return)
+     * that needs exception handling to break out of nested IIFEs
+     */
+    needsExceptionForControlFlow(): boolean {
+        return false;
+    }
+
     abstract cascadeTypes(valueUsed: boolean): void;
 
     toJS(_writer: JSWriter): void {
@@ -87,6 +103,10 @@ export class DropValue extends Expression {
     constructor(public child: Expression) {
         super(child.line, child.col);
         this.type = "Null";
+    }
+
+    getAllChildren(): Expression[] {
+        return [this.child];
     }
 
     cascadeTypes(valueUsed: boolean): void {
