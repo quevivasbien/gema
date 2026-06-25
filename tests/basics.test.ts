@@ -21,6 +21,7 @@ test("compile floats with leading zeros", () => {
     testCompile("00.1", 0.1);
     testCompile("01.52", 1.52);
     testCompile("000152.", 152);
+    testCompile("0.", 0);
 });
 
 test("compile binary expressions", () => {

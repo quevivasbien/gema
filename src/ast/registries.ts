@@ -152,6 +152,19 @@ export function getAllMonomorphized(): Map<string, FunctionDef> {
     return monomorphizedCache;
 }
 
+/** Find a function whose fullName starts with the given prefix. */
+export function findFunctionByPrefix(prefix: string): FunctionDef | undefined {
+    // Search the monomorphized cache first
+    for (const [, fn] of monomorphizedCache) {
+        if (fn.fullName && fn.fullName.startsWith(prefix)) return fn;
+    }
+    // Then search the main function registry
+    for (const [, fn] of functionRegistry) {
+        if (fn.fullName && fn.fullName.startsWith(prefix)) return fn;
+    }
+    return undefined;
+}
+
 // Track variable names that have been consumed (e.g., by detrans).
 // After detrans(mutarr), 'mutarr' is added here and cannot be used as a MutArr.
 const consumedVars = new Map<string, boolean>();

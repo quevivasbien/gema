@@ -1608,8 +1608,35 @@ class Parser {
         }
         const rootToken = this.current();
         this.advance();
-        const name = this.current().text;
+        let name = this.current().text;
+        let typeAssociatedName: string | null = null;
+        let typeAssociatedTemplates: string | null = null;
         this.advance();
+
+        // Check for template types on the type name: Arr[Int].funcName
+        if (this.current().type === TokenType.LBracket) {
+            // Consume the template types as part of the type name
+            const startIdx = this.index;
+            this.advance(); // skip '['
+            while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
+                this.advance();
+            }
+            if (!this.atEnd()) {
+                this.advance(); // skip ']'
+            }
+            typeAssociatedTemplates = this.tokens
+                .slice(startIdx, this.index)
+                .reduce((acc, t) => acc + t.text, "");
+        }
+
+        // Check for type-associated function: func TypeName.funcName(...)
+        if (this.current().type === TokenType.Dot && this.peek()?.type === TokenType.Identifier) {
+            typeAssociatedName = name + (typeAssociatedTemplates ?? "");
+            this.advance(); // skip '.'
+            name = this.current().text;
+            this.advance(); // skip funcName
+        }
+
         if (this.current().type !== TokenType.LParen) {
             return this.error("Expected '(' after function name.");
         }
@@ -1671,7 +1698,17 @@ class Parser {
         this.advance();
 
         return this.tryCreateASTExpression(
-            () => new AST.FunctionDef(rootToken, name, params, returnType, typeTraits, this.block())
+            () =>
+                new AST.FunctionDef(
+                    rootToken,
+                    name,
+                    params,
+                    returnType,
+                    typeTraits,
+                    this.block(),
+                    false,
+                    typeAssociatedName
+                )
         );
     }
 

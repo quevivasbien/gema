@@ -29,7 +29,7 @@ export class Literal extends Expression {
                 break;
             case "Float":
                 // The regex replace here is to remove extra leading zeros so we don't attempt to represent them as octal
-                compiler.write(this.value.replace(/^0+?(?=0\.|[^0])/, ""));
+                compiler.write(this.value.replace(/^0+?(?=0\.|[^0.])/, ""));
                 break;
             case "Str":
                 compiler.write(this.value);

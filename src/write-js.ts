@@ -54,11 +54,14 @@ export function safeJSName(name: string): string {
     // Handle mangled names like "foo$Int$Int" — only check the base name part
     const dollarIdx = name.indexOf("$");
     const baseName = dollarIdx === -1 ? name : name.slice(0, dollarIdx);
-    if (JS_RESERVED_WORDS.has(baseName)) {
+    // Sanitize dots in type-associated function names (e.g., "Int.zero" → "Int_zero")
+    const sanitizedBase = baseName.replace(/\./g, "Ϯ");
+    if (JS_RESERVED_WORDS.has(sanitizedBase)) {
         const suffix = dollarIdx === -1 ? "" : name.slice(dollarIdx);
-        return `$${baseName}${suffix}`;
+        return `$${sanitizedBase}${suffix}`;
     }
-    return name;
+    const suffix = dollarIdx === -1 ? "" : name.slice(dollarIdx);
+    return `${sanitizedBase}${suffix}`;
 }
 
 class Scope {
@@ -96,7 +99,7 @@ export class JSWriter {
     }
 
     uniqueName(prefix: string): string {
-        return `${prefix}${this.nextUniqueId++}`;
+        return `${prefix}$${this.nextUniqueId++}$`;
     }
 
     newLine() {

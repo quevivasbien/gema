@@ -1118,6 +1118,14 @@ export class Variable extends Expression {
             child = node;
             node = node.parent;
         }
+
+        // Fallback: builtin type name used as a type reference (e.g., Int in Int.zero())
+        if (isBuiltinTypeName(this.name) || getStruct(this.name) || getEnum(this.name)) {
+            this.type = new CustomType(this.name);
+            this.fullName = this.name;
+            return;
+        }
+
         throw this.error(`unable to resolve type of variable ${this}`);
     }
 
@@ -1528,6 +1536,8 @@ export class FunctionDef extends Expression {
      * so we can check that they return a value whose type matches
      * the return type of this function */
     returnStatements: Return[] = [];
+    /** If non-null, this function is type-associated (e.g., Int.zero) */
+    typeAssociatedName: string | null;
 
     constructor(
         rootToken: Token,
@@ -1536,7 +1546,8 @@ export class FunctionDef extends Expression {
         returnType: Type,
         typeTraits: { type: Type; trait: Type }[],
         body: Expression,
-        skipTypeValidation: boolean = false
+        skipTypeValidation: boolean = false,
+        typeAssociatedName: string | null = null
     ) {
         if (!(body instanceof Block)) {
             throw new Error("function body must be a Block expression");
@@ -1549,8 +1560,10 @@ export class FunctionDef extends Expression {
         this.params = params;
         this.returnType = returnType;
         this.body = body;
+        this.typeAssociatedName = typeAssociatedName;
+        const baseName = typeAssociatedName ? `${typeAssociatedName}.${name}` : (name as string);
         this.fullName = functionNameWithParamTypes(
-            name as string,
+            baseName,
             params.map((p) => p.type)
         );
 
@@ -1877,13 +1890,15 @@ export class FunctionDef extends Expression {
             });
             // Instead of returning the call to self, we reassign the args of this function to those passed to the call
             for (let i = 0; i < this.params.length; i++) {
-                writer.write(`${tempArgNames[i]} = `);
+                writer.write(`${writer.safeName(tempArgNames[i])} = `);
                 tailCall.args[i].toJS(writer);
                 writer.write(";");
                 writer.newLine();
             }
             for (let i = 0; i < this.params.length; i++) {
-                writer.write(`${writer.safeName(this.params[i].name)} = ${tempArgNames[i]};`);
+                writer.write(
+                    `${writer.safeName(this.params[i].name)} = ${writer.safeName(tempArgNames[i])};`
+                );
                 writer.newLine();
             }
             writer.indentOut();

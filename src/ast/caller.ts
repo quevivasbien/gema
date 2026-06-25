@@ -1543,9 +1543,11 @@ export function findCaller(
                 }
 
                 // Direct match with a non-generic function
+                // (skip type-associated functions — they must be called via TypeName.funcName())
                 if (
                     olderSibling instanceof FunctionDef &&
                     !olderSibling.isGeneric &&
+                    !olderSibling.typeAssociatedName &&
                     olderSibling.name === name &&
                     paramTypesMatchArgTypes(
                         olderSibling.params.map((t) => t.type),
@@ -1573,8 +1575,10 @@ export function findCaller(
                 }
 
                 // Generic function matching — attempt monomorphization
+                // (skip type-associated functions — they must be called via TypeName.funcName())
                 if (
                     olderSibling instanceof FunctionDef &&
+                    !olderSibling.typeAssociatedName &&
                     olderSibling.isGeneric &&
                     olderSibling.params.length === argTypes.length
                 ) {

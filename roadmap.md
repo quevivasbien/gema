@@ -97,12 +97,76 @@ func sumFrom(iter: Iter[T], start: T) where T is Summable {
 }
 ```
 
-As an extension to this, it could also be useful to allow traits to require functions that don't require any `Self` arguments. The syntax could be something like
+## Type-associated functions
+
+Roughly speaking, this is the equivalent of a static method on a class. It's a function associated with a type that may or may not actually take an argument of that type.
+
+Basic examples
+
+```gema
+func Int.zero() {
+  0
+}
+
+func Float.zero() {
+  0.
+}
+
+struct MyType { x: Int, y: Float }
+
+func MyType.zero() {
+  MyType(Int.zero(), Float.zero())
+}
+
+m = MyType.zero();
+toFloat(m.x) == m.y  # true
+```
+
+Another example
+
+```gema
+func Int.getAdder(n: Int) {
+  func(x: Int) { x + n }
+}
+```
+
+This should also work with template types:
+
+```gema
+func Arr[Int].empty() {
+  []:Int
+}
+
+func Arr[Int].zeros(n: Int) {
+  map(\_ 0, 1..n) | collect
+}
+
+Arr[Int].empty() + Arr[Int].zeros(3)  # [0, 0, 0]
+```
+
+We also should be able to define generic version like
+
+```gema
+trait Any {}
+
+func Arr[T].empty() where T is Any {
+  []:T
+}
+
+# Another valid syntax:
+func T.emptyArray() where T is Any {
+  []:T
+}
+
+Arr[Str].empty() + ["hello"] + Str.emptyArray()  # ["hello"]
+```
+
+Finally, we can include these as part of trait definitions:
 
 ```gema
 trait Summable {
   add[(a: Self, b: Self): Self],
-  Self.zero[:Self]
+  Self.zero[():Self]
 }
 
 func sum(iter: T) where T is Summable {
@@ -112,7 +176,7 @@ func sum(iter: T) where T is Summable {
 # Example implementation:
 struct S { s: Int }
 
-func sum(a: S, b: S) {
+func add(a: S, b: S) {
   S(a.s + b.s)
 }
 
@@ -123,6 +187,16 @@ func S.zero() {
 # Then we can do
 sum([S(1), S(2), S(3)])
 ```
+
+Right now we require that functions included as part of trait definitions have Self as at least one of the parameter types, but we could amend that to require Self as at least one of the parameter types _or_ as the type associated with the function.
+
+### Potential future extension
+
+We could have some sort of intelligent type inference where if you do something like call `Arr.empty` and it doesn't find any such function defined for an un-templated `Arr`, it will match to the first templated `Arr[T].empty` (or generally speaking, `Arr[T, U, ...].empty`) that it finds and try to use that.
+
+For example, if I call `Arr.zeros(3)` it will start by finding a function with a signature like `func Arr.zeros(_: Int) { ... }` and it it doesn't find that it will try to use the first `func Arr[...].zeros(_: Int) { ... }` that it finds.
+
+As an extension to this, it could also be useful to
 
 ## Tentative: allow structs to have generic fields
 
@@ -135,41 +209,13 @@ struct S[T] where T is Foo {
 }
 ```
 
-## Enums
+## Very tentative: templated traits?
 
-Enum syntax is:
+This seems like probably too far down the rabbit hole...
 
-```gema
-enum Grade {
-  a,
-  b,
-  c
-}
+## Tentative: Improvements to enums
 
-grade = Grade.a;
-```
-
-In JS, this sort of enum would compile to just a number (i.e., `Grade.a` would be represented as 0, `Grade.b` would be represented as 1, and so on).
-
-Enums can also be tagged unions:
-
-```gema
-enum Number {
-  integer: Int,
-  decimal: Float,
-}
-
-num = Number.integer(1);
-```
-
-In JS, this would be represented as a JS object with a `$tag` field:
-
-```
-Number.integer(1) -> { "$tag": 0, "$val": 1n }
-Number.decimal(1.0) -> { "$tag": 1, "$val": 1 }
-```
-
-In the future, it would be nice to allow enums to be parameterized by generic types, but we'll leave this out of the MVP:
+In the future, it might be nice to allow enums to be parameterized by generic types:
 
 ```gema
 enum Result[T, E] {
@@ -177,26 +223,7 @@ enum Result[T, E] {
   error: E
 }
 
-res = Result[Int, Str].value(1);  # Ideally, we would have a way to avoid the clunky syntax required to make it clear what all the generic types should be.
-```
-
-Not all variants must have contents:
-
-```gema
-enum OptionalInt {
-  value: Int,
-  missing
-}
-
-a = OptionalInt.value(1);
-b = OptionalInt.missing;
-```
-
-If at least one variant has contents, we need to represent the enum in the tagged object format:
-
-```
-OptionalInt.value(1) -> { "$tag": 0, "$val": 1n }
-OptionalInt.missing -> { "$tag": 1, "$val": null }
+res = Result[Int, Str].value(1);  # Ideally, we could figure out a way to avoid the clunky syntax required to make it clear what all the generic types should be.
 ```
 
 For now, we are supporting only one value per tag, but in the future we might support something like this:
@@ -214,60 +241,6 @@ enum Shape {
   circle: Circle,
   rectangle: Rectangle,
 }
-```
-
-We will have a match statement syntax to help deal with the different enum variants:
-
-```gema
-enum Number {
-  integer: Int,
-  decimal: Float,
-}
-
-func toInt(n: Number): Int {
-  match n {
-    integer(i) i,  // mimics the match syntax we already have in place for the Maybe type
-    decimal(d) toInt(d),
-  }  # Match statement has value of whatever path we go down
-}
-
-func square(n: Number): Number {
-  match n {
-    integer(i) Number.integer(i * i),
-    decimal(d) Number.decimal(d * d),
-  }
-}
-
-enum OptionalInt {
-  value: Int,
-  missing
-}
-
-func unwrapOptional(oi: OptionalInt, fallback: Int) {
-  match oi {
-    value(i) { i },
-    missing { fallback }
-  }
-}
-```
-
-This would be handled via JS switch statements.
-
-If match statements do not match all the possible values, they automatically have type Null. Match statements can include an `else` clause to catch any other possible values (acts as the default switch fallthrough).
-
-```gema
-enum Grade { a, b, c }
-
-g = Grade.a;
-score = match g {
-  a { 100 },
-  else { 50 }
-};
-
-# This is not legal, since we can't assign a variable to a Null value
-sklore = match g {
-  a { 100 }
-};
 ```
 
 ## Tentative: remove `:` from type annotations.
@@ -296,7 +269,9 @@ func f(n: Int, res: Int): Int {
 
 Maybe the most straightforward way to support this and any other deep recursion case is to detect any other case where we have a recursive function (beside the easily TCO-optimized case we already support) and use trampoline functions in these cases.
 
-### JSWriter's uniqueName might cause collisions when variables end in an integer
+### Add a proper name registry so we can get rid of all the weird name mangling and be sure to avoid name collisions
+
+Should just have a "what am I called" in JS helper which simultaneously ensures that variables are valid JS and that they don't unintentionally collide with something else.
 
 ### Others
 
@@ -315,6 +290,8 @@ Maybe the most straightforward way to support this and any other deep recursion 
 - Make sure all the builtins follow the `f(<func>, <values>..., <container>)` idiom so they are easily chainable.
 
 - Allow underscores in numeric literals
+
+- Do not allow functions to take arguments of type null. Something like this should not compile: `func foo(x: Null) {1;} foo({1;}); 1`
 
 ### range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
 

@@ -265,3 +265,43 @@ test("recursive function with tail call optimization and JS reserved keyword", (
         55n
     );
 });
+
+// ── Type-associated functions (static methods) ───────────
+
+test("type-associated function: basic definition and call", () => {
+    testCompile("func Int.zero() { 0 }; Int.zero()", 0n);
+});
+
+test("type-associated function: with parameters", () => {
+    testCompile("func Int.add(n: Int): Int { n + 1 }; Int.add(5)", 6n);
+});
+
+test("type-associated function: on struct", () => {
+    testCompile(
+        `
+        struct S { x: Int }
+        func S.zero() { S(0) }
+        S.zero().x
+        `,
+        0n
+    );
+});
+
+test("type-associated function: on Str type", () => {
+    testCompile('func Str.zero() { "" }; Str.zero()', "");
+});
+
+test("type-associated function: missing type", () => {
+    testParseExpectError("func Int.increment(i: Int) { i + 1 }; increment(1)");
+});
+
+test("type-associated function: non-type-associated function with same base name", () => {
+    testCompile(
+        `
+        func Int.increment(i: Int) { i + 1 }
+        func increment(i: Int) { i + 2 }
+        (Int.increment(1), increment(1))
+        `,
+        [2n, 3n]
+    );
+});

@@ -1,9 +1,9 @@
-import { Call } from "./calls";
+import { Call, DirectCall } from "./calls";
 import { DropValue, Expression } from "./expression";
 import { Assignment, Block, ForLoop, FunctionDef, If, TupleUnpack, Variable } from "./nodes";
 import { Binary } from "./operators";
-import { findFunction } from "./registries";
-import { StructDef } from "./structs";
+import { findFunction, findFunctionByPrefix } from "./registries";
+import { FieldAccess, StructDef } from "./structs";
 import { Trait } from "./traits";
 import type { Type } from "./types";
 import {
@@ -67,6 +67,18 @@ export function collectReferences(
         referencedNames.add(node.fullName);
     } else if (node instanceof FunctionDef && node.fullName) {
         referencedNames.add(node.fullName);
+    } else if (node instanceof DirectCall && node.caller instanceof FieldAccess) {
+        // Type-associated function call: TypeName.funcName(args)
+        const fa = node.caller;
+        if (fa.tafTargetName) {
+            referencedNames.add(fa.tafTargetName);
+        } else if (fa.obj instanceof Variable && fa.obj.fullName) {
+            const tafName = `${fa.obj.fullName}.${fa.fieldName}`;
+            const fnDef = findFunctionByPrefix(tafName + "$");
+            if (fnDef && fnDef.fullName) {
+                referencedNames.add(fnDef.fullName);
+            }
+        }
     } else if (node instanceof Assignment && node.name) {
         referencedNames.add(node.name);
     } else if (node instanceof TupleUnpack) {

@@ -1,7 +1,7 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
-import { getEnum, getStruct, registerStruct } from "./registries";
+import { findFunctionByPrefix, getEnum, getStruct, registerStruct } from "./registries";
 import { deepEquals } from "./type-utils";
 import {
     ArrayType,
@@ -101,6 +101,9 @@ export class StructDef extends Expression {
 }
 
 export class FieldAccess extends Expression {
+    /** For type-associated function references, the full registry name (e.g., "Int.zero$"). */
+    tafTargetName: string | null = null;
+
     constructor(
         public obj: Expression,
         public fieldName: string
@@ -137,9 +140,36 @@ export class FieldAccess extends Expression {
         if (!(this.obj.type instanceof CustomType)) {
             throw this.error(`cannot access field on non-struct type ${this.obj.type}`);
         }
-        const structInfo = getStruct(this.obj.type.name);
+        const objTypeName = this.obj.type.name;
+
+        // Check for type-associated function: TypeName.funcName
+        if (!getStruct(objTypeName)) {
+            // This CustomType is not a struct — check for a type-associated function
+            const tafPrefix = `${objTypeName}.${this.fieldName}`;
+            // Try exact match first
+            let fnDef = findFunctionByPrefix(tafPrefix);
+            if (!fnDef) fnDef = findFunctionByPrefix(tafPrefix + "$");
+            if (fnDef) {
+                this.type = fnDef.getFuncType();
+                this.tafTargetName = fnDef.fullName;
+                return;
+            }
+            throw this.error(
+                `type ${objTypeName} has no field or function named "${this.fieldName}"`
+            );
+        }
+
+        const structInfo = getStruct(objTypeName);
         if (!structInfo) {
-            throw this.error(`type ${this.obj.type.name} is not a struct`);
+            throw this.error(`type ${objTypeName} is not a struct`);
+        }
+        // Check for type-associated function on struct before checking fields
+        const tafPrefix = `${objTypeName}.${this.fieldName}`;
+        const tafDef = findFunctionByPrefix(tafPrefix + "$") ?? findFunctionByPrefix(tafPrefix);
+        if (tafDef) {
+            this.type = tafDef.getFuncType();
+            this.tafTargetName = tafDef.fullName;
+            return;
         }
         const field = structInfo.fields.find((f) => f.name === this.fieldName);
         if (!field) {
@@ -174,6 +204,12 @@ export class FieldAccess extends Expression {
 
             // Plain variant in a mixed/tagged enum: emit the object directly
             writer.write(`{"$tag": ${vIdx}, "$val": null}`);
+            return;
+        }
+
+        // Type-associated function reference: emit sanitized function name
+        if (this.tafTargetName) {
+            writer.write(writer.safeName(this.tafTargetName));
             return;
         }
 
