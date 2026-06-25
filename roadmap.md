@@ -190,6 +190,29 @@ sum([S(1), S(2), S(3)])
 
 Right now we require that functions included as part of trait definitions have Self as at least one of the parameter types, but we could amend that to require Self as at least one of the parameter types _or_ as the type associated with the function.
 
+### Architecture: eliminate circular dependency workarounds
+
+Several files in `src/ast/` (e.g. `structs.ts`, `taf-resolver.ts`) currently use duck-typing to avoid
+importing classes like `Variable` from `nodes.ts`, because the import graph forms a cycle:
+
+```
+index.ts → nodes.ts → set-parent-pointers.ts → structs.ts → taf-resolver.ts
+                                                                        ↓ (duck-typed)
+                                                                  nodes.ts (Variable, Block, etc.)
+```
+
+**Proposal**: Extract a shared `types.ts`-style module (say `src/ast/ast-types.ts` or a reorganized
+`src/ast/interfaces.ts`) that defines interfaces/type-aliases for the subset of AST node types
+needed by downstream modules. This breaks the cycle because `type` imports are erased at runtime.
+
+Specifically:
+
+- Move class references that trigger the cycle (e.g. `Variable`, `FunctionDef`, `Block`) into
+  duck-typing-free interfaces that downstream modules can import as types.
+- Direct instantiation of those classes (like `new Variable(...)`) stays in `nodes.ts`.
+- `structs.ts` and `taf-resolver.ts` would import the interface, not the class — no more
+  duck-typing hacks.
+
 ### Potential future extension
 
 We could have some sort of intelligent type inference where if you do something like call `Arr.empty` and it doesn't find any such function defined for an un-templated `Arr`, it will match to the first templated `Arr[T].empty` (or generally speaking, `Arr[T, U, ...].empty`) that it finds and try to use that.

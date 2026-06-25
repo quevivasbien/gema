@@ -24,10 +24,13 @@ export class Trait extends Expression {
         }
 
         for (const { name, types } of requiredFunctions) {
+            // Self can appear as a parameter type OR as the associated type (type-associated function)
+            // A function is type-associated with Self if its name starts with "Self."
+            const isTypeAssociated = name.startsWith("Self.");
             const hasSelf = types.types.some(
                 (t) => t === "Self" || (t instanceof CustomType && t.name === "Self")
             );
-            if (!hasSelf) {
+            if (!hasSelf && !isTypeAssociated) {
                 throw new Error(
                     `function ${name} for trait ${this.name} must include Self in at least one parameter type`
                 );

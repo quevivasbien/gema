@@ -21,7 +21,7 @@ import {
     saveConsumedVars,
 } from "./registries";
 import { setParentPointers } from "./set-parent-pointers";
-import { deepEquals } from "./type-utils";
+import { collectTraitsForTypeParam, deepEquals } from "./type-utils";
 import {
     ArrayType,
     collectCustomTypeNames,
@@ -30,6 +30,7 @@ import {
     FuncType,
     isBuiltinTypeName,
     IterType,
+    MaybeType,
     MutArrType,
     substituteTypeParams,
     TemplateTypes,
@@ -924,6 +925,15 @@ export class Variable extends Expression {
             }
             return false;
         });
+        if (
+            !found &&
+            (isBuiltinTypeName(this.name) || getStruct(this.name) || getEnum(this.name))
+        ) {
+            // Fall back to type reference (e.g., Arr[Int] → type Arr with template [Int])
+            this.type = new CustomType(this.name);
+            this.fullName = this.name;
+            return;
+        }
         if (!found) {
             throw this.error(`cannot resolve type of variable '${this}'`);
         }
@@ -1119,6 +1129,29 @@ export class Variable extends Expression {
             node = node.parent;
         }
 
+        // Fallback: type param from enclosing generic function (e.g., T in T.zero())
+        if (!isBuiltinTypeName(this.name) && !getStruct(this.name) && !getEnum(this.name)) {
+            let fn: Expression | null = this.parent;
+            while (fn) {
+                if (
+                    fn instanceof FunctionDef &&
+                    fn.isGeneric &&
+                    fn.typeParams.includes(this.name)
+                ) {
+                    const traits: string[] = [];
+                    for (const param of fn.params) {
+                        traits.push(...collectTraitsForTypeParam(param.type, this.name));
+                    }
+                    const ct = new CustomType(this.name);
+                    for (const t of traits) ct.addTrait(t);
+                    this.type = ct;
+                    this.fullName = this.name;
+                    return;
+                }
+                fn = fn.parent;
+            }
+        }
+
         // Fallback: builtin type name used as a type reference (e.g., Int in Int.zero())
         if (isBuiltinTypeName(this.name) || getStruct(this.name) || getEnum(this.name)) {
             this.type = new CustomType(this.name);
@@ -1139,8 +1172,23 @@ export class Variable extends Expression {
                     : null
             );
         }
+        // If bindings map this variable's name (a type param) to a concrete type,
+        // create a variable referencing the concrete type name so it can be
+        // resolved in the monomorphized body.
+        let clonedName = this.name;
+        if (bindings && !this.templateTypes.empty() && bindings.has(this.name)) {
+            const boundType = bindings.get(this.name)!;
+            if (boundType instanceof CustomType) {
+                clonedName = boundType.name;
+            }
+        } else if (bindings && this.templateTypes.empty() && bindings.has(this.name)) {
+            const boundType = bindings.get(this.name)!;
+            if (boundType instanceof CustomType) {
+                clonedName = boundType.name;
+            }
+        }
         const cloned = new Variable(
-            { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
+            { line: this.line, col: this.col, text: clonedName, type: TokenType.Identifier },
             newTemplateTypes
         );
         return cloned;
@@ -1538,6 +1586,8 @@ export class FunctionDef extends Expression {
     returnStatements: Return[] = [];
     /** If non-null, this function is type-associated (e.g., Int.zero) */
     typeAssociatedName: string | null;
+    /** For templated TAFs, the template types from the type name (e.g., [T] for Arr[T].empty). */
+    typeAssociatedTemplates: TemplateTypes;
 
     constructor(
         rootToken: Token,
@@ -1547,7 +1597,8 @@ export class FunctionDef extends Expression {
         typeTraits: { type: Type; trait: Type }[],
         body: Expression,
         skipTypeValidation: boolean = false,
-        typeAssociatedName: string | null = null
+        typeAssociatedName: string | null = null,
+        typeAssociatedTemplates: TemplateTypes = new TemplateTypes()
     ) {
         if (!(body instanceof Block)) {
             throw new Error("function body must be a Block expression");
@@ -1561,6 +1612,7 @@ export class FunctionDef extends Expression {
         this.returnType = returnType;
         this.body = body;
         this.typeAssociatedName = typeAssociatedName;
+        this.typeAssociatedTemplates = typeAssociatedTemplates;
         const baseName = typeAssociatedName ? `${typeAssociatedName}.${name}` : (name as string);
         this.fullName = functionNameWithParamTypes(
             baseName,
@@ -1577,14 +1629,26 @@ export class FunctionDef extends Expression {
                 throw new Error(`${trait} is not a valid trait name.`);
             }
             typeParamNames.add(type.name);
-            this.params.forEach((param) => {
-                if (param.type instanceof CustomType && param.type.name === type.name) {
-                    param.type.addTrait(trait.name);
+            const addTraitToTypeParam = (t: Type): void => {
+                if (t instanceof CustomType && t.name === type.name) {
+                    t.addTrait(trait.name);
+                } else if (t instanceof ArrayType) {
+                    addTraitToTypeParam(t.innerType);
+                } else if (t instanceof IterType) {
+                    addTraitToTypeParam(t.innerType);
+                } else if (t instanceof MutArrType) {
+                    addTraitToTypeParam(t.innerType);
+                } else if (t instanceof TupleType) {
+                    t.types.forEach((tt) => addTraitToTypeParam(tt));
+                } else if (t instanceof FuncType) {
+                    t.paramTypes.forEach((pt) => addTraitToTypeParam(pt));
+                    addTraitToTypeParam(t.returnType);
+                } else if (t instanceof MaybeType) {
+                    addTraitToTypeParam(t.innerType);
                 }
-            });
-            if (this.returnType instanceof CustomType && this.returnType.name === type.name) {
-                this.returnType.addTrait(trait.name);
-            }
+            };
+            this.params.forEach((param) => addTraitToTypeParam(param.type));
+            addTraitToTypeParam(this.returnType);
         });
         this.typeParams = [...typeParamNames];
 
@@ -1593,14 +1657,18 @@ export class FunctionDef extends Expression {
         if (!skipTypeValidation) {
             // Validate: every type parameter must appear in at least one parameter type,
             // otherwise it can never be inferred from call arguments.
-            const paramTypeNames = new Set<string>();
-            this.params.forEach((p) => collectCustomTypeNames(p.type, paramTypeNames));
-            for (const tp of this.typeParams) {
-                if (!paramTypeNames.has(tp)) {
-                    throw new Error(
-                        `generic type parameter '${tp}' of function '${this.name}' must appear ` +
-                            `in the type of at least one parameter so it can be inferred.`
-                    );
+            // (Skip this check for type-associated functions — the type param can be
+            // inferred from the template types on the associated type, e.g., Arr[T].empty.)
+            if (!this.typeAssociatedName) {
+                const paramTypeNames = new Set<string>();
+                this.params.forEach((p) => collectCustomTypeNames(p.type, paramTypeNames));
+                for (const tp of this.typeParams) {
+                    if (!paramTypeNames.has(tp)) {
+                        throw new Error(
+                            `generic type parameter '${tp}' of function '${this.name}' must appear ` +
+                                `in the type of at least one parameter so it can be inferred.`
+                        );
+                    }
                 }
             }
 
@@ -1773,6 +1841,100 @@ export class FunctionDef extends Expression {
                 `monomorphized function body should return ${finalReturnType}, but found ${monomorphized.body.type}`
             );
         }
+
+        if (allConcrete) {
+            registerMonomorphized(monomorphizedFullName, monomorphized);
+            this.monomorphizedVersions.push(monomorphized);
+        }
+
+        return {
+            fullName: monomorphizedFullName,
+            funcType: monomorphized.getFuncType(),
+            returnType: monomorphized.returnType,
+        };
+    }
+
+    /**
+     * Monomorphize a generic TAF using pre-computed type bindings.
+     * Unlike monomorphize(), this doesn't require the type params to appear
+     * in function parameters — the bindings come from template matching.
+     */
+    tafMonomorphize(
+        typeParams: string[],
+        bindings: Map<string, Type>
+    ): { fullName: string; funcType: FuncType; returnType: Type } | null {
+        if (!this.isGeneric) return null;
+
+        // Verify all type params have bindings
+        for (const tp of typeParams) {
+            if (!bindings.has(tp)) return null;
+        }
+
+        const concreteParamTypes = this.params.map((p) => substituteTypeParams(p.type, bindings));
+        const concreteReturnType = substituteTypeParams(this.returnType, bindings);
+        const monomorphizedFullName = functionNameWithParamTypes(this.name!, concreteParamTypes);
+
+        const cached = getMonomorphized(monomorphizedFullName);
+        if (cached) {
+            return {
+                fullName: monomorphizedFullName,
+                funcType: cached.getFuncType(),
+                returnType: concreteReturnType,
+            };
+        }
+
+        // Verify trait satisfaction
+        for (const param of this.params) {
+            if (param.type instanceof CustomType && param.type.traits.length > 0) {
+                const concreteType = substituteTypeParams(param.type, bindings);
+                const isConcrete =
+                    !(concreteType instanceof CustomType) ||
+                    isBuiltinTypeName(concreteType.name) ||
+                    getStruct(concreteType.name) !== undefined;
+                if (isConcrete) {
+                    for (const traitName of param.type.traits) {
+                        if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
+                            return null;
+                        }
+                    }
+                }
+            }
+        }
+
+        const clonedBody = this.body.clone(bindings) as Block;
+        const clonedParams = this.params.map((p) => ({
+            name: p.name,
+            type: substituteTypeParams(p.type, bindings),
+        }));
+
+        const monomorphized = new FunctionDef(
+            { line: this.line, col: this.col, text: this.name!, type: TokenType.Func },
+            this.name!,
+            clonedParams,
+            concreteReturnType as Type,
+            [],
+            clonedBody,
+            true
+        );
+
+        setParentPointers(monomorphized, this.parent);
+        monomorphized.body.cascadeTypes(true);
+        monomorphized.sourceFile = this.sourceFile;
+
+        if (
+            this.returnType === "Null" &&
+            monomorphized.body.type !== null &&
+            monomorphized.body.type !== "Null"
+        ) {
+            monomorphized.returnType = monomorphized.body.type;
+        }
+
+        const allConcrete = clonedParams.every(
+            (p) =>
+                !(p.type instanceof CustomType) ||
+                isBuiltinTypeName(p.type.name) ||
+                getStruct(p.type.name) !== undefined
+        );
 
         if (allConcrete) {
             registerMonomorphized(monomorphizedFullName, monomorphized);

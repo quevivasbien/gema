@@ -1,4 +1,4 @@
-import { findFunction, getTrait } from "./registries";
+import { findFunction, findFunctionByPrefix, getTrait } from "./registries";
 import { deepEquals, typesMatchWithConversion } from "./type-utils";
 import {
     ArrayType,
@@ -114,13 +114,28 @@ export function checkTraitSatisfied(
     if (!traitFuncs) return false;
 
     for (const { name, types } of traitFuncs) {
-        const requiredParamTypes = types.types.map((t) => {
-            if (t === "Self" || (t instanceof CustomType && t.name === "Self")) return concreteType;
-            return t;
-        });
-        const targetFullName = functionNameWithParamTypes(name, requiredParamTypes);
-        const fn = findFunction(targetFullName);
-        if (!fn) return false;
+        // Type-associated trait functions: Self.funcName → look for TypeName.funcName
+        if (name.startsWith("Self.")) {
+            const funcName = name.slice(5); // strip "Self."
+            const concreteTypeName =
+                concreteType instanceof CustomType
+                    ? concreteType.name
+                    : typeof concreteType === "string"
+                      ? concreteType
+                      : "";
+            const tafFullName = `${concreteTypeName}.${funcName}`;
+            const fn = findFunctionByPrefix(tafFullName + "$") ?? findFunction(tafFullName);
+            if (!fn) return false;
+        } else {
+            const requiredParamTypes = types.types.map((t) => {
+                if (t === "Self" || (t instanceof CustomType && t.name === "Self"))
+                    return concreteType;
+                return t;
+            });
+            const targetFullName = functionNameWithParamTypes(name, requiredParamTypes);
+            const fn = findFunction(targetFullName);
+            if (!fn) return false;
+        }
     }
     return true;
 }

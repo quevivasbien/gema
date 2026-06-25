@@ -501,12 +501,25 @@ function parseTrait(parser: Parser): AST.Expression {
     parser.advance();
     const requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
-        // Expect inputs of form FuncName[(name: Type, name: Type, ...): ReturnType]
+        // Expect inputs of form:
+        //   FuncName[(name: Type, ...): ReturnType]
+        //   Self.funcName[(name: Type, ...): ReturnType]  (type-associated function)
         if (parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected function name.");
         }
-        const funcName = parser.current().text;
+        let funcName = parser.current().text;
         parser.advance();
+
+        // Detect Self.funcName pattern
+        if (
+            funcName === "Self" &&
+            parser.current().type === TokenType.Dot &&
+            parser.peek()?.type === TokenType.Identifier
+        ) {
+            parser.advance(); // skip '.'
+            funcName = "Self." + parser.current().text;
+            parser.advance(); // skip funcName
+        }
 
         // Expect '[' after function name
         if (parser.atEnd() || parser.current().type !== TokenType.LBracket) {
@@ -1610,28 +1623,20 @@ class Parser {
         this.advance();
         let name = this.current().text;
         let typeAssociatedName: string | null = null;
-        let typeAssociatedTemplates: string | null = null;
+        let typeAssociatedTemplates: TemplateTypes = new TemplateTypes();
         this.advance();
 
         // Check for template types on the type name: Arr[Int].funcName
         if (this.current().type === TokenType.LBracket) {
-            // Consume the template types as part of the type name
-            const startIdx = this.index;
-            this.advance(); // skip '['
-            while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
-                this.advance();
-            }
-            if (!this.atEnd()) {
-                this.advance(); // skip ']'
-            }
-            typeAssociatedTemplates = this.tokens
-                .slice(startIdx, this.index)
-                .reduce((acc, t) => acc + t.text, "");
+            typeAssociatedTemplates = this.getTemplateTypes();
         }
 
         // Check for type-associated function: func TypeName.funcName(...)
         if (this.current().type === TokenType.Dot && this.peek()?.type === TokenType.Identifier) {
-            typeAssociatedName = name + (typeAssociatedTemplates ?? "");
+            const templateStr = typeAssociatedTemplates.empty()
+                ? ""
+                : typeAssociatedTemplates.toString();
+            typeAssociatedName = name + templateStr;
             this.advance(); // skip '.'
             name = this.current().text;
             this.advance(); // skip funcName
@@ -1707,7 +1712,8 @@ class Parser {
                     typeTraits,
                     this.block(),
                     false,
-                    typeAssociatedName
+                    typeAssociatedName,
+                    typeAssociatedTemplates
                 )
         );
     }

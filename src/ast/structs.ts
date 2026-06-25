@@ -1,7 +1,8 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
-import { findFunctionByPrefix, getEnum, getStruct, registerStruct } from "./registries";
+import { resolveGenericTaf } from "./taf-resolver";
+import { findFunctionByPrefix, getEnum, getStruct, getTrait, registerStruct } from "./registries";
 import { deepEquals } from "./type-utils";
 import {
     ArrayType,
@@ -9,6 +10,7 @@ import {
     EnumType,
     FuncType,
     substituteTypeParams,
+    TemplateTypes,
     type Type,
 } from "./types";
 
@@ -142,17 +144,94 @@ export class FieldAccess extends Expression {
         }
         const objTypeName = this.obj.type.name;
 
+        // Build TAF search key, incorporating template types if the object has templates (Variable)
+        const tafPrefix = `${objTypeName}.${this.fieldName}`;
+        const hasTemplates =
+            this.obj instanceof Expression &&
+            "templateTypes" in (this.obj as object) &&
+            (this.obj as unknown as Record<string, unknown>).templateTypes instanceof
+                TemplateTypes &&
+            !(
+                (this.obj as unknown as Record<string, unknown>).templateTypes as TemplateTypes
+            ).empty();
+        if (hasTemplates) {
+            // For Arr[Int].empty(), also try Arr[Int].empty as search key
+            const templatedPrefix = `${objTypeName}${(this.obj as unknown as Record<string, unknown>).templateTypes}.${this.fieldName}`;
+            // Try templated version first (concrete TAFs like Arr[Int].empty)
+            const templatedDef =
+                findFunctionByPrefix(templatedPrefix + "$") ??
+                findFunctionByPrefix(templatedPrefix);
+            if (templatedDef) {
+                this.type = templatedDef.getFuncType();
+                this.tafTargetName = templatedDef.fullName;
+                return;
+            }
+        }
+
+        // Helper: try to find and monomorphize a generic TAF among sibling definitions
+        const tryResolveGenericTaf = (): boolean => {
+            const callTemplateTypes =
+                this.obj instanceof Expression &&
+                typeof (this.obj as unknown as Record<string, unknown>).templateTypes !==
+                    "undefined"
+                    ? (
+                          (this.obj as unknown as Record<string, unknown>)
+                              .templateTypes as TemplateTypes
+                      ).types
+                    : [];
+            const result = resolveGenericTaf(
+                this.parent,
+                objTypeName,
+                this.fieldName,
+                callTemplateTypes
+            );
+            if (result) {
+                this.type = result.funcType;
+                this.tafTargetName = result.fullName;
+                return true;
+            }
+            return false;
+        };
+
         // Check for type-associated function: TypeName.funcName
         if (!getStruct(objTypeName)) {
             // This CustomType is not a struct — check for a type-associated function
-            const tafPrefix = `${objTypeName}.${this.fieldName}`;
-            // Try exact match first
             let fnDef = findFunctionByPrefix(tafPrefix);
             if (!fnDef) fnDef = findFunctionByPrefix(tafPrefix + "$");
             if (fnDef) {
                 this.type = fnDef.getFuncType();
                 this.tafTargetName = fnDef.fullName;
                 return;
+            }
+            // Try generic TAF resolution
+            if (tryResolveGenericTaf()) return;
+            // Try trait dispatch for type-associated functions inside generic bodies
+            const objType = this.obj.type;
+            if (objType instanceof CustomType && objType.traits.length > 0) {
+                const traitFuncName = `Self.${this.fieldName}`;
+                for (const traitName of objType.traits) {
+                    const traitFuncs = getTrait(traitName);
+                    if (!traitFuncs) continue;
+                    for (const tf of traitFuncs) {
+                        if (tf.name !== traitFuncName) continue;
+                        // Replace Self with this type in param and return types
+                        const selfType = objType;
+                        const replacedParamTypes = tf.types.types.map((t) => {
+                            if (t === "Self" || (t instanceof CustomType && t.name === "Self"))
+                                return selfType;
+                            return t;
+                        });
+                        const replacedReturnType: Type =
+                            tf.types.returnType === "Self" ||
+                            (tf.types.returnType instanceof CustomType &&
+                                tf.types.returnType.name === "Self")
+                                ? selfType
+                                : (tf.types.returnType ?? "Null");
+                        this.type = new FuncType(replacedParamTypes, replacedReturnType);
+                        this.tafTargetName = `${objTypeName}.${this.fieldName}`;
+                        return;
+                    }
+                }
             }
             throw this.error(
                 `type ${objTypeName} has no field or function named "${this.fieldName}"`
@@ -164,13 +243,14 @@ export class FieldAccess extends Expression {
             throw this.error(`type ${objTypeName} is not a struct`);
         }
         // Check for type-associated function on struct before checking fields
-        const tafPrefix = `${objTypeName}.${this.fieldName}`;
         const tafDef = findFunctionByPrefix(tafPrefix + "$") ?? findFunctionByPrefix(tafPrefix);
         if (tafDef) {
             this.type = tafDef.getFuncType();
             this.tafTargetName = tafDef.fullName;
             return;
         }
+        // Try generic TAF resolution for structs too
+        if (tryResolveGenericTaf()) return;
         const field = structInfo.fields.find((f) => f.name === this.fieldName);
         if (!field) {
             throw this.error(`struct ${structInfo.name} has no field named "${this.fieldName}"`);

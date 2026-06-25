@@ -2,7 +2,7 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller";
 import { Expression } from "./expression";
-import { deepEquals } from "./type-utils";
+import { deepEquals, typeEquals } from "./type-utils";
 import { ArrayType, CustomType, EnumType, IterType, type Type } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
@@ -123,7 +123,8 @@ export class Binary extends Expression {
         }
 
         // Enforce that left-hand type == right-hand type for all binary ops
-        if (!deepEquals(ltype, rtype)) {
+        // (ignore trait metadata — traits are not part of type identity)
+        if (!typeEquals(ltype, rtype)) {
             throw this.error(
                 `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
             );

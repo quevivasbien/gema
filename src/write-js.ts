@@ -54,8 +54,10 @@ export function safeJSName(name: string): string {
     // Handle mangled names like "foo$Int$Int" — only check the base name part
     const dollarIdx = name.indexOf("$");
     const baseName = dollarIdx === -1 ? name : name.slice(0, dollarIdx);
-    // Sanitize dots in type-associated function names (e.g., "Int.zero" → "Int_zero")
-    const sanitizedBase = baseName.replace(/\./g, "Ϯ");
+    // Sanitize special characters in type-associated function names
+    // e.g., "Int.zero" → "Int_zero", "Arr[Int].empty" → "Arr_Int_empty"
+    let sanitizedBase = baseName.replace(/\./g, "Ϯ");
+    sanitizedBase = sanitizedBase.replace(/\[/g, "_").replace(/\]/g, "");
     if (JS_RESERVED_WORDS.has(sanitizedBase)) {
         const suffix = dollarIdx === -1 ? "" : name.slice(dollarIdx);
         return `$${sanitizedBase}${suffix}`;

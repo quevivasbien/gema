@@ -305,3 +305,130 @@ test("type-associated function: non-type-associated function with same base name
         [2n, 3n]
     );
 });
+
+// ── Templated TAFs: func Arr[Int].empty() ───────────────
+
+test("TAF template: concrete Arr[Int].empty()", () => {
+    testCompile(
+        `
+        func Arr[Int].empty() { []:Int }
+        Arr[Int].empty()
+        `,
+        []
+    );
+});
+
+test("TAF template: Arr[Int].zeros(n)", () => {
+    testCompile(
+        `
+        func Arr[Int].zeros(n: Int) {
+            map(\\_ 0, 1..n) | collect
+        }
+        Arr[Int].zeros(3)
+        `,
+        [0n, 0n, 0n]
+    );
+});
+
+test("TAF template: multiple template args", () => {
+    testCompile(
+        `
+        func Arr[Int].empty() { []:Int }
+        func Arr[Str].empty() { []:Str }
+        (Arr[Int].empty(), Arr[Str].empty())
+        `,
+        [[], []]
+    );
+});
+
+// ── Generic TAFs: func Arr[T].empty() where T is Any ────
+
+test("TAF generic: Arr[T].empty() monomorphized to Int", () => {
+    testCompile(
+        `
+        trait Any {}
+        func Arr[T].empty() where T is Any { []:T }
+        Arr[Int].empty()
+        `,
+        []
+    );
+});
+
+test("TAF generic: Arr[T].empty() monomorphized to Str", () => {
+    testCompile(
+        `
+        trait Any {}
+        func Arr[T].empty() where T is Any { []:T }
+        Arr[Str].empty()
+        `,
+        []
+    );
+});
+
+test("TAF generic: Arr[T].empty with type-param body", () => {
+    testCompile(
+        `
+        trait Any {}
+        func Arr[T].fill(v: T, n: Int): Arr[T] where T is Any {
+            map(\\_ v, 1..n) | collect
+        }
+        Arr[Int].fill(42, 3)
+        `,
+        [42n, 42n, 42n]
+    );
+});
+
+// ── Type-param as associated type: func T.emptyArray() ──
+
+test("TAF type-param: T.emptyArray() monomorphized to Int", () => {
+    testCompile(
+        `
+        trait Any {}
+        func T.emptyArray() where T is Any { []:T }
+        Int.emptyArray()
+        `,
+        []
+    );
+});
+
+test("TAF type-param: T.emptyArray() monomorphized to Str", () => {
+    testCompile(
+        `
+        trait Any {}
+        func T.emptyArray() where T is Any { []:T }
+        Str.emptyArray()
+        `,
+        []
+    );
+});
+
+// ── Trait integration ────────────────────────────────────
+
+test("TAF trait: Self.zero in trait definition", () => {
+    testParse(`
+        trait Summable {
+            add[(a: Self, b: Self): Self],
+            Self.zero[():Self]
+        }
+        1
+    `);
+});
+
+test("TAF trait: struct implementing Self.zero", () => {
+    testCompile(
+        `
+        trait Summable {
+            add[(a: Self, b: Self): Self],
+            Self.zero[():Self]
+        }
+        struct S { s: Int }
+        func add(a: S, b: S) { S(a.s + b.s) }
+        func S.zero() { S(0) }
+        func sum(iter: Iter[T]) where T is Summable {
+            reduce(\\(acc, x) { acc + x }, T.zero(), iter)
+        }
+        sum([S(1), S(2), S(3)]).s
+        `,
+        6n
+    );
+});
