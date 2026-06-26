@@ -169,7 +169,7 @@ export class Block extends Expression {
         return this.expressions;
     }
 
-    getScope() {
+    getScope(): Scope | null {
         return this.scope;
     }
 

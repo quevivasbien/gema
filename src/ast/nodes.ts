@@ -564,7 +564,7 @@ export class AnonymousFunction extends Expression {
     /** Need to maintain a list of any return statements this function has,
      * so we can check that they return a value whose type matches
      * the return type of this function */
-    returnStatements: Return[] = [];
+    returnStatementValues: Expression[] = [];
 
     constructor(
         rootToken: Token,
@@ -632,12 +632,12 @@ export class AnonymousFunction extends Expression {
                 `anonymous function body should return ${this.returnType}, but found ${bodyReturnType}`
             );
         }
-        for (const s of this.returnStatements) {
-            if (!deepEquals(s.value.type, this.returnType)) {
+        for (const rsv of this.returnStatementValues) {
+            if (!deepEquals(rsv.type, this.returnType)) {
                 throw new ASTError(
-                    s.line,
-                    s.col,
-                    `anonymous function with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
+                    rsv.line,
+                    rsv.col,
+                    `anonymous function with return type ${this.returnType} has a return statement that returns a value of type ${rsv.type}`
                 );
             }
         }
@@ -665,22 +665,9 @@ export class AnonymousFunction extends Expression {
     /** Walk the body subtree to check if any Return needs exception handling. */
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
-            if (expr instanceof Return) return expr.needsExceptionForControlFlow();
-            if (expr instanceof DropValue) return check(expr.child);
-            if (expr instanceof Block) return expr.expressions.some((e) => check(e));
-            if (expr instanceof If) {
-                return (
-                    expr.conditionalBranches.some((b) => check(b.branch)) || check(expr.elseBranch)
-                );
-            }
-            if (expr instanceof ForLoop) return check(expr.body);
-            for (const key of ["child", "value"] as const) {
-                const child = (expr as unknown as Record<string, Expression | undefined>)[key];
-                if (child && typeof child === "object" && child.constructor?.name) {
-                    if (check(child)) return true;
-                }
-            }
-            return false;
+            if (expr.needsExceptionForControlFlow()) return true;
+            if (expr instanceof AnonymousFunction || expr instanceof FunctionDef) return false;  // nested function will handle its own return
+            return expr.getAllChildren().some((e) => check(e));
         };
         return this.body.expressions.some((e) => check(e));
     }
@@ -736,7 +723,7 @@ export class FunctionDef extends Expression {
     /** Need to maintain a list of any return statements this function has,
      * so we can check that they return a value whose type matches
      * the return type of this function */
-    returnStatements: Return[] = [];
+    returnStatementValues: Expression[] = [];
     /** If non-null, this function is type-associated (e.g., Int.zero) */
     typeAssociatedName: string | null;
     /** For templated TAFs, the template types from the type name (e.g., [T] for Arr[T].empty). */
@@ -857,7 +844,7 @@ export class FunctionDef extends Expression {
     }
 
     getScope(): Scope | null {
-        this.scope;
+        return this.scope;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -884,12 +871,12 @@ export class FunctionDef extends Expression {
             );
         }
 
-        for (const s of this.returnStatements) {
-            if (!deepEquals(s.value.type, this.returnType)) {
+        for (const rsv of this.returnStatementValues) {
+            if (!deepEquals(rsv.type, this.returnType)) {
                 throw new ASTError(
-                    s.line,
-                    s.col,
-                    `function ${this.name} with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
+                    rsv.line,
+                    rsv.col,
+                    `function ${this.name} with return type ${this.returnType} has a return statement that returns a value of type ${rsv.type}`
                 );
             }
         }
@@ -1130,22 +1117,9 @@ export class FunctionDef extends Expression {
     /** Walk the body subtree to check if any Return needs exception handling. */
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
-            if (expr instanceof Return) return expr.needsExceptionForControlFlow();
-            if (expr instanceof DropValue) return check(expr.child);
-            if (expr instanceof Block) return expr.expressions.some((e) => check(e));
-            if (expr instanceof If) {
-                return (
-                    expr.conditionalBranches.some((b) => check(b.branch)) || check(expr.elseBranch)
-                );
-            }
-            if (expr instanceof ForLoop) return check(expr.body);
-            for (const key of ["child", "value"] as const) {
-                const child = (expr as unknown as Record<string, Expression | undefined>)[key];
-                if (child && typeof child === "object" && child.constructor?.name) {
-                    if (check(child)) return true;
-                }
-            }
-            return false;
+            if (expr.needsExceptionForControlFlow()) return true;
+            if (expr instanceof AnonymousFunction || expr instanceof FunctionDef) return false;  // nested function will handle its own return
+            return expr.getAllChildren().some((e) => check(e));
         };
         return this.body.expressions.some((e) => check(e));
     }

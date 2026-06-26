@@ -171,18 +171,18 @@ export class ForLoop extends Expression {
     }
 
     /** Walk the body subtree to check if any Break/Continue needs exception handling. */
-    private bodyNeedsException(expr: Expression): boolean {
+    private static bodyNeedsException(expr: Expression): boolean {
         if (expr.needsExceptionForControlFlow()) return true;
         if (expr instanceof ForLoop) return false; // break/continue in nested loops are handled by that loop
-        return expr.getAllChildren().some((e) => this.bodyNeedsException(e));
+        return expr.getAllChildren().some((e) => ForLoop.bodyNeedsException(e));
     }
 
     private innerLoopToJS(writer: JSWriter) {
         const childExprs = this.body instanceof Block ? this.body.expressions : null;
         const needsTry =
             childExprs === null
-                ? this.bodyNeedsException(this.body)
-                : childExprs.some((e) => this.bodyNeedsException(e));
+                ? ForLoop.bodyNeedsException(this.body)
+                : childExprs.some((e) => ForLoop.bodyNeedsException(e));
         if (needsTry) {
             writer.useBuiltin("$Continue$");
             writer.useBuiltin("$Break$");
@@ -370,11 +370,14 @@ export class Continue extends Expression {
 }
 
 export class Return extends Expression {
+    value: Expression;
+
     constructor(
         startToken: Token,
-        public value: Expression
+        value: Expression
     ) {
         super(startToken.line, startToken.col);
+        this.value = value;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -385,7 +388,7 @@ export class Return extends Expression {
         // and let that function knows it needs to check that the return type matches
         const fn = this.findEnclosing(FunctionDef) ?? this.findEnclosing(AnonymousFunction);
         if (fn !== null) {
-            fn.returnStatements.push(this);
+            fn.returnStatementValues.push(this.value);
         }
     }
 
