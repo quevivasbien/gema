@@ -3,7 +3,9 @@ import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller";
 import { DropValue, Expression } from "./expression";
 import { Literal } from "./literals";
-import { AnonymousFunction, Assignment, Block, FunctionDef, RangeIter, Variable } from "./nodes";
+import { Assignment } from "./assignment";
+import { Block } from "./expression";
+import { AnonymousFunction, FunctionDef, RangeIter, Variable } from "./nodes";
 import {
     findFunction,
     getAllMonomorphized,
@@ -113,13 +115,13 @@ export class Call extends Expression {
         this.args = args;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         // Pre-fill unresolved anonymous function params so findBuiltin can match them
         this.prefillLambdaParams();
 
         const positionalArgTypes = this.args.map((arg, i) => {
-            arg.cascadeTypes(true);
+            arg.cascadeTypes(this, true);
             if (arg.type === null) {
                 throw this.error(`unable to resolve type of argument ${i + 1} in call`);
             }
@@ -127,7 +129,7 @@ export class Call extends Expression {
         });
 
         const keywordInfos = this.keywordArgs.map((k) => {
-            k.value.cascadeTypes(true);
+            k.value.cascadeTypes(this, true);
             if (k.value.type === null) {
                 throw this.error(`unable to resolve type of keyword argument '${k.name}'`);
             }
@@ -291,7 +293,7 @@ export class Call extends Expression {
                 this.callerType = new FuncType(allArgTypes, "Str");
                 this.type = "Str";
                 this.referToByName = this.name;
-                this.args[0].cascadeTypes(true);
+                this.args[0].cascadeTypes(this, true);
                 return;
             }
             throw this.error(error);
@@ -469,7 +471,7 @@ export class Call extends Expression {
         // Cascade the non-function args (everything except the anon function) first
         for (let i = 0; i < this.args.length; i++) {
             if (this.args[i] !== anonFn) {
-                this.args[i].cascadeTypes(true);
+                this.args[i].cascadeTypes(this, true);
             }
         }
 
@@ -1359,12 +1361,12 @@ export class DirectCall extends Expression {
         this.args = args;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         // If the caller is an unresolved anonymous function, infer params from call args first
         if (this.caller instanceof AnonymousFunction && this.caller.needsInference) {
             const argTypes = this.args.map((arg, i) => {
-                arg.cascadeTypes(true);
+                arg.cascadeTypes(this, true);
                 if (arg.type === null) {
                     throw this.error(
                         `unable to resolve type of argument ${i + 1} in function call`
@@ -1379,13 +1381,13 @@ export class DirectCall extends Expression {
             return;
         }
 
-        this.caller.cascadeTypes(true);
+        this.caller.cascadeTypes(this, true);
         if (this.caller.type === null) {
             throw this.error("unable to resolve type of call");
         }
         if (this.caller.type instanceof FuncType) {
             const argTypes = this.args.map((arg, i) => {
-                arg.cascadeTypes(true);
+                arg.cascadeTypes(this, true);
                 if (arg.type === null) {
                     throw this.error(
                         `unable to resolve type of argument ${i + 1} in function call`
@@ -1404,13 +1406,13 @@ export class DirectCall extends Expression {
         if (this.caller.type instanceof ArrayType || this.caller.type instanceof MutArrType) {
             // Array slicing with range: arr(a..b) returns an array, not an element
             if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
-                this.args[0].cascadeTypes(true);
+                this.args[0].cascadeTypes(this, true);
                 this.type = this.caller.type;
                 return;
             }
             // Cascade args first so their types are resolved before checking compatibility
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes(true);
+                arg.cascadeTypes(this, true);
                 if (arg.type === null) {
                     throw this.error(`unable to resolve type of argument ${i + 1} in array access`);
                 }
@@ -1438,7 +1440,7 @@ export class DirectCall extends Expression {
         }
         if (this.caller.type instanceof IterType) {
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes(true);
+                arg.cascadeTypes(this, true);
                 if (arg.type === null) {
                     throw this.error(`unable to resolve type of argument ${i + 1} in iter access`);
                 }
@@ -1457,12 +1459,12 @@ export class DirectCall extends Expression {
         if (this.caller.type === "Str") {
             // String slicing with range: str(a..b) returns a substring
             if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
-                this.args[0].cascadeTypes(true);
+                this.args[0].cascadeTypes(this, true);
                 this.type = "Str";
                 return;
             }
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes(true);
+                arg.cascadeTypes(this, true);
                 if (arg.type === null) {
                     throw this.error(
                         `unable to resolve type of argument ${i + 1} in string index access`
@@ -1483,7 +1485,7 @@ export class DirectCall extends Expression {
 
         if (this.caller.type instanceof TupleType) {
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes(true);
+                arg.cascadeTypes(this, true);
                 if (arg.type === null) {
                     throw this.error(
                         `unable to resolve type of argument ${i + 1} in tuple index access`
@@ -1518,7 +1520,7 @@ export class DirectCall extends Expression {
 
         if (this.caller.type instanceof DictType || this.caller.type instanceof MutDictType) {
             this.args.forEach((arg, i) => {
-                arg.cascadeTypes(true);
+                arg.cascadeTypes(this, true);
                 if (arg.type === null) {
                     throw this.error(`unable to resolve type of argument ${i + 1} in dict access`);
                 }
@@ -1544,7 +1546,7 @@ export class DirectCall extends Expression {
                         `struct field access requires exactly one argument (the field name), got ${this.args.length}`
                     );
                 }
-                this.args[0].cascadeTypes(true);
+                this.args[0].cascadeTypes(this, true);
                 if (this.args[0].type === null) {
                     throw this.error("unable to resolve type of field name argument");
                 }

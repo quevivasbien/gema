@@ -1,20 +1,16 @@
 import type { Expression } from "./expression";
 // Import all Expression subclass types for instanceof checks
 import { Call, DirectCall } from "./calls";
-import { DropValue, ErrorExpression } from "./expression";
+import { Block, DropValue, ErrorExpression } from "./expression";
 import { Literal } from "./literals";
 import { EnumDef, Match, NoneLit } from "./enums";
+import { Assignment, TupleUnpack } from "./assignment";
+import { ForLoop, If, Return } from "./control-flow";
 import {
     AnonymousFunction,
-    Assignment,
-    Block,
-    ForLoop,
     FunctionDef,
-    If,
     RangeIter,
-    Return,
     TupleLit,
-    TupleUnpack,
     UseModule,
     Variable,
 } from "./nodes";

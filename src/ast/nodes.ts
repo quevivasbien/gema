@@ -5,6 +5,7 @@ import {
     extractBindingsFromParams,
     functionNameWithParamTypes,
 } from "./caller-utils";
+import { Assignment, TupleUnpack } from "./assignment";
 import { ASTError, Block, DropValue, Expression, lastExprShouldReturn } from "./expression";
 import { EnumDef, Match } from "./enums";
 import {
@@ -20,7 +21,6 @@ import {
     restoreConsumedVars,
     saveConsumedVars,
 } from "./registries";
-import { setParentPointers } from "./set-parent-pointers";
 import { collectTraitsForTypeParam, deepEquals } from "./type-utils";
 import {
     ArrayType,
@@ -328,17 +328,8 @@ export class Variable extends Expression {
                 }
             }
             // Check ForLoop variable (skip infinite loops with no iterator)
-            if (node instanceof ForLoop && node.iter !== null && node.varName === this.name) {
-                let innerType: Type = "Int";
-                if (node.iter.type instanceof ArrayType) {
-                    innerType = node.iter.type.innerType;
-                } else if (node.iter.type instanceof IterType) {
-                    innerType = node.iter.type.innerType;
-                } else if (node.iter.type instanceof MutArrType) {
-                    innerType = node.iter.type.innerType;
-                } else if (node.iter.type === "Str") {
-                    innerType = "Str";
-                }
+            if (node.isLoopBoundary() && node.getLoopVariableName() === this.name) {
+                const innerType = node.getLoopVariableInnerType() ?? "Int";
                 this.type = innerType;
                 this.fullName = this.name;
                 return;
@@ -556,6 +547,10 @@ export class Variable extends Expression {
 }
 
 export class AnonymousFunction extends Expression {
+    isFunctionBoundary(): boolean {
+        return true;
+    }
+
     params: { name: string; type: Type }[];
     body: Block;
     returnType: Type | null;
@@ -712,6 +707,10 @@ export class AnonymousFunction extends Expression {
 }
 
 export class FunctionDef extends Expression {
+    isFunctionBoundary(): boolean {
+        return true;
+    }
+
     name: string | null;
     params: { name: string; type: Type }[];
     returnType: Type;
@@ -951,11 +950,9 @@ export class FunctionDef extends Expression {
             true
         );
 
-        // Fix parent pointers on the cloned subtree so findEnclosing() works
-        // during cascadeTypes of the monomorphized body.
-        // Link the monomorphized function into the parent chain by using
-        // this function's parent so ancestor lookups reach the main AST.
-        setParentPointers(monomorphized, this.parent);
+        // Cascade the entire monomorphized function, setting parent pointers
+        // as we walk so ancestor lookups (findEnclosing) reach the main AST.
+        monomorphized.cascadeTypes(this.parent, true);
 
         const allConcrete = clonedParams.every(
             (p) =>
@@ -963,9 +960,6 @@ export class FunctionDef extends Expression {
                 isBuiltinTypeName(p.type.name) ||
                 getStruct(p.type.name) !== undefined
         );
-
-        // Last body expression is return value (always consumed).
-        monomorphized.body.cascadeTypes(this, true);
         monomorphized.sourceFile = this.sourceFile;
 
         if (
@@ -1061,8 +1055,7 @@ export class FunctionDef extends Expression {
             true
         );
 
-        setParentPointers(monomorphized, this.parent);
-        monomorphized.body.cascadeTypes(this, true);
+        monomorphized.cascadeTypes(this.parent, true);
         monomorphized.sourceFile = this.sourceFile;
 
         if (

@@ -1,7 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Block, Expression, lastExprShouldReturn } from "./expression";
-import { AnonymousFunction, FunctionDef } from "./nodes"; // TODO: Ideally would get rid of these imports
 import { deepEquals } from "./type-utils";
 import { ArrayType, IterType, MutArrType, type Type } from "./types";
 
@@ -120,6 +119,23 @@ export class If extends Expression {
 }
 
 export class ForLoop extends Expression {
+    isLoopBoundary(): boolean {
+        return true;
+    }
+
+    getLoopVariableName(): string | null {
+        return this.varName;
+    }
+
+    getLoopVariableInnerType(): Type | null {
+        if (this.iter === null || this.iter.type === null) return null;
+        if (this.iter.type instanceof ArrayType) return this.iter.type.innerType;
+        if (this.iter.type instanceof IterType) return this.iter.type.innerType;
+        if (this.iter.type instanceof MutArrType) return this.iter.type.innerType;
+        if (this.iter.type === "Str") return "Str";
+        return null;
+    }
+
     // TODO: Parser should reflect that any Expression type is permissible for the body
     varName: string | null;
     iter: Expression | null;
@@ -173,7 +189,7 @@ export class ForLoop extends Expression {
     /** Walk the body subtree to check if any Break/Continue needs exception handling. */
     private static bodyNeedsException(expr: Expression): boolean {
         if (expr.needsExceptionForControlFlow()) return true;
-        if (expr instanceof ForLoop) return false; // break/continue in nested loops are handled by that loop
+        if (expr.isLoopBoundary()) return false; // break/continue in nested loops are handled by that loop
         return expr.getAllChildren().some((e) => ForLoop.bodyNeedsException(e));
     }
 
@@ -279,13 +295,13 @@ export class ForLoop extends Expression {
 function inForLoopNeedsExceptionForControlFlow(startNode: Expression) {
     let node: Expression | null = startNode.parent;
     while (node) {
-        if (node instanceof ForLoop) return false;
-        if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
+        if (node.isLoopBoundary()) return false;
+        if (node.isFunctionBoundary()) return false;
         if (node instanceof Block && node.isValueUsed) {
             // A Block creates an IIFE context only when it's NOT the direct body of a function or loop
             const isFunctionBody =
-                node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
-            const isLoopBody = node.parent instanceof ForLoop;
+                node.parent !== null && node.parent.isFunctionBoundary();
+            const isLoopBody = node.parent !== null && node.parent.isLoopBoundary();
             if (
                 !isFunctionBody &&
                 !isLoopBody &&
@@ -383,9 +399,14 @@ export class Return extends Expression {
         this.type = "Null"; // Return statements have type null, even if their values do not
         // Verify `return` is inside a function,
         // and let that function knows it needs to check that the return type matches
-        const fn = this.findEnclosing(FunctionDef) ?? this.findEnclosing(AnonymousFunction);
-        if (fn !== null) {
-            fn.returnStatementValues.push(this.value);
+        // Walk up to find enclosing function boundary
+        let fn: Expression | null = this.parent;
+        while (fn) {
+            if (fn.isFunctionBoundary()) break;
+            fn = fn.parent;
+        }
+        if (fn !== null && "returnStatementValues" in (fn as unknown as Record<string, unknown>)) {
+            (fn as unknown as { returnStatementValues: Expression[] }).returnStatementValues.push(this.value);
         }
     }
 
@@ -400,11 +421,11 @@ export class Return extends Expression {
     needsExceptionForControlFlow(): boolean {
         let node: Expression | null = this.parent;
         while (node) {
-            if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
+            if (node.isFunctionBoundary()) return false;
             if (node instanceof Block && node.isValueUsed) {
                 // A Block creates an IIFE context only when it's NOT the direct body of a function
                 const isFunctionBody =
-                    node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
+                    node.parent !== null && node.parent.isFunctionBoundary();
                 if (
                     !isFunctionBody &&
                     lastExprShouldReturn(node.expressions[node.expressions.length - 1])

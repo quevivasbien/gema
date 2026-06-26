@@ -8,7 +8,6 @@ import {
     registerStruct,
     registerTrait,
     resetRegistries,
-    setParentPointers,
     setSelectiveImportRule,
     UseModule,
 } from "./ast";
@@ -289,9 +288,8 @@ function typeCheckBlock(
     unifiedBlock: Block,
     errors: { line: number; col: number; message: string; filename?: string }[]
 ): boolean {
-    setParentPointers(unifiedBlock);
     try {
-        unifiedBlock.cascadeTypes(true);
+        unifiedBlock.cascadeTypes(null, true);
     } catch (e) {
         if (e instanceof ASTError) {
             errors.push({ line: e.line, col: e.col, message: e.message, filename: e.sourceFile });

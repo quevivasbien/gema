@@ -63,8 +63,8 @@ export class Trait extends Expression {
         return null;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         // Nothing to do here
     }
 

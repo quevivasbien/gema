@@ -81,6 +81,39 @@ export abstract class Expression {
     }
 
     /**
+     * Whether this expression acts as a function boundary for IIFE-aware control flow
+     * (break/continue/return). Function definitions stop the upward walk when checking
+     * whether a control flow node needs exception handling.
+     */
+    isFunctionBoundary(): boolean {
+        return false;
+    }
+
+    /**
+     * Whether this expression acts as a loop boundary for IIFE-aware control flow.
+     * ForLoop stops the upward walk when checking break/continue.
+     */
+    isLoopBoundary(): boolean {
+        return false;
+    }
+
+    /**
+     * If this expression is a for-loop with a named iteration variable, return the variable name.
+     * Used by Variable.cascadeTypes to resolve loop variable types without instanceof checks.
+     */
+    getLoopVariableName(): string | null {
+        return null;
+    }
+
+    /**
+     * Return the inner (element) type of this node's iterator expression, if any.
+     * Used by Variable.cascadeTypes to resolve the type of loop variables.
+     */
+    getLoopVariableInnerType(): Type | null {
+        return null;
+    }
+
+    /**
      * Walks recursively through the AST, resolving types
      * This is also where parent pointers get set for all AST nodes,
      * and where we propogate information about whether the values returned from downstream

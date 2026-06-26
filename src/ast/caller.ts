@@ -1,7 +1,9 @@
 import { functionNameWithParamTypes } from "./caller-utils";
 import type { Expression } from "./expression";
 import { DropValue } from "./expression";
-import { AnonymousFunction, Assignment, Block, FunctionDef } from "./nodes";
+import { Assignment } from "./assignment";
+import { Block } from "./expression";
+import { AnonymousFunction, FunctionDef } from "./nodes";
 import {
     findFunctionInModule,
     getSelectiveImportRules,

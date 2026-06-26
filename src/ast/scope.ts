@@ -1,4 +1,4 @@
-import { FuncType, type Type } from "./types";
+import { type FuncType, type Type } from "./types";
 
 export type VariableAttributes =
     | {

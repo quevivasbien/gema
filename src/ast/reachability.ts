@@ -1,6 +1,8 @@
 import { Call, DirectCall } from "./calls";
-import { DropValue, Expression } from "./expression";
-import { Assignment, Block, ForLoop, FunctionDef, If, TupleUnpack, Variable } from "./nodes";
+import { DropValue, Expression, Block } from "./expression";
+import { Assignment, TupleUnpack } from "./assignment";
+import { ForLoop, If } from "./control-flow";
+import { FunctionDef, Variable } from "./nodes";
 import { Binary } from "./operators";
 import { findFunction, findFunctionByPrefix } from "./registries";
 import { FieldAccess, StructDef } from "./structs";
@@ -83,7 +85,7 @@ export function collectReferences(
         referencedNames.add(node.name);
     } else if (node instanceof TupleUnpack) {
         for (const binding of node.bindings) {
-            if (binding.fullName) referencedNames.add(binding.fullName);
+            referencedNames.add(binding.name);
         }
     }
 

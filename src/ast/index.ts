@@ -22,7 +22,7 @@ export {
 } from "./registries";
 
 // Base expression classes
-export { ASTError, DropValue, ErrorExpression, Expression } from "./expression";
+export { ASTError, Block, DropValue, ErrorExpression, Expression } from "./expression";
 
 // Control flow
 export { Break, Continue, ForLoop, If, Return } from "./control-flow";

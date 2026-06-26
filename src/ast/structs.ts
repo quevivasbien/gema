@@ -25,10 +25,10 @@ export class ArrLit extends Expression {
         }
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         this.expressions.forEach((expr, i) => {
-            expr.cascadeTypes(true);
+            expr.cascadeTypes(this, true);
             if (expr.type === null) {
                 throw this.error(`unable to resolve type of array element ${i + 1}`);
             }
@@ -87,8 +87,8 @@ export class StructDef extends Expression {
         registerStruct(name, fields);
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         // Nothing to cascade — struct definition just registers its type
     }
 
@@ -112,9 +112,9 @@ export class FieldAccess extends Expression {
         super(obj.line, obj.col);
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        this.obj.cascadeTypes(valueUsed);
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+        this.obj.cascadeTypes(this, valueUsed);
         if (this.obj.type === null) {
             throw this.error("unable to resolve type of object");
         }
@@ -296,10 +296,10 @@ export class FieldAssignment extends Expression {
         this.isDropped = isDropped;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        this.value.cascadeTypes(true);
-        this.obj.cascadeTypes(valueUsed);
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+        this.value.cascadeTypes(this, true);
+        this.obj.cascadeTypes(this, valueUsed);
         if (this.obj.type === null) {
             throw this.error("unable to resolve type of object");
         }
