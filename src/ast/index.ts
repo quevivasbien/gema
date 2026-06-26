@@ -24,33 +24,23 @@ export {
 // Base expression classes
 export { ASTError, DropValue, ErrorExpression, Expression } from "./expression";
 
+// Control flow
+export { Break, Continue, ForLoop, If, Return } from "./control-flow";
+
 // Literals
 export { Literal } from "./literals";
 
 // Operators
 export { Binary, Unary } from "./operators";
 
-// Nodes (variables, control flow, functions)
-export {
-    AnonymousFunction,
-    Assignment,
-    Block,
-    Break,
-    Continue,
-    ForLoop,
-    FunctionDef,
-    If,
-    RangeIter,
-    Return,
-    UseModule,
-    Variable,
-} from "./nodes";
+// Nodes (variables, functions, tuples)
+export { AnonymousFunction, FunctionDef, RangeIter, TupleLit, UseModule, Variable } from "./nodes";
 
 // Calls
 export { Call, DirectCall } from "./calls";
 
-// Tuples
-export { TupleLit, TupleUnpack } from "./nodes";
+// Variable assignment, including tuple unpacking
+export { Assignment, TupleUnpack } from "./assignment";
 
 // Enums and match
 export {

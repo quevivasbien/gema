@@ -20,8 +20,8 @@ export class EnumDef extends Expression {
         registerEnum(name, variants);
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         // Nothing to cascade — enum definition just registers its type
     }
 
@@ -45,8 +45,8 @@ export class NoneLit extends Expression {
         this.type = new MaybeType(annotatedType);
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -102,11 +102,11 @@ export class Match extends Expression {
         this.arms = arms;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
 
         // Cascade scrutinee
-        this.scrutinee.cascadeTypes(true);
+        this.scrutinee.cascadeTypes(this, true);
         const scrutType = this.scrutinee.type;
 
         if (scrutType instanceof MaybeType) {
@@ -128,14 +128,14 @@ export class Match extends Expression {
             // Treat variant arms named "some" as SomeArm for Maybe matching
             if (arm.kind === "variant" && arm.variantName === "some") {
                 arm.bindingType = innerType;
-                arm.body.cascadeTypes(valueUsed);
+                arm.body.cascadeTypes(this, valueUsed);
                 commonType = arm.body.type;
             } else if (arm.kind === "some") {
                 arm.bindingType = innerType;
-                arm.body.cascadeTypes(valueUsed);
+                arm.body.cascadeTypes(this, valueUsed);
                 commonType = arm.body.type;
             } else if (arm.kind === "none") {
-                arm.body.cascadeTypes(valueUsed);
+                arm.body.cascadeTypes(this, valueUsed);
                 if (commonType === null) {
                     commonType = arm.body.type;
                 } else if (!deepEquals(commonType, arm.body.type)) {
@@ -144,7 +144,7 @@ export class Match extends Expression {
                     );
                 }
             } else if (arm.kind === "else") {
-                arm.body.cascadeTypes(valueUsed);
+                arm.body.cascadeTypes(this, valueUsed);
                 if (commonType === null) {
                     commonType = arm.body.type;
                 } else if (!deepEquals(commonType, arm.body.type)) {
@@ -182,7 +182,7 @@ export class Match extends Expression {
 
                 const vType = enumType.variantType(arm.variantName);
                 arm.bindingType = vType;
-                arm.body.cascadeTypes(valueUsed);
+                arm.body.cascadeTypes(this, valueUsed);
 
                 if (commonType === null) {
                     commonType = arm.body.type;
@@ -192,7 +192,7 @@ export class Match extends Expression {
                     );
                 }
             } else if (arm.kind === "else") {
-                arm.body.cascadeTypes(valueUsed);
+                arm.body.cascadeTypes(this, valueUsed);
                 if (commonType === null) {
                     commonType = arm.body.type;
                 } else if (!deepEquals(commonType, arm.body.type)) {
