@@ -1,21 +1,39 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
+import { isCrossModuleRefAllowed } from "./registries";
 import type { Scope } from "./scope";
 import { deepEquals } from "./type-utils";
 import { TupleType, type Type } from "./types";
 
 function addVariableToScope(
     enclosingScope: Scope,
-    varAttrs: { name: string; type: Type; isMutable: boolean }
+    varAttrs: { name: string; type: Type; isMutable: boolean },
+    isModuleLevel: boolean = false,
+    sourceFile?: string
 ) {
     let isReassignment = false;
+
+    // For module-level variable definitions, check selective import rules.
+    // If the variable name wasn't imported from this module, don't register
+    // it in scope so that Variable references correctly fail to resolve.
+    if (
+        isModuleLevel &&
+        sourceFile &&
+        Expression.entryFile !== null &&
+        !isCrossModuleRefAllowed(Expression.entryFile, sourceFile, varAttrs.name)
+    ) {
+        return { isReassignment: false };
+    }
+
     const existingDefinition = enclosingScope.lookup(varAttrs.name);
     if (existingDefinition !== null) {
-        // Variable is already defined -- This is only valid if:
-        // (1) The original assignment is in a higher scope
-        // (2) The original assignment was a mut assignment, and this one is not
-        //     AND this assignment has the same type as the original
+        // Module-level definitions from non-entry files that clash with existing
+        // definitions should be silently skipped — the tree-shaker handles dedup.
+        if (isModuleLevel) {
+            return { isReassignment: false };
+        }
+
         const existingAttrs = existingDefinition.attrs;
         if (varAttrs.isMutable) {
             return {
@@ -86,11 +104,20 @@ export class Assignment extends Expression {
             // Should be impossible
             throw new Error("Tried to define a variable in a position with no enclosing scope");
         }
-        const { error, isReassignment } = addVariableToScope(enclosingScope, {
-            name: this.name,
-            type: this.value.type!,
-            isMutable: this.isMutable,
-        });
+        const isModuleLevel =
+            this.sourceFile !== undefined &&
+            Expression.entryFile !== null &&
+            this.sourceFile !== Expression.entryFile;
+        const { error, isReassignment } = addVariableToScope(
+            enclosingScope,
+            {
+                name: this.name,
+                type: this.value.type!,
+                isMutable: this.isMutable,
+            },
+            isModuleLevel,
+            this.sourceFile
+        );
         if (error) {
             throw this.error(error);
         }
@@ -165,15 +192,24 @@ export class TupleUnpack extends Expression {
         if (enclosingScope === null) {
             throw new Error("Tried to unpack a tuple in a position with no enclosing scope");
         }
+        const isModuleLevel =
+            this.sourceFile !== undefined &&
+            Expression.entryFile !== null &&
+            this.sourceFile !== Expression.entryFile;
         for (let i = 0; i < this.bindings.length; i++) {
             const binding = this.bindings[i];
             const elemType = this.source.type.types[i];
 
-            const { error, isReassignment } = addVariableToScope(enclosingScope, {
-                name: binding.name,
-                type: elemType,
-                isMutable: binding.isMutable,
-            });
+            const { error, isReassignment } = addVariableToScope(
+                enclosingScope,
+                {
+                    name: binding.name,
+                    type: elemType,
+                    isMutable: binding.isMutable,
+                },
+                isModuleLevel,
+                this.sourceFile
+            );
             if (error) {
                 throw this.error(error);
             }

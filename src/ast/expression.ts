@@ -20,6 +20,9 @@ export abstract class Expression {
     parent: Expression | null = null;
     /** The source file this expression was parsed from, or undefined for the entry file. */
     sourceFile?: string;
+    /** Set before cascadeTypes to indicate which file is the entry point for multi-file compilation.
+     *  Used to determine scope registration behavior for module-level definitions. */
+    static entryFile: string | null = null;
 
     constructor(
         public line: number,

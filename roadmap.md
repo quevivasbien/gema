@@ -97,122 +97,6 @@ func sumFrom(iter: Iter[T], start: T) where T is Summable {
 }
 ```
 
-## Type-associated functions
-
-Roughly speaking, this is the equivalent of a static method on a class. It's a function associated with a type that may or may not actually take an argument of that type.
-
-Basic examples
-
-```gema
-func Int.zero() {
-  0
-}
-
-func Float.zero() {
-  0.
-}
-
-struct MyType { x: Int, y: Float }
-
-func MyType.zero() {
-  MyType(Int.zero(), Float.zero())
-}
-
-m = MyType.zero();
-toFloat(m.x) == m.y  # true
-```
-
-Another example
-
-```gema
-func Int.getAdder(n: Int) {
-  func(x: Int) { x + n }
-}
-```
-
-This should also work with template types:
-
-```gema
-func Arr[Int].empty() {
-  []:Int
-}
-
-func Arr[Int].zeros(n: Int) {
-  map(\_ 0, 1..n) | collect
-}
-
-Arr[Int].empty() + Arr[Int].zeros(3)  # [0, 0, 0]
-```
-
-We also should be able to define generic version like
-
-```gema
-trait Any {}
-
-func Arr[T].empty() where T is Any {
-  []:T
-}
-
-# Another valid syntax:
-func T.emptyArray() where T is Any {
-  []:T
-}
-
-Arr[Str].empty() + ["hello"] + Str.emptyArray()  # ["hello"]
-```
-
-Finally, we can include these as part of trait definitions:
-
-```gema
-trait Summable {
-  add[(a: Self, b: Self): Self],
-  Self.zero[():Self]
-}
-
-func sum(iter: T) where T is Summable {
-  reduce(\(acc, x) { acc + x }, T.zero(), iter)
-}
-
-# Example implementation:
-struct S { s: Int }
-
-func add(a: S, b: S) {
-  S(a.s + b.s)
-}
-
-func S.zero() {
-  S(0)
-}
-
-# Then we can do
-sum([S(1), S(2), S(3)])
-```
-
-Right now we require that functions included as part of trait definitions have Self as at least one of the parameter types, but we could amend that to require Self as at least one of the parameter types _or_ as the type associated with the function.
-
-### Architecture: eliminate circular dependency workarounds
-
-Several files in `src/ast/` (e.g. `structs.ts`, `taf-resolver.ts`) currently use duck-typing to avoid
-importing classes like `Variable` from `nodes.ts`, because the import graph forms a cycle:
-
-```
-index.ts → nodes.ts → set-parent-pointers.ts → structs.ts → taf-resolver.ts
-                                                                        ↓ (duck-typed)
-                                                                  nodes.ts (Variable, Block, etc.)
-```
-
-**Proposal**: Extract a shared `types.ts`-style module (say `src/ast/ast-types.ts` or a reorganized
-`src/ast/interfaces.ts`) that defines interfaces/type-aliases for the subset of AST node types
-needed by downstream modules. This breaks the cycle because `type` imports are erased at runtime.
-
-Specifically:
-
-- Move class references that trigger the cycle (e.g. `Variable`, `FunctionDef`, `Block`) into
-  duck-typing-free interfaces that downstream modules can import as types.
-- Direct instantiation of those classes (like `new Variable(...)`) stays in `nodes.ts`.
-- `structs.ts` and `taf-resolver.ts` would import the interface, not the class — no more
-  duck-typing hacks.
-
 ### Potential future extension
 
 We could have some sort of intelligent type inference where if you do something like call `Arr.empty` and it doesn't find any such function defined for an un-templated `Arr`, it will match to the first templated `Arr[T].empty` (or generally speaking, `Arr[T, U, ...].empty`) that it finds and try to use that.
@@ -295,6 +179,10 @@ Maybe the most straightforward way to support this and any other deep recursion 
 ### Add a proper name registry so we can get rid of all the weird name mangling and be sure to avoid name collisions
 
 Should just have a "what am I called" in JS helper which simultaneously ensures that variables are valid JS and that they don't unintentionally collide with something else.
+
+### Have module imports keep their own scope
+
+We currently have a weird hybrid variable resolution where some things look in scope and some things look in the function registry. Everything needs to happen within the scope system. I think there is a lot of weirdness here with generic functions and TAFs, too.
 
 ### Others
 

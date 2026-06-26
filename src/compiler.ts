@@ -394,6 +394,7 @@ export function compile(
         }
 
         // Phase 3: Type-check the unified AST
+        Expression.entryFile = entry;
         const rootToken = { line: 0, col: 0, text: "", type: TokenType.LBrace };
         const unifiedBlock = new Block(rootToken, linkedExprs);
         if (!typeCheckBlock(unifiedBlock, errors)) {

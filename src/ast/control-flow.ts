@@ -163,6 +163,14 @@ export class ForLoop extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
+
+        // Chain this for loop's scope to the enclosing scope FIRST so that
+        // the iterator expression and loop body can resolve variables from
+        // enclosing scopes.
+        if (this.parent && this.scope.parent === null) {
+            this.scope.parent = this.parent.getScope();
+        }
+
         if (this.iter !== null) {
             this.iter.cascadeTypes(this, true);
             if (this.iter.type === null) {
@@ -189,11 +197,6 @@ export class ForLoop extends Expression {
                     isMutable: true, // loop variables are implicitly mutable (reassigned each iteration)
                 });
             }
-        }
-        // Chain this for loop's scope to the enclosing scope so lookups
-        // from inside the loop body can find outer variables (e.g. accumulators).
-        if (this.parent && this.scope.parent === null) {
-            this.scope.parent = this.parent.getScope();
         }
         // Chain the body scope (if it has one) to this for loop's scope
         const bodyScope = this.body.getScope();

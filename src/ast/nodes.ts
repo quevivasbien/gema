@@ -14,6 +14,7 @@ import {
     getMonomorphized,
     getStruct,
     getTrait,
+    isVarConsumed,
     registerFunction,
     registerMonomorphized,
     restoreConsumedVars,
@@ -302,6 +303,13 @@ export class Variable extends Expression {
             if (result) {
                 const attrs = result.attrs;
                 if (attrs.class === "var") {
+                    // Check if this variable was consumed (e.g., by detrans).
+                    // Variables consumed via detrans cannot be used afterward.
+                    if (isVarConsumed(this.name)) {
+                        throw this.error(
+                            `cannot use variable '${this.name}' after it was detrans'd`
+                        );
+                    }
                     this.type = attrs.type;
                     this.fullName = this.name;
                     return;
@@ -415,6 +423,11 @@ export class AnonymousFunction extends Expression {
      * the return type of this function */
     returnStatementValues: Expression[] = [];
 
+    /** Track whether params have been registered in scope (fillParams may do this before cascadeTypes) */
+    private paramsRegistered: boolean = false;
+    /** Track whether the body has been cascaded (fillParams may do this before cascadeTypes) */
+    private bodyCascaded: boolean = false;
+
     constructor(
         rootToken: Token,
         params: { name: string; type: Type }[],
@@ -459,6 +472,7 @@ export class AnonymousFunction extends Expression {
         this.body.scope.parent = this.scope;
         // Body: last expression is the return value (always consumed).
         this.body.cascadeTypes(this, true);
+        this.bodyCascaded = true;
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
@@ -473,9 +487,6 @@ export class AnonymousFunction extends Expression {
             this.returnType ?? bodyReturnType
         );
     }
-
-    /** Track whether params have been registered in scope (fillParams may do this before cascadeTypes) */
-    private paramsRegistered: boolean = false;
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
@@ -517,7 +528,11 @@ export class AnonymousFunction extends Expression {
         // Body: last expression is the return value (always consumed), not the
         // function definition's own valueUsed. Block.cascadeTypes handles the
         // per-expression valueUsed propagation internally.
-        this.body.cascadeTypes(this, true);
+        // Skip body cascade if fillParams already cascaded it.
+        if (!this.bodyCascaded) {
+            this.body.cascadeTypes(this, true);
+            this.bodyCascaded = true;
+        }
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
@@ -755,7 +770,21 @@ export class FunctionDef extends Expression {
         // as a value (e.g. `x = foo; foo()`). Only register original (non-monomorphized)
         // functions — monomorphized clones are instantiated during resolution and
         // the scope registration is handled by the original.
-        if (this.name && !this.isGeneric && !this.isMonomorphizedClone) {
+        // Skip type-associated functions (TAFs) — they're accessed via TypeName.funcName
+        // syntax and not by bare function name.
+        // Skip module-level functions — they're already in the global functionRegistry
+        // and resolved via findCaller(). Registering them in scope would cause
+        // "already defined" errors when multiple modules define same-named functions.
+        // Only register zero-param functions — functions with params are ambiguous
+        // without explicit type annotation (e.g. foo[Int, Int]).
+        if (
+            this.name &&
+            this.params.length === 0 &&
+            !this.isGeneric &&
+            !this.isMonomorphizedClone &&
+            !this.typeAssociatedName &&
+            (!this.sourceFile || this.sourceFile === Expression.entryFile)
+        ) {
             const enclosingScope = this.parent?.getScope();
             if (enclosingScope) {
                 enclosingScope.defineVariable({

@@ -29,11 +29,14 @@ export class Scope {
         this.parent = parent;
     }
 
-    defineVariable(varAttrs: VariableAttributes) {
+    defineVariable(varAttrs: VariableAttributes, allowDuplicate: boolean = false) {
         if (this.variables.some((v) => v.name === varAttrs.name)) {
-            throw new Error(
-                "Tried to define a variable that is already defined in the same scope."
-            );
+            if (!allowDuplicate) {
+                throw new Error(
+                    "Tried to define a variable that is already defined in the same scope."
+                );
+            }
+            return;
         }
         this.variables.push(varAttrs);
     }
