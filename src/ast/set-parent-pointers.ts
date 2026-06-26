@@ -6,14 +6,7 @@ import { Literal } from "./literals";
 import { EnumDef, Match, NoneLit } from "./enums";
 import { Assignment, TupleUnpack } from "./assignment";
 import { ForLoop, If, Return } from "./control-flow";
-import {
-    AnonymousFunction,
-    FunctionDef,
-    RangeIter,
-    TupleLit,
-    UseModule,
-    Variable,
-} from "./nodes";
+import { AnonymousFunction, FunctionDef, RangeIter, TupleLit, UseModule, Variable } from "./nodes";
 import { Binary, Unary } from "./operators";
 import { ArrLit, FieldAccess, FieldAssignment, StructDef } from "./structs";
 import { Trait } from "./traits";

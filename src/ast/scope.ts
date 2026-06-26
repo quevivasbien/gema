@@ -29,7 +29,7 @@ export class Scope {
     }
 
     defineVariable(varAttrs: VariableAttributes) {
-        if (varAttrs.name in this.variables) {
+        if (this.variables.some((v) => v.name === varAttrs.name)) {
             throw new Error(
                 "Tried to define a variable that is already defined in the same scope."
             );

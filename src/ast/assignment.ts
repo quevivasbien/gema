@@ -17,45 +17,29 @@ function addVariableToScope(
         // (2) The original assignment was a mut assignment, and this one is not
         //     AND this assignment has the same type as the original
         const existingAttrs = existingDefinition.attrs;
-        if (existingDefinition.inCurrentScope) {
-            if (varAttrs.isMutable) {
-                return {
-                    error: `cannot redeclare variable '${varAttrs.name}' with 'mut' — it was already defined in this scope`,
-                };
-            }
+        if (varAttrs.isMutable) {
+            return {
+                error: `cannot redeclare variable '${varAttrs.name}' with 'mut' — it was already defined`,
+            };
+        }
 
-            isReassignment = true;
+        isReassignment = true;
 
-            if (existingAttrs.class === "func") {
-                return {
-                    error: `cannot assign variable ${varAttrs.name} since a function with the same name is already defined in the same scope`,
-                };
-            }
+        if (existingAttrs.class === "func") {
+            return {
+                error: `cannot assign variable ${varAttrs.name} since a function with the same name is already defined`,
+            };
+        }
 
-            if (!existingAttrs.isMutable) {
-                return { error: `cannot reassign non-mutable variable '${varAttrs.name}'` };
-            }
+        if (!existingAttrs.isMutable) {
+            return { error: `cannot reassign non-mutable variable '${varAttrs.name}'` };
+        }
 
-            const assignType = varAttrs.type;
-            if (!deepEquals(existingAttrs.type, assignType)) {
-                return {
-                    error: `tried to reassign variable '${varAttrs.name}' with type ${assignType} but it was previously defined with type ${existingAttrs.type}`,
-                };
-            }
-        } else if (existingAttrs.class === "var" && existingAttrs.isMutable) {
-            // If the original assignment was a mut assignment, we cannot change its type or redeclare it as mutable
-            if (varAttrs.isMutable) {
-                return {
-                    error: `cannot redeclare variable '${varAttrs.name}' with 'mut' — it was already defined as mutable in an enclosing scope`,
-                };
-            }
-            isReassignment = true;
-
-            if (!deepEquals(existingAttrs.type, varAttrs.type)) {
-                return {
-                    error: `tried to reassign variable '${varAttrs.name}' with type ${varAttrs.type} but it was previously defined with type ${existingAttrs.type} (mutable variables defined in a higher scope cannot be redefined to a different type)`,
-                };
-            }
+        const assignType = varAttrs.type;
+        if (!deepEquals(existingAttrs.type, assignType)) {
+            return {
+                error: `tried to reassign variable '${varAttrs.name}' with type ${assignType} but it was previously defined with type ${existingAttrs.type}`,
+            };
         }
     }
     if (!isReassignment) {
@@ -143,7 +127,6 @@ export class Assignment extends Expression {
     }
 }
 
-// TODO: Put this in a module with the Assignment Expression type
 export class TupleUnpack extends Expression {
     bindings: { name: string; isMutable: boolean; isReassignment: boolean }[];
     source: Expression;

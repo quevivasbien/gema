@@ -22,7 +22,18 @@ export class EnumDef extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
-        // Nothing to cascade — enum definition just registers its type
+        // Register this enum's name in the enclosing scope so Variable references can find it
+        const variants = this.variants.map((v) => ({ name: v.name, type: v.type }));
+        const enumType = new EnumType(this.name, variants);
+        const blockScope = this.getScope();
+        if (blockScope) {
+            blockScope.defineVariable({
+                class: "var",
+                name: this.name,
+                type: enumType,
+                isMutable: false,
+            });
+        }
     }
 
     clone(_bindings?: Map<string, Type>): Expression {

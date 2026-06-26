@@ -5,7 +5,7 @@ import {
     extractBindingsFromParams,
     functionNameWithParamTypes,
 } from "./caller-utils";
-import { Assignment, TupleUnpack } from "./assignment";
+import { Assignment } from "./assignment";
 import { ASTError, Block, DropValue, Expression, lastExprShouldReturn } from "./expression";
 import { EnumDef, Match } from "./enums";
 import {
@@ -14,8 +14,6 @@ import {
     getMonomorphized,
     getStruct,
     getTrait,
-    isCrossModuleRefAllowed,
-    isVarConsumed,
     registerFunction,
     registerMonomorphized,
     restoreConsumedVars,
@@ -291,166 +289,54 @@ export class Variable extends Expression {
         return null;
     }
 
-    /** Recursively search an expression tree for an Assignment with the given name,
-     *  e.g. to find `y` inside `Assignment(x, Assignment(y, 2))`. */
-    private findNestedAssignment(expr: Expression, name: string): Type | null {
-        if (expr instanceof Assignment) {
-            if (expr.name === name) return expr.value.type;
-            return this.findNestedAssignment(expr.value, name);
-        }
-        if (expr instanceof DropValue) {
-            return this.findNestedAssignment(expr.child, name);
-        }
-        return null;
-    }
-
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
         if (!this.templateTypes.empty()) {
             this.setTypeWithTemplateTypes();
             return;
         }
-        // Walk up parent chain checking enclosing contexts for variable definitions.
-        // 'child' tracks the expression at each level that leads back to this variable,
-        // so we can correctly identify sibling positions in Blocks.
-        let child: Expression | null = null;
-        let node: Expression | null = this.parent;
-        while (node) {
-            // TODO: Probably the way to handle this is to have each expression type report on the variables it defines rather than asking the Variable to climb up and check everyone's definitions
-            // Check Function/AnonymousFunction params
-            if (node instanceof FunctionDef || node instanceof AnonymousFunction) {
-                for (const param of node.params) {
-                    if (param.name === this.name && param.type !== null) {
-                        this.type = param.type;
-                        this.fullName = this.name;
-                        return;
-                    }
+        // Phase 1: Scope-based lookup — resolves params, loop vars, local assignments,
+        // function references, and enum references from the enclosing scope hierarchy.
+        const scope = this.getScope();
+        if (scope) {
+            const result = scope.lookup(this.name);
+            if (result) {
+                const attrs = result.attrs;
+                if (attrs.class === "var") {
+                    this.type = attrs.type;
+                    this.fullName = this.name;
+                    return;
+                } else if (attrs.class === "func") {
+                    this.type = attrs.type;
+                    this.fullName = this.name;
+                    return;
                 }
             }
-            // Check ForLoop variable (skip infinite loops with no iterator)
-            if (node.isLoopBoundary() && node.getLoopVariableName() === this.name) {
-                const innerType = node.getLoopVariableInnerType() ?? "Int";
-                this.type = innerType;
-                this.fullName = this.name;
-                return;
-            }
-            // Check Match arm bindings (some(v) or variantName(v))
-            // (only if this Variable is inside the arm body, not the scrutinee itself)
-            if (node instanceof Match && this !== node.scrutinee) {
-                for (const arm of node.arms) {
-                    if (
-                        (arm.kind === "some" || arm.kind === "variant") &&
-                        arm.binding === this.name
-                    ) {
-                        this.type = arm.bindingType;
-                        this.fullName = this.name;
-                        return;
-                    }
-                }
-            }
-            // Scan older siblings in Blocks (only when child is a direct expression of the Block)
-            if (node instanceof Block) {
-                const idx = node.expressions.indexOf(child ?? this);
-                if (idx > 0) {
-                    const olderSiblings = node.expressions.slice(0, idx);
+        }
+
+        // Phase 2: Fallback — scan enclosing Blocks for sibling function/enum definitions.
+        // These aren't yet registered in scope (function names need fullName resolution).
+        {
+            let child: Expression | null = null;
+            let node: Expression | null = this.parent;
+            while (node) {
+                if (node instanceof Block) {
+                    const idx = node.expressions.indexOf(child ?? this);
+                    const olderSiblings = idx > 0 ? node.expressions.slice(0, idx) : [];
                     for (let j = olderSiblings.length - 1; j >= 0; j--) {
                         let sib = olderSiblings[j];
-                        const type = this.resolveAssignment(sib);
-                        if (type !== null) {
-                            // Skip cross-module assignments unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            this.type = type;
-                            this.fullName = this.name;
-                            if (isVarConsumed(this.fullName)) {
-                                throw this.error(
-                                    `cannot use variable '${this.fullName}' after it was detrans'd`
-                                );
-                            }
-                            return;
-                        }
-                        if (sib instanceof DropValue) {
-                            sib = sib.child;
-                            // Skip cross-module definitions unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            const innerType = this.resolveAssignment(sib);
-                            if (innerType !== null) {
-                                this.type = innerType;
-                                this.fullName = this.name;
-                                if (isVarConsumed(this.fullName)) {
-                                    throw this.error(
-                                        `cannot use variable '${this.fullName}' after it was detrans'd`
-                                    );
-                                }
-                                return;
-                            }
-                        }
-                        if (sib instanceof Assignment && sib.name !== this.name) {
-                            // Skip cross-module definitions unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            const nested = this.findNestedAssignment(sib.value, this.name);
-                            if (nested !== null) {
-                                this.type = nested;
-                                this.fullName = this.name;
-                                if (isVarConsumed(this.fullName)) {
-                                    throw this.error(
-                                        `cannot use variable '${this.fullName}' after it was detrans'd`
-                                    );
-                                }
-                                return;
-                            }
-                        }
-                        if (sib instanceof TupleUnpack) {
-                            // Skip cross-module definitions unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            const binding = sib.bindings.find((b) => b.name === this.name);
-                            if (binding) {
-                                const idx = sib.bindings.indexOf(binding);
-                                if (sib.source.type instanceof TupleType) {
-                                    this.type = sib.source.type.types[idx];
-                                    this.fullName = this.name;
-                                    if (isVarConsumed(this.fullName)) {
-                                        throw this.error(
-                                            `cannot use variable '${this.fullName}' after it was detrans'd`
-                                        );
-                                    }
-                                    return;
-                                }
-                            }
-                        }
-                        if (sib instanceof DropValue) sib = sib.child;
+                        while (sib instanceof DropValue) sib = sib.child;
                         if (
                             sib instanceof FunctionDef &&
                             sib.name === this.name &&
                             sib.params.length === 0 &&
                             sib.fullName !== null
                         ) {
-                            // Skip functions from a different module unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
                             this.type = sib.getFuncType();
                             this.fullName = sib.fullName;
                             return;
                         }
                         if (sib instanceof EnumDef && sib.name === this.name) {
-                            // Skip enums from a different module unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
                             const variants = sib.variants.map((v) => ({
                                 name: v.name,
                                 type: v.type,
@@ -461,12 +347,33 @@ export class Variable extends Expression {
                         }
                     }
                 }
+                child = node;
+                node = node.parent;
             }
-            child = node;
-            node = node.parent;
         }
 
-        // Fallback: type param from enclosing generic function (e.g., T in T.zero())
+        // Phase 3: Check Match arm bindings (some(v) or variantName(v))
+        // (only if this Variable is inside the arm body, not the scrutinee itself)
+        {
+            let node: Expression | null = this.parent;
+            while (node) {
+                if (node instanceof Match && this !== node.scrutinee) {
+                    for (const arm of node.arms) {
+                        if (
+                            (arm.kind === "some" || arm.kind === "variant") &&
+                            arm.binding === this.name
+                        ) {
+                            this.type = arm.bindingType;
+                            this.fullName = this.name;
+                            return;
+                        }
+                    }
+                }
+                node = node.parent;
+            }
+        }
+
+        // Phase 3: Fallback — type param from enclosing generic function (e.g., T in T.zero())
         if (!isBuiltinTypeName(this.name) && !getStruct(this.name) && !getEnum(this.name)) {
             let fn: Expression | null = this.parent;
             while (fn) {
@@ -489,7 +396,8 @@ export class Variable extends Expression {
             }
         }
 
-        // Fallback: builtin type name used as a type reference (e.g., Int in Int.zero())
+        // Phase 4: Fallback — builtin type name / struct / enum used as a type reference
+        // (e.g., Int in Int.zero(), or S in S.zero())
         if (isBuiltinTypeName(this.name) || getStruct(this.name) || getEnum(this.name)) {
             this.type = new CustomType(this.name);
             this.fullName = this.name;
@@ -547,6 +455,12 @@ export class Variable extends Expression {
 }
 
 export class AnonymousFunction extends Expression {
+    scope: Scope = new Scope();
+
+    getScope(): Scope | null {
+        return this.scope;
+    }
+
     isFunctionBoundary(): boolean {
         return true;
     }
@@ -584,6 +498,17 @@ export class AnonymousFunction extends Expression {
             this.params[i].type = types[i] ?? this.params[i].type;
         }
         this.needsInference = false;
+        // Register inferred params in scope before cascading the body
+        this.paramsRegistered = true;
+        for (const param of this.params) {
+            this.scope.defineVariable({
+                class: "var",
+                name: param.name,
+                type: param.type,
+                isMutable: false,
+            });
+        }
+        this.body.scope.parent = this.scope;
         // Body: last expression is the return value (always consumed).
         this.body.cascadeTypes(this, true);
         const bodyReturnType = this.body.type;
@@ -601,8 +526,29 @@ export class AnonymousFunction extends Expression {
         );
     }
 
+    /** Track whether params have been registered in scope (fillParams may do this before cascadeTypes) */
+    private paramsRegistered: boolean = false;
+
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
+
+        // Register params in scope so Variable references can find them.
+        // (fillParams may already have done this, so check the flag.)
+        if (!this.paramsRegistered) {
+            this.paramsRegistered = true;
+            for (const param of this.params) {
+                if (param.type !== null) {
+                    this.scope.defineVariable({
+                        class: "var",
+                        name: param.name,
+                        type: param.type,
+                        isMutable: false,
+                    });
+                }
+            }
+        }
+        this.body.scope.parent = this.scope;
+
         // If params have null types, set a placeholder FuncType and skip body cascade.
         // fillParams() must be called by the enclosing context to provide real types.
         if (this.needsInference) {
@@ -717,7 +663,7 @@ export class FunctionDef extends Expression {
     body: Block;
     fullName: string;
     typeParams: string[] = [];
-    scope: Scope = new Scope(); // TODO: Fill this in when function is concretized
+    scope: Scope = new Scope();
     monomorphizedVersions: FunctionDef[] = [];
     /** Need to maintain a list of any return statements this function has,
      * so we can check that they return a value whose type matches
@@ -848,6 +794,34 @@ export class FunctionDef extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
+
+        // Register this function's name in the enclosing scope so it can be referenced
+        // as a value (e.g. `x = foo; foo()`).
+        if (this.name && !this.isGeneric) {
+            const blockScope = this.getScope();
+            if (blockScope) {
+                blockScope.defineVariable({
+                    class: "func",
+                    name: this.name,
+                    type: this.getFuncType(),
+                    isGeneric: false,
+                });
+            }
+        }
+
+        // Register params in this function's scope so Variable references can find them
+        for (const param of this.params) {
+            this.scope.defineVariable({
+                class: "var",
+                name: param.name,
+                type: param.type,
+                isMutable: false,
+            });
+        }
+        // Chain the body scope to this function's scope so lookups from inside the body
+        // can find parameters and (eventually) the function's own name for recursion.
+        this.body.scope.parent = this.scope;
+
         // Body: last expression is the return value (always consumed).
         // Block.cascadeTypes handles per-expression valueUsed propagation.
         if (this.isGeneric) {

@@ -1,6 +1,7 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Block, Expression, lastExprShouldReturn } from "./expression";
+import { Scope } from "./scope";
 import { deepEquals } from "./type-utils";
 import { ArrayType, IterType, MutArrType, type Type } from "./types";
 
@@ -119,6 +120,12 @@ export class If extends Expression {
 }
 
 export class ForLoop extends Expression {
+    scope: Scope = new Scope();
+
+    getScope(): Scope | null {
+        return this.scope;
+    }
+
     isLoopBoundary(): boolean {
         return true;
     }
@@ -171,6 +178,28 @@ export class ForLoop extends Expression {
             ) {
                 throw this.error(`cannot iterate over object of type ${this.iter.type}`);
             }
+
+            // Chain this for loop's scope to the enclosing scope so lookups
+            // from inside the loop body can find outer variables (e.g. accumulators).
+            if (this.parent && this.scope.parent === null) {
+                this.scope.parent = this.parent.getScope();
+            }
+
+            // Register the loop variable in this for loop's scope.
+            if (this.varName !== null) {
+                const innerType = this.getLoopVariableInnerType() ?? "Int";
+                this.scope.defineVariable({
+                    class: "var",
+                    name: this.varName,
+                    type: innerType,
+                    isMutable: true, // loop variables are implicitly mutable (reassigned each iteration)
+                });
+            }
+        }
+        // Chain the body scope (if it has one) to this for loop's scope
+        const bodyScope = this.body.getScope();
+        if (bodyScope !== null) {
+            bodyScope.parent = this.scope;
         }
         // For loop will always have "Null" type, but we still need to cascade the types
         // for the body to make sure it's valid.
@@ -299,8 +328,7 @@ function inForLoopNeedsExceptionForControlFlow(startNode: Expression) {
         if (node.isFunctionBoundary()) return false;
         if (node instanceof Block && node.isValueUsed) {
             // A Block creates an IIFE context only when it's NOT the direct body of a function or loop
-            const isFunctionBody =
-                node.parent !== null && node.parent.isFunctionBoundary();
+            const isFunctionBody = node.parent !== null && node.parent.isFunctionBoundary();
             const isLoopBody = node.parent !== null && node.parent.isLoopBoundary();
             if (
                 !isFunctionBody &&
@@ -406,7 +434,9 @@ export class Return extends Expression {
             fn = fn.parent;
         }
         if (fn !== null && "returnStatementValues" in (fn as unknown as Record<string, unknown>)) {
-            (fn as unknown as { returnStatementValues: Expression[] }).returnStatementValues.push(this.value);
+            (fn as unknown as { returnStatementValues: Expression[] }).returnStatementValues.push(
+                this.value
+            );
         }
     }
 
@@ -424,8 +454,7 @@ export class Return extends Expression {
             if (node.isFunctionBoundary()) return false;
             if (node instanceof Block && node.isValueUsed) {
                 // A Block creates an IIFE context only when it's NOT the direct body of a function
-                const isFunctionBody =
-                    node.parent !== null && node.parent.isFunctionBoundary();
+                const isFunctionBody = node.parent !== null && node.parent.isFunctionBoundary();
                 if (
                     !isFunctionBody &&
                     lastExprShouldReturn(node.expressions[node.expressions.length - 1])

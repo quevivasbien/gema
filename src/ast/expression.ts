@@ -208,6 +208,13 @@ export class Block extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
+        // Chain this block's scope to its enclosing scope so variable lookups
+        // from inside this block can find variables defined in enclosing scopes
+        // (params, outer assignments, etc.)
+        const parentScope = this.parent?.getScope();
+        if (parentScope && this.scope.parent === null) {
+            this.scope.parent = parentScope;
+        }
         for (let i = 0; i < this.expressions.length; i++) {
             const childValueUsed = i === this.expressions.length - 1 ? valueUsed : false;
             this.expressions[i].cascadeTypes(this, childValueUsed);
