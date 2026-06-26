@@ -1,6 +1,7 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import { Expression } from "./expression";
+import { ASTError, Expression } from "./expression";
+import { Scope } from "./scope";
 import { registerEnum } from "./registries";
 import { deepEquals } from "./type-utils";
 import { EnumType, MaybeType, substituteTypeParams, type Type } from "./types";
@@ -104,6 +105,16 @@ export type MatchArm = SomeArm | NoneArm | VariantArm | ElseArm;
 // ── Match expression ──────────────────────────────────────
 
 export class Match extends Expression {
+    /** Per-arm scope, set temporarily during each arm's cascadeTypes and cleared after. */
+    private currentArmScope: Scope | null = null;
+
+    getScope(): Scope | null {
+        // During arm body cascade, return the per-arm scope so Variable references
+        // inside the arm body can find the binding variable. Outside of an arm,
+        // walk up to the enclosing scope.
+        return this.currentArmScope ?? super.getScope();
+    }
+
     scrutinee: Expression;
     arms: MatchArm[];
 
@@ -111,6 +122,37 @@ export class Match extends Expression {
         super(token.line, token.col);
         this.scrutinee = scrutinee;
         this.arms = arms;
+    }
+
+    /**
+     * Cascade an arm body within a per-arm scope that defines its binding variable.
+     * Each arm gets its own scope so bindings don't leak across arms, but the scope
+     * is reachable via getScope() during the body's cascadeTypes.
+     */
+    private cascadeArm(
+        arm: MatchArm,
+        bindingName?: string,
+        bindingType?: Type,
+        valueUsed?: boolean
+    ): void {
+        const enclosingScope = this.parent?.getScope();
+        this.currentArmScope = new Scope([], enclosingScope ?? undefined);
+        if (bindingName && bindingType) {
+            this.currentArmScope.defineVariable({
+                class: "var",
+                name: bindingName,
+                type: bindingType,
+                isMutable: false,
+            });
+        }
+        // Also chain the arm body's own scope (if it has one, e.g. a Block) to the
+        // per-arm scope so nested lookups reach the binding.
+        const bodyScope = arm.body.getScope();
+        if (bodyScope) {
+            bodyScope.parent = this.currentArmScope;
+        }
+        arm.body.cascadeTypes(this, valueUsed ?? this.isValueUsed);
+        this.currentArmScope = null;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -136,33 +178,20 @@ export class Match extends Expression {
         let commonType: Type | null = null;
 
         for (const arm of this.arms) {
-            // Treat variant arms named "some" as SomeArm for Maybe matching
             if (arm.kind === "variant" && arm.variantName === "some") {
                 arm.bindingType = innerType;
-                arm.body.cascadeTypes(this, valueUsed);
+                this.cascadeArm(arm, arm.binding ?? undefined, arm.bindingType, valueUsed);
                 commonType = arm.body.type;
             } else if (arm.kind === "some") {
                 arm.bindingType = innerType;
-                arm.body.cascadeTypes(this, valueUsed);
+                this.cascadeArm(arm, arm.binding, arm.bindingType, valueUsed);
                 commonType = arm.body.type;
             } else if (arm.kind === "none") {
-                arm.body.cascadeTypes(this, valueUsed);
-                if (commonType === null) {
-                    commonType = arm.body.type;
-                } else if (!deepEquals(commonType, arm.body.type)) {
-                    throw this.error(
-                        `match arms must have the same type, but found ${commonType} and ${arm.body.type}`
-                    );
-                }
+                this.cascadeArm(arm, undefined, undefined, valueUsed);
+                commonType = this.updateCommonType(commonType, arm.body.type ?? "Null");
             } else if (arm.kind === "else") {
-                arm.body.cascadeTypes(this, valueUsed);
-                if (commonType === null) {
-                    commonType = arm.body.type;
-                } else if (!deepEquals(commonType, arm.body.type)) {
-                    throw this.error(
-                        `match arms must have the same type, but found ${commonType} and ${arm.body.type}`
-                    );
-                }
+                this.cascadeArm(arm, undefined, undefined, valueUsed);
+                commonType = this.updateCommonType(commonType, arm.body.type ?? "Null");
             }
         }
 
@@ -171,6 +200,18 @@ export class Match extends Expression {
         );
         const hasNone = this.arms.some((a) => a.kind === "none" || a.kind === "else");
         this.type = hasSome && hasNone ? (commonType ?? "Null") : "Null";
+    }
+
+    private updateCommonType(commonType: Type | null, armType: Type): Type {
+        if (commonType === null) return armType;
+        if (!deepEquals(commonType, armType)) {
+            throw new ASTError(
+                this.line,
+                this.col,
+                `match arms must have the same type, but found ${commonType} and ${armType}`
+            );
+        }
+        return commonType;
     }
 
     private cascadeEnumMatch(valueUsed: boolean, enumType: EnumType): void {
@@ -193,24 +234,16 @@ export class Match extends Expression {
 
                 const vType = enumType.variantType(arm.variantName);
                 arm.bindingType = vType;
-                arm.body.cascadeTypes(this, valueUsed);
-
-                if (commonType === null) {
-                    commonType = arm.body.type;
-                } else if (!deepEquals(commonType, arm.body.type)) {
-                    throw this.error(
-                        `match arms must have the same type, but found ${commonType} and ${arm.body.type}`
-                    );
-                }
+                this.cascadeArm(
+                    arm,
+                    arm.binding ?? undefined,
+                    arm.bindingType ?? undefined,
+                    valueUsed
+                );
+                commonType = this.updateCommonType(commonType, arm.body.type ?? "Null");
             } else if (arm.kind === "else") {
-                arm.body.cascadeTypes(this, valueUsed);
-                if (commonType === null) {
-                    commonType = arm.body.type;
-                } else if (!deepEquals(commonType, arm.body.type)) {
-                    throw this.error(
-                        `match arms must have the same type, but found ${commonType} and ${arm.body.type}`
-                    );
-                }
+                this.cascadeArm(arm, undefined, undefined, valueUsed);
+                commonType = this.updateCommonType(commonType, arm.body.type ?? "Null");
             }
         }
 

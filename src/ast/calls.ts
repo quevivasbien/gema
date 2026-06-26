@@ -509,7 +509,7 @@ export class Call extends Expression {
         }
 
         if (expectedParamTypes !== null) {
-            anonFn.fillParams(expectedParamTypes);
+            anonFn.fillParams(expectedParamTypes, this);
             return;
         }
 
@@ -519,7 +519,7 @@ export class Call extends Expression {
         if (fnDef && fnDef.params.length > 0) {
             const firstParamType = fnDef.params[0].type;
             if (firstParamType instanceof FuncType && firstParamType.paramTypes.length > 0) {
-                anonFn.fillParams(firstParamType.paramTypes);
+                anonFn.fillParams(firstParamType.paramTypes, this);
             }
         }
     }
@@ -632,7 +632,7 @@ export class Call extends Expression {
         }
 
         if (expectedParamTypes !== null) {
-            anonFn.fillParams(expectedParamTypes);
+            anonFn.fillParams(expectedParamTypes, this);
             // Re-resolve the call with the now-resolved function type
             const resolvedArgTypes = this.args.map((arg) => arg.type as Type);
             const { error, result } = findCaller(this, this.parent, this.name, resolvedArgTypes);
@@ -1375,7 +1375,7 @@ export class DirectCall extends Expression {
                 return arg.type;
             });
             // Set anon function params from call arg types, then cascade the body
-            this.caller.fillParams(argTypes);
+            this.caller.fillParams(argTypes, this);
             this.callerType = this.caller.type as CallableType;
             this.type = this.callerType instanceof FuncType ? this.callerType.returnType : "Null";
             return;

@@ -7,7 +7,7 @@ import {
 } from "./caller-utils";
 import { Assignment } from "./assignment";
 import { ASTError, Block, DropValue, Expression, lastExprShouldReturn } from "./expression";
-import { EnumDef, Match } from "./enums";
+
 import {
     findFunction,
     getEnum,
@@ -24,7 +24,6 @@ import {
     ArrayType,
     collectCustomTypeNames,
     CustomType,
-    EnumType,
     FuncType,
     isBuiltinTypeName,
     IterType,
@@ -308,72 +307,13 @@ export class Variable extends Expression {
                     return;
                 } else if (attrs.class === "func") {
                     this.type = attrs.type;
-                    this.fullName = this.name;
+                    this.fullName = attrs.fullName;
                     return;
                 }
             }
         }
 
-        // Phase 2: Fallback — scan enclosing Blocks for sibling function/enum definitions.
-        // These aren't yet registered in scope (function names need fullName resolution).
-        {
-            let child: Expression | null = null;
-            let node: Expression | null = this.parent;
-            while (node) {
-                if (node instanceof Block) {
-                    const idx = node.expressions.indexOf(child ?? this);
-                    const olderSiblings = idx > 0 ? node.expressions.slice(0, idx) : [];
-                    for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                        let sib = olderSiblings[j];
-                        while (sib instanceof DropValue) sib = sib.child;
-                        if (
-                            sib instanceof FunctionDef &&
-                            sib.name === this.name &&
-                            sib.params.length === 0 &&
-                            sib.fullName !== null
-                        ) {
-                            this.type = sib.getFuncType();
-                            this.fullName = sib.fullName;
-                            return;
-                        }
-                        if (sib instanceof EnumDef && sib.name === this.name) {
-                            const variants = sib.variants.map((v) => ({
-                                name: v.name,
-                                type: v.type,
-                            }));
-                            this.type = new EnumType(sib.name, variants);
-                            this.fullName = sib.name;
-                            return;
-                        }
-                    }
-                }
-                child = node;
-                node = node.parent;
-            }
-        }
-
-        // Phase 3: Check Match arm bindings (some(v) or variantName(v))
-        // (only if this Variable is inside the arm body, not the scrutinee itself)
-        {
-            let node: Expression | null = this.parent;
-            while (node) {
-                if (node instanceof Match && this !== node.scrutinee) {
-                    for (const arm of node.arms) {
-                        if (
-                            (arm.kind === "some" || arm.kind === "variant") &&
-                            arm.binding === this.name
-                        ) {
-                            this.type = arm.bindingType;
-                            this.fullName = this.name;
-                            return;
-                        }
-                    }
-                }
-                node = node.parent;
-            }
-        }
-
-        // Phase 3: Fallback — type param from enclosing generic function (e.g., T in T.zero())
+        // Phase 2: Fallback — type param from enclosing generic function (e.g., T in T.zero())
         if (!isBuiltinTypeName(this.name) && !getStruct(this.name) && !getEnum(this.name)) {
             let fn: Expression | null = this.parent;
             while (fn) {
@@ -492,7 +432,7 @@ export class AnonymousFunction extends Expression {
     }
 
     /** Fill param types from an inferred signature, then cascade the body. */
-    fillParams(types: Type[]): void {
+    fillParams(types: Type[], parent?: Expression | null): void {
         if (!this.needsInference) return;
         for (let i = 0; i < this.params.length; i++) {
             this.params[i].type = types[i] ?? this.params[i].type;
@@ -507,6 +447,14 @@ export class AnonymousFunction extends Expression {
                 type: param.type,
                 isMutable: false,
             });
+        }
+        // Chain this function's scope to the enclosing scope (use parent if given,
+        // otherwise walk up from body which should have a parent from setParentPointers).
+        if (parent !== undefined) {
+            this.parent = parent;
+        }
+        if (this.parent && this.scope.parent === null) {
+            this.scope.parent = this.parent.getScope();
         }
         this.body.scope.parent = this.scope;
         // Body: last expression is the return value (always consumed).
@@ -531,6 +479,12 @@ export class AnonymousFunction extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
+
+        // Chain this function's scope to the enclosing scope so closures can
+        // capture variables from outer scopes (function params, outer vars, etc.).
+        if (this.parent && this.scope.parent === null) {
+            this.scope.parent = this.parent.getScope();
+        }
 
         // Register params in scope so Variable references can find them.
         // (fillParams may already have done this, so check the flag.)
@@ -665,6 +619,8 @@ export class FunctionDef extends Expression {
     typeParams: string[] = [];
     scope: Scope = new Scope();
     monomorphizedVersions: FunctionDef[] = [];
+    /** Set to true for FunctionDef clones created during monomorphization. */
+    isMonomorphizedClone: boolean = false;
     /** Need to maintain a list of any return statements this function has,
      * so we can check that they return a value whose type matches
      * the return type of this function */
@@ -796,17 +752,26 @@ export class FunctionDef extends Expression {
         super.cascadeTypes(parent, valueUsed);
 
         // Register this function's name in the enclosing scope so it can be referenced
-        // as a value (e.g. `x = foo; foo()`).
-        if (this.name && !this.isGeneric) {
-            const blockScope = this.getScope();
-            if (blockScope) {
-                blockScope.defineVariable({
+        // as a value (e.g. `x = foo; foo()`). Only register original (non-monomorphized)
+        // functions — monomorphized clones are instantiated during resolution and
+        // the scope registration is handled by the original.
+        if (this.name && !this.isGeneric && !this.isMonomorphizedClone) {
+            const enclosingScope = this.parent?.getScope();
+            if (enclosingScope) {
+                enclosingScope.defineVariable({
                     class: "func",
                     name: this.name,
                     type: this.getFuncType(),
                     isGeneric: false,
+                    fullName: this.fullName,
                 });
             }
+        }
+
+        // Chain this function's scope to the enclosing scope so lookups from inside
+        // the body can reach outer variables (including the function's own name for recursion).
+        if (this.parent && this.scope.parent === null) {
+            this.scope.parent = this.parent.getScope();
         }
 
         // Register params in this function's scope so Variable references can find them
@@ -815,6 +780,22 @@ export class FunctionDef extends Expression {
                 class: "var",
                 name: param.name,
                 type: param.type,
+                isMutable: false,
+            });
+        }
+        // Register type params (e.g. `T` in `func foo(x: T) where T is Any`) in scope
+        // so they can be used as type references (e.g. `T.zero()` inside the body).
+        for (const tp of this.typeParams) {
+            const traits: string[] = [];
+            for (const param of this.params) {
+                traits.push(...collectTraitsForTypeParam(param.type, tp));
+            }
+            const ct = new CustomType(tp);
+            for (const t of traits) ct.addTrait(t);
+            this.scope.defineVariable({
+                class: "var",
+                name: tp,
+                type: ct,
                 isMutable: false,
             });
         }
@@ -923,6 +904,7 @@ export class FunctionDef extends Expression {
             clonedBody,
             true
         );
+        monomorphized.isMonomorphizedClone = true;
 
         // Cascade the entire monomorphized function, setting parent pointers
         // as we walk so ancestor lookups (findEnclosing) reach the main AST.
@@ -1028,6 +1010,7 @@ export class FunctionDef extends Expression {
             clonedBody,
             true
         );
+        monomorphized.isMonomorphizedClone = true;
 
         monomorphized.cascadeTypes(this.parent, true);
         monomorphized.sourceFile = this.sourceFile;

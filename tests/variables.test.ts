@@ -128,7 +128,7 @@ test("mut: shadowing in nested block", () => {
             mut x = 2;
             x
         }
-        `,
+        `
     );
 });
 

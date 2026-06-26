@@ -179,12 +179,6 @@ export class ForLoop extends Expression {
                 throw this.error(`cannot iterate over object of type ${this.iter.type}`);
             }
 
-            // Chain this for loop's scope to the enclosing scope so lookups
-            // from inside the loop body can find outer variables (e.g. accumulators).
-            if (this.parent && this.scope.parent === null) {
-                this.scope.parent = this.parent.getScope();
-            }
-
             // Register the loop variable in this for loop's scope.
             if (this.varName !== null) {
                 const innerType = this.getLoopVariableInnerType() ?? "Int";
@@ -195,6 +189,11 @@ export class ForLoop extends Expression {
                     isMutable: true, // loop variables are implicitly mutable (reassigned each iteration)
                 });
             }
+        }
+        // Chain this for loop's scope to the enclosing scope so lookups
+        // from inside the loop body can find outer variables (e.g. accumulators).
+        if (this.parent && this.scope.parent === null) {
+            this.scope.parent = this.parent.getScope();
         }
         // Chain the body scope (if it has one) to this for loop's scope
         const bodyScope = this.body.getScope();

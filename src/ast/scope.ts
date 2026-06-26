@@ -12,6 +12,7 @@ export type VariableAttributes =
           name: string;
           type: FuncType;
           isGeneric: boolean;
+          fullName: string;
       };
 
 interface VariableLookupResult {
