@@ -372,10 +372,7 @@ export class Continue extends Expression {
 export class Return extends Expression {
     value: Expression;
 
-    constructor(
-        startToken: Token,
-        value: Expression
-    ) {
+    constructor(startToken: Token, value: Expression) {
         super(startToken.line, startToken.col);
         this.value = value;
     }

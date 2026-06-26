@@ -5,7 +5,10 @@ import type { Scope } from "./scope";
 import { deepEquals } from "./type-utils";
 import { TupleType, type Type } from "./types";
 
-function addVariableToScope(enclosingScope: Scope, varAttrs: { name: string, type: Type, isMutable: boolean }) {
+function addVariableToScope(
+    enclosingScope: Scope,
+    varAttrs: { name: string; type: Type; isMutable: boolean }
+) {
     let isReassignment = false;
     const existingDefinition = enclosingScope.lookup(varAttrs.name);
     if (existingDefinition !== null) {
@@ -24,7 +27,9 @@ function addVariableToScope(enclosingScope: Scope, varAttrs: { name: string, typ
             isReassignment = true;
 
             if (existingAttrs.class === "func") {
-                return { error: `cannot assign variable ${varAttrs.name} since a function with the same name is already defined in the same scope`}
+                return {
+                    error: `cannot assign variable ${varAttrs.name} since a function with the same name is already defined in the same scope`,
+                };
             }
 
             if (!existingAttrs.isMutable) {

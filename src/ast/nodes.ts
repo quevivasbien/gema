@@ -666,7 +666,7 @@ export class AnonymousFunction extends Expression {
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
             if (expr.needsExceptionForControlFlow()) return true;
-            if (expr instanceof AnonymousFunction || expr instanceof FunctionDef) return false;  // nested function will handle its own return
+            if (expr instanceof AnonymousFunction || expr instanceof FunctionDef) return false; // nested function will handle its own return
             return expr.getAllChildren().some((e) => check(e));
         };
         return this.body.expressions.some((e) => check(e));
@@ -1118,7 +1118,7 @@ export class FunctionDef extends Expression {
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
             if (expr.needsExceptionForControlFlow()) return true;
-            if (expr instanceof AnonymousFunction || expr instanceof FunctionDef) return false;  // nested function will handle its own return
+            if (expr instanceof AnonymousFunction || expr instanceof FunctionDef) return false; // nested function will handle its own return
             return expr.getAllChildren().some((e) => check(e));
         };
         return this.body.expressions.some((e) => check(e));

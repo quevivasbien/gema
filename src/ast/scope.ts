@@ -1,16 +1,18 @@
 import { FuncType, type Type } from "./types";
 
-export type VariableAttributes = {
-    class: "var",
-    name: string;
-    type: Type;
-    isMutable: boolean;
-} | {
-    class: "func";
-    name: string;
-    type: FuncType;
-    isGeneric: boolean,
-};
+export type VariableAttributes =
+    | {
+          class: "var";
+          name: string;
+          type: Type;
+          isMutable: boolean;
+      }
+    | {
+          class: "func";
+          name: string;
+          type: FuncType;
+          isGeneric: boolean;
+      };
 
 interface VariableLookupResult {
     inCurrentScope: boolean; // Whether the variable belongs directly to this scope or to higher scope
