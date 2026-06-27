@@ -2,16 +2,43 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import { resolveGenericTaf } from "./taf-resolver";
-import { findFunctionByPrefix, getEnum, getStruct, getTrait, registerStruct } from "./registries";
+import type { Scope } from "./scope";
 import { deepEquals } from "./type-utils";
 import {
     ArrayType,
     CustomType,
     EnumType,
     FuncType,
+    isBuiltinTypeName,
     substituteTypeParams,
+    type TemplateTypes,
     type Type,
 } from "./types";
+
+/**
+ * Search a scope for a function entry whose fullName starts with the given prefix.
+ * Used as a replacement for the removed global findFunctionByPrefix.
+ */
+function findFunctionInScopeByPrefix(
+    scope: Scope | null,
+    prefix: string
+): { fullName: string; getFuncType: () => FuncType } | null {
+    if (!scope) return null;
+    // Search current scope first, then parent scopes
+    let current: Scope | null = scope;
+    while (current) {
+        for (const v of current.variables) {
+            if (v.class === "func" && v.fullName && v.fullName.startsWith(prefix)) {
+                return {
+                    fullName: v.fullName,
+                    getFuncType: () => v.type,
+                };
+            }
+        }
+        current = current.parent;
+    }
+    return null;
+}
 
 export class ArrLit extends Expression {
     expressions: Expression[];
@@ -25,10 +52,10 @@ export class ArrLit extends Expression {
         }
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         this.expressions.forEach((expr, i) => {
-            expr.cascadeTypes(true);
+            expr.cascadeTypes(this, true);
             if (expr.type === null) {
                 throw this.error(`unable to resolve type of array element ${i + 1}`);
             }
@@ -83,13 +110,19 @@ export class StructDef extends Expression {
         this.name = name;
         this.fields = fields;
         this.type = "Null";
-
-        registerStruct(name, fields);
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        // Nothing to cascade — struct definition just registers its type
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+        // Register in enclosing scope so Variable references and Call resolution can find it
+        const blockScope = this.getScope();
+        if (blockScope) {
+            blockScope.defineVariable({
+                class: "struct",
+                name: this.name,
+                fields: this.fields,
+            });
+        }
     }
 
     clone(_bindings?: Map<string, Type>): Expression {
@@ -112,17 +145,26 @@ export class FieldAccess extends Expression {
         super(obj.line, obj.col);
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        this.obj.cascadeTypes(valueUsed);
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+        this.obj.cascadeTypes(this, valueUsed);
         if (this.obj.type === null) {
             throw this.error("unable to resolve type of object");
         }
 
         if (this.obj.type instanceof EnumType) {
-            const enumInfo = getEnum(this.obj.type.name);
+            // Resolve enum definition from scope (since we no longer rely on global registry)
+            const enumScope = this.obj.getScope();
+            let enumInfo: { name: string; variants: { name: string; type: Type | null }[] } | null =
+                null;
+            if (enumScope) {
+                const lookup = enumScope.lookup(this.obj.type.name);
+                if (lookup && lookup.attrs.class === "enum") {
+                    enumInfo = { name: lookup.attrs.name, variants: lookup.attrs.variants };
+                }
+            }
             if (!enumInfo) {
-                throw this.error(`enum ${this.obj.type.name} not found in registry`);
+                throw this.error(`enum ${this.obj.type.name} not found in scope`);
             }
             const variant = enumInfo.variants.find((v) => v.name === this.fieldName);
             if (!variant) {
@@ -150,8 +192,8 @@ export class FieldAccess extends Expression {
             // For Arr[Int].empty(), also try Arr[Int].empty as search key
             const templatedPrefix = `${objTypeName}${objTemplates}.${this.fieldName}`;
             const templatedDef =
-                findFunctionByPrefix(templatedPrefix + "$") ??
-                findFunctionByPrefix(templatedPrefix);
+                findFunctionInScopeByPrefix(this.getScope(), templatedPrefix + "$") ??
+                findFunctionInScopeByPrefix(this.getScope(), templatedPrefix);
             if (templatedDef) {
                 this.type = templatedDef.getFuncType();
                 this.tafTargetName = templatedDef.fullName;
@@ -176,11 +218,41 @@ export class FieldAccess extends Expression {
             return false;
         };
 
+        /** Look up a struct definition from scope, falling back to global registry. */
+        const findStructInScope = (
+            typeName: string
+        ):
+            | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
+            | undefined => {
+            const scope = this.getScope();
+            if (scope) {
+                const lookup = scope.lookup(typeName);
+                if (lookup && lookup.attrs.class === "struct") {
+                    return { name: lookup.attrs.name, fields: lookup.attrs.fields };
+                }
+            }
+            return undefined;
+        };
+
+        /** Look up a trait's required functions from scope, falling back to global registry. */
+        const findTraitFuncs = (
+            traitName: string
+        ): { name: string; paramNames: string[]; types: TemplateTypes }[] | undefined => {
+            const scope = this.getScope();
+            if (scope) {
+                const lookup = scope.lookup(traitName);
+                if (lookup && lookup.attrs.class === "trait") {
+                    return lookup.attrs.requiredFunctions;
+                }
+            }
+            return undefined;
+        };
+
         // Check for type-associated function: TypeName.funcName
-        if (!getStruct(objTypeName)) {
+        if (!findStructInScope(objTypeName)) {
             // This CustomType is not a struct — check for a type-associated function
-            let fnDef = findFunctionByPrefix(tafPrefix);
-            if (!fnDef) fnDef = findFunctionByPrefix(tafPrefix + "$");
+            let fnDef = findFunctionInScopeByPrefix(this.getScope(), tafPrefix);
+            if (!fnDef) fnDef = findFunctionInScopeByPrefix(this.getScope(), tafPrefix + "$");
             if (fnDef) {
                 this.type = fnDef.getFuncType();
                 this.tafTargetName = fnDef.fullName;
@@ -193,7 +265,7 @@ export class FieldAccess extends Expression {
             if (objType instanceof CustomType && objType.traits.length > 0) {
                 const traitFuncName = `Self.${this.fieldName}`;
                 for (const traitName of objType.traits) {
-                    const traitFuncs = getTrait(traitName);
+                    const traitFuncs = findTraitFuncs(traitName);
                     if (!traitFuncs) continue;
                     for (const tf of traitFuncs) {
                         if (tf.name !== traitFuncName) continue;
@@ -211,7 +283,22 @@ export class FieldAccess extends Expression {
                                 ? selfType
                                 : (tf.types.returnType ?? "Null");
                         this.type = new FuncType(replacedParamTypes, replacedReturnType);
+                        // If the concrete type is known (not a type param), try to find the
+                        // actual TAF function in scope so codegen emits the right name.
                         this.tafTargetName = `${objTypeName}.${this.fieldName}`;
+                        if (
+                            !isBuiltinTypeName(objTypeName) &&
+                            !objType.traits.some((t) => t !== "")
+                        ) {
+                            const concreteTafPrefix = `${objTypeName}.${this.fieldName}`;
+                            const concreteDef = findFunctionInScopeByPrefix(
+                                this.getScope(),
+                                concreteTafPrefix + "$"
+                            );
+                            if (concreteDef) {
+                                this.tafTargetName = concreteDef.fullName;
+                            }
+                        }
                         return;
                     }
                 }
@@ -221,12 +308,14 @@ export class FieldAccess extends Expression {
             );
         }
 
-        const structInfo = getStruct(objTypeName);
+        const structInfo = findStructInScope(objTypeName);
         if (!structInfo) {
             throw this.error(`type ${objTypeName} is not a struct`);
         }
         // Check for type-associated function on struct before checking fields
-        const tafDef = findFunctionByPrefix(tafPrefix + "$") ?? findFunctionByPrefix(tafPrefix);
+        const tafDef =
+            findFunctionInScopeByPrefix(this.getScope(), tafPrefix + "$") ??
+            findFunctionInScopeByPrefix(this.getScope(), tafPrefix);
         if (tafDef) {
             this.type = tafDef.getFuncType();
             this.tafTargetName = tafDef.fullName;
@@ -247,19 +336,18 @@ export class FieldAccess extends Expression {
 
     toJS(writer: JSWriter): void {
         if (this.obj.type instanceof EnumType) {
-            const enumInfo = getEnum(this.obj.type.name)!;
-            const vIdx = enumInfo.variants.findIndex((v) => v.name === this.fieldName);
+            const enumType = this.obj.type as EnumType;
+            const vIdx = enumType.variantIndex(this.fieldName);
             if (vIdx === -1) return; // shouldn't happen
-            const variant = enumInfo.variants[vIdx];
 
             // Plain enum (no tagged variants): emit tag index as number
-            if (!this.obj.type.isTagged) {
+            if (!enumType.isTagged) {
                 writer.write(String(vIdx));
                 return;
             }
 
             // Tagged variant: emit a factory function so DirectCall can invoke it
-            if (variant.type !== null) {
+            if (enumType.variantType(this.fieldName) !== null) {
                 // TODO: This could be made more efficient if we check ahead of time whether this is immediately invoked
                 writer.write(`($$val) => { return { "$tag": ${vIdx}, "$val": $$val }; }`);
                 return;
@@ -296,17 +384,26 @@ export class FieldAssignment extends Expression {
         this.isDropped = isDropped;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        this.value.cascadeTypes(true);
-        this.obj.cascadeTypes(valueUsed);
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+        this.value.cascadeTypes(this, true);
+        this.obj.cascadeTypes(this, valueUsed);
         if (this.obj.type === null) {
             throw this.error("unable to resolve type of object");
         }
         if (!(this.obj.type instanceof CustomType)) {
             throw this.error(`cannot assign field on non-struct type ${this.obj.type}`);
         }
-        const structInfo = getStruct(this.obj.type.name);
+        const objScope = this.getScope();
+        let structInfo:
+            | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
+            | undefined;
+        if (objScope) {
+            const lookup = objScope.lookup(this.obj.type.name);
+            if (lookup && lookup.attrs.class === "struct") {
+                structInfo = { name: lookup.attrs.name, fields: lookup.attrs.fields };
+            }
+        }
         if (!structInfo) {
             throw this.error(`type ${this.obj.type.name} is not a struct`);
         }

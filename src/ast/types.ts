@@ -470,16 +470,5 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         return new MaybeType(templateTypes.types[0]);
     }
 
-    // Check if this is a registered enum type (lazy lookup to avoid circular imports)
-    if (resolveEnumType) {
-        const enumType = resolveEnumType(typeName);
-        if (enumType) return enumType;
-    }
     return new CustomType(typeName);
-}
-
-// Lazy enum type resolver — set by registries to avoid circular imports
-let resolveEnumType: ((name: string) => EnumType | null) | null = null;
-export function setEnumTypeResolver(resolver: ((name: string) => EnumType | null) | null): void {
-    resolveEnumType = resolver;
 }

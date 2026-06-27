@@ -1224,9 +1224,17 @@ class Parser {
     previousIndex: number = 0;
     panicMode: boolean = false;
     errors: ParseError[] = [];
+    visitedModules: Set<string>;
+    moduleTokens: Record<string, Token[]>;
 
-    constructor(tokens: Token[]) {
+    constructor(
+        tokens: Token[],
+        visitedModules: Set<string> = new Set(),
+        moduleTokens: Record<string, Token[]> = {}
+    ) {
         this.tokens = tokens;
+        this.visitedModules = visitedModules;
+        this.moduleTokens = moduleTokens;
     }
 
     current(): Token {
@@ -1728,55 +1736,57 @@ class Parser {
             return this.error("Expected module path or symbol list after 'use'.");
         }
 
-        // Case 1: use "path" — existing pattern
-        if (this.current().type === TokenType.String) {
-            let path = this.current().text;
-            // Strip surrounding quotes from string literal
-            if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
-                path = path.slice(1, -1);
-            }
-            this.advance(); // consume the string
-            return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path));
-        }
-
-        // Case 2: use (foo, bar) from "path"  or  use foo, bar from "path"
+        // Parse the optional symbol list: (foo, bar) or foo, bar
         const symbols: string[] = [];
         let hasParens = false;
+        let hasSymbolList = false;
 
         if (this.current().type === TokenType.LParen) {
             hasParens = true;
             this.advance(); // consume '('
         }
 
-        // Parse comma-separated identifier list
-        while (!this.atEnd() && this.current().type === TokenType.Identifier) {
-            symbols.push(this.current().text);
-            this.advance(); // consume the identifier
-            if (this.current().type === TokenType.Comma) {
-                this.advance(); // consume ','
-            } else {
-                break;
+        // Check if we're looking at identifiers (a symbol list) or a string (bare import)
+        if (!hasParens && this.current().type !== TokenType.String) {
+            // Could be a bare identifier list without parens
+            // Peek ahead: if we see Identifier [Comma Identifier]* [From] String, it's a symbol list
+            if (this.current().type === TokenType.Identifier && !this.atEnd()) {
+                hasSymbolList = true;
             }
         }
 
-        if (hasParens) {
-            if (this.atEnd() || this.current().type !== TokenType.RParen) {
-                return this.error("Expected ')' after symbol list.");
+        if (hasParens || hasSymbolList) {
+            // Parse comma-separated identifier list
+            while (!this.atEnd() && this.current().type === TokenType.Identifier) {
+                symbols.push(this.current().text);
+                this.advance(); // consume the identifier
+                if (this.current().type === TokenType.Comma) {
+                    this.advance(); // consume ','
+                } else {
+                    break;
+                }
             }
-            this.advance(); // consume ')'
+
+            if (hasParens) {
+                if (this.atEnd() || this.current().type !== TokenType.RParen) {
+                    return this.error("Expected ')' after symbol list.");
+                }
+                this.advance(); // consume ')'
+            }
+
+            if (symbols.length === 0) {
+                return this.error("Expected at least one symbol name.");
+            }
+
+            if (this.atEnd() || this.current().type !== TokenType.From) {
+                return this.error("Expected 'from' after symbol list.");
+            }
+            this.advance(); // consume 'from'
         }
 
-        if (symbols.length === 0) {
-            return this.error("Expected at least one symbol name.");
-        }
-
-        if (this.atEnd() || this.current().type !== TokenType.From) {
-            return this.error("Expected 'from' after symbol list.");
-        }
-        this.advance(); // consume 'from'
-
+        // Now parse the module path string
         if (this.atEnd() || this.current().type !== TokenType.String) {
-            return this.error("Expected module path string after 'from'.");
+            return this.error("Expected module path string.");
         }
         let path = this.current().text;
         if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
@@ -1784,7 +1794,46 @@ class Parser {
         }
         this.advance(); // consume the string
 
-        return this.tryCreateASTExpression(() => new AST.UseModule(rootToken, path, symbols));
+        // Check for circular imports
+        if (this.visitedModules.has(path)) {
+            return this.error(
+                `Circular dependency detected: module '${path}' is already being compiled.`
+            );
+        }
+
+        // Look up the module's pre-scanned tokens
+        const moduleTokens = this.moduleTokens[path];
+        if (!moduleTokens) {
+            return this.error(
+                `Module '${path}' not found. Make sure it is included in the provided files.`
+            );
+        }
+
+        // Create a child parser to parse the imported module
+        const childVisited = new Set(this.visitedModules);
+        childVisited.add(path);
+        const childParser = new Parser(moduleTokens, childVisited, this.moduleTokens);
+        const moduleBlock = childParser.block();
+
+        // Propagate any parse errors from the child parser
+        for (const err of childParser.errors) {
+            this.errors.push(err);
+        }
+
+        // If the child had errors, return an error expression
+        if (childParser.errors.length > 0 || moduleBlock instanceof AST.ErrorExpression) {
+            return new AST.ErrorExpression(rootToken, `Error parsing module '${path}'`);
+        }
+
+        return this.tryCreateASTExpression(
+            () =>
+                new AST.UseModule(
+                    rootToken,
+                    path,
+                    moduleBlock as AST.Block,
+                    symbols.length > 0 ? symbols : undefined
+                )
+        );
     }
 
     structDef(): AST.Expression | null {
@@ -1931,17 +1980,16 @@ class Parser {
 export function parse(
     tokens: Token[],
     allowNullType: boolean = false,
-    skipCascadeTypes: boolean = false
+    skipCascadeTypes: boolean = false,
+    moduleTokens: Record<string, Token[]> = {},
+    visitedModules: Set<string> = new Set()
 ): { ast: AST.Expression; errors: ParseError[] } {
-    const parser = new Parser(tokens);
+    const parser = new Parser(tokens, visitedModules, moduleTokens);
     const block = parser.block();
     if (parser.errors.length === 0) {
-        // Set up parent pointers so cascadeTypes can use findEnclosing() for
-        // upward tree walks (Return → enclosing Function, Break → enclosing ForLoop, etc.)
-        AST.setParentPointers(block);
         if (!skipCascadeTypes) {
             try {
-                block.cascadeTypes(true);
+                block.cascadeTypes(null, true);
             } catch (e) {
                 if (e instanceof AST.ASTError) {
                     parser.errors.push({

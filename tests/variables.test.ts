@@ -117,37 +117,24 @@ test("mut: double declaration errors", () => {
     testParseExpectError("x = 1; mut x = 2");
 });
 
-// ── Shadowing (like JS let) ──
+// ── Shadowing of mutable vars ──
 
 test("mut: shadowing in nested block", () => {
-    // Inner mut x shadows outer mut x
-    testCompile(
+    // Inner mut x attempts to shadow outer mut x
+    testParseExpectError(
         `
         mut x = 1;
         {
             mut x = 2;
             x
         }
-        `,
-        2n
-    );
-    // Outer x is unchanged after inner block
-    testCompile(
         `
-        mut x = 1;
-        {
-            mut x = 2
-        };
-        x
-        `,
-        1n
     );
 });
 
 test("mut: shadowing in separate sibling blocks", () => {
     testCompile(
-        `{ mut x = 1; x }
-{ mut x = 2; x }`,
+        `{ mut x = 1; x } { mut x = 2; x }`,
         2n // last expression
     );
 });

@@ -1,4 +1,4 @@
-import { DropValue, type Expression } from "./expression";
+import { Block, DropValue, type Expression } from "./expression";
 import { deepEquals } from "./type-utils";
 import { CustomType, type FuncType, type Type } from "./types";
 
@@ -15,8 +15,8 @@ export function resolveGenericTaf(
 ): { funcType: FuncType; fullName: string } | null {
     let node: Expression | null = parent;
     while (node) {
-        const exprs = node.getExpressions();
-        if (exprs) {
+        if (node instanceof Block) {
+            const exprs = node.expressions;
             for (const rawExpr of exprs) {
                 let e = rawExpr;
                 while (e instanceof DropValue) e = e.child;

@@ -1,6 +1,6 @@
 # Gema — AI Agent Guide
 
-Gema is a small, statically-typed programming language that transpiles to JavaScript, built with TypeScript on the [Bun](https://bun.sh) runtime.
+Gema is a statically-typed programming language that transpiles to JavaScript, built with TypeScript on the [Bun](https://bun.sh) runtime.
 
 ## Quick Start
 
@@ -8,25 +8,17 @@ Gema is a small, statically-typed programming language that transpiles to JavaSc
 bun install              # Install dependencies
 bun test                 # Run all tests (Bun's built-in test runner)
 bun run build:frontend   # Bundle the web playground
-bun run server.ts        # Start dev server on port 3000
 ```
 
 ## Compilation Pipeline
 
 `scan()` → `parse()` → `cascadeTypes()` → `writeJS()`
 
+- **compiler** ([`src/compiler.ts`](src/compiler.ts)): Orchestrates compilation, including scanning, parsing, type-checking, and code-gen.
 - **scan** ([`src/scan.ts`](src/scan.ts)): Lexes source text into `Token[]`. Handles `#` comments.
 - **parse** ([`src/parse.ts`](src/parse.ts)): Pratt parser with precedence climbing. Produces AST + `ASTError[]`.
 - **type-check** ([`src/ast.ts`](src/ast/*)): `cascadeTypes()` walks the AST top-down, resolving each node's type. Generic functions are monomorphized on demand.
 - **codegen** ([`src/write-js.ts`](src/write-js.ts)): `writeJS()` produces a JavaScript string. Builtin runtime functions (iterators, etc.) are injected if needed.
-
-## Key Conventions
-
-- **`deepEquals()`** is used for structural type comparison — not `===`.
-- **Global registries** (`structRegistry`, `traitRegistry`, `functionRegistry`, `monomorphizedCache`, `consumedVars`) are controlled in `src/ast/registries.ts`. Call `resetRegistries()` between independent compilations.
-- **Semicolons discard values**: `{ 1 }` returns `1`, but `{ 1; }` returns `null` (creates a `DropValue` node).
-- **Empty arrays must be annotated**: Write `[]: Int` (for an array of integers), not just `[]`.
-- **Names conflicting with JS reserved words** (`const`, `let`, `return`, etc.) get auto-prefixed with `_gema_`.
 
 ## Testing Patterns
 
@@ -35,32 +27,26 @@ bun run server.ts        # Start dev server on port 3000
 - If you suspect that a test is not passing because the test itself has a mistake in it, let the user know.
 - If you add or modify tests for any reason, ALWAYS have the user review your changes to the tests before making further changes to the codebase.
 
-If you need to dig into the generated tokens / AST / compiled JS for a test case, you can use a command like this to create and execute a test file within the project directory:
+If you need to dig into the generated tokens / AST / compiled JS for a test case, you can use a command like this to create and execute a test file within the project directory (do not create such tests outside the project directory):
 
 ```bash
-cat > ./test_foo.mjs << 'ENDSCRIPT'
-import { scan } from "./src/scan";
-import { parse } from "./src/parse";
-import { writeJS } from "./src/write-js";
-import { resetRegistries } from "./src/ast/registries";
-
-resetRegistries();
+cat > ./test_foo.js << 'ENDSCRIPT'
+import { compile } from "./src/compiler";
 const text = `
 func foo(x: Int) { x }
 foo(1)
 `;
-const tokens = scan(text);
-const { ast, errors } = parse(tokens);
-console.log("Errors:", errors.map(e => e.message));
-const sourceOut = writeJS(ast);
-console.log("JS:\n", sourceOut);
-const result = eval(sourceOut);
-console.log("Result:", result);
+const compiled = compile(text);
+console.log("Compiled:\n", compiled);
+if (compiled.errors.length === 0) {
+  const result = eval(compiled.js);
+  console.log("Result:", result);
+}
 ENDSCRIPT
-bun run ./test_foo.mjs 2>&1
+bun run ./test_foo.js
 ```
 
-Be sure to delete any test files you create this way once you are done debugging.
+Note that above example shows only the compiled JS, runtime result, and any compilation errors, but if you want to dig into the scanned tokens or generated AST, you could use a similar script that calls the scanning and parsing code directly. Be sure to delete any test files you create this way once you are done debugging.
 
 ## Contribution guidelines
 

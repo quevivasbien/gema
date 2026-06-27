@@ -5,22 +5,9 @@ import {
     extractBindingsFromParams,
     functionNameWithParamTypes,
 } from "./caller-utils";
-import { ASTError, DropValue, Expression } from "./expression";
-import { EnumDef, Match } from "./enums";
-import {
-    findFunction,
-    getEnum,
-    getMonomorphized,
-    getStruct,
-    getTrait,
-    isCrossModuleRefAllowed,
-    isVarConsumed,
-    registerFunction,
-    registerMonomorphized,
-    restoreConsumedVars,
-    saveConsumedVars,
-} from "./registries";
-import { setParentPointers } from "./set-parent-pointers";
+import { Assignment } from "./assignment";
+import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
+
 import { collectTraitsForTypeParam, deepEquals } from "./type-utils";
 import {
     ArrayType,
@@ -38,589 +25,83 @@ import {
     type Type,
 } from "./types";
 import { Call } from "./calls";
-
-export class Block extends Expression {
-    getExpressions(): Expression[] | null {
-        return this.expressions;
-    }
-
-    constructor(
-        rootToken: Token,
-        public expressions: Expression[]
-    ) {
-        if (expressions.length === 0) {
-            throw new Error("block expression must not be empty.");
-        }
-        super(rootToken.line, rootToken.col);
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        for (let i = 0; i < this.expressions.length; i++) {
-            const childValueUsed = i === this.expressions.length - 1 ? valueUsed : false;
-            this.expressions[i].cascadeTypes(childValueUsed);
-        }
-        this.type = this.expressions[this.expressions.length - 1].type;
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new Block(
-            { line: this.line, col: this.col, text: "", type: TokenType.LBrace },
-            this.expressions.map((e) => e.clone(bindings))
-        );
-    }
-
-    toJS(writer: JSWriter): void {
-        const lastExpr = this.expressions[this.expressions.length - 1];
-        const shouldReturn = this.isValueUsed && Block.lastExprShouldReturn(lastExpr);
-        if (shouldReturn) {
-            writer.write("(() => ");
-            writer.iifeDepth++;
-        }
-        writer.beginScope();
-        for (const expression of this.expressions.slice(0, -1)) {
-            expression.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-        }
-        if (shouldReturn) {
-            writer.write("return ");
-        }
-        lastExpr.toJS(writer);
-        writer.write(";");
-        writer.endScope();
-        if (shouldReturn) {
-            writer.iifeDepth--;
-            writer.write(")()");
-        }
-    }
-
-    static lastExprShouldReturn(lastExpr: Expression): boolean {
-        // Recurse through nested blocks to check if the ultimate last expression
-        // is a value-producing expression or a control flow node.
-        if (lastExpr instanceof Block) {
-            return Block.lastExprShouldReturn(
-                lastExpr.expressions[lastExpr.expressions.length - 1]
-            );
-        }
-        return lastExpr.type !== "Null";
-    }
-}
-
-export class If extends Expression {
-    conditionalBranches: { condition: Expression; branch: Block }[];
-    elseBranch: Block;
-    hasElse: boolean;
-
-    constructor(
-        rootToken: Token,
-        conditionalBranches: { condition: Expression; branch: Expression }[],
-        elseBranch: Expression,
-        hasElse: boolean = true
-    ) {
-        super(rootToken.line, rootToken.col);
-
-        conditionalBranches.forEach(({ branch }) => {
-            if (!(branch instanceof Block)) {
-                throw new Error("branch of if statement must be a block (enclosed by '{' and '}')");
-            }
-        });
-        if (!(elseBranch instanceof Block)) {
-            throw new Error("else branch of if statement must be a block");
-        }
-
-        this.conditionalBranches = conditionalBranches as {
-            condition: Expression;
-            branch: Block;
-        }[];
-        this.elseBranch = elseBranch;
-        this.hasElse = hasElse;
-    }
-
-    /** Check if a block's last expression is a control flow node (Break/Continue/Return) */
-    static branchEndsInControlFlow(branch: Block): boolean {
-        const last = branch.expressions[branch.expressions.length - 1];
-        return last instanceof Break || last instanceof Continue || last instanceof Return;
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        this.elseBranch.cascadeTypes(valueUsed);
-
-        this.conditionalBranches.forEach(({ condition, branch }) => {
-            condition.cascadeTypes(true);
-            if (condition.type !== "Bool") {
-                throw this.error(`condition must be boolean, but found ${condition.type}`);
-            }
-            branch.cascadeTypes(valueUsed);
-            if (this.hasElse) {
-                if (!deepEquals(this.elseBranch.type, branch.type)) {
-                    throw this.error(
-                        `all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`
-                    );
-                }
-            }
-        });
-
-        // Determine the type from branches (control flow branches still carry their
-        // inner value's type via Return/Continue's transparent type propagation)
-        this.type = this.hasElse ? this.elseBranch.type : "Null";
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new If(
-            { line: this.line, col: this.col, text: "if", type: TokenType.If },
-            this.conditionalBranches.map(({ condition, branch }) => ({
-                condition: condition.clone(bindings),
-                branch: branch.clone(bindings),
-            })),
-            this.elseBranch.clone(bindings),
-            this.hasElse
-        );
-        return cloned;
-    }
-
-    toJS(writer: JSWriter): void {
-        if (this.hasElse && this.isValueUsed) {
-            // Value-producing if-else: wrap in IIFE so the value can be captured
-            writer.write("(() => {");
-            writer.iifeDepth++;
-            writer.indentIn();
-            writer.newLine();
-            this.conditionalBranches.forEach(({ condition, branch }) => {
-                writer.write("if (");
-                condition.toJS(writer);
-                writer.write(") ");
-                writer.beginScope();
-                branch.expressions.forEach((expr, i) => {
-                    if (i === branch.expressions.length - 1 && Block.lastExprShouldReturn(expr)) {
-                        writer.write("return ");
-                    }
-                    expr.toJS(writer);
-                    writer.write(";");
-                    writer.newLine();
-                });
-                writer.endScope();
-                writer.write(" else ");
-            });
-            writer.beginScope();
-            this.elseBranch.expressions.forEach((expr, i) => {
-                if (
-                    i === this.elseBranch!.expressions.length - 1 &&
-                    Block.lastExprShouldReturn(expr)
-                ) {
-                    writer.write("return ");
-                }
-                expr.toJS(writer);
-                writer.write(";");
-                writer.newLine();
-            });
-            writer.endScope();
-            writer.indentOut();
-            writer.newLine();
-            writer.iifeDepth--;
-            writer.write("})()");
-        } else if (this.hasElse) {
-            // Statement if-else (value not used): plain if/else/else chain, no IIFE
-            this.conditionalBranches.forEach(({ condition, branch }, i) => {
-                writer.write(i === 0 ? "if (" : " else if (");
-                condition.toJS(writer);
-                writer.write(") ");
-                writer.beginScope();
-                branch.expressions.forEach((expr) => {
-                    expr.toJS(writer);
-                    writer.newLine();
-                });
-                writer.endScope();
-            });
-            writer.write(" else ");
-            writer.beginScope();
-            this.elseBranch.expressions.forEach((expr) => {
-                expr.toJS(writer);
-                writer.newLine();
-            });
-            writer.endScope();
-        } else {
-            // Else-less if chain: all branches are else-if (no final else)
-            this.conditionalBranches.forEach(({ condition, branch }, i) => {
-                writer.write(i === 0 ? "if (" : " else if (");
-                condition.toJS(writer);
-                writer.write(") ");
-                writer.beginScope();
-                branch.expressions.forEach((expr) => {
-                    expr.toJS(writer);
-                    writer.newLine();
-                });
-                writer.endScope();
-            });
-        }
-    }
-}
-
-export class ForLoop extends Expression {
-    varName: string | null;
-    iter: Expression | null;
-    body: Block;
-
-    constructor(startToken: Token, varName: string | null, iter: Expression | null, body: Block) {
-        super(startToken.line, startToken.col);
-        this.varName = varName;
-        this.iter = iter;
-        this.body = body;
-        this.type = "Null";
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        if (this.iter !== null) {
-            this.iter.cascadeTypes(true);
-            if (this.iter.type === null) {
-                throw this.error("unable to resolve type of iterator");
-            }
-            let _innerType: Type;
-            if (this.iter.type instanceof ArrayType) {
-                _innerType = this.iter.type.innerType;
-            } else if (this.iter.type instanceof IterType) {
-                _innerType = this.iter.type.innerType;
-            } else if (this.iter.type instanceof MutArrType) {
-                _innerType = this.iter.type.innerType;
-            } else {
-                throw this.error(`cannot iterate over object of type ${this.iter.type}`);
-            }
-        }
-        this.body.cascadeTypes(false);
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new ForLoop(
-            { line: this.line, col: this.col, text: "for", type: TokenType.For },
-            this.varName,
-            this.iter !== null ? this.iter.clone(bindings) : null,
-            this.body.clone(bindings) as Block
-        );
-    }
-
-    /** Walk the body subtree to check if any Break/Continue needs exception handling. */
-    private bodyNeedsException(expr: Expression): boolean {
-        if (expr instanceof Break || expr instanceof Continue) return expr.needsException;
-        if (expr instanceof DropValue) return this.bodyNeedsException(expr.child);
-        if (expr instanceof Block) return expr.expressions.some((e) => this.bodyNeedsException(e));
-        if (expr instanceof If) {
-            return (
-                expr.conditionalBranches.some((b) => this.bodyNeedsException(b.branch)) ||
-                this.bodyNeedsException(expr.elseBranch)
-            );
-        }
-        if (expr instanceof ForLoop) return false; // break/continue in nested loops are handled by that loop
-        // Recurse into common wrapper nodes
-        for (const key of ["child", "value"] as const) {
-            const child = (expr as unknown as Record<string, Expression | undefined>)[key];
-            if (child && typeof child === "object" && child.constructor?.name) {
-                if (this.bodyNeedsException(child)) return true;
-            }
-        }
-        return false;
-    }
-
-    toJS(writer: JSWriter): void {
-        if (this.iter === null) {
-            // Infinite loop: for { ... } → while (true) { ... }
-            writer.write("while (true) {");
-            writer.indentIn();
-            writer.newLine();
-            const needsTry = this.body.expressions.some((e) => this.bodyNeedsException(e));
-            if (needsTry) {
-                writer.useBuiltin("$Continue$");
-                writer.useBuiltin("$Break$");
-                writer.write("try {");
-                writer.indentIn();
-                writer.newLine();
-            }
-            this.body.expressions.forEach((expr) => {
-                expr.toJS(writer);
-                writer.write(";");
-                writer.newLine();
-            });
-            if (needsTry) {
-                writer.indentOut();
-                writer.newLine();
-                writer.write("} catch (e$$) {");
-                writer.indentIn();
-                writer.newLine();
-                writer.write("if (e$$ instanceof $Continue$) { continue; }");
-                writer.newLine();
-                writer.write("if (e$$ instanceof $Break$) { break; }");
-                writer.newLine();
-                writer.write("throw e$$;");
-                writer.indentOut();
-                writer.newLine();
-                writer.write("}");
-            }
-            writer.indentOut();
-            writer.newLine();
-            writer.write("}");
-            writer.newLine();
-            return;
-        }
-
-        const iterVar = writer.uniqueName("$iter$");
-        const safeIterVar = writer.safeName(iterVar);
-        const safeVarName = writer.safeName(this.varName!);
-
-        if (this.iter.type instanceof ArrayType || this.iter.type instanceof MutArrType) {
-            writer.useBuiltin("$ArrayIterator$");
-            writer.write(`const ${safeIterVar} = new $ArrayIterator$(`);
-            this.iter.toJS(writer);
-            writer.write(");");
-            writer.newLine();
-        } else {
-            writer.write(`const ${safeIterVar} = `);
-            this.iter.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-        }
-
-        writer.write("while (true) {");
-        writer.indentIn();
-        writer.newLine();
-        writer.write(`const ${safeVarName} = ${safeIterVar}.next();`);
-        writer.newLine();
-        writer.write(`if (${safeVarName} === undefined) break;`);
-        writer.newLine();
-
-        const needsTry = this.body.expressions.some((e) => this.bodyNeedsException(e));
-        if (needsTry) {
-            writer.useBuiltin("$Continue$");
-            writer.useBuiltin("$Break$");
-            writer.write("try {");
-            writer.indentIn();
-            writer.newLine();
-        }
-
-        this.body.expressions.forEach((expr) => {
-            expr.toJS(writer);
-            writer.write(";");
-            writer.newLine();
-        });
-
-        if (needsTry) {
-            writer.indentOut();
-            writer.newLine();
-            writer.write("} catch (e$$) {");
-            writer.indentIn();
-            writer.newLine();
-            writer.write("if (e$$ instanceof $Continue$) { continue; }");
-            writer.newLine();
-            writer.write("if (e$$ instanceof $Break$) { break; }");
-            writer.newLine();
-            writer.write("throw e$$;");
-            writer.indentOut();
-            writer.newLine();
-            writer.write("}");
-        }
-        writer.indentOut();
-        writer.newLine();
-        writer.write("}");
-        writer.newLine();
-        writer.write(`${safeIterVar}.reset()`);
-    }
-}
-
-export class Break extends Expression {
-    constructor(startToken: Token) {
-        super(startToken.line, startToken.col);
-        this.type = "Null";
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        // Verify `break` is inside a for loop
-        if (!this.findEnclosing(ForLoop)) {
-            throw this.error("`break` is only allowed inside a for loop");
-        }
-    }
-
-    clone(_bindings?: Map<string, Type>): Expression {
-        return new Break({ line: this.line, col: this.col, text: "break", type: TokenType.Break });
-    }
-
-    /** True if this break is inside an IIFE (computed lazily via parent pointers) */
-    get needsException(): boolean {
-        let node: Expression | null = this.parent;
-        while (node) {
-            if (node instanceof ForLoop) return false;
-            if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
-            if (node instanceof Block && node.isValueUsed) {
-                // A Block creates an IIFE context only when it's NOT the direct body of a function or loop
-                const isFunctionBody =
-                    node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
-                const isLoopBody = node.parent instanceof ForLoop;
-                if (
-                    !isFunctionBody &&
-                    !isLoopBody &&
-                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
-                )
-                    return true;
-            }
-            if (node instanceof If && node.isValueUsed && node.hasElse) return true;
-            node = node.parent;
-        }
-        return false;
-    }
-
-    toJS(writer: JSWriter): void {
-        if (this.needsException) {
-            writer.useBuiltin("$Break$");
-            writer.write("throw new $Break$()");
-        } else {
-            writer.write("break");
-        }
-    }
-}
-
-export class Continue extends Expression {
-    constructor(startToken: Token) {
-        super(startToken.line, startToken.col);
-        this.type = "Null";
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        // Verify `continue` is inside a for loop
-        if (!this.findEnclosing(ForLoop)) {
-            throw this.error("`continue` is only allowed inside a for loop");
-        }
-    }
-
-    clone(_bindings?: Map<string, Type>): Expression {
-        return new Continue({
-            line: this.line,
-            col: this.col,
-            text: "continue",
-            type: TokenType.Continue,
-        });
-    }
-
-    /** True if this continue is inside an IIFE (computed lazily via parent pointers) */
-    get needsException(): boolean {
-        let node: Expression | null = this.parent;
-        while (node) {
-            if (node instanceof ForLoop) return false;
-            if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
-            if (node instanceof Block && node.isValueUsed) {
-                const isFunctionBody =
-                    node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
-                const isLoopBody = node.parent instanceof ForLoop;
-                if (
-                    !isFunctionBody &&
-                    !isLoopBody &&
-                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
-                )
-                    return true;
-            }
-            if (node instanceof If && node.isValueUsed && node.hasElse) return true;
-            node = node.parent;
-        }
-        return false;
-    }
-
-    toJS(writer: JSWriter): void {
-        if (this.needsException) {
-            writer.useBuiltin("$Continue$");
-            writer.write("throw new $Continue$()");
-        } else {
-            writer.write("continue");
-        }
-    }
-}
-
-export class Return extends Expression {
-    constructor(
-        startToken: Token,
-        public value: Expression
-    ) {
-        super(startToken.line, startToken.col);
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        this.value.cascadeTypes(true);
-        this.type = "Null"; // Return statements have type null, even if their values do not
-        // Verify `return` is inside a function,
-        // and let that function knows it needs to check that the return type matches
-        const fn = this.findEnclosing(FunctionDef) ?? this.findEnclosing(AnonymousFunction);
-        if (fn) {
-            fn.returnStatements.push(this);
-        }
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new Return(
-            { line: this.line, col: this.col, text: "return", type: TokenType.Return },
-            this.value.clone(bindings)
-        );
-    }
-
-    /** True if this return is inside an IIFE (computed lazily via parent pointers) */
-    get needsException(): boolean {
-        let node: Expression | null = this.parent;
-        while (node) {
-            if (node instanceof FunctionDef || node instanceof AnonymousFunction) return false;
-            if (node instanceof Block && node.isValueUsed) {
-                // A Block creates an IIFE context only when it's NOT the direct body of a function
-                const isFunctionBody =
-                    node.parent instanceof FunctionDef || node.parent instanceof AnonymousFunction;
-                if (
-                    !isFunctionBody &&
-                    Block.lastExprShouldReturn(node.expressions[node.expressions.length - 1])
-                )
-                    return true;
-            }
-            if (node instanceof If && node.isValueUsed && node.hasElse) return true;
-            node = node.parent;
-        }
-        return false;
-    }
-
-    toJS(writer: JSWriter): void {
-        if (this.needsException) {
-            writer.useBuiltin("$Return$");
-            writer.write("throw new $Return$(");
-            this.value.toJS(writer);
-            writer.write(")");
-        } else {
-            writer.write("return ");
-            this.value.toJS(writer);
-        }
-    }
-}
+import { Scope } from "./scope";
 
 /**
- * Compile-time `use` directive: loads another module's definitions.
- * Generates no runtime code — handled entirely during compilation.
+ * Use directive: contains the parsed AST of the imported module.
+ * During cascadeTypes, the module block is cascaded in isolation (parent = null)
+ * and the exported symbols are injected into the enclosing scope.
  */
 export class UseModule extends Expression {
+    /** The parsed top-level block of the imported module. */
+    moduleBlock: Block;
+
     constructor(
         rootToken: Token,
         public path: string,
+        moduleBlock: Block,
         public symbols?: string[]
     ) {
         super(rootToken.line, rootToken.col);
         this.type = "Null";
+        this.moduleBlock = moduleBlock;
     }
 
-    cascadeTypes(_valueUsed: boolean): void {
-        // No type-checking needed — module compilation is handled by the compiler.
+    getAllChildren(): Expression[] {
+        return [this.moduleBlock];
     }
 
-    toJS(_writer: JSWriter): void {
-        // No runtime code generated for `use` directives.
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+
+        // Cascade the module block in isolation (pass null parent so imports can't
+        // reach into the importing module's scope).
+        this.moduleBlock.scope.parent = null;
+        this.moduleBlock.cascadeTypes(null, false);
+
+        // After cascading the module, inject the exported symbols into the
+        // enclosing scope so expressions in the importing module can use them.
+        const enclosingScope = this.parent?.getScope();
+        if (!enclosingScope) return;
+
+        if (this.symbols && this.symbols.length > 0) {
+            // Selective import: only inject the requested symbols
+            for (const symName of this.symbols) {
+                const moduleLookup = this.moduleBlock.scope.lookup(symName);
+                if (!moduleLookup) {
+                    throw this.error(
+                        `module '${this.path}' does not export a symbol named '${symName}'`
+                    );
+                }
+                enclosingScope.defineVariable(moduleLookup.attrs, true);
+            }
+        } else {
+            // Bare import: inject all top-level definitions from the module scope
+            for (const v of this.moduleBlock.scope.variables) {
+                enclosingScope.defineVariable(v, true);
+            }
+        }
     }
 
-    clone(_bindings?: Map<string, Type>): Expression {
+    toJS(writer: JSWriter): void {
+        // Emit the module's expressions inline in the current scope (not wrapped
+        // in a nested block) so that function declarations and variables are
+        // accessible to the importing module's code.
+        const exprs = this.moduleBlock.expressions;
+        for (let i = 0; i < exprs.length; i++) {
+            exprs[i].toJS(writer);
+            if (i < exprs.length - 1 || writer.isInsideIIFE()) {
+                writer.write(";");
+            }
+            writer.newLine();
+        }
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
         return new UseModule(
             { line: this.line, col: this.col, text: "use", type: TokenType.Use },
             this.path,
+            this.moduleBlock.clone(bindings) as Block,
             this.symbols ? [...this.symbols] : undefined
         );
     }
@@ -650,22 +131,22 @@ export class RangeIter extends Expression {
         this.step = step;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         if (this.start !== null) {
-            this.start.cascadeTypes(true);
+            this.start.cascadeTypes(this, true);
             if (this.start.type !== "Int") {
                 throw this.error("range start must be an integer");
             }
         }
         if (this.end !== null) {
-            this.end.cascadeTypes(true);
+            this.end.cascadeTypes(this, true);
             if (this.end.type !== "Int") {
                 throw this.error("range end must be an integer");
             }
         }
         if (this.step !== null) {
-            this.step.cascadeTypes(true);
+            this.step.cascadeTypes(this, true);
             if (this.step.type !== "Int") {
                 throw this.error("range step must be an integer");
             }
@@ -706,21 +187,21 @@ export class RangeIter extends Expression {
 }
 
 export class TupleLit extends Expression {
-    constructor(
-        startToken: Token,
-        public elements: Expression[]
-    ) {
+    elements: Expression[];
+
+    constructor(startToken: Token, elements: Expression[]) {
         super(startToken.line, startToken.col);
         if (elements.length === 0) {
             throw new Error("tuple must not be empty");
         }
+        this.elements = elements;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         const types: Type[] = [];
         for (let i = 0; i < this.elements.length; i++) {
-            this.elements[i].cascadeTypes(true);
+            this.elements[i].cascadeTypes(this, true);
             if (this.elements[i].type === null) {
                 throw this.error(`unable to resolve type of tuple element ${i + 1}`);
             }
@@ -743,113 +224,6 @@ export class TupleLit extends Expression {
             elem.toJS(writer);
         });
         writer.write("]");
-    }
-}
-
-export class TupleUnpack extends Expression {
-    bindings: { name: string; isMutable: boolean; isReassignment: boolean; fullName?: string }[];
-    source: Expression;
-    isDropped: boolean;
-
-    constructor(
-        startToken: Token,
-        bindings: { name: string; isMutable: boolean }[],
-        source: Expression,
-        isDropped: boolean
-    ) {
-        super(startToken.line, startToken.col);
-        this.bindings = bindings.map((b) => ({ ...b, isReassignment: false }));
-        this.source = source;
-        this.isDropped = isDropped;
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        this.source.cascadeTypes(true);
-        if (this.source.type === null) {
-            throw this.error("unable to resolve type of source expression");
-        }
-        if (!(this.source.type instanceof TupleType)) {
-            throw this.error(`cannot unpack non-tuple expression of type ${this.source.type}`);
-        }
-        if (this.source.type.types.length !== this.bindings.length) {
-            throw this.error(
-                `tuple has ${this.source.type.types.length} elements but unpacking into ${this.bindings.length} variables`
-            );
-        }
-        this.type = this.isDropped ? "Null" : this.source.type;
-
-        // Resolve each binding — either reassign an existing variable or declare a new one
-        for (let i = 0; i < this.bindings.length; i++) {
-            const binding = this.bindings[i];
-            const elemType = this.source.type.types[i];
-
-            // Check for existing variable with same name (reassignment semantics)
-            const sameBlockDef = Assignment.findDefiningAssignment(binding.name, this);
-            const outerDef = sameBlockDef
-                ? null
-                : Assignment.findOuterDefinition(binding.name, this);
-
-            if (sameBlockDef !== null || outerDef !== null) {
-                const existingDef = sameBlockDef ?? outerDef!;
-                if (!existingDef.isMutable) {
-                    throw this.error(`cannot reassign non-mutable variable '${binding.name}'`);
-                }
-                if (!deepEquals(existingDef.type, elemType)) {
-                    throw this.error(
-                        `cannot assign value of type ${elemType} to variable '${binding.name}' of type ${existingDef.type}`
-                    );
-                }
-                binding.fullName = binding.name;
-                binding.isReassignment = true;
-            } else {
-                // New declaration
-                binding.fullName = binding.name;
-                binding.isReassignment = false;
-            }
-        }
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new TupleUnpack(
-            { line: this.line, col: this.col, text: "(", type: TokenType.LParen },
-            this.bindings.map((b) => ({ name: b.name, isMutable: b.isMutable })),
-            this.source.clone(bindings),
-            this.isDropped
-        );
-    }
-
-    toJS(writer: JSWriter): void {
-        // If dropped, emit [a, b] = source
-        if (this.isDropped) {
-            writer.write("[");
-            for (let i = 0; i < this.bindings.length; i++) {
-                const binding = this.bindings[i];
-                if (!binding.isReassignment) {
-                    writer.declareVariable(binding.name);
-                }
-                const safeName = writer.safeName(binding.name);
-                writer.write(`${safeName}${i == this.bindings.length - 1 ? "] = " : ","}`);
-            }
-            this.source.toJS(writer);
-        }
-        // If not dropped, use a comma expression so TupleUnpack evaluates to the source tuple.
-        // Emit: ($tup = source, a = $tup[0], b = $tup[1], $tup)
-        else {
-            const tmpName = writer.uniqueName("$tup$");
-            writer.declareVariable(tmpName);
-            writer.write(`(${tmpName} = `);
-            this.source.toJS(writer);
-            for (let i = 0; i < this.bindings.length; i++) {
-                const binding = this.bindings[i];
-                if (!binding.isReassignment) {
-                    writer.declareVariable(binding.name);
-                }
-                const safeName = writer.safeName(binding.name);
-                writer.write(`, ${safeName} = ${tmpName}[${i}]`);
-            }
-            writer.write(`, ${tmpName})`);
-        }
     }
 }
 
@@ -882,9 +256,10 @@ export class Variable extends Expression {
         let child: Expression | null = null;
         let parent = this.parent;
         while (parent) {
-            if (parent instanceof Block) {
-                const idx = parent.expressions.indexOf(child ?? this);
-                const olderSiblings = parent.expressions.slice(0, idx);
+            const siblingExprs = parent instanceof Block ? parent.expressions : null;
+            if (siblingExprs !== null) {
+                const idx = siblingExprs.indexOf(child ?? this);
+                const olderSiblings = siblingExprs.slice(0, idx);
                 if (callback(olderSiblings)) return true;
             }
             child = parent;
@@ -895,56 +270,59 @@ export class Variable extends Expression {
 
     setTypeWithTemplateTypes(): void {
         this.fullName = functionNameWithParamTypes(this.name, this.templateTypes?.types ?? []);
-        // Check global registry first (for non-generic or already-monomorphized functions)
-        const registered = findFunction(this.fullName);
-        if (registered) {
-            this.type = registered.getFuncType();
-            return;
+
+        // Check scope first — search for a function entry by fullName
+        const scope = this.getScope();
+        if (scope) {
+            for (const v of scope.variables) {
+                if (v.class === "func" && v.fullName === this.fullName && !v.isGeneric) {
+                    // Non-generic or already-monomorphized function found in scope
+                    this.type = v.type;
+                    this.fullName = v.fullName;
+                    return;
+                }
+            }
+            // Check for generic entries by base name
+            const bareResult = scope.lookup(this.name);
+            if (bareResult && bareResult.attrs.class === "func" && bareResult.attrs.isGeneric) {
+                // Generic entry found in scope — monomorphization will happen via parent walk below
+            }
         }
-        // Walk up parent chain scanning older siblings in each enclosing Block
-        const found = this.walkEnclosingBlocks((olderSiblings) => {
-            for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                let olderSibling = olderSiblings[j];
-                if (olderSibling instanceof DropValue) {
-                    olderSibling = olderSibling.child;
+
+        // Check scope for function entries
+        // Walk the full scope chain to find function entries
+        let currentScope = this.getScope();
+        while (currentScope) {
+            for (const v of currentScope.variables) {
+                if (v.class === "func" && v.fullName === this.fullName && !v.isGeneric) {
+                    this.type = v.type;
+                    this.fullName = v.fullName;
+                    return;
                 }
-                // Exact match on fullName (non-generic or already monomorphized)
-                if (
-                    olderSibling instanceof FunctionDef &&
-                    olderSibling.fullName === this.fullName
-                ) {
-                    this.type = olderSibling.getFuncType();
-                    return true;
-                }
-                // Generic function match — attempt monomorphization
-                if (
-                    olderSibling instanceof FunctionDef &&
-                    olderSibling.name === this.name &&
-                    olderSibling.isGeneric
-                ) {
+            }
+            // Check for generic function entries in this scope level
+            for (const v of currentScope.variables) {
+                if (v.class === "func" && v.name === this.name && v.isGeneric && v.def) {
+                    const genericFn = v.def as FunctionDef;
                     const argTypes = this.templateTypes?.types ?? [];
-                    const result = olderSibling.monomorphize(argTypes);
+                    const result = genericFn.monomorphize(argTypes);
                     if (result !== null) {
                         this.fullName = result.fullName;
                         this.type = result.funcType;
-                        return true;
+                        return;
                     }
                 }
             }
-            return false;
-        });
-        if (
-            !found &&
-            (isBuiltinTypeName(this.name) || getStruct(this.name) || getEnum(this.name))
-        ) {
-            // Fall back to type reference (e.g., Arr[Int] → type Arr with template [Int])
+            currentScope = currentScope.parent;
+        }
+
+        // Fall back to type reference (e.g., Arr[Int] → type Arr with template [Int])
+        if (isBuiltinTypeName(this.name)) {
             this.type = new CustomType(this.name);
             this.fullName = this.name;
             return;
         }
-        if (!found) {
-            throw this.error(`cannot resolve type of variable '${this}'`);
-        }
+        throw this.error(`cannot resolve type of variable '${this}'`);
     }
 
     resolveAssignment(e: Expression): Type | null {
@@ -954,192 +332,61 @@ export class Variable extends Expression {
         return null;
     }
 
-    /** Recursively search an expression tree for an Assignment with the given name,
-     *  e.g. to find `y` inside `Assignment(x, Assignment(y, 2))`. */
-    private findNestedAssignment(expr: Expression, name: string): Type | null {
-        if (expr instanceof Assignment) {
-            if (expr.name === name) return expr.value.type;
-            return this.findNestedAssignment(expr.value, name);
-        }
-        if (expr instanceof DropValue) {
-            return this.findNestedAssignment(expr.child, name);
-        }
-        return null;
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
         if (!this.templateTypes.empty()) {
             this.setTypeWithTemplateTypes();
             return;
         }
-        // Walk up parent chain checking enclosing contexts for variable definitions.
-        // 'child' tracks the expression at each level that leads back to this variable,
-        // so we can correctly identify sibling positions in Blocks.
-        let child: Expression | null = null;
-        let node: Expression | null = this.parent;
-        while (node) {
-            // Check Function/AnonymousFunction params
-            if (node instanceof FunctionDef || node instanceof AnonymousFunction) {
-                for (const param of node.params) {
-                    if (param.name === this.name && param.type !== null) {
-                        this.type = param.type;
-                        this.fullName = this.name;
-                        return;
+        // Scope-based lookup — resolves params, loop vars, local assignments,
+        // function references, struct/enum/trait references from the enclosing scope hierarchy.
+        const scope = this.getScope();
+        if (scope) {
+            const result = scope.lookup(this.name);
+            if (result) {
+                const attrs = result.attrs;
+                if (attrs.class === "var") {
+                    // Check if this variable was consumed (e.g., by detrans).
+                    // Variables consumed via detrans cannot be used afterward.
+                    if (attrs.isConsumed) {
+                        throw this.error(
+                            `cannot use variable '${this.name}' after it was detrans'd`
+                        );
                     }
-                }
-            }
-            // Check ForLoop variable (skip infinite loops with no iterator)
-            if (node instanceof ForLoop && node.iter !== null && node.varName === this.name) {
-                let innerType: Type = "Int";
-                if (node.iter.type instanceof ArrayType) {
-                    innerType = node.iter.type.innerType;
-                } else if (node.iter.type instanceof IterType) {
-                    innerType = node.iter.type.innerType;
-                } else if (node.iter.type instanceof MutArrType) {
-                    innerType = node.iter.type.innerType;
-                } else if (node.iter.type === "Str") {
-                    innerType = "Str";
-                }
-                this.type = innerType;
-                this.fullName = this.name;
-                return;
-            }
-            // Check Match arm bindings (some(v) or variantName(v))
-            // (only if this Variable is inside the arm body, not the scrutinee itself)
-            if (node instanceof Match && this !== node.scrutinee) {
-                for (const arm of node.arms) {
-                    if (
-                        (arm.kind === "some" || arm.kind === "variant") &&
-                        arm.binding === this.name
-                    ) {
-                        this.type = arm.bindingType;
-                        this.fullName = this.name;
-                        return;
+                    this.type = attrs.type;
+                    this.fullName = this.name;
+                    return;
+                } else if (attrs.class === "func") {
+                    // Functions with parameters cannot be referenced as values
+                    // without explicit type annotations (e.g. foo[Int, Int]).
+                    if (attrs.type instanceof FuncType && attrs.type.paramTypes.length > 0) {
+                        throw this.error(
+                            `cannot reference function '${this.name}' without type annotations`
+                        );
                     }
+                    this.type = attrs.type;
+                    this.fullName = attrs.fullName;
+                    return;
+                } else if (attrs.class === "struct") {
+                    this.type = new CustomType(this.name);
+                    this.fullName = this.name;
+                    return;
+                } else if (attrs.class === "enum") {
+                    this.type = new EnumType(
+                        attrs.name,
+                        attrs.variants.map((v) => ({ name: v.name, type: v.type }))
+                    );
+                    this.fullName = this.name;
+                    return;
                 }
             }
-            // Scan older siblings in Blocks (only when child is a direct expression of the Block)
-            if (node instanceof Block) {
-                const idx = node.expressions.indexOf(child ?? this);
-                if (idx > 0) {
-                    const olderSiblings = node.expressions.slice(0, idx);
-                    for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                        let sib = olderSiblings[j];
-                        const type = this.resolveAssignment(sib);
-                        if (type !== null) {
-                            // Skip cross-module assignments unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            this.type = type;
-                            this.fullName = this.name;
-                            if (isVarConsumed(this.fullName)) {
-                                throw this.error(
-                                    `cannot use variable '${this.fullName}' after it was detrans'd`
-                                );
-                            }
-                            return;
-                        }
-                        if (sib instanceof DropValue) {
-                            sib = sib.child;
-                            // Skip cross-module definitions unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            const innerType = this.resolveAssignment(sib);
-                            if (innerType !== null) {
-                                this.type = innerType;
-                                this.fullName = this.name;
-                                if (isVarConsumed(this.fullName)) {
-                                    throw this.error(
-                                        `cannot use variable '${this.fullName}' after it was detrans'd`
-                                    );
-                                }
-                                return;
-                            }
-                        }
-                        if (sib instanceof Assignment && sib.name !== this.name) {
-                            // Skip cross-module definitions unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            const nested = this.findNestedAssignment(sib.value, this.name);
-                            if (nested !== null) {
-                                this.type = nested;
-                                this.fullName = this.name;
-                                if (isVarConsumed(this.fullName)) {
-                                    throw this.error(
-                                        `cannot use variable '${this.fullName}' after it was detrans'd`
-                                    );
-                                }
-                                return;
-                            }
-                        }
-                        if (sib instanceof TupleUnpack) {
-                            // Skip cross-module definitions unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            const binding = sib.bindings.find((b) => b.name === this.name);
-                            if (binding) {
-                                const idx = sib.bindings.indexOf(binding);
-                                if (sib.source.type instanceof TupleType) {
-                                    this.type = sib.source.type.types[idx];
-                                    this.fullName = this.name;
-                                    if (isVarConsumed(this.fullName)) {
-                                        throw this.error(
-                                            `cannot use variable '${this.fullName}' after it was detrans'd`
-                                        );
-                                    }
-                                    return;
-                                }
-                            }
-                        }
-                        if (sib instanceof DropValue) sib = sib.child;
-                        if (
-                            sib instanceof FunctionDef &&
-                            sib.name === this.name &&
-                            sib.params.length === 0 &&
-                            sib.fullName !== null
-                        ) {
-                            // Skip functions from a different module unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            this.type = sib.getFuncType();
-                            this.fullName = sib.fullName;
-                            return;
-                        }
-                        if (sib instanceof EnumDef && sib.name === this.name) {
-                            // Skip enums from a different module unless allowed by import rules.
-                            if (
-                                !isCrossModuleRefAllowed(this.sourceFile, sib.sourceFile, this.name)
-                            )
-                                continue;
-                            const variants = sib.variants.map((v) => ({
-                                name: v.name,
-                                type: v.type,
-                            }));
-                            this.type = new EnumType(sib.name, variants);
-                            this.fullName = sib.name;
-                            return;
-                        }
-                    }
-                }
-            }
-            child = node;
-            node = node.parent;
         }
 
-        // Fallback: type param from enclosing generic function (e.g., T in T.zero())
-        if (!isBuiltinTypeName(this.name) && !getStruct(this.name) && !getEnum(this.name)) {
+        // type param from enclosing generic function (e.g., T in T.zero())
+        if (!isBuiltinTypeName(this.name)) {
             let fn: Expression | null = this.parent;
+            // TODO: we could get rid of the instanceof check here and just
+            // have a class method called something like getGenericTypeParams
             while (fn) {
                 if (
                     fn instanceof FunctionDef &&
@@ -1160,8 +407,8 @@ export class Variable extends Expression {
             }
         }
 
-        // Fallback: builtin type name used as a type reference (e.g., Int in Int.zero())
-        if (isBuiltinTypeName(this.name) || getStruct(this.name) || getEnum(this.name)) {
+        // builtin type name used as a type reference (e.g., Int in Int.zero())
+        if (isBuiltinTypeName(this.name)) {
             this.type = new CustomType(this.name);
             this.fullName = this.name;
             return;
@@ -1217,201 +464,17 @@ export class Variable extends Expression {
     }
 }
 
-export class Assignment extends Expression {
-    name: string;
-    isMutable: boolean = false;
-    isReassignment: boolean = false;
-
-    constructor(
-        variableToken: Token,
-        public value: Expression,
-        public isDropped: boolean,
-        isMutable: boolean = false
-    ) {
-        super(variableToken.line, variableToken.col);
-        this.name = variableToken.text;
-        this.isMutable = isMutable;
-    }
-
-    /** Scan older siblings in the immediate enclosing Block for a variable definition. */
-    static findDefiningAssignment(
-        name: string,
-        startNode: Expression
-    ): { isMutable: boolean; type: Type } | null {
-        const parent = startNode.parent;
-        if (!(parent instanceof Block)) return null;
-        const olderSiblings = parent.expressions.slice(0, parent.expressions.indexOf(startNode));
-        for (let j = olderSiblings.length - 1; j >= 0; j--) {
-            let olderSibling = olderSiblings[j];
-            if (olderSibling instanceof DropValue) {
-                olderSibling = olderSibling.child;
-                if (olderSibling === startNode) continue;
-            }
-            if (olderSibling instanceof Assignment && olderSibling.name === name) {
-                // Skip assignments from a different module — they are in
-                // separate scopes and should not shadow or cause redefinition.
-                if (
-                    olderSibling.sourceFile !== undefined &&
-                    olderSibling.sourceFile !== startNode.sourceFile
-                ) {
-                    continue;
-                }
-                if (olderSibling.isReassignment) continue;
-                return { isMutable: olderSibling.isMutable, type: olderSibling.value.type! };
-            }
-            if (olderSibling instanceof TupleUnpack) {
-                const binding = olderSibling.bindings.find((b) => b.name === name);
-                if (binding && olderSibling.source.type instanceof TupleType) {
-                    const idx = olderSibling.bindings.indexOf(binding);
-                    return {
-                        isMutable: binding.isMutable,
-                        type: olderSibling.source.type.types[idx],
-                    };
-                }
-            }
-        }
-        return null;
-    }
-
-    /** Walk up parent chain beyond the direct enclosing Block to find a variable definition. */
-    static findOuterDefinition(
-        name: string,
-        startNode: Expression
-    ): { isMutable: boolean; type: Type } | null {
-        // Walk up from startNode's parent, tracking 'child' to limit sibling scans
-        let child: Expression = startNode;
-        let node: Expression | null = startNode.parent;
-        let skippedFirstBlock = false;
-        while (node) {
-            if (!skippedFirstBlock) {
-                if (node instanceof Block) skippedFirstBlock = true;
-                child = node;
-                node = node.parent;
-                continue;
-            }
-            if (node instanceof Block) {
-                // Only scan siblings before the child that led into this Block
-                const idx = node.expressions.indexOf(child);
-                for (let j = idx - 1; j >= 0; j--) {
-                    let sib = node.expressions[j];
-                    if (sib instanceof DropValue) sib = sib.child;
-                    if (sib instanceof Assignment && sib.name === name && !sib.isReassignment) {
-                        return { isMutable: sib.isMutable, type: sib.value.type! };
-                    }
-                    if (sib instanceof TupleUnpack) {
-                        const binding = sib.bindings.find((b) => b.name === name);
-                        if (binding && sib.source.type instanceof TupleType) {
-                            const idx = sib.bindings.indexOf(binding);
-                            return {
-                                isMutable: binding.isMutable,
-                                type: sib.source.type.types[idx],
-                            };
-                        }
-                    }
-                }
-            } else if (node instanceof FunctionDef) {
-                for (const arg of node.params) {
-                    if (arg.name === name) return { isMutable: false, type: arg.type };
-                }
-            } else if (node instanceof AnonymousFunction) {
-                for (const arg of node.params) {
-                    if (arg.name === name) return { isMutable: false, type: arg.type };
-                }
-            }
-            child = node;
-            node = node.parent;
-        }
-        return null;
-    }
-
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
-        this.value.cascadeTypes(true);
-        this.type = this.isDropped ? "Null" : this.value.type;
-
-        if (this.value.type === "Null") {
-            throw this.error("cannot assign null value to variable");
-        }
-
-        const sameBlockDef = Assignment.findDefiningAssignment(this.name, this);
-
-        if (sameBlockDef !== null) {
-            this.isReassignment = true;
-
-            if (this.isMutable) {
-                throw this.error(
-                    `cannot redeclare variable '${this.name}' with 'mut' — it was already defined in this scope`
-                );
-            }
-
-            if (!sameBlockDef.isMutable) {
-                throw this.error(`cannot reassign non-mutable variable '${this.name}'`);
-            }
-
-            const assignType = this.value.type!;
-            if (!deepEquals(sameBlockDef.type, assignType)) {
-                throw this.error(
-                    `tried to reassign variable '${this.name}' with type ${assignType} but it was previously defined with type ${sameBlockDef.type}`
-                );
-            }
-        } else if (this.isMutable) {
-            const outerDef = Assignment.findOuterDefinition(this.name, this);
-            if (outerDef !== null && !outerDef.isMutable) {
-                throw this.error(
-                    `cannot declare mutable variable '${this.name}' — it shadows a non-mutable variable in an outer scope`
-                );
-            }
-            this.isReassignment = false;
-        } else {
-            const outerDef = Assignment.findOuterDefinition(this.name, this);
-            if (outerDef !== null) {
-                this.isReassignment = true;
-
-                if (!outerDef.isMutable) {
-                    throw this.error(`cannot reassign non-mutable variable '${this.name}'`);
-                }
-
-                const assignType = this.value.type!;
-                if (!deepEquals(outerDef.type, assignType)) {
-                    throw this.error(
-                        `tried to reassign variable '${this.name}' with type ${assignType} but it was previously defined with type ${outerDef.type}`
-                    );
-                }
-            } else {
-                this.isReassignment = false;
-            }
-        }
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new Assignment(
-            { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
-            this.value.clone(bindings),
-            this.isDropped,
-            this.isMutable
-        );
-        return cloned;
-    }
-
-    toJS(writer: JSWriter): void {
-        const safeName = writer.safeName(this.name);
-        if (this.isReassignment) {
-            writer.write(`${safeName} = `);
-            this.value.toJS(writer);
-        } else {
-            if (this.isDropped) {
-                writer.write(`${this.isMutable ? "let" : "const"} ${safeName} = `);
-                this.value.toJS(writer);
-            } else {
-                writer.declareVariable(this.name);
-                writer.write(`${safeName} = `);
-                this.value.toJS(writer);
-            }
-        }
-    }
-}
-
 export class AnonymousFunction extends Expression {
+    scope: Scope = new Scope();
+
+    getScope(): Scope | null {
+        return this.scope;
+    }
+
+    isFunctionBoundary(): boolean {
+        return true;
+    }
+
     params: { name: string; type: Type }[];
     body: Block;
     returnType: Type | null;
@@ -1420,7 +483,12 @@ export class AnonymousFunction extends Expression {
     /** Need to maintain a list of any return statements this function has,
      * so we can check that they return a value whose type matches
      * the return type of this function */
-    returnStatements: Return[] = [];
+    returnStatementValues: Expression[] = [];
+
+    /** Track whether params have been registered in scope (fillParams may do this before cascadeTypes) */
+    private paramsRegistered: boolean = false;
+    /** Track whether the body has been cascaded (fillParams may do this before cascadeTypes) */
+    private bodyCascaded: boolean = false;
 
     constructor(
         rootToken: Token,
@@ -1439,14 +507,35 @@ export class AnonymousFunction extends Expression {
     }
 
     /** Fill param types from an inferred signature, then cascade the body. */
-    fillParams(types: Type[]): void {
+    fillParams(types: Type[], parent?: Expression | null): void {
         if (!this.needsInference) return;
         for (let i = 0; i < this.params.length; i++) {
             this.params[i].type = types[i] ?? this.params[i].type;
         }
         this.needsInference = false;
+        // Register inferred params in scope before cascading the body
+        this.paramsRegistered = true;
+        for (const param of this.params) {
+            this.scope.defineVariable({
+                class: "var",
+                name: param.name,
+                type: param.type,
+                isMutable: false,
+                isConsumed: false,
+            });
+        }
+        // Chain this function's scope to the enclosing scope (use parent if given,
+        // otherwise walk up from body which should have a parent from setParentPointers).
+        if (parent !== undefined) {
+            this.parent = parent;
+        }
+        if (this.parent && this.scope.parent === null) {
+            this.scope.parent = this.parent.getScope();
+        }
+        this.body.scope.parent = this.scope;
         // Body: last expression is the return value (always consumed).
-        this.body.cascadeTypes(true);
+        this.body.cascadeTypes(this, true);
+        this.bodyCascaded = true;
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
@@ -1462,8 +551,33 @@ export class AnonymousFunction extends Expression {
         );
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+
+        // Chain this function's scope to the enclosing scope so closures can
+        // capture variables from outer scopes (function params, outer vars, etc.).
+        if (this.parent && this.scope.parent === null) {
+            this.scope.parent = this.parent.getScope();
+        }
+
+        // Register params in scope so Variable references can find them.
+        // (fillParams may already have done this, so check the flag.)
+        if (!this.paramsRegistered) {
+            this.paramsRegistered = true;
+            for (const param of this.params) {
+                if (param.type !== null) {
+                    this.scope.defineVariable({
+                        class: "var",
+                        name: param.name,
+                        type: param.type,
+                        isMutable: false,
+                        isConsumed: false,
+                    });
+                }
+            }
+        }
+        this.body.scope.parent = this.scope;
+
         // If params have null types, set a placeholder FuncType and skip body cascade.
         // fillParams() must be called by the enclosing context to provide real types.
         if (this.needsInference) {
@@ -1478,7 +592,11 @@ export class AnonymousFunction extends Expression {
         // Body: last expression is the return value (always consumed), not the
         // function definition's own valueUsed. Block.cascadeTypes handles the
         // per-expression valueUsed propagation internally.
-        this.body.cascadeTypes(true);
+        // Skip body cascade if fillParams already cascaded it.
+        if (!this.bodyCascaded) {
+            this.body.cascadeTypes(this, true);
+            this.bodyCascaded = true;
+        }
         const bodyReturnType = this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
@@ -1488,12 +606,12 @@ export class AnonymousFunction extends Expression {
                 `anonymous function body should return ${this.returnType}, but found ${bodyReturnType}`
             );
         }
-        for (const s of this.returnStatements) {
-            if (!deepEquals(s.value.type, this.returnType)) {
+        for (const rsv of this.returnStatementValues) {
+            if (!deepEquals(rsv.type, this.returnType)) {
                 throw new ASTError(
-                    s.line,
-                    s.col,
-                    `anonymous function with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
+                    rsv.line,
+                    rsv.col,
+                    `anonymous function with return type ${this.returnType} has a return statement that returns a value of type ${rsv.type}`
                 );
             }
         }
@@ -1521,22 +639,9 @@ export class AnonymousFunction extends Expression {
     /** Walk the body subtree to check if any Return needs exception handling. */
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
-            if (expr instanceof Return) return expr.needsException;
-            if (expr instanceof DropValue) return check(expr.child);
-            if (expr instanceof Block) return expr.expressions.some((e) => check(e));
-            if (expr instanceof If) {
-                return (
-                    expr.conditionalBranches.some((b) => check(b.branch)) || check(expr.elseBranch)
-                );
-            }
-            if (expr instanceof ForLoop) return check(expr.body);
-            for (const key of ["child", "value"] as const) {
-                const child = (expr as unknown as Record<string, Expression | undefined>)[key];
-                if (child && typeof child === "object" && child.constructor?.name) {
-                    if (check(child)) return true;
-                }
-            }
-            return false;
+            if (expr.needsExceptionForControlFlow()) return true;
+            if (expr instanceof AnonymousFunction || expr instanceof FunctionDef) return false; // nested function will handle its own return
+            return expr.getAllChildren().some((e) => check(e));
         };
         return this.body.expressions.some((e) => check(e));
     }
@@ -1558,7 +663,7 @@ export class AnonymousFunction extends Expression {
             writer.newLine();
         });
         const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-        if (Block.lastExprShouldReturn(lastExpr)) {
+        if (lastExprShouldReturn(lastExpr)) {
             writer.write("return ");
         }
         lastExpr.toJS(writer);
@@ -1581,17 +686,24 @@ export class AnonymousFunction extends Expression {
 }
 
 export class FunctionDef extends Expression {
+    isFunctionBoundary(): boolean {
+        return true;
+    }
+
     name: string | null;
     params: { name: string; type: Type }[];
     returnType: Type;
     body: Block;
     fullName: string;
     typeParams: string[] = [];
+    scope: Scope = new Scope();
     monomorphizedVersions: FunctionDef[] = [];
+    /** Set to true for FunctionDef clones created during monomorphization. */
+    isMonomorphizedClone: boolean = false;
     /** Need to maintain a list of any return statements this function has,
      * so we can check that they return a value whose type matches
      * the return type of this function */
-    returnStatements: Return[] = [];
+    returnStatementValues: Expression[] = [];
     /** If non-null, this function is type-associated (e.g., Int.zero) */
     typeAssociatedName: string | null;
     /** For templated TAFs, the template types from the type name (e.g., [T] for Arr[T].empty). */
@@ -1680,50 +792,130 @@ export class FunctionDef extends Expression {
                 }
             }
 
-            // Validate: every non-builtin, non-struct CustomType in the signature must be a type param
+            // Validate: every non-builtin CustomType in the signature that isn't a type param
+            // is unresolvable. (Scope-based lookup will provide the real type during cascadeTypes.)
             const signatureTypes = new Set<string>();
             this.params.forEach((p) => collectCustomTypeNames(p.type, signatureTypes));
             collectCustomTypeNames(returnType, signatureTypes);
             for (const name of signatureTypes) {
-                if (
-                    !isBuiltinTypeName(name) &&
-                    !getStruct(name) &&
-                    !getTrait(name) &&
-                    !getEnum(name) &&
-                    !typeParamNames.has(name)
-                ) {
-                    throw new Error(
-                        `unknown type '${name}' — if it's a generic type parameter, add it to a 'where' clause with a trait bound (e.g., 'where ${name} is SomeTrait')`
-                    );
+                if (!isBuiltinTypeName(name) && !typeParamNames.has(name)) {
+                    // Allow unknown type names — they'll be resolved via scope during cascadeTypes.
+                    // If the type truly doesn't exist, cascadeTypes will throw an appropriate error.
                 }
             }
         }
 
         this.type = "Null";
-
-        // Register in the global function registry (non-generic functions only)
-        if (this.name && !this.isGeneric) {
-            registerFunction(this);
-        }
     }
 
     get isGeneric(): boolean {
         return this.typeParams.length > 0;
     }
 
-    cascadeTypes(valueUsed: boolean): void {
-        this.isValueUsed = valueUsed;
+    getScope(): Scope | null {
+        return this.scope;
+    }
+
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+
+        // Register this function's name in the enclosing scope so call resolution
+        // can find it. Register all functions (zero-param and generic) in scope.
+        // Module-level functions register in their own module's scope (for injection
+        // into the importing scope by UseModule.cascadeTypes).
+        // Skip type-associated functions (TAFs) — they're accessed via TypeName.funcName
+        // syntax and not by bare function name.
+        // Skip monomorphized clones — they're inserted before the generic by monomorphize().
+        // Skip functions with params — they can't be referenced as values without type annotations.
+        // Register this function in the enclosing scope BEFORE the body cascade
+        // so recursive calls within the body can find this function.
+        if (this.name && !this.isMonomorphizedClone) {
+            const preEnclosingScope = this.parent?.getScope();
+            if (preEnclosingScope) {
+                const preScopeName = this.typeAssociatedName
+                    ? `${this.typeAssociatedName}.${this.name}`
+                    : this.name;
+                preEnclosingScope.defineVariable(
+                    {
+                        class: "func",
+                        name: preScopeName,
+                        type: this.getFuncType(),
+                        isGeneric: this.isGeneric,
+                        fullName: this.fullName,
+                        def: this.isGeneric ? this : undefined,
+                        paramNames: this.params.map((p) => p.name),
+                    },
+                    true
+                );
+            }
+        }
+
+        // Chain this function's scope to the enclosing scope so lookups from inside
+        // the body can reach outer variables (including the function's own name for recursion).
+        if (this.parent && this.scope.parent === null) {
+            this.scope.parent = this.parent.getScope();
+        }
+
+        // Resolve CustomType references in param/return types that are actually enums.
+        // (During parsing, enum names resolve to CustomType because the enum registry is gone.)
+        const resolveEnumTypes = (t: Type): Type => {
+            if (t instanceof CustomType && !isBuiltinTypeName(t.name)) {
+                const enumCheck = this.parent?.getScope()?.lookup(t.name);
+                if (enumCheck && enumCheck.attrs.class === "enum") {
+                    return new EnumType(
+                        enumCheck.attrs.name,
+                        enumCheck.attrs.variants.map((v: { name: string; type: Type | null }) => ({
+                            name: v.name,
+                            type: v.type,
+                        }))
+                    );
+                }
+            }
+            return t;
+        };
+        for (const param of this.params) {
+            param.type = resolveEnumTypes(param.type);
+        }
+        this.returnType = resolveEnumTypes(this.returnType);
+
+        // Register params in this function's scope so Variable references can find them.
+        for (const param of this.params) {
+            this.scope.defineVariable({
+                class: "var",
+                name: param.name,
+                type: param.type,
+                isMutable: false,
+                isConsumed: false,
+            });
+        }
+        // Register type params (e.g. `T` in `func foo(x: T) where T is Any`) in scope
+        // so they can be used as type references (e.g. `T.zero()` inside the body).
+        for (const tp of this.typeParams) {
+            const traits: string[] = [];
+            for (const param of this.params) {
+                traits.push(...collectTraitsForTypeParam(param.type, tp));
+            }
+            const ct = new CustomType(tp);
+            for (const t of traits) ct.addTrait(t);
+            this.scope.defineVariable({
+                class: "var",
+                name: tp,
+                type: ct,
+                isMutable: false,
+                isConsumed: false,
+            });
+        }
+        // Chain the body scope to this function's scope so lookups from inside the body
+        // can find parameters and (eventually) the function's own name for recursion.
+        this.body.scope.parent = this.scope;
+
         // Body: last expression is the return value (always consumed).
         // Block.cascadeTypes handles per-expression valueUsed propagation.
         if (this.isGeneric) {
-            this.body.cascadeTypes(true);
+            this.body.cascadeTypes(this, true);
             return;
         }
-        // Save/restore consumedVars so detrans inside function bodies doesn't
-        // leak consumed status to outer scopes
-        const savedConsumed = saveConsumedVars();
-        this.body.cascadeTypes(true);
-        restoreConsumedVars(savedConsumed);
+        this.body.cascadeTypes(this, true);
 
         if (this.returnType === "Null" && this.body.type !== null && this.body.type !== "Null") {
             this.returnType = this.body.type;
@@ -1735,13 +927,22 @@ export class FunctionDef extends Expression {
             );
         }
 
-        for (const s of this.returnStatements) {
-            if (!deepEquals(s.value.type, this.returnType)) {
+        for (const rsv of this.returnStatementValues) {
+            if (!deepEquals(rsv.type, this.returnType)) {
                 throw new ASTError(
-                    s.line,
-                    s.col,
-                    `function ${this.name} with return type ${this.returnType} has a return statement that returns a value of type ${s.value.type}`
+                    rsv.line,
+                    rsv.col,
+                    `function ${this.name} with return type ${this.returnType} has a return statement that returns a value of type ${rsv.type}`
                 );
+            }
+        }
+
+        // Update the scope entry with the (possibly inferred) return type.
+        // The function was registered before the body cascade; now update the type.
+        if (this.name && !this.isMonomorphizedClone) {
+            const postEnclosingScope = this.parent?.getScope();
+            if (postEnclosingScope) {
+                postEnclosingScope.updateFuncType(this.fullName, this.getFuncType());
             }
         }
     }
@@ -1772,25 +973,36 @@ export class FunctionDef extends Expression {
         const concreteReturnType = substituteTypeParams(this.returnType, bindings);
         const monomorphizedFullName = functionNameWithParamTypes(this.name!, concreteParamTypes);
 
-        const cached = getMonomorphized(monomorphizedFullName);
-        if (cached) {
-            return {
-                fullName: monomorphizedFullName,
-                funcType: cached.getFuncType(),
-                returnType: concreteReturnType,
-            };
-        }
-
         for (const param of this.params) {
             if (param.type instanceof CustomType && param.type.traits.length > 0) {
                 const concreteType = substituteTypeParams(param.type, bindings);
                 const isConcrete =
-                    !(concreteType instanceof CustomType) ||
-                    isBuiltinTypeName(concreteType.name) ||
-                    getStruct(concreteType.name) !== undefined;
+                    !(concreteType instanceof CustomType) || isBuiltinTypeName(concreteType.name);
                 if (isConcrete) {
                     for (const traitName of param.type.traits) {
-                        if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
+                        const traitScope = this.parent?.getScope() ?? null;
+                        const traitLookupWrapper =
+                            traitScope !== null
+                                ? ({
+                                      lookup: (n: string) => traitScope.lookup(n),
+                                      allVariables: () => {
+                                          const vars: {
+                                              class: string;
+                                              name: string;
+                                              fullName?: string;
+                                          }[] = [];
+                                          let cur: typeof traitScope | null = traitScope;
+                                          while (cur) {
+                                              for (const v of cur.variables) {
+                                                  vars.push(v);
+                                              }
+                                              cur = cur.parent;
+                                          }
+                                          return vars;
+                                      },
+                                  } as const)
+                                : undefined;
+                        if (!checkTraitSatisfied(concreteType, traitName, traitLookupWrapper)) {
                             return null;
                         }
                     }
@@ -1814,22 +1026,23 @@ export class FunctionDef extends Expression {
             clonedBody,
             true
         );
+        monomorphized.isMonomorphizedClone = true;
 
-        // Fix parent pointers on the cloned subtree so findEnclosing() works
-        // during cascadeTypes of the monomorphized body.
-        // Link the monomorphized function into the parent chain by using
-        // this function's parent so ancestor lookups reach the main AST.
-        setParentPointers(monomorphized, this.parent);
+        // Cascade the entire monomorphized function, setting parent pointers
+        // as we walk so ancestor lookups (findEnclosing) reach the main AST.
+        monomorphized.cascadeTypes(this.parent, true);
 
-        const allConcrete = clonedParams.every(
-            (p) =>
-                !(p.type instanceof CustomType) ||
-                isBuiltinTypeName(p.type.name) ||
-                getStruct(p.type.name) !== undefined
-        );
-
-        // Last body expression is return value (always consumed).
-        monomorphized.body.cascadeTypes(true);
+        const isConcreteParam = (t: Type): boolean => {
+            if (!(t instanceof CustomType)) return true;
+            if (isBuiltinTypeName(t.name)) return true;
+            const ps = this.parent?.getScope();
+            if (ps) {
+                const pl = ps.lookup(t.name);
+                if (pl && pl.attrs.class === "struct") return true;
+            }
+            return false;
+        };
+        const allConcrete = clonedParams.every((p) => isConcreteParam(p.type));
         monomorphized.sourceFile = this.sourceFile;
 
         if (
@@ -1851,8 +1064,27 @@ export class FunctionDef extends Expression {
         }
 
         if (allConcrete) {
-            registerMonomorphized(monomorphizedFullName, monomorphized);
             this.monomorphizedVersions.push(monomorphized);
+
+            // Insert the monomorphized version into the enclosing scope before the generic,
+            // so subsequent lookups find the concrete version first.
+            const enclosingScope = this.parent?.getScope();
+            if (enclosingScope) {
+                const genericInScope = enclosingScope.lookup(this.fullName);
+                if (
+                    genericInScope &&
+                    genericInScope.attrs.class === "func" &&
+                    genericInScope.attrs.isGeneric
+                ) {
+                    enclosingScope.defineVariableBefore(this.fullName, {
+                        class: "func",
+                        name: this.name!,
+                        type: monomorphized.getFuncType(),
+                        isGeneric: false,
+                        fullName: monomorphizedFullName,
+                    });
+                }
+            }
         }
 
         return {
@@ -1882,26 +1114,37 @@ export class FunctionDef extends Expression {
         const concreteReturnType = substituteTypeParams(this.returnType, bindings);
         const monomorphizedFullName = functionNameWithParamTypes(this.name!, concreteParamTypes);
 
-        const cached = getMonomorphized(monomorphizedFullName);
-        if (cached) {
-            return {
-                fullName: monomorphizedFullName,
-                funcType: cached.getFuncType(),
-                returnType: concreteReturnType,
-            };
-        }
-
         // Verify trait satisfaction
         for (const param of this.params) {
             if (param.type instanceof CustomType && param.type.traits.length > 0) {
                 const concreteType = substituteTypeParams(param.type, bindings);
                 const isConcrete =
-                    !(concreteType instanceof CustomType) ||
-                    isBuiltinTypeName(concreteType.name) ||
-                    getStruct(concreteType.name) !== undefined;
+                    !(concreteType instanceof CustomType) || isBuiltinTypeName(concreteType.name);
                 if (isConcrete) {
                     for (const traitName of param.type.traits) {
-                        if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
+                        const traitScope = this.parent?.getScope() ?? null;
+                        const traitLookupWrapper =
+                            traitScope !== null
+                                ? ({
+                                      lookup: (n: string) => traitScope.lookup(n),
+                                      allVariables: () => {
+                                          const variables: {
+                                              class: string;
+                                              name: string;
+                                              fullName?: string;
+                                          }[] = [];
+                                          let cur: typeof traitScope | null = traitScope;
+                                          while (cur) {
+                                              for (const variable of cur.variables) {
+                                                  variables.push(variable);
+                                              }
+                                              cur = cur.parent;
+                                          }
+                                          return variables;
+                                      },
+                                  } as const)
+                                : undefined;
+                        if (!checkTraitSatisfied(concreteType, traitName, traitLookupWrapper)) {
                             return null;
                         }
                     }
@@ -1924,9 +1167,9 @@ export class FunctionDef extends Expression {
             clonedBody,
             true
         );
+        monomorphized.isMonomorphizedClone = true;
 
-        setParentPointers(monomorphized, this.parent);
-        monomorphized.body.cascadeTypes(true);
+        monomorphized.cascadeTypes(this.parent, true);
         monomorphized.sourceFile = this.sourceFile;
 
         if (
@@ -1937,15 +1180,19 @@ export class FunctionDef extends Expression {
             monomorphized.returnType = monomorphized.body.type;
         }
 
-        const allConcrete = clonedParams.every(
-            (p) =>
-                !(p.type instanceof CustomType) ||
-                isBuiltinTypeName(p.type.name) ||
-                getStruct(p.type.name) !== undefined
-        );
+        const isConcreteParam = (t: Type): boolean => {
+            if (!(t instanceof CustomType)) return true;
+            if (isBuiltinTypeName(t.name)) return true;
+            const ps = this.parent?.getScope();
+            if (ps) {
+                const pl = ps.lookup(t.name);
+                if (pl && pl.attrs.class === "struct") return true;
+            }
+            return false;
+        };
+        const allConcrete = clonedParams.every((p) => isConcreteParam(p.type));
 
         if (allConcrete) {
-            registerMonomorphized(monomorphizedFullName, monomorphized);
             this.monomorphizedVersions.push(monomorphized);
         }
 
@@ -1981,22 +1228,9 @@ export class FunctionDef extends Expression {
     /** Walk the body subtree to check if any Return needs exception handling. */
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
-            if (expr instanceof Return) return expr.needsException;
-            if (expr instanceof DropValue) return check(expr.child);
-            if (expr instanceof Block) return expr.expressions.some((e) => check(e));
-            if (expr instanceof If) {
-                return (
-                    expr.conditionalBranches.some((b) => check(b.branch)) || check(expr.elseBranch)
-                );
-            }
-            if (expr instanceof ForLoop) return check(expr.body);
-            for (const key of ["child", "value"] as const) {
-                const child = (expr as unknown as Record<string, Expression | undefined>)[key];
-                if (child && typeof child === "object" && child.constructor?.name) {
-                    if (check(child)) return true;
-                }
-            }
-            return false;
+            if (expr.needsExceptionForControlFlow()) return true;
+            if (expr instanceof AnonymousFunction || expr instanceof FunctionDef) return false; // nested function will handle its own return
+            return expr.getAllChildren().some((e) => check(e));
         };
         return this.body.expressions.some((e) => check(e));
     }
@@ -2081,7 +1315,7 @@ export class FunctionDef extends Expression {
                 writer.newLine();
             });
             const lastExpr = this.body.expressions[this.body.expressions.length - 1];
-            if (Block.lastExprShouldReturn(lastExpr)) {
+            if (lastExprShouldReturn(lastExpr)) {
                 writer.write("return ");
             }
             lastExpr.toJS(writer);

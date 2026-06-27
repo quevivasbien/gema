@@ -1,4 +1,3 @@
-import { findFunction, findFunctionByPrefix, getTrait } from "./registries";
 import { deepEquals, typesMatchWithConversion } from "./type-utils";
 import {
     ArrayType,
@@ -98,44 +97,67 @@ function extractBindings(
     if (paramType instanceof MaybeType && argType instanceof MaybeType) {
         return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
     }
-    if (!typesMatchWithConversion(paramType, argType)) return false;
+    if (!typesMatchWithConversion(paramType, argType, true)) return false;
     return true;
 }
 
 /**
  * Check if a concrete type satisfies a trait by looking for standalone function definitions.
+ * Uses a scope for lookup if provided; falls back to optimistic assumption otherwise.
  */
 export function checkTraitSatisfied(
     concreteType: Type,
     traitName: string,
-    _contextFnName: string
+    scope?: {
+        lookup: (
+            name: string
+        ) => { attrs: { class: string; name: string; [key: string]: unknown } } | null;
+        allVariables?: () => { class: string; name: string; fullName?: string }[];
+    }
 ): boolean {
-    const traitFuncs = getTrait(traitName);
-    if (!traitFuncs) return false;
+    if (scope) {
+        const traitLookup = scope.lookup(traitName);
+        if (!traitLookup || traitLookup.attrs.class !== "trait") return false;
+        const attrs = traitLookup.attrs as unknown as {
+            requiredFunctions: {
+                name: string;
+                paramNames: string[];
+                types: { types: Type[]; returnType: Type | null };
+            }[];
+        };
+        const traitFuncs = attrs.requiredFunctions;
 
-    for (const { name, types } of traitFuncs) {
-        // Type-associated trait functions: Self.funcName → look for TypeName.funcName
-        if (name.startsWith("Self.")) {
-            const funcName = name.slice(5); // strip "Self."
-            const concreteTypeName =
-                concreteType instanceof CustomType
-                    ? concreteType.name
-                    : typeof concreteType === "string"
-                      ? concreteType
-                      : "";
-            const tafFullName = `${concreteTypeName}.${funcName}`;
-            const fn = findFunctionByPrefix(tafFullName + "$") ?? findFunction(tafFullName);
-            if (!fn) return false;
-        } else {
-            const requiredParamTypes = types.types.map((t) => {
-                if (t === "Self" || (t instanceof CustomType && t.name === "Self"))
-                    return concreteType;
-                return t;
-            });
-            const targetFullName = functionNameWithParamTypes(name, requiredParamTypes);
-            const fn = findFunction(targetFullName);
-            if (!fn) return false;
+        for (const { name, types } of traitFuncs) {
+            if (name.startsWith("Self.")) {
+                const funcName = name.slice(5);
+                const concreteTypeName =
+                    concreteType instanceof CustomType
+                        ? concreteType.name
+                        : typeof concreteType === "string"
+                          ? concreteType
+                          : "";
+                const tafScopeName = `${concreteTypeName}.${funcName}`;
+                if (!scope.lookup(tafScopeName)) return false;
+            } else {
+                const requiredParamTypes = types.types.map((t) => {
+                    if (t === "Self" || (t instanceof CustomType && t.name === "Self"))
+                        return concreteType;
+                    return t;
+                });
+                const targetFullName = functionNameWithParamTypes(name, requiredParamTypes);
+                // Search all scope variables for a func with matching fullName
+                const allVars = scope.allVariables ? scope.allVariables() : [];
+                let found = false;
+                for (const v of allVars) {
+                    if (v.class === "func" && v.fullName === targetFullName) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) return false;
+            }
         }
+        return true;
     }
     return true;
 }

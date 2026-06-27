@@ -1,63 +1,24 @@
 # Roadmap for `gema` development
 
+## Rework numeric types
+
+Change `Float` to `Num` and have it behave basically how the JS `Number` type works -- we use it both as our integer type and as our float type.
+
+The existing `Int` type is still available, but `Int` literals need to be suffixed with `i`; for example, `x = 121i; y = x + 2i;` The intention is for this to be used _only_ in cases where we require an arbitrary size integer.
+
+Range iterators should accept either `Num` or `Int` starts, stops, and steps. E.g., `1..10`, `(1i..)`, `range(1, 100, 0.5)` are all OK, though you can't mix and match types, so something like `1..10i` would be illegal.
+
+We should have an integer divide operator, `//` (and accompanying `//=`). We should also use the default JS behavior for the `%` operator (go up on negative numbers, not down) but have a second `%%` operator (and `%%=`) that behaves like our `%` operator currently does (uses the `$mod$` builtin function).
+
+This will require re-working many of our tests to use the new `Num` and `Int` types and `Int` syntax. Most of the existing tests should use `Num` where `Int` is currently used, but we should also add some new tests in cases where either `Num` or `Int` would be appropriate.
+
+Scientific notation syntax with `e`, like `13e6` should be allowed for defining `Num` literals.
+
+Including a num literal in a program that is outside the 53 bits of integer precision allowed by the FP64 data type should be a compile-time error, unless the user includes a decimal point in the literal (as a clarification that it is intended to be a floating-point number, not an integer), or uses the scientific notation syntax.
+
 ## IO
 
 We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
-
-## Explicit creation and improved handling of Maybe type
-
-We should allow users to explicitly create these instead of just having them as the result of indexing operations.
-
-Example of proposed syntax:
-
-```gema
-func retainIfEven(x: Int): Maybe[Int] {
-  if x % 2 == 0 {
-    some(x)   # This is just a no-op in JS -- the Maybe type exists purely as a type-checking construct to check for the presence of `undefined` values
-  } else {
-    none:Int  # Requires a new `none` keyword, also uses the same type annotation that we have in use currently for empty lists; otherwise "none" on its own would have an ambiguous type
-  }
-}
-```
-
-It would be helpful to have a new matching syntax:
-
-```gema
-func sumMaybes(iter: Iter[Maybe[Int]]) {
-  reduce(
-    \(acc, x) {
-      match x {
-        some(value) value,  # syntax is some(<var>) <expression that can use var> -- {} is optional around the expression
-        none 0,  # syntax is <none> <expression>
-      }
-    },
-    0,
-    iter
-  )
-}
-```
-
-this example would be functionally equivalent to the currently possible
-
-```gema
-func sumMaybes(iter: Iter[Maybe[Int]]) {
-  reduce(
-    \(acc, x) {
-      if isnone(x) {
-        0
-      } else {
-        unwrap(value)
-      }
-    },
-    0,
-    iter
-  )
-}
-```
-
-(but would compile slightly differently, since the latter has an unnecessary check for `undefined` on the `unwrap`).
-
-(When we implement enums later, we can reuse this match syntax there.)
 
 ## Error handling
 
@@ -96,122 +57,6 @@ func sumFrom(iter: Iter[T], start: T) where T is Summable {
   reduce(\(acc, x) { acc + x }, start, iter)
 }
 ```
-
-## Type-associated functions
-
-Roughly speaking, this is the equivalent of a static method on a class. It's a function associated with a type that may or may not actually take an argument of that type.
-
-Basic examples
-
-```gema
-func Int.zero() {
-  0
-}
-
-func Float.zero() {
-  0.
-}
-
-struct MyType { x: Int, y: Float }
-
-func MyType.zero() {
-  MyType(Int.zero(), Float.zero())
-}
-
-m = MyType.zero();
-toFloat(m.x) == m.y  # true
-```
-
-Another example
-
-```gema
-func Int.getAdder(n: Int) {
-  func(x: Int) { x + n }
-}
-```
-
-This should also work with template types:
-
-```gema
-func Arr[Int].empty() {
-  []:Int
-}
-
-func Arr[Int].zeros(n: Int) {
-  map(\_ 0, 1..n) | collect
-}
-
-Arr[Int].empty() + Arr[Int].zeros(3)  # [0, 0, 0]
-```
-
-We also should be able to define generic version like
-
-```gema
-trait Any {}
-
-func Arr[T].empty() where T is Any {
-  []:T
-}
-
-# Another valid syntax:
-func T.emptyArray() where T is Any {
-  []:T
-}
-
-Arr[Str].empty() + ["hello"] + Str.emptyArray()  # ["hello"]
-```
-
-Finally, we can include these as part of trait definitions:
-
-```gema
-trait Summable {
-  add[(a: Self, b: Self): Self],
-  Self.zero[():Self]
-}
-
-func sum(iter: T) where T is Summable {
-  reduce(\(acc, x) { acc + x }, T.zero(), iter)
-}
-
-# Example implementation:
-struct S { s: Int }
-
-func add(a: S, b: S) {
-  S(a.s + b.s)
-}
-
-func S.zero() {
-  S(0)
-}
-
-# Then we can do
-sum([S(1), S(2), S(3)])
-```
-
-Right now we require that functions included as part of trait definitions have Self as at least one of the parameter types, but we could amend that to require Self as at least one of the parameter types _or_ as the type associated with the function.
-
-### Architecture: eliminate circular dependency workarounds
-
-Several files in `src/ast/` (e.g. `structs.ts`, `taf-resolver.ts`) currently use duck-typing to avoid
-importing classes like `Variable` from `nodes.ts`, because the import graph forms a cycle:
-
-```
-index.ts → nodes.ts → set-parent-pointers.ts → structs.ts → taf-resolver.ts
-                                                                        ↓ (duck-typed)
-                                                                  nodes.ts (Variable, Block, etc.)
-```
-
-**Proposal**: Extract a shared `types.ts`-style module (say `src/ast/ast-types.ts` or a reorganized
-`src/ast/interfaces.ts`) that defines interfaces/type-aliases for the subset of AST node types
-needed by downstream modules. This breaks the cycle because `type` imports are erased at runtime.
-
-Specifically:
-
-- Move class references that trigger the cycle (e.g. `Variable`, `FunctionDef`, `Block`) into
-  duck-typing-free interfaces that downstream modules can import as types.
-- Direct instantiation of those classes (like `new Variable(...)`) stays in `nodes.ts`.
-- `structs.ts` and `taf-resolver.ts` would import the interface, not the class — no more
-  duck-typing hacks.
 
 ### Potential future extension
 
@@ -272,7 +117,7 @@ The `:` that we have as part of our type annotations is not really needed--it's 
 
 ## Misc improvements and bug fixes
 
-### Tail-call optimization for if / else branching. Currently, this will use TCO:
+### Tentative: Tail-call optimization for if / else branching. Currently, this will use TCO:
 
 ```gema
 func f(n: Int, res: Int): Int {
@@ -292,9 +137,15 @@ func f(n: Int, res: Int): Int {
 
 Maybe the most straightforward way to support this and any other deep recursion case is to detect any other case where we have a recursive function (beside the easily TCO-optimized case we already support) and use trampoline functions in these cases.
 
+This is maybe not a huge priority, since usually the iterate iterator is a better way to solve this sort of problem, anyway.
+
 ### Add a proper name registry so we can get rid of all the weird name mangling and be sure to avoid name collisions
 
 Should just have a "what am I called" in JS helper which simultaneously ensures that variables are valid JS and that they don't unintentionally collide with something else.
+
+### Have module imports keep their own scope
+
+We currently have a weird hybrid variable resolution where some things look in scope and some things look in the function registry. Everything needs to happen within the scope system. I think there is a lot of weirdness here with generic functions and TAFs, too.
 
 ### Others
 
@@ -315,6 +166,18 @@ Should just have a "what am I called" in JS helper which simultaneously ensures 
 - Allow underscores in numeric literals
 
 - Do not allow functions to take arguments of type null. Something like this should not compile: `func foo(x: Null) {1;} foo({1;}); 1`
+
+- Nodes should have their module names in addition to their lines and cols, set during parsing instead of as a post-parsing step
+
+- Get rid of automatic Str -> Iter conversions. Users can explicitly convert strings to iter if they want to do this.
+
+- It should be possible to break/continue/return out of match expressions or if/else statements (special control flow statements need special type resolution logic)
+
+- Probably should get rid of the automatic Arr -> Iter conversion. It adds weirdness in the type and caller resolution logic, and it's probably best to be explicit, anyway.
+
+- Related to previous point, it could be good to have a shorthand for the `toIter` conversion. Should probably also have a shorthand for the `collect` builtin (maybe `toArr` should also work for that purpose or should replace `collect`)? We would bring back the `@` symbol for collection (but treat it as a special function name) and maybe introduce another special name for `toIter` (if we do this, top candidates would be either `*` or `~`).
+
+- We could often figure out the type of un-annotated empty arrays or `none`s from context.
 
 ### range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
 
@@ -337,12 +200,6 @@ func tail(n: Int, iter: Iter[T]) where T is Any {
 
 tail(3, 1..10)  # result is 8, 9, 10
 ```
-
-## Scoped TypeEnv
-
-Replace the remaining ancestors parameter with a TypeEnv scope object that maintains a symbol table. Variable.cascadeTypes becomes a simple env.lookup instead of walking up the tree and scanning siblings. Eliminates Assignment.findDefiningAssignment(), findOuterDefinition(), findStructTypedVariable(), findStringTypedVariable(), and all sibling-scanning code.
-
-Complication: Call's keyword-arg reordering digs through ancestor blocks for function definitions — this needs careful design to port to TypeEnv.
 
 ## Optimizations
 

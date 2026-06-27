@@ -1,28 +1,8 @@
-// Registries & global state
-export {
-    checkSelectiveImport,
-    findFunction,
-    findFunctionInModule,
-    getAllMonomorphized,
-    getMonomorphized,
-    getEnum,
-    getSelectiveImportRules,
-    getStruct,
-    getTrait,
-    isCrossModuleRefAllowed,
-    isVarConsumed,
-    markVarConsumed,
-    registerEnum,
-    registerFunction,
-    registerMonomorphized,
-    registerStruct,
-    registerTrait,
-    resetRegistries,
-    setSelectiveImportRule,
-} from "./registries";
-
 // Base expression classes
-export { ASTError, DropValue, ErrorExpression, Expression } from "./expression";
+export { ASTError, Block, DropValue, ErrorExpression, Expression } from "./expression";
+
+// Control flow
+export { Break, Continue, ForLoop, If, Return } from "./control-flow";
 
 // Literals
 export { Literal } from "./literals";
@@ -30,27 +10,14 @@ export { Literal } from "./literals";
 // Operators
 export { Binary, Unary } from "./operators";
 
-// Nodes (variables, control flow, functions)
-export {
-    AnonymousFunction,
-    Assignment,
-    Block,
-    Break,
-    Continue,
-    ForLoop,
-    FunctionDef,
-    If,
-    RangeIter,
-    Return,
-    UseModule,
-    Variable,
-} from "./nodes";
+// Nodes (variables, functions, tuples)
+export { AnonymousFunction, FunctionDef, RangeIter, TupleLit, UseModule, Variable } from "./nodes";
 
 // Calls
 export { Call, DirectCall } from "./calls";
 
-// Tuples
-export { TupleLit, TupleUnpack } from "./nodes";
+// Variable assignment, including tuple unpacking
+export { Assignment, TupleUnpack } from "./assignment";
 
 // Enums and match
 export {
@@ -72,9 +39,6 @@ export { Trait } from "./traits";
 
 // Caller resolution
 export { findCaller } from "./caller";
-
-// Parent pointer setup
-export { setParentPointers } from "./set-parent-pointers";
 
 // Reachability (for tree shaking)
 export { computeReachable } from "./reachability";

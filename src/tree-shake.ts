@@ -7,7 +7,7 @@ import {
     FunctionDef,
     StructDef,
     computeReachable,
-    getSelectiveImportRules,
+    UseModule,
 } from "./ast";
 import { TokenType } from "./tokens";
 
@@ -15,42 +15,6 @@ import { TokenType } from "./tokens";
  * Check whether an expression from a different module should be kept despite
  * not being in the entry's selective import list. Returns true if another
  * module has a better claim to this name (meaning the other module's definition
- * is the one the entry actually imported, so this one can be dropped).
- */
-function hasBetterClaim(
-    baseName: string,
-    e: Expression,
-    entry: string,
-    rules: Map<string, Set<string>> | undefined,
-    block: Block
-): boolean {
-    if (!rules) return false;
-    for (const other of block.expressions) {
-        let oe = other;
-        while (oe instanceof DropValue) oe = oe.child;
-        if (oe === e) continue;
-        // Check if another function/variable with the same name exists and
-        // comes from a module whose import rules allow it.
-        const sameName =
-            (oe instanceof FunctionDef &&
-                oe.fullName !== null &&
-                baseNameOf(oe.fullName) === baseName) ||
-            (oe instanceof Assignment && oe.name === baseName);
-        if (!sameName) continue;
-        const otherRules = rules.get(oe.sourceFile ?? "");
-        if (!otherRules || otherRules.has(baseName)) {
-            return true; // another module claims this name
-        }
-    }
-    return false;
-}
-
-/** Extract the base name (before any type-suffix `$`) from a fullName. */
-function baseNameOf(fullName: string): string {
-    const idx = fullName.indexOf("$");
-    return idx === -1 ? fullName : fullName.slice(0, idx);
-}
-
 /**
  * Determine whether a top-level expression survives tree-shaking.
  *
@@ -61,48 +25,13 @@ function baseNameOf(fullName: string): string {
  *   selective import rules prefer this particular definition over any other
  *   module's definition with the same name.
  */
-function shouldKeepDefinition(
-    e: Expression,
-    reachable: Set<string>,
-    entry: string | undefined,
-    keptFullNames: Map<string, boolean>,
-    block: Block
-): boolean {
-    const rules = entry ? getSelectiveImportRules(entry) : undefined;
-
+function shouldKeepDefinition(e: Expression, reachable: Set<string>): boolean {
     if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
-        if (!reachable.has(e.fullName)) return false;
-        if (keptFullNames.has(e.fullName)) return false;
-        if (e.sourceFile && e.sourceFile !== entry) {
-            const base = baseNameOf(e.fullName);
-            const allowed = rules?.get(e.sourceFile);
-            if (
-                allowed &&
-                !allowed.has(base) &&
-                hasBetterClaim(base, e, entry ?? "", rules, block)
-            ) {
-                return false;
-            }
-        }
-        keptFullNames.set(e.fullName, true);
-        return true;
+        return reachable.has(e.fullName);
     }
 
     if (e instanceof Assignment && e.name && !e.isReassignment) {
-        if (!reachable.has(e.name)) return false;
-        if (keptFullNames.has(e.name)) return false;
-        if (e.sourceFile && e.sourceFile !== entry) {
-            const allowed = rules?.get(e.sourceFile);
-            if (
-                allowed &&
-                !allowed.has(e.name) &&
-                hasBetterClaim(e.name, e, entry ?? "", rules, block)
-            ) {
-                return false;
-            }
-        }
-        keptFullNames.set(e.name, true);
-        return true;
+        return reachable.has(e.name);
     }
 
     if (e instanceof StructDef && e.name) {
@@ -119,13 +48,110 @@ function shouldKeepDefinition(
  * Tree-shaking — remove unreachable definitions from the unified
  * block. Returns a new Block containing only the expressions that survived.
  */
-export function treeShake(unifiedBlock: Block, entry: string | undefined): Block {
+/** Extract the base name (before any type-suffix `$`) from a fullName. */
+function baseNameOf(fullName: string): string {
+    const idx = fullName.indexOf("$");
+    return idx === -1 ? fullName : fullName.slice(0, idx);
+}
+
+/**
+ * Build a map of symbol → source module path for all selective imports.
+ * The first module that selectively imports a symbol claims it.
+ */
+function buildSelectiveClaimMap(block: Block): Map<string, string> {
+    const claimMap = new Map<string, string>();
+    for (const expr of block.expressions) {
+        let e = expr;
+        while (e instanceof DropValue) e = e.child;
+        if (e instanceof UseModule && e.symbols && e.symbols.length > 0) {
+            for (const sym of e.symbols) {
+                if (!claimMap.has(sym)) {
+                    claimMap.set(sym, e.path);
+                }
+            }
+        }
+    }
+    return claimMap;
+}
+
+/** Filter expressions inside a UseModule's moduleBlock through tree-shaking as well. */
+function filterUseModule(
+    um: UseModule,
+    reachable: Set<string>,
+    keptFullNames: Map<string, boolean>,
+    claimMap: Map<string, string>
+) {
+    if (!um.moduleBlock) return;
+    const isSelective = um.symbols && um.symbols.length > 0;
+    const explicitSymbols = isSelective ? new Set(um.symbols!) : null;
+    um.moduleBlock.expressions = um.moduleBlock.expressions.filter((expr) => {
+        let e = expr;
+        while (e instanceof DropValue) e = e.child;
+        // Determine the base name for this definition
+        let baseName: string | null = null;
+        if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
+            baseName = baseNameOf(e.fullName);
+        } else if (e instanceof Assignment && e.name && !e.isReassignment) {
+            baseName = e.name;
+        } else if (e instanceof StructDef && e.name) {
+            baseName = e.name;
+        } else if (e instanceof EnumDef && e.name) {
+            baseName = e.name;
+        }
+        if (baseName === null) return true; // non-definition expressions always kept
+
+        // Check reachability
+        const key = e instanceof FunctionDef && e.fullName ? e.fullName : baseName;
+        if (!reachable.has(key)) return false;
+
+        if (isSelective) {
+            if (explicitSymbols!.has(baseName)) {
+                // Explicitly imported: keep it (if not already claimed by another module)
+                if (keptFullNames.has(key)) return false;
+                keptFullNames.set(key, true);
+                return true;
+            } else {
+                // Not explicitly imported — it's a transitive dependency.
+                // Keep it only if no other module has explicitly claimed this symbol.
+                const claimedModule = claimMap.get(baseName);
+                if (claimedModule && claimedModule !== um.path) {
+                    // Another module provides this symbol — drop it from here
+                    return false;
+                }
+                if (keptFullNames.has(key)) return false;
+                keptFullNames.set(key, true);
+                return true;
+            }
+        } else {
+            // Bare import: keep all reachable defs (dedup by keptFullNames)
+            if (keptFullNames.has(key)) return false;
+            keptFullNames.set(key, true);
+            return true;
+        }
+    });
+    // Also filter any nested UseModules inside this module
+    for (const expr of um.moduleBlock.expressions) {
+        let e = expr;
+        while (e instanceof DropValue) e = e.child;
+        if (e instanceof UseModule) {
+            filterUseModule(e, reachable, keptFullNames, claimMap);
+        }
+    }
+}
+
+export function treeShake(unifiedBlock: Block): Block {
     const reachable = computeReachable(unifiedBlock);
     const keptFullNames = new Map<string, boolean>();
+    const claimMap = buildSelectiveClaimMap(unifiedBlock);
     const filteredExprs = unifiedBlock.expressions.filter((expr) => {
         let e = expr;
         while (e instanceof DropValue) e = e.child;
-        return shouldKeepDefinition(e, reachable, entry, keptFullNames, unifiedBlock);
+        if (e instanceof UseModule) {
+            // Filter the module's internal definitions too
+            filterUseModule(e, reachable, keptFullNames, claimMap);
+            return true;
+        }
+        return shouldKeepDefinition(e, reachable);
     });
     const rootToken = { line: 0, col: 0, text: "", type: TokenType.LBrace };
     return new Block(rootToken, filteredExprs);
