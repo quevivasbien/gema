@@ -7,6 +7,7 @@ import {
     FunctionDef,
     StructDef,
     computeReachable,
+    UseModule,
 } from "./ast";
 import { TokenType } from "./tokens";
 

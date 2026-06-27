@@ -113,21 +113,20 @@ export function checkTraitSatisfied(
         lookup: (
             name: string
         ) => { attrs: { class: string; name: string; [key: string]: unknown } } | null;
+        allVariables?: () => { class: string; name: string; fullName?: string }[];
     }
 ): boolean {
-    // Look up the trait definition from scope
     if (scope) {
         const traitLookup = scope.lookup(traitName);
         if (!traitLookup || traitLookup.attrs.class !== "trait") return false;
-        const traitFuncs = (
-            traitLookup.attrs as unknown as {
-                requiredFunctions: {
-                    name: string;
-                    paramNames: string[];
-                    types: { types: Type[]; returnType: Type | null };
-                }[];
-            }
-        ).requiredFunctions;
+        const attrs = traitLookup.attrs as unknown as {
+            requiredFunctions: {
+                name: string;
+                paramNames: string[];
+                types: { types: Type[]; returnType: Type | null };
+            }[];
+        };
+        const traitFuncs = attrs.requiredFunctions;
 
         for (const { name, types } of traitFuncs) {
             if (name.startsWith("Self.")) {
@@ -138,10 +137,8 @@ export function checkTraitSatisfied(
                         : typeof concreteType === "string"
                           ? concreteType
                           : "";
-                const tafFullName = `${concreteTypeName}.${funcName}`;
-                // Look up TAF in scope by name
-                const fnLookup = scope.lookup(tafFullName);
-                if (!fnLookup) return false;
+                const tafScopeName = `${concreteTypeName}.${funcName}`;
+                if (!scope.lookup(tafScopeName)) return false;
             } else {
                 const requiredParamTypes = types.types.map((t) => {
                     if (t === "Self" || (t instanceof CustomType && t.name === "Self"))
@@ -149,12 +146,19 @@ export function checkTraitSatisfied(
                     return t;
                 });
                 const targetFullName = functionNameWithParamTypes(name, requiredParamTypes);
-                const fnLookup = scope.lookup(targetFullName);
-                if (!fnLookup) return false;
+                // Search all scope variables for a func with matching fullName
+                const allVars = scope.allVariables ? scope.allVariables() : [];
+                let found = false;
+                for (const v of allVars) {
+                    if (v.class === "func" && v.fullName === targetFullName) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) return false;
             }
         }
         return true;
     }
-    // Without scope context, optimistically assume the trait is satisfied
     return true;
 }

@@ -9,6 +9,7 @@ import {
     CustomType,
     EnumType,
     FuncType,
+    isBuiltinTypeName,
     substituteTypeParams,
     TemplateTypes,
     type Type,
@@ -282,7 +283,22 @@ export class FieldAccess extends Expression {
                                 ? selfType
                                 : (tf.types.returnType ?? "Null");
                         this.type = new FuncType(replacedParamTypes, replacedReturnType);
+                        // If the concrete type is known (not a type param), try to find the
+                        // actual TAF function in scope so codegen emits the right name.
                         this.tafTargetName = `${objTypeName}.${this.fieldName}`;
+                        if (
+                            !isBuiltinTypeName(objTypeName) &&
+                            !objType.traits.some((t) => t !== "")
+                        ) {
+                            const concreteTafPrefix = `${objTypeName}.${this.fieldName}`;
+                            const concreteDef = findFunctionInScopeByPrefix(
+                                this.getScope(),
+                                concreteTafPrefix + "$"
+                            );
+                            if (concreteDef) {
+                                this.tafTargetName = concreteDef.fullName;
+                            }
+                        }
                         return;
                     }
                 }

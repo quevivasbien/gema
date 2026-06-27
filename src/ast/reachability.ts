@@ -200,8 +200,19 @@ export function computeReachable(block: Block): Set<string> {
                 for (const expr of exprs) {
                     let e = expr;
                     while (e instanceof DropValue) e = e.child;
-                    if (e instanceof FunctionDef && (e.fullName === name || e.name === name)) {
+                    if (
+                        e instanceof FunctionDef &&
+                        (e.fullName === name ||
+                            e.name === name ||
+                            (name.includes("$") && e.name === name.split("$")[0]))
+                    ) {
                         queue.push(e.body);
+                        // Also trace into monomorphized versions
+                        for (const mv of e.monomorphizedVersions) {
+                            if (mv.fullName === name) {
+                                queue.push(mv.body);
+                            }
+                        }
                     }
                     if (e instanceof Assignment && e.name === name && e.value) {
                         queue.push(e.value);

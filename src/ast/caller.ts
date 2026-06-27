@@ -1,7 +1,7 @@
 import { functionNameWithParamTypes } from "./caller-utils";
-import { Assignment } from "./assignment";
-import { Block, DropValue, type Expression } from "./expression";
-import { AnonymousFunction, FunctionDef } from "./nodes";
+import type { Expression } from "./expression";
+import { FunctionDef } from "./nodes";
+import type { Scope } from "./scope";
 import { isVarConsumed } from "./registries";
 import {
     collectTraitsForTypeParam,
@@ -1459,50 +1459,6 @@ export function findCaller(
           result: CallerResult;
       }
     | { error: string; result: null } {
-    // Check if a local variable with this name shadows any global function.
-    // Variable assignments and function params take priority over globally
-    // registered functions.
-    let hasLocalVar = false;
-    // Walk up parent chain from root looking for local definitions
-    let scanChild: Expression = root;
-    let scanNode: Expression | null = root.parent;
-    while (scanNode) {
-        if (scanNode instanceof Block) {
-            const olderSiblings = scanNode.expressions.slice(
-                0,
-                scanNode.expressions.indexOf(scanChild)
-            );
-            for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                let sib = olderSiblings[j];
-                while (sib instanceof DropValue) sib = sib.child;
-                if (sib instanceof Assignment && sib.name === name) {
-                    hasLocalVar = true;
-                    break;
-                }
-            }
-            if (hasLocalVar) break;
-        } else if (scanNode instanceof FunctionDef) {
-            for (const param of scanNode.params) {
-                if (param.name === name) {
-                    hasLocalVar = true;
-                    break;
-                }
-            }
-            if (hasLocalVar) break;
-        } else if (scanNode instanceof AnonymousFunction) {
-            for (const param of scanNode.params) {
-                if (param.name === name) {
-                    hasLocalVar = true;
-                    break;
-                }
-            }
-            if (hasLocalVar) break;
-        }
-        if (hasLocalVar) break;
-        scanChild = scanNode;
-        scanNode = scanNode.parent;
-    }
-
     const fullName = functionNameWithParamTypes(name, argTypes);
     const sourceFile = (root as { sourceFile?: string }).sourceFile;
 
@@ -1510,51 +1466,73 @@ export function findCaller(
     // Scope entries are populated by FunctionDef.cascadeTypes (for functions),
     // Assignment.cascadeTypes (for variables), and UseModule.cascadeTypes (for imports).
     const fnCallScope = root.getScope();
-    if (fnCallScope && !hasLocalVar) {
-        const scopeResult = fnCallScope.lookup(name);
-        if (scopeResult) {
-            const fa = scopeResult.attrs;
-
-            // Function resolution
-            if (fa.class === "func") {
-                if (!fa.isGeneric) {
-                    // Non-generic function: check param types
-                    if (
-                        fa.type instanceof FuncType &&
-                        paramTypesMatchArgTypes(fa.type.paramTypes, argTypes)
-                    ) {
-                        return {
-                            error: null,
-                            result: {
-                                kind: "function",
-                                referToByName: fa.fullName,
-                                callerType: fa.type,
-                                rootType: fa.type.returnType,
-                            },
-                        };
+    if (fnCallScope) {
+        // First, specifically look for function entries (they can coexist with
+        // struct/trait/enum entries for the same name, e.g., struct constructor
+        // overloading).
+        let scopeResult = fnCallScope.lookup(name);
+        // If the first match isn't a function, search the scope chain for a func entry
+        if (scopeResult && scopeResult.attrs.class !== "func") {
+            let searchScope: Scope | null = fnCallScope;
+            while (searchScope) {
+                for (const v of searchScope.variables) {
+                    if (v.class === "func" && v.name === name) {
+                        scopeResult = { inCurrentScope: searchScope === fnCallScope, attrs: v };
+                        break;
                     }
-                } else {
-                    // Generic function: use the def reference stored in the scope entry
-                    // to attempt monomorphization.
-                    if (fa.def) {
-                        const genericFn = fa.def as FunctionDef;
-                        if (genericFn.params.length === argTypes.length) {
-                            const result = genericFn.monomorphize(argTypes);
-                            if (result !== null) {
+                }
+                if (scopeResult && scopeResult.attrs.class === "func") break;
+                searchScope = searchScope.parent;
+            }
+        }
+
+        if (scopeResult) {
+            // For function resolution, search ALL scope entries with matching name
+            // (to handle overloads — multiple functions with same name, different types).
+            // Iterate the entire scope chain to find all matching entries.
+            const matchedFunc = (() => {
+                let searchScope: Scope | null = fnCallScope;
+                while (searchScope) {
+                    for (const v of searchScope.variables) {
+                        if (v.class !== "func" || v.name !== name) continue;
+                        if (!v.isGeneric) {
+                            if (
+                                v.type instanceof FuncType &&
+                                paramTypesMatchArgTypes(v.type.paramTypes, argTypes)
+                            ) {
                                 return {
-                                    error: null,
-                                    result: {
-                                        kind: "function",
+                                    kind: "function" as const,
+                                    referToByName: v.fullName,
+                                    callerType: v.type,
+                                    rootType: v.type.returnType,
+                                    paramNames: v.paramNames,
+                                };
+                            }
+                        } else if (v.def) {
+                            const genericFn = v.def as FunctionDef;
+                            if (genericFn.params.length === argTypes.length) {
+                                const result = genericFn.monomorphize(argTypes);
+                                if (result !== null) {
+                                    return {
+                                        kind: "function" as const,
                                         referToByName: result.fullName,
                                         callerType: result.funcType,
                                         rootType: result.returnType,
-                                    },
-                                };
+                                    };
+                                }
                             }
                         }
                     }
+                    searchScope = searchScope.parent;
                 }
+                return null;
+            })();
+            if (matchedFunc) {
+                return { error: null, result: matchedFunc };
             }
+
+            // Fall back to the first scope result for non-func entries
+            const fa = scopeResult.attrs;
 
             // Variable-based callable (e.g., FuncType variable, array indexing, etc.)
             if (fa.class === "var") {

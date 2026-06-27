@@ -292,17 +292,18 @@ export class Variable extends Expression {
         }
 
         // Check scope for function entries
-        const scope2 = this.getScope();
-        if (scope2) {
-            for (const v of scope2.variables) {
+        // Walk the full scope chain to find function entries
+        let currentScope = this.getScope();
+        while (currentScope) {
+            for (const v of currentScope.variables) {
                 if (v.class === "func" && v.fullName === this.fullName && !v.isGeneric) {
                     this.type = v.type;
                     this.fullName = v.fullName;
                     return;
                 }
             }
-            // Check for generic function entries — attempt monomorphization via the stored def
-            for (const v of scope2.variables) {
+            // Check for generic function entries in this scope level
+            for (const v of currentScope.variables) {
                 if (v.class === "func" && v.name === this.name && v.isGeneric && v.def) {
                     const genericFn = v.def as FunctionDef;
                     const argTypes = this.templateTypes?.types ?? [];
@@ -314,6 +315,7 @@ export class Variable extends Expression {
                     }
                 }
             }
+            currentScope = currentScope.parent;
         }
 
         // Fall back to type reference (e.g., Arr[Int] → type Arr with template [Int])
@@ -839,6 +841,7 @@ export class FunctionDef extends Expression {
                         isGeneric: this.isGeneric,
                         fullName: this.fullName,
                         def: this.isGeneric ? this : undefined,
+                        paramNames: this.params.map((p) => p.name),
                     },
                     true
                 );
@@ -851,7 +854,29 @@ export class FunctionDef extends Expression {
             this.scope.parent = this.parent.getScope();
         }
 
-        // Register params in this function's scope so Variable references can find them
+        // Resolve CustomType references in param/return types that are actually enums.
+        // (During parsing, enum names resolve to CustomType because the enum registry is gone.)
+        const resolveEnumTypes = (t: Type): Type => {
+            if (t instanceof CustomType && !isBuiltinTypeName(t.name)) {
+                const enumCheck = this.parent?.getScope()?.lookup(t.name);
+                if (enumCheck && enumCheck.attrs.class === "enum") {
+                    return new EnumType(
+                        enumCheck.attrs.name,
+                        enumCheck.attrs.variants.map((v: { name: string; type: Type | null }) => ({
+                            name: v.name,
+                            type: v.type,
+                        }))
+                    );
+                }
+            }
+            return t;
+        };
+        for (const param of this.params) {
+            param.type = resolveEnumTypes(param.type);
+        }
+        this.returnType = resolveEnumTypes(this.returnType);
+
+        // Register params in this function's scope so Variable references can find them.
         for (const param of this.params) {
             this.scope.defineVariable({
                 class: "var",
@@ -955,7 +980,36 @@ export class FunctionDef extends Expression {
                     !(concreteType instanceof CustomType) || isBuiltinTypeName(concreteType.name);
                 if (isConcrete) {
                     for (const traitName of param.type.traits) {
-                        if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
+                        const traitScope = this.parent?.getScope() ?? null;
+                        const traitLookupWrapper =
+                            traitScope !== null
+                                ? ({
+                                      lookup: (n: string) => traitScope.lookup(n),
+                                      allVariables: () => {
+                                          const vars: {
+                                              class: string;
+                                              name: string;
+                                              fullName?: string;
+                                          }[] = [];
+                                          let cur: typeof traitScope | null = traitScope;
+                                          while (cur) {
+                                              for (const v of cur.variables) {
+                                                  vars.push(v);
+                                              }
+                                              cur = cur.parent;
+                                          }
+                                          return vars;
+                                      },
+                                  } as const)
+                                : undefined;
+                        if (
+                            !checkTraitSatisfied(
+                                concreteType,
+                                traitName,
+                                this.name!,
+                                traitLookupWrapper
+                            )
+                        ) {
                             return null;
                         }
                     }
@@ -985,9 +1039,17 @@ export class FunctionDef extends Expression {
         // as we walk so ancestor lookups (findEnclosing) reach the main AST.
         monomorphized.cascadeTypes(this.parent, true);
 
-        const allConcrete = clonedParams.every(
-            (p) => !(p.type instanceof CustomType) || isBuiltinTypeName(p.type.name)
-        );
+        const isConcreteParam = (t: Type): boolean => {
+            if (!(t instanceof CustomType)) return true;
+            if (isBuiltinTypeName(t.name)) return true;
+            const ps = this.parent?.getScope();
+            if (ps) {
+                const pl = ps.lookup(t.name);
+                if (pl && pl.attrs.class === "struct") return true;
+            }
+            return false;
+        };
+        const allConcrete = clonedParams.every((p) => isConcreteParam(p.type));
         monomorphized.sourceFile = this.sourceFile;
 
         if (
@@ -1067,7 +1129,36 @@ export class FunctionDef extends Expression {
                     !(concreteType instanceof CustomType) || isBuiltinTypeName(concreteType.name);
                 if (isConcrete) {
                     for (const traitName of param.type.traits) {
-                        if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
+                        const traitScope2 = this.parent?.getScope() ?? null;
+                        const traitLookupWrapper2 =
+                            traitScope2 !== null
+                                ? ({
+                                      lookup: (n: string) => traitScope2.lookup(n),
+                                      allVariables: () => {
+                                          const v2: {
+                                              class: string;
+                                              name: string;
+                                              fullName?: string;
+                                          }[] = [];
+                                          let cur2: typeof traitScope2 | null = traitScope2;
+                                          while (cur2) {
+                                              for (const v of cur2.variables) {
+                                                  v2.push(v);
+                                              }
+                                              cur2 = cur2.parent;
+                                          }
+                                          return v2;
+                                      },
+                                  } as const)
+                                : undefined;
+                        if (
+                            !checkTraitSatisfied(
+                                concreteType,
+                                traitName,
+                                this.name!,
+                                traitLookupWrapper2
+                            )
+                        ) {
                             return null;
                         }
                     }
@@ -1103,9 +1194,17 @@ export class FunctionDef extends Expression {
             monomorphized.returnType = monomorphized.body.type;
         }
 
-        const allConcrete = clonedParams.every(
-            (p) => !(p.type instanceof CustomType) || isBuiltinTypeName(p.type.name)
-        );
+        const isConcreteParam = (t: Type): boolean => {
+            if (!(t instanceof CustomType)) return true;
+            if (isBuiltinTypeName(t.name)) return true;
+            const ps = this.parent?.getScope();
+            if (ps) {
+                const pl = ps.lookup(t.name);
+                if (pl && pl.attrs.class === "struct") return true;
+            }
+            return false;
+        };
+        const allConcrete = clonedParams.every((p) => isConcreteParam(p.type));
 
         if (allConcrete) {
             this.monomorphizedVersions.push(monomorphized);

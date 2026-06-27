@@ -15,6 +15,8 @@ export type VariableAttributes =
           fullName: string;
           /** Reference to the FunctionDef AST node, needed for generic monomorphization. */
           def?: unknown;
+          /** Parameter names, used for keyword argument resolution in scope-based function lookup. */
+          paramNames?: string[];
       }
     | {
           class: "struct";
