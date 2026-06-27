@@ -3,18 +3,25 @@ import { test } from "bun:test";
 import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 test("compile literals", () => {
-    testCompile(`1`, 1n);
+    testCompile(`1`, 1);
     testCompile(`1.23`, 1.23);
     testCompile(`1.`, 1);
     testCompile(`true`, true);
     testCompile(`false`, false);
     testCompile(`"hello"`, "hello");
+    testCompile(`1i`, 1n);
 });
 
-test("compile integers with leading zeros", () => {
-    testCompile("01", 1n);
-    testCompile("0152", 152n);
-    testCompile("00152", 152n);
+test("compile ints with leading zeros, and no decimals", () => {
+    testCompile("01i", 1n);
+    testCompile("0152i", 152n);
+    testCompile("00152i", 152n);
+});
+
+test("compile nums with leading zeros, and no decimals", () => {
+    testCompile("01", 1);
+    testCompile("0152", 152);
+    testCompile("00152", 152);
 });
 
 test("compile floats with leading zeros", () => {
@@ -25,13 +32,13 @@ test("compile floats with leading zeros", () => {
 });
 
 test("compile binary expressions", () => {
-    testCompile(`1 + 2`, 3n);
-    testCompile(`1 - 2`, -1n);
-    testCompile(`1 * 2`, 2n);
-    testCompile(`1 / 2`, 0n);
-    testCompile(`3 * (1 + 3) / 2`, 6n);
-    testCompile(`5 % 3`, 2n);
-    testCompile(`-5 % 3`, 1n);
+    testCompile(`1 + 2`, 3);
+    testCompile(`1 - 2`, -1);
+    testCompile(`1 * 2`, 2);
+    testCompile(`1 / 2`, 0.5);
+    testCompile(`3 * (1 + 3) / 2`, 6);
+    testCompile(`5 % 3`, 2);
+    testCompile(`-5 % 3`, -2); // JS truncating %
     testCompile(`true and false`, false);
     testCompile(`true or false`, true);
     testCompile(`1 == 1`, true);
@@ -40,25 +47,34 @@ test("compile binary expressions", () => {
     testCompile(`(1 > 2) or (3 < 4)`, true);
 });
 
+test("compile integer division // and Euclidean %%", () => {
+    testCompile(`7 // 2`, 3);
+    testCompile(`7 %% 3`, 1);
+    testCompile(`-7 // 2`, -4);
+    testCompile(`-7 %% 3`, 2);
+    testCompile(`8 // 3`, 2);
+    testCompile(`8 %% 3`, 2);
+});
+
 test("compile block", () => {
-    testCompile(`{ 1 }`, 1n);
-    testCompile(`1 + { 1 }`, 2n);
+    testCompile(`{ 1 }`, 1);
+    testCompile(`1 + { 1 }`, 2);
     testParseExpectError(`{ 1; }`);
     testCompile(
         `
             (-32 / 4) % { 1 + 2 } 
         `,
-        1n
+        -2 // JS truncating: (-8) % 3 = -2
     );
 });
 
 test("compile exponentiation", () => {
-    testCompile(`2 ^ 3`, 8n);
-    testCompile(`2 ^ 3 ^ 2`, 512n); // Right-associative: 2^(3^2) = 2^9 = 512
-    testCompile(`2 + 3 ^ 2 * 2`, 20n); // 2 + (9 * 2) = 20
-    testCompile(`(-2) ^ 3`, -8n); // -2^3 = -8
-    testCompile(`-2 ^ 2`, -4n); // Exponentiation takes precedence over unary -
-    testCompile(`5 ^ 0`, 1n);
+    testCompile(`2 ^ 3`, 8);
+    testCompile(`2 ^ 3 ^ 2`, 512);
+    testCompile(`2 + 3 ^ 2 * 2`, 20);
+    testCompile(`(-2) ^ 3`, -8);
+    testCompile(`-2 ^ 2`, -4);
+    testCompile(`5 ^ 0`, 1);
     testCompile(`2.0 ^ 3.0`, 8.0);
 });
 
@@ -77,7 +93,7 @@ test("compile type conversion builtins", () => {
     testCompile(`toInt(-3.14)`, -3n);
     testCompile(`toInt(-3.8)`, -3n);
     testCompile(`toInt(true)`, 1n);
-    testCompile(`toFloat(3)`, 3.0);
+    testCompile(`toNum(3i)`, 3.0);
     testCompile(`toBool(1)`, true);
     testCompile(`toBool(0)`, false);
     testCompile(`"The number is " + toStr(152)`, "The number is 152");
@@ -89,30 +105,30 @@ test("compile variables named with JS reserved words", () => {
         const = 5;
         const + 1
     `,
-        6n
+        6
     );
     testCompile(
         `
         let = 10;
         let
     `,
-        10n
+        10
     );
     testCompile(
         `
         class = 20;
         class
     `,
-        20n
+        20
     );
     testCompile(
         `
-        func f(const: Int): Int {
+        func f(const: Num): Num {
             const
         };
         f(5)
     `,
-        5n
+        5
     );
     testCompile(
         `
@@ -120,7 +136,7 @@ test("compile variables named with JS reserved words", () => {
         let = 2;
         const + let
     `,
-        3n
+        3
     );
 });
 
@@ -193,7 +209,7 @@ test("parse variables named with JS reserved words", () => {
     testParse(`const = 5`);
     testParse(`let = 10`);
     testParse(`class = 20`);
-    testParse(`func f(const: Int): Int { const }; f(5)`);
+    testParse(`func f(const: Num): Num { const }; f(5)`);
     testParse(`
         const = 1;
         let = 2;
@@ -207,7 +223,7 @@ test("parse type conversion builtins", () => {
     testParse(`toStr(3.14)`);
     testParse(`toInt(3.14)`);
     testParse(`toInt(true)`);
-    testParse(`toFloat(3)`);
+    testParse(`toNum(3i)`);
     testParse(`toBool(1)`);
     testParse(`toBool(0)`);
     testParse(`"The number is " + toStr(152)`);
@@ -220,29 +236,29 @@ test("parse type conversion builtins", () => {
 test("pipe: basic pipe", () => {
     testCompile(
         `
-        add1 = func(x: Int) { x + 1 };
+        add1 = func(x: Num) { x + 1 };
         1 | add1
         `,
-        2n
+        2
     );
 });
 
 test("pipe: chained pipe", () => {
     testCompile(
         `
-        add1 = func(x: Int) { x + 1 };
+        add1 = func(x: Num) { x + 1 };
         5 | add1 | add1
         `,
-        7n
+        7
     );
 });
 
 test("pipe: pipe to length", () => {
-    testCompile("[1, 2, 3] | length", 3n);
+    testCompile("[1, 2, 3] | length", 3);
 });
 
 test("pipe: pipe to last", () => {
-    testCompile("[10, 20, 30] | last", 30n);
+    testCompile("[10, 20, 30] | last", 30);
 });
 
 test("pipe: error non-identifier RHS", () => {
@@ -251,19 +267,19 @@ test("pipe: error non-identifier RHS", () => {
 });
 
 test("pipe: non-function callable RHS", () => {
-    testCompile("struct Point { x: Int } (2 | Point).x", 2n);
-    testCompile("x = [1,2,3]; 1 | x", 2n);
+    testCompile("struct Point { x: Num } (2 | Point).x", 2);
+    testCompile("x = [1,2,3]; 1 | x", 2);
 });
 
 test("pipe: backslash RHS", () => {
-    testCompile("5 | \\x { x + 1 }", 6n);
+    testCompile("5 | \\x { x + 1 }", 6);
 });
 
 test("pipe: func RHS", () => {
-    testCompile("3 | (func(x: Int) { x + 1 })", 4n);
-    testCompile("3 | func(x: Int) { x + 1 }", 4n);
+    testCompile("3 | (func(x: Num) { x + 1 })", 4);
+    testCompile("3 | func(x: Num) { x + 1 }", 4);
 });
 
 test.todo("pipe: array RHS", () => {
-    testCompile("1 | [0, 2, 4]", 2n);
+    testCompile("1 | [0, 2, 4]", 2);
 });

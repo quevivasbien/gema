@@ -32,15 +32,15 @@ test("parse variable assignment", () => {
 });
 
 test("variable assignment within parentheses", () => {
-    testCompile("(x = 1)", 1n);
-    testCompile("(x = 1); x", 1n);
+    testCompile("(x = 1)", 1);
+    testCompile("(x = 1); x", 1);
 });
 
 test("chained variable assignment", () => {
-    testCompile("x = y = 2", 2n);
-    testCompile("x = (y = 2)", 2n);
-    testCompile("x = (y = 2); (x, y)", [2n, 2n]);
-    testCompile("x = y = 2; (x, y)", [2n, 2n]);
+    testCompile("x = y = 2", 2);
+    testCompile("x = (y = 2)", 2);
+    testCompile("x = (y = 2); (x, y)", [2, 2]);
+    testCompile("x = y = 2; (x, y)", [2, 2]);
     testParseExpectError("(x = y) = 2");
 });
 
@@ -57,20 +57,20 @@ test("parse mutable variable reassignment", () => {
 // ── Basic mutable variable behavior ──
 
 test("mut: basic declaration and read", () => {
-    testCompile("mut x = 1; x", 1n);
+    testCompile("mut x = 1; x", 1);
     testCompile("mut x = true; x", true);
     testCompile('mut x = "hello"; x', "hello");
     testCompile("mut x = 1.5; x", 1.5);
 });
 
 test("mut: reassign same type", () => {
-    testCompile("mut x = 1; x = 2; x", 2n);
-    testCompile("mut x = 1; x = x + 1; x", 2n);
-    testCompile("mut x = 10; x = 0; x", 0n);
+    testCompile("mut x = 1; x = 2; x", 2);
+    testCompile("mut x = 1; x = x + 1; x", 2);
+    testCompile("mut x = 10; x = 0; x", 0);
     testCompile("mut x = true; x = false; x", false);
     testCompile('mut x = "a"; x = "b"; x', "b");
     testCompile("mut x = 1.5; x = 2.5; x", 2.5);
-    testCompile("mut x = [1, 2]; x = [3, 4]; x", [3n, 4n]);
+    testCompile("mut x = [1, 2]; x = [3, 4]; x", [3, 4]);
 });
 
 test("mut: multiple reassignments", () => {
@@ -81,12 +81,12 @@ test("mut: multiple reassignments", () => {
         x = 2;
         x
         `,
-        2n
+        2
     );
 });
 
 test("mut: reassignment with expression", () => {
-    testCompile("mut x = 1; x = x * 3 + 2; x", 5n);
+    testCompile("mut x = 1; x = x * 3 + 2; x", 5);
 });
 
 // ── Non-mut cannot be reassigned ──
@@ -103,7 +103,7 @@ test("mut: non-mut variable cannot be reassigned", () => {
 
 test("mut: type mismatch on reassignment errors", () => {
     testParseExpectError("mut x = 1; x = true");
-    testParseExpectError("mut x = 1; x = 1.5");
+    testParseExpectError("mut x = 1i; x = 1.5");
     testParseExpectError('mut x = 1; x = "hello"');
     testParseExpectError("mut x = true; x = 1");
     testParseExpectError("mut x = [1, 2]; x = [true, false]");
@@ -135,7 +135,7 @@ test("mut: shadowing in nested block", () => {
 test("mut: shadowing in separate sibling blocks", () => {
     testCompile(
         `{ mut x = 1; x } { mut x = 2; x }`,
-        2n // last expression
+        2 // last expression
     );
 });
 
@@ -149,14 +149,14 @@ test("mut: cannot shadow with mut if outer is non-mut", () => {
 test("mut: mutable var in function body", () => {
     testCompile(
         `
-        func f(): Int {
+        func f(): Num {
             mut x = 1;
             x = 2;
             x
         };
         f()
         `,
-        2n
+        2
     );
 });
 
@@ -164,7 +164,7 @@ test("mut: mutable var across function calls", () => {
     // Each call to f gets its own fresh x
     testCompile(
         `
-        func f(): Int {
+        func f(): Num {
             mut x = 1;
             x = x + 1;
             x
@@ -172,7 +172,7 @@ test("mut: mutable var across function calls", () => {
         f();
         f()
         `,
-        2n
+        2
     );
 });
 
@@ -189,7 +189,7 @@ test("mut: reassign in if-else branches", () => {
         };
         x
         `,
-        2n
+        2
     );
     testCompile(
         `
@@ -201,7 +201,7 @@ test("mut: reassign in if-else branches", () => {
         };
         x
         `,
-        3n
+        3
     );
 });
 
@@ -218,7 +218,7 @@ test("mut: reassign in else-if chain", () => {
         };
         x
         `,
-        10n
+        10
     );
 });
 
@@ -232,7 +232,7 @@ test("mut: closure captures mutable var", () => {
         f = func() { x = x + 1; x };
         f()
         `,
-        2n
+        2
     );
     // Multiple calls mutate the same captured x
     testCompile(
@@ -243,7 +243,7 @@ test("mut: closure captures mutable var", () => {
         f();
         x
         `,
-        3n
+        3
     );
 });
 
@@ -258,14 +258,14 @@ test("mut: multiple closures share captured mutable var", () => {
         dec();
         x
         `,
-        1n
+        1
     );
 });
 
 test("mut: each call to factory gets own mutable var", () => {
     testCompile(
         `
-        func makeCounter(): Func[:Int] {
+        func makeCounter(): Func[:Num] {
             mut count = 0;
             func() {
                 count = count + 1;
@@ -279,7 +279,7 @@ test("mut: each call to factory gets own mutable var", () => {
         b();
         b()
         `,
-        2n
+        2
     );
 });
 
@@ -297,7 +297,7 @@ test("mut: type must stay consistent across all branches", () => {
         };
         x
         `,
-        2n
+        2
     );
     // Error: one branch tries to change type
     testParseExpectError(`
@@ -316,7 +316,7 @@ test("mut: type must stay consistent across all branches", () => {
 test("mut: mut keyword only valid on first declaration", () => {
     testParseExpectError("mut x = 1; mut x = 2");
     // Reassignment doesn't use 'mut' keyword
-    testCompile("mut x = 1; x = 2; x", 2n);
+    testCompile("mut x = 1; x = 2; x", 2);
 });
 
 // ── Edge: mut inside nested blocks ──
@@ -332,7 +332,7 @@ test("mut: inside deeply nested blocks", () => {
         };
         x
         `,
-        1n
+        1
     );
 });
 
@@ -352,20 +352,20 @@ test("mut: function parameter shadows outer mut var", () => {
     testCompile(
         `
         mut x = 1;
-        func f(x: Int): Int { x };
+        func f(x: Num): Num { x };
         f(99)
         `,
-        99n
+        99
     );
     // Outer x is unchanged
     testCompile(
         `
         mut x = 1;
-        func f(x: Int): Int { x };
+        func f(x: Num): Num { x };
         f(99);
         x
         `,
-        1n
+        1
     );
 });
 
@@ -376,44 +376,49 @@ test("mut: function parameter shadows outer mut var", () => {
 // ── Basic compound assignment on mutable vars ──
 
 test("compound: basic add-assign", () => {
-    testCompile("mut x = 1; x += 1; x", 2n);
-    testCompile("mut x = 0; x += 5; x", 5n);
+    testCompile("mut x = 1; x += 1; x", 2);
+    testCompile("mut x = 0; x += 5; x", 5);
 });
 
 test("compound: basic subtract-assign", () => {
-    testCompile("mut x = 10; x -= 3; x", 7n);
-    testCompile("mut x = 5; x -= 5; x", 0n);
+    testCompile("mut x = 10; x -= 3; x", 7);
+    testCompile("mut x = 5; x -= 5; x", 0);
 });
 
 test("compound: basic multiply-assign", () => {
-    testCompile("mut x = 3; x *= 4; x", 12n);
-    testCompile("mut x = 7; x *= 0; x", 0n);
+    testCompile("mut x = 3; x *= 4; x", 12);
+    testCompile("mut x = 7; x *= 0; x", 0);
 });
 
-test("compound: basic divide-assign", () => {
-    testCompile("mut x = 10; x /= 3; x", 3n);
-    testCompile("mut x = 12; x /= 4; x", 3n);
+test("compound: basic integer divide-assign", () => {
+    testCompile("mut x = 10; x //= 3; x", 3);
+    testCompile("mut x = 12; x //= 4; x", 3);
+});
+
+test("compound: basic float divide-assign", () => {
+    testCompile("mut x = 10; x /= 4; x", 2.5);
+    testCompile("mut x = 12; x /= 4; x", 3);
 });
 
 test("compound: basic modulo-assign", () => {
-    testCompile("mut x = 10; x %= 3; x", 1n);
-    testCompile("mut x = 7; x %= 5; x", 2n);
+    testCompile("mut x = 10; x %= 3; x", 1);
+    testCompile("mut x = 7; x %= 5; x", 2);
 });
 
 test("compound: basic exponentiation-assign", () => {
-    testCompile("mut x = 2; x ^= 3; x", 8n);
-    testCompile("mut x = 3; x ^= 2; x", 9n);
+    testCompile("mut x = 2; x ^= 3; x", 8);
+    testCompile("mut x = 3; x ^= 2; x", 9);
 });
 
 // ── Compound with expressions on RHS ──
 
 test("compound: expression on right side", () => {
-    testCompile("mut x = 1; x += 2 * 3; x", 7n);
-    testCompile("mut x = 10; x -= 2 + 1; x", 7n);
-    testCompile("mut x = 2; x *= 3 + 1; x", 8n);
-    testCompile("mut x = 100; x /= 5 + 5; x", 10n);
-    testCompile("mut x = 10; x %= 2 + 1; x", 1n);
-    testCompile("mut x = 2; x ^= 1 + 2; x", 8n);
+    testCompile("mut x = 1; x += 2 * 3; x", 7);
+    testCompile("mut x = 10; x -= 2 + 1; x", 7);
+    testCompile("mut x = 2; x *= 3 + 1; x", 8);
+    testCompile("mut x = 100; x /= 5 + 5; x", 10);
+    testCompile("mut x = 10; x %= 2 + 1; x", 1);
+    testCompile("mut x = 2; x ^= 1 + 2; x", 8);
 });
 
 // ── Chained compound assignments ──
@@ -427,7 +432,7 @@ test("compound: chained operations", () => {
         x += 3;
         x
         `,
-        7n
+        7
     );
     testCompile(
         `
@@ -437,7 +442,7 @@ test("compound: chained operations", () => {
         x /= 5;
         x
         `,
-        36n
+        36
     );
     testCompile(
         `
@@ -446,7 +451,7 @@ test("compound: chained operations", () => {
         x ^= 2;
         x
         `,
-        16n
+        16
     );
 });
 
@@ -459,17 +464,16 @@ test("compound: float types", () => {
     testCompile("mut x = 9.0; x /= 3.0; x", 3.0);
 });
 
-test("compound: int += float promotes to float", () => {
-    // x is Int, 1.5 is Float → x + 1.5 is Float → but reassigning Int with Float errors
-    testParseExpectError("mut x = 1; x += 1.5");
+test("compound: bigint += float is an error", () => {
+    testParseExpectError("mut x = 1i; x += 1.5");
 });
 
 // ── Compound on arrays (concatenation) ──
 
 test("compound: array concat with +=", () => {
-    testCompile("mut arr = [1, 2]; arr += [3]; arr", [1n, 2n, 3n]);
-    testCompile("mut arr = [1]; arr += [2]; arr += [3]; arr", [1n, 2n, 3n]);
-    testCompile("mut arr = []: Int; arr += [1]; arr", [1n]);
+    testCompile("mut arr = [1, 2]; arr += [3]; arr", [1, 2, 3]);
+    testCompile("mut arr = [1]; arr += [2]; arr += [3]; arr", [1, 2, 3]);
+    testCompile("mut arr = []: Num; arr += [1]; arr", [1]);
 });
 
 // ── Compound on strings (concatenation) ──
@@ -484,39 +488,39 @@ test("compound: string concat with +=", () => {
 test("compound: struct add with +=", () => {
     testCompile(
         `
-        struct Point { x: Int, y: Int };
+        struct Point { x: Num, y: Num };
         func add(a: Point, b: Point): Point { Point(a.x + b.x, a.y + b.y) };
         mut p = Point(1, 2);
         p += Point(3, 4);
         p.x + p.y
         `,
-        10n
+        10
     );
 });
 
 test("compound: struct subtract with -=", () => {
     testCompile(
         `
-        struct Point { x: Int, y: Int };
+        struct Point { x: Num, y: Num };
         func subtract(a: Point, b: Point): Point { Point(a.x - b.x, a.y - b.y) };
         mut p = Point(5, 6);
         p -= Point(3, 2);
         p.x + p.y
         `,
-        6n
+        6
     );
 });
 
 test("compound: struct multiply with *=", () => {
     testCompile(
         `
-        struct Point { x: Int, y: Int };
+        struct Point { x: Num, y: Num };
         func multiply(a: Point, b: Point): Point { Point(a.x * b.x, a.y * b.y) };
         mut p = Point(2, 3);
         p *= Point(4, 5);
         p.x + p.y
         `,
-        23n
+        23
     );
 });
 
@@ -531,7 +535,7 @@ test("compound: reassign outer mut from nested block", () => {
         };
         x
         `,
-        3n
+        3
     );
 });
 

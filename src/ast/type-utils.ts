@@ -19,13 +19,13 @@ import {
  * Structural deep equality for Gema's type system.
  *
  * Handles:
- * - String primitives ("Int", "Float", "Str", "Bool", "Null", "Self")
+ * - String primitives ("Num", "Int", "Str", "Bool", "Null", "Self")
  * - CustomType (name + traits)
  * - ArrayType, IterType, MutArrType (innerType recursion)
  * - FuncType (paramTypes array + returnType recursion)
  * - null values
  */
-export function deepEquals(a: unknown, b: unknown): boolean {
+export function typeEquals(a: unknown, b: unknown): boolean {
     if (a === b) return true;
 
     if (a == null || b == null) return false;
@@ -53,55 +53,55 @@ export function deepEquals(a: unknown, b: unknown): boolean {
 
     // ArrayType
     if (a instanceof ArrayType && b instanceof ArrayType) {
-        return deepEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType);
     }
 
     // IterType
     if (a instanceof IterType && b instanceof IterType) {
-        return deepEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType);
     }
 
     // MutArrType
     if (a instanceof MutArrType && b instanceof MutArrType) {
-        return deepEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType);
     }
 
     // TupleType
     if (a instanceof TupleType && b instanceof TupleType) {
         if (a.types.length !== b.types.length) return false;
         for (let i = 0; i < a.types.length; i++) {
-            if (!deepEquals(a.types[i], b.types[i])) return false;
+            if (!typeEquals(a.types[i], b.types[i])) return false;
         }
         return true;
     }
 
     // DictType
     if (a instanceof DictType && b instanceof DictType) {
-        if (!deepEquals(a.keyType, b.keyType)) return false;
-        if (!deepEquals(a.valueType, b.valueType)) return false;
+        if (!typeEquals(a.keyType, b.keyType)) return false;
+        if (!typeEquals(a.valueType, b.valueType)) return false;
         return true;
     }
 
     // MutDictType
     if (a instanceof MutDictType && b instanceof MutDictType) {
-        if (!deepEquals(a.keyType, b.keyType)) return false;
-        if (!deepEquals(a.valueType, b.valueType)) return false;
+        if (!typeEquals(a.keyType, b.keyType)) return false;
+        if (!typeEquals(a.valueType, b.valueType)) return false;
         return true;
     }
 
     // SetType
     if (a instanceof SetType && b instanceof SetType) {
-        return deepEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType);
     }
 
     // MutSetType
     if (a instanceof MutSetType && b instanceof MutSetType) {
-        return deepEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType);
     }
 
     // MaybeType
     if (a instanceof MaybeType && b instanceof MaybeType) {
-        return deepEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType);
     }
 
     // EnumType
@@ -110,17 +110,17 @@ export function deepEquals(a: unknown, b: unknown): boolean {
         if (a.variants.length !== b.variants.length) return false;
         for (let i = 0; i < a.variants.length; i++) {
             if (a.variants[i].name !== b.variants[i].name) return false;
-            if (!deepEquals(a.variants[i].type, b.variants[i].type)) return false;
+            if (!typeEquals(a.variants[i].type, b.variants[i].type)) return false;
         }
         return true;
     }
 
     // FuncType
     if (a instanceof FuncType && b instanceof FuncType) {
-        if (!deepEquals(a.returnType, b.returnType)) return false;
+        if (!typeEquals(a.returnType, b.returnType)) return false;
         if (a.paramTypes.length !== b.paramTypes.length) return false;
         for (let i = 0; i < a.paramTypes.length; i++) {
-            if (!deepEquals(a.paramTypes[i], b.paramTypes[i])) return false;
+            if (!typeEquals(a.paramTypes[i], b.paramTypes[i])) return false;
         }
         return true;
     }
@@ -171,8 +171,8 @@ export function stripTraits(t: Type): Type {
 }
 
 /** Compare two types for equality, ignoring trait differences on CustomTypes. */
-export function typeEquals(a: Type, b: Type): boolean {
-    return deepEquals(stripTraits(a), stripTraits(b));
+export function typeEqualsWithStrippedTraits(a: Type, b: Type): boolean {
+    return typeEquals(stripTraits(a), stripTraits(b));
 }
 
 /** Check if a type is fully concrete (not a type variable from an enclosing generic). */
@@ -198,9 +198,9 @@ export function isConcreteType(t: Type): boolean {
 /** Check if two types match, allowing optional Arr[X] ↔ Iter[X] auto-conversion
  *  and ignoring trait differences on CustomTypes. */
 export function typesMatchWithConversion(a: Type, b: Type, allowIterForArr: boolean): boolean {
-    if (deepEquals(a, b)) return true;
+    if (typeEquals(a, b)) return true;
     // Try comparison with traits stripped (traits are metadata, not semantic type identity)
-    if (deepEquals(stripTraits(a), stripTraits(b))) return true;
+    if (typeEquals(stripTraits(a), stripTraits(b))) return true;
     if (allowIterForArr) {
         // Arr[X] can be treated as Iter[X]
         if (a instanceof IterType && b instanceof ArrayType) {
@@ -229,7 +229,7 @@ export function looseMatch(a: Type, b: Type): boolean {
     if (a === b) return true;
     // If either type is not concrete, allow the match (for generic function bodies)
     if (!isConcreteType(a) || !isConcreteType(b)) return true;
-    return deepEquals(a, b);
+    return typeEquals(a, b);
 }
 
 /** Collect trait names associated with a type param name inside a type tree. */

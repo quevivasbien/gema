@@ -6,7 +6,7 @@ import { Literal } from "./literals";
 import { Assignment } from "./assignment";
 import { Block } from "./expression";
 import { AnonymousFunction, FunctionDef, RangeIter, Variable } from "./nodes";
-import { deepEquals, paramTypesMatchArgTypes } from "./type-utils";
+import { typeEquals, paramTypesMatchArgTypes } from "./type-utils";
 import {
     ArrayType,
     CustomType,
@@ -290,7 +290,10 @@ export class Call extends Expression {
                 }
             }
             // String indexing fallback: strVar(index)
-            if (allArgTypes.length === 1 && allArgTypes[0] === "Int") {
+            if (
+                allArgTypes.length === 1 &&
+                (allArgTypes[0] === "Int" || allArgTypes[0] === "Num")
+            ) {
                 const stringVarType = findStringTypedVariable(this, this.name);
                 if (stringVarType !== null) {
                     this.type = new MaybeType("Str");
@@ -303,7 +306,7 @@ export class Call extends Expression {
             if (
                 allArgTypes.length === 1 &&
                 allArgTypes[0] instanceof IterType &&
-                allArgTypes[0].innerType === "Int" &&
+                (allArgTypes[0].innerType === "Int" || allArgTypes[0].innerType === "Num") &&
                 this.args[0] instanceof RangeIter &&
                 findStringTypedVariable(this, this.name) !== null
             ) {
@@ -568,7 +571,7 @@ export class Call extends Expression {
                         if (fnParams.length - 1 === otherArgTypes.length) {
                             let match = true;
                             for (let k = 0; k < otherArgTypes.length; k++) {
-                                if (!deepEquals(otherArgTypes[k], fnParams[k + 1].type)) {
+                                if (!typeEquals(otherArgTypes[k], fnParams[k + 1].type)) {
                                     match = false;
                                     break;
                                 }
@@ -800,8 +803,15 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "range":
-                    writer.useBuiltin("$RangeIterator$");
-                    writer.write("new $RangeIterator$(");
+                    if (this.args[0]?.type === "Num") {
+                        writer.useBuiltin("$RangeIterator$");
+                        writer.write("new $RangeIterator$(");
+                    } else if (this.args[0]?.type === "Int") {
+                        writer.useBuiltin("$IntRangeIterator$");
+                        writer.write("new $IntRangeIterator$(");
+                    } else {
+                        throw new Error(`Unexpected type ${this.args[0]?.type} in range iterator`);
+                    }
                     this.args.forEach((arg, i) => {
                         if (i > 0) writer.write(", ");
                         arg.toJS(writer);
@@ -819,17 +829,37 @@ export class Call extends Expression {
                     return;
                 case "repeat":
                     writer.useBuiltin("$RepeatIterator$");
-                    writer.write("new $RepeatIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
+                    if (this.args[0]?.type === "Num") {
+                        writer.write("new $RepeatIterator$(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(", ");
+                    } else if (this.args[0]?.type === "Int") {
+                        writer.write("new $RepeatIterator$(Number(");
+                        this.args[0]?.toJS(writer);
+                        writer.write("), ");
+                    } else {
+                        throw new Error(
+                            `Got unexpected type ${this.args[0]?.type} in repeat iterator`
+                        );
+                    }
                     wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "repeatInner":
                     writer.useBuiltin("$RepeatInnerIterator$");
-                    writer.write("new $RepeatInnerIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
+                    if (this.args[0]?.type === "Num") {
+                        writer.write("new $RepeatInnerIterator$(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(", ");
+                    } else if (this.args[0]?.type === "Int") {
+                        writer.write("new $RepeatInnerIterator$(Number(");
+                        this.args[0]?.toJS(writer);
+                        writer.write("), ");
+                    } else {
+                        throw new Error(
+                            `Got unexpected type ${this.args[0]?.type} in repeatInner iterator`
+                        );
+                    }
                     wrapArrayToIter(1);
                     writer.write(")");
                     return;
@@ -859,10 +889,19 @@ export class Call extends Expression {
                     return;
                 case "combinations":
                     writer.useBuiltin("$CombinationsIterator$");
-                    writer.write("new $CombinationsIterator$(");
-                    // $PermutationsIterator$ behaves differently if you give it an array or string
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
+                    if (this.args[0]?.type === "Num") {
+                        writer.write("new $CombinationsIterator$(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(", ");
+                    } else if (this.args[0]?.type === "Int") {
+                        writer.write("new $CombinationsIterator$(Number(");
+                        this.args[0]?.toJS(writer);
+                        writer.write("), ");
+                    } else {
+                        throw new Error(
+                            `Got unexpected type ${this.args[0]?.type} in combinations iterator`
+                        );
+                    }
                     this.args[1]?.toJS(writer);
                     if (
                         this.args[1]?.type instanceof ArrayType ||
@@ -925,10 +964,20 @@ export class Call extends Expression {
                     return;
                 case "step":
                     writer.useBuiltin("$StepIterator$");
-                    writer.write("new $StepIterator$(");
-                    wrapArrayToIter(0);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
+                    if (this.args[0]?.type === "Num") {
+                        writer.write("new $StepIterator$(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(", ");
+                    } else if (this.args[0]?.type === "Int") {
+                        writer.write("new $StepIterator$(Number(");
+                        this.args[0]?.toJS(writer);
+                        writer.write("), ");
+                    } else {
+                        throw new Error(
+                            `Got unexpected type ${this.args[0]?.type} in step iterator`
+                        );
+                    }
+                    wrapArrayToIter(1);
                     writer.write(")");
                     return;
                 case "iterate":
@@ -967,15 +1016,13 @@ export class Call extends Expression {
                         this.args[0]?.type instanceof ArrayType ||
                         this.args[0]?.type instanceof MutArrType
                     ) {
-                        writer.write("BigInt(");
                         this.args[0].toJS(writer);
-                        writer.write(".length)");
+                        writer.write(".length");
                         return;
                     }
                     if (this.args[0]?.type === "Str") {
-                        writer.write("BigInt(");
                         this.args[0].toJS(writer);
-                        writer.write(".length)");
+                        writer.write(".length");
                         return;
                     }
                     writer.useBuiltin("$length$");
@@ -993,9 +1040,19 @@ export class Call extends Expression {
                     return;
                 case "drop":
                     writer.useBuiltin("$DropIterator$");
-                    writer.write("new $DropIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
+                    if (this.args[0]?.type === "Num") {
+                        writer.write("new $DropIterator$(");
+                        this.args[0]?.toJS(writer);
+                        writer.write(", ");
+                    } else if (this.args[0]?.type === "Int") {
+                        writer.write("new $DropIterator$(Number(");
+                        this.args[0]?.toJS(writer);
+                        writer.write("), ");
+                    } else {
+                        throw new Error(
+                            `Got unexpected type ${this.args[0]?.type} in drop iterator`
+                        );
+                    }
                     wrapArrayToIter(1);
                     writer.write(")");
                     return;
@@ -1182,7 +1239,7 @@ export class Call extends Expression {
                         this.args[0]?.type instanceof MutArrType ||
                         this.args[0]?.type === "Str"
                     ) {
-                        writer.write("((i) => i === -1 ? undefined : BigInt(i))(");
+                        writer.write("((i) => i === -1 ? undefined : i)(");
                         this.args[0]?.toJS(writer);
                         writer.write(".indexOf(");
                         this.args[1]?.toJS(writer);
@@ -1230,7 +1287,7 @@ export class Call extends Expression {
                     writer.write(")");
                     return;
                 case "toInt":
-                    if (this.args[0]?.type === "Float") {
+                    if (this.args[0]?.type === "Num") {
                         writer.write("BigInt(Math.trunc(");
                         this.args[0]?.toJS(writer);
                         writer.write("))");
@@ -1240,7 +1297,7 @@ export class Call extends Expression {
                         writer.write(")");
                     }
                     return;
-                case "toFloat":
+                case "toNum":
                     writer.write("Number(");
                     this.args[0]?.toJS(writer);
                     writer.write(")");
@@ -1301,14 +1358,18 @@ export class Call extends Expression {
         } else if (this.callerType instanceof IterType) {
             writer.useBuiltin("$iterGet$");
             writer.write("$iterGet$(");
+            if (this.args.length !== 1) {
+                throw new Error("iterator indexed access does not have exactly 1 index");
+            }
+            if (this.args[0].type === "Num") {
+                this.args[0].toJS(writer);
+                writer.write(", ");
+            } else if (this.args[0].type === "Int") {
+                writer.write("Number(");
+                this.args[0].toJS(writer);
+                writer.write("), ");
+            }
             writer.write(writer.safeName(this.referToByName));
-            writer.write(", ");
-            this.args.forEach((arg, i) => {
-                if (i > 0) {
-                    writer.write(", ");
-                }
-                arg.toJS(writer);
-            });
             writer.write(")");
         } else if (this.callerType instanceof TupleType) {
             writer.write(writer.safeName(this.referToByName));
@@ -1327,26 +1388,46 @@ export class Call extends Expression {
             if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
                 // Array slicing with range: arr(a..b) → arr.slice(a, b+1)
                 const range = this.args[0];
+                const isIntRange = range.innerType === "Int";
                 if (range.start !== null && range.end !== null) {
                     // a..b: arr.slice(Number(a), Number(b) + 1)
-                    writer.write(".slice(Number(");
-                    range.start.toJS(writer);
-                    writer.write("), Number(");
-                    range.end.toJS(writer);
-                    writer.write(") + 1)");
+                    if (isIntRange) {
+                        writer.write(".slice(Number(");
+                        range.start.toJS(writer);
+                        writer.write("), Number(");
+                        range.end.toJS(writer);
+                        writer.write(") + 1)");
+                    } else {
+                        writer.write(".slice(");
+                        range.start.toJS(writer);
+                        writer.write(", ");
+                        range.end.toJS(writer);
+                        writer.write(" + 1)");
+                    }
                 } else if (range.start !== null && range.end === null) {
                     // a..: arr.slice(Number(a))
-                    writer.write(".slice(Number(");
-                    range.start.toJS(writer);
-                    writer.write("))");
+                    if (isIntRange) {
+                        writer.write(".slice(Number(");
+                        range.start.toJS(writer);
+                        writer.write("))");
+                    } else {
+                        writer.write(".slice(");
+                        range.start.toJS(writer);
+                        writer.write(")");
+                    }
                 } else if (range.start === null && range.end !== null) {
                     // ..b: arr.slice(0, Number(b) + 1)
-                    writer.write(".slice(0, Number(");
-                    range.end.toJS(writer);
-                    writer.write(") + 1)");
+                    if (isIntRange) {
+                        writer.write(".slice(0, Number(");
+                        range.end.toJS(writer);
+                        writer.write(") + 1)");
+                    } else {
+                        writer.write(".slice(0, ");
+                        range.end.toJS(writer);
+                        writer.write(" + 1)");
+                    }
                 } else {
-                    // ..: arr.slice()
-                    writer.write(".slice()");
+                    throw new Error("Both start and end of range iterator were null");
                 }
             } else {
                 this.args.forEach((arg) => {
@@ -1491,8 +1572,8 @@ export class DirectCall extends Expression {
                     `string indexing requires exactly one argument (the index), got ${this.args.length}`
                 );
             }
-            if (this.args[0].type !== "Int") {
-                throw this.error(`string index must be of type Int`);
+            if (this.args[0].type !== "Int" && this.args[0].type !== "Num") {
+                throw this.error(`string index must be of type Int or Num`);
             }
             this.type = this.isUnsafe ? "Str" : new MaybeType("Str");
             return;
@@ -1659,14 +1740,18 @@ export class DirectCall extends Expression {
         } else if (this.caller.type instanceof IterType) {
             writer.useBuiltin("$iterGet$");
             writer.write("$iterGet$(");
+            if (this.args.length !== 1) {
+                throw new Error("iterator indexed access does not have exactly 1 index");
+            }
+            if (this.args[0].type === "Num") {
+                this.args[0].toJS(writer);
+                writer.write(", ");
+            } else if (this.args[0].type === "Int") {
+                writer.write("Number(");
+                this.args[0].toJS(writer);
+                writer.write("), ");
+            }
             this.caller.toJS(writer);
-            writer.write(", ");
-            this.args.forEach((arg, i) => {
-                if (i > 0) {
-                    writer.write(", ");
-                }
-                arg.toJS(writer);
-            });
             writer.write(")");
         } else {
             writer.write("(");

@@ -27,7 +27,9 @@ bun run build:frontend   # Bundle the web playground
 - If you suspect that a test is not passing because the test itself has a mistake in it, let the user know.
 - If you add or modify tests for any reason, ALWAYS have the user review your changes to the tests before making further changes to the codebase.
 
-If you need to dig into the generated tokens / AST / compiled JS for a test case, you can use a command like this to create and execute a test file within the project directory (do not create such tests outside the project directory):
+Be aware that the built-in tests should run quite quickly. If they don't complete with a timeout of just a few seconds, there is probably an infinite loop somewhere.
+
+If you need to dig into the generated tokens / AST / compiled JS for a test case, you can use a command like this to create and execute a test file within the project directory (_do not create such tests outside the project directory_ -- e.g., do not attempt to create files in the computer's `/tmp` directory):
 
 ```bash
 cat > ./test_foo.js << 'ENDSCRIPT'

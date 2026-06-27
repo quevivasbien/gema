@@ -1,4 +1,4 @@
-import { deepEquals, typesMatchWithConversion } from "./type-utils";
+import { typeEquals, typesMatchWithConversion } from "./type-utils";
 import {
     ArrayType,
     CustomType,
@@ -65,7 +65,7 @@ function extractBindings(
 ): boolean {
     if (paramType instanceof CustomType && typeParams.includes(paramType.name)) {
         const existing = bindings.get(paramType.name);
-        if (existing && !deepEquals(existing, argType)) return false;
+        if (existing && !typeEquals(existing, argType)) return false;
         bindings.set(paramType.name, argType);
         return true;
     }

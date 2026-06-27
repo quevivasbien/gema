@@ -3,7 +3,7 @@ import type { JSWriter } from "../write-js";
 import { ASTError, Expression } from "./expression";
 import { Scope } from "./scope";
 
-import { deepEquals } from "./type-utils";
+import { typeEquals } from "./type-utils";
 import { EnumType, MaybeType, substituteTypeParams, type Type } from "./types";
 
 // ── Enum definition ───────────────────────────────────────
@@ -200,7 +200,7 @@ export class Match extends Expression {
 
     private updateCommonType(commonType: Type | null, armType: Type): Type {
         if (commonType === null) return armType;
-        if (!deepEquals(commonType, armType)) {
+        if (!typeEquals(commonType, armType)) {
             throw new ASTError(
                 this.line,
                 this.col,

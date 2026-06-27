@@ -22,8 +22,8 @@ const KEYWORDS = new Set([
 ]);
 
 const TYPE_NAMES = new Set([
+    "Num",
     "Int",
-    "Float",
     "Str",
     "Bool",
     "Func",
@@ -82,11 +82,25 @@ const gemaStreamParser = StreamLanguage.define({
 
         // Numbers (Int and Float)
         if (/[0-9]/.test(ch)) {
+            let isFloat = false;
             stream.eatWhile(/[0-9]/);
             // Check for float (1.5) vs range start (1..) — peek ahead without consuming
             if (stream.peek() === "." && stream.string.charAt(stream.pos + 1) !== ".") {
                 stream.next(); // consume the dot
+                isFloat = true;
                 stream.eatWhile(/[0-9]/);
+            }
+            if (stream.peek() === "e") {
+                isFloat = true;
+                stream.next();
+                if (stream.peek() === "-" || stream.peek() === "+") {
+                    stream.next();
+                }
+                stream.eatWhile(/[0-9]/);
+            }
+            if (!isFloat && stream.peek() === "i") {
+                // Is an Int literal, consume the 'i'
+                stream.next();
             }
             return "number";
         }

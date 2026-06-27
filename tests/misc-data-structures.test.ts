@@ -21,16 +21,16 @@ test("Dict: create empty Dict", () => {
 });
 
 test("Dict: compile and access with numeric key", () => {
-    testCompile(`m = Dict([(1, 1), (2, 2)]); m(1)`, 1n);
-    testCompile(`m = Dict([(1, 1), (2, 2)]); m(2)`, 2n);
+    testCompile(`m = Dict([(1, 1), (2, 2)]); m(1)`, 1);
+    testCompile(`m = Dict([(1, 1), (2, 2)]); m(2)`, 2);
     testCompile(`m = Dict([(1., 1.), (2., 2.)]); m(2.)`, 2.0);
 });
 
 test("Dict: compile and access with non-numeric key", () => {
-    testCompile(`m = Dict([("a", 1), ("b", 2)]); m("a")`, 1n);
-    testCompile(`m = Dict([("a", 1), ("b", 2)]); m("b")`, 2n);
-    testCompile(`arr = [1, 2]; m = Dict([(arr, 1),]); m(arr)`, 1n);
-    testCompile(`struct S {}; s = S(); m = Dict([(s, 1),]); m(s)`, 1n);
+    testCompile(`m = Dict([("a", 1), ("b", 2)]); m("a")`, 1);
+    testCompile(`m = Dict([("a", 1), ("b", 2)]); m("b")`, 2);
+    testCompile(`arr = [1, 2]; m = Dict([(arr, 1),]); m(arr)`, 1);
+    testCompile(`struct S {}; s = S(); m = Dict([(s, 1),]); m(s)`, 1);
 });
 
 test("Dict: access missing key", () => {
@@ -56,8 +56,8 @@ test("MutDict: create mutable dict with unsafeTrans", () => {
 });
 
 test("MutDict: add to a mutable dict", () => {
-    testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2); m("b")`, 2n);
-    testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2)("b")`, 2n); // Put should return the MutDict itself (chainable)
+    testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2); m("b")`, 2);
+    testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2)("b")`, 2); // Put should return the MutDict itself (chainable)
 });
 
 test("MutDict: remove from a mutable dict", () => {
@@ -66,7 +66,7 @@ test("MutDict: remove from a mutable dict", () => {
 });
 
 test("MutDict: when using trans, mutating a mutable dict does not change the original", () => {
-    testCompile(`d = Dict([("a", 1),]); m = trans(d); remove(m, "a"); d("a")`, 1n);
+    testCompile(`d = Dict([("a", 1),]); m = trans(d); remove(m, "a"); d("a")`, 1);
 });
 
 test("MutDict: when using unsafeTrans, mutating a mutable dict does change the original", () => {
@@ -74,7 +74,7 @@ test("MutDict: when using unsafeTrans, mutating a mutable dict does change the o
 });
 
 test("MutDict: detrans gives an immutable Dict", () => {
-    testCompile(`m = trans(Dict([("a", 1),])); d = detrans(m); d("a")`, 1n);
+    testCompile(`m = trans(Dict([("a", 1),])); d = detrans(m); d("a")`, 1);
     testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(d, "b", 2)`);
 });
 
@@ -110,7 +110,7 @@ test("Set: basic", () => {
 });
 
 test("Set: compile", () => {
-    testCompile("s = Set([1, 2, 3]); s", new Set([1n, 2n, 3n]));
+    testCompile("s = Set([1, 2, 3]); s", new Set([1, 2, 3]));
 });
 
 test("Set: contains", () => {
@@ -119,11 +119,11 @@ test("Set: contains", () => {
 });
 
 test("Set: union", () => {
-    testCompile("a = Set([1, 2]); b = Set([2, 3]); union(a, b)", new Set([1n, 2n, 3n]));
+    testCompile("a = Set([1, 2]); b = Set([2, 3]); union(a, b)", new Set([1, 2, 3]));
 });
 
 test("Set: intersect", () => {
-    testCompile("a = Set([1, 2, 3]); b = Set([2, 3, 4]); intersect(a, b)", new Set([2n, 3n]));
+    testCompile("a = Set([1, 2, 3]); b = Set([2, 3, 4]); intersect(a, b)", new Set([2, 3]));
 });
 
 test("MutSet: create mutable set with trans", () => {
@@ -194,10 +194,10 @@ test("Dict: monomorphization with different value types", () => {
 test("Set: monomorphization with different inner types", () => {
     testCompile(
         `
-        func foo(s: Set[Int]) { contains(s, 1) }
+        func foo(s: Set[Num]) { contains(s, 1) }
         func foo(s: Set[Str]) { contains(s, "a") }
-        foo(Set([]:Int))
+        (foo(Set([]:Num)), foo(Set(["a"])))
         `,
-        false
+        [false, true]
     );
 });
