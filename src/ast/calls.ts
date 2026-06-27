@@ -6,7 +6,6 @@ import { Literal } from "./literals";
 import { Assignment } from "./assignment";
 import { Block } from "./expression";
 import { AnonymousFunction, FunctionDef, RangeIter, Variable } from "./nodes";
-import { isVarConsumed, markVarConsumed } from "./registries";
 import { deepEquals, paramTypesMatchArgTypes } from "./type-utils";
 import {
     ArrayType,
@@ -129,6 +128,8 @@ export class Call extends Expression {
             return { name: k.name, type: k.value.type, value: k.value };
         });
 
+        const callScope = this.getScope();
+
         // If keyword args exist, resolve to positional order FIRST
         if (this.keywordArgs.length > 0) {
             const totalArgs = this.args.length + keywordInfos.length;
@@ -137,7 +138,6 @@ export class Call extends Expression {
             let structDef:
                 | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
                 | undefined;
-            const callScope = this.getScope();
             if (callScope) {
                 const lookup = callScope.lookup(this.name);
                 if (lookup && lookup.attrs.class === "struct") {
@@ -261,9 +261,8 @@ export class Call extends Expression {
                     const structInfo =
                         structVar.structType instanceof CustomType
                             ? (() => {
-                                  const svScope = this.getScope();
-                                  if (svScope) {
-                                      const svLookup = svScope.lookup(structVar.structType.name);
+                                  if (callScope) {
+                                      const svLookup = callScope.lookup(structVar.structType.name);
                                       if (svLookup && svLookup.attrs.class === "struct") {
                                           return {
                                               name: svLookup.attrs.name,
@@ -330,7 +329,13 @@ export class Call extends Expression {
                 ) {
                     const detransArg = this.args[0];
                     if (detransArg instanceof Variable && detransArg.fullName) {
-                        markVarConsumed(detransArg.fullName);
+                        if (callScope === null) {
+                            // This should be impossible
+                            throw new Error(
+                                `Tried to mark a variable as consumed in a place with no enclosing scope.`
+                            );
+                        }
+                        callScope.markVarConsumed(detransArg.fullName);
                     }
                 }
                 if (
@@ -343,7 +348,7 @@ export class Call extends Expression {
                 ) {
                     const mutArg = this.args[0];
                     if (mutArg instanceof Variable && mutArg.fullName) {
-                        if (isVarConsumed(mutArg.fullName)) {
+                        if (callScope?.isVarConsumed(mutArg.fullName)) {
                             throw this.error(
                                 `cannot use variable '${mutArg.fullName}' after it was detrans'd`
                             );
@@ -655,7 +660,14 @@ export class Call extends Expression {
                 ) {
                     const detransArg = this.args[0];
                     if (detransArg instanceof Variable && detransArg.fullName) {
-                        markVarConsumed(detransArg.fullName);
+                        const callScope = this.getScope();
+                        if (callScope === null) {
+                            // This should be impossible
+                            throw new Error(
+                                `Tried to mark a variable as consumed in a place with no enclosing scope.`
+                            );
+                        }
+                        callScope.markVarConsumed(detransArg.fullName);
                     }
                 }
                 if (
@@ -668,7 +680,7 @@ export class Call extends Expression {
                 ) {
                     const mutArg = this.args[0];
                     if (mutArg instanceof Variable && mutArg.fullName) {
-                        if (isVarConsumed(mutArg.fullName)) {
+                        if (this.getScope()?.isVarConsumed(mutArg.fullName)) {
                             throw this.error(
                                 `cannot use variable '${mutArg.fullName}' after it was detrans'd`
                             );

@@ -202,7 +202,7 @@ export function typesMatchWithConversion(a: Type, b: Type, allowIterForArr: bool
     // Try comparison with traits stripped (traits are metadata, not semantic type identity)
     if (deepEquals(stripTraits(a), stripTraits(b))) return true;
     if (allowIterForArr) {
-         // Arr[X] can be treated as Iter[X]
+        // Arr[X] can be treated as Iter[X]
         if (a instanceof IterType && b instanceof ArrayType) {
             return typesMatchWithConversion(a.innerType, b.innerType, allowIterForArr);
         }
@@ -213,9 +213,15 @@ export function typesMatchWithConversion(a: Type, b: Type, allowIterForArr: bool
     return false;
 }
 
-export function paramTypesMatchArgTypes(funcParamTypes: Type[], argTypes: Type[], allowIterForArr: boolean = true): boolean {
+export function paramTypesMatchArgTypes(
+    funcParamTypes: Type[],
+    argTypes: Type[],
+    allowIterForArr: boolean = true
+): boolean {
     if (funcParamTypes.length !== argTypes.length) return false;
-    return funcParamTypes.every((t, i) => typesMatchWithConversion(t, argTypes[i], allowIterForArr));
+    return funcParamTypes.every((t, i) =>
+        typesMatchWithConversion(t, argTypes[i], allowIterForArr)
+    );
 }
 
 /** Loose type comparison that allows type variables (non-concrete types) to match anything */

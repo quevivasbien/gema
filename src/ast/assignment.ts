@@ -48,7 +48,7 @@ function addVariableToScope(
         }
     }
     if (!isReassignment) {
-        enclosingScope.defineVariable({ class: "var", ...varAttrs });
+        enclosingScope.defineVariable({ class: "var", ...varAttrs, isConsumed: false });
     }
     return { isReassignment };
 }

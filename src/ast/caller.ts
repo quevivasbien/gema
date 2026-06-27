@@ -1,13 +1,11 @@
 import type { Expression } from "./expression";
 import { FunctionDef } from "./nodes";
 import type { Scope } from "./scope";
-import { isVarConsumed } from "./registries";
 import {
     collectTraitsForTypeParam,
     deepEquals,
     looseMatch,
     paramTypesMatchArgTypes,
-    stripTraits,
 } from "./type-utils";
 import {
     ArrayType,
@@ -1525,7 +1523,7 @@ export function findCaller(
                     searchScope = searchScope.parent;
                 }
 
-                if (!argTypes.some(e => e instanceof ArrayType)) {
+                if (!argTypes.some((e) => e instanceof ArrayType)) {
                     return null;
                 }
 
@@ -1578,7 +1576,7 @@ export function findCaller(
             // Variable-based callable (e.g., FuncType variable, array indexing, etc.)
             if (fa.class === "var") {
                 const varType = fa.type;
-                if (isVarConsumed(name)) {
+                if (fa.isConsumed) {
                     return {
                         error: `cannot use variable '${name}' after it was detrans'd`,
                         result: null,

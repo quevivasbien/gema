@@ -5,7 +5,14 @@ export type VariableAttributes =
           class: "var";
           name: string;
           type: Type;
+          /** True if a variable is declared with the `mut` keyword */
           isMutable: boolean;
+          /**
+           * Whether it is still legal to access this variable
+           * Always true when variables are first initialized, marked false after detransing a
+           * mutable container
+           */
+          isConsumed: boolean;
       }
     | {
           class: "func";
@@ -35,7 +42,8 @@ export type VariableAttributes =
       };
 
 interface VariableLookupResult {
-    inCurrentScope: boolean; // Whether the variable belongs directly to this scope or to higher scope
+    /** Whether the variable belongs directly to this scope or to higher scope */
+    inCurrentScope: boolean;
     attrs: VariableAttributes;
 }
 
@@ -108,5 +116,44 @@ export class Scope {
         if (this.parent) {
             this.parent.updateFuncType(fullName, newType);
         }
+    }
+
+    /**
+     * Find a definition for a variable name and return whether or not the variable has been
+     * consumed.
+     * Throws an error if the variable is not defined or is not a consumable type.
+     */
+    isVarConsumed(name: string) {
+        const lookupResult = this.lookup(name);
+        if (lookupResult === null) {
+            throw new Error(
+                `Tried to resolve whether variable ${name} is consumed, but this variable is not even defined.`
+            );
+        }
+        if (lookupResult.attrs.class !== "var") {
+            throw new Error(
+                `Tried to resolve whether variable ${name} is consumed, but this variable is not of a consumable class.`
+            );
+        }
+        return lookupResult.attrs.isConsumed;
+    }
+
+    /**
+     * Find a definition for a variable, and mark it as consumed.
+     * Throws an error if the variable is not defined or is not a consumable type.
+     */
+    markVarConsumed(name: string) {
+        const lookupResult = this.lookup(name);
+        if (lookupResult === null) {
+            throw new Error(
+                `Tried to resolve whether variable ${name} is consumed, but this variable is not even defined.`
+            );
+        }
+        if (lookupResult.attrs.class !== "var") {
+            throw new Error(
+                `Tried to resolve whether variable ${name} is consumed, but this variable is not of a consumable class.`
+            );
+        }
+        lookupResult.attrs.isConsumed = true;
     }
 }

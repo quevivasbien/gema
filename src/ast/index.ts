@@ -1,12 +1,3 @@
-// Global state (consumedVars tracking only)
-export {
-    isVarConsumed,
-    markVarConsumed,
-    resetRegistries,
-    restoreConsumedVars,
-    saveConsumedVars,
-} from "./registries";
-
 // Base expression classes
 export { ASTError, Block, DropValue, ErrorExpression, Expression } from "./expression";
 

@@ -138,6 +138,7 @@ export class Match extends Expression {
                 name: bindingName,
                 type: bindingType,
                 isMutable: false,
+                isConsumed: false,
             });
         }
         // Also chain the arm body's own scope (if it has one, e.g. a Block) to the

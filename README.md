@@ -463,7 +463,6 @@ gema/
 │       ├── set-parent-pointers.ts # Parent pointer assignment on AST
 │       ├── structs.ts    # StructDef, ArrLit, FieldAccess, FieldAssignment
 │       ├── traits.ts     # Trait node
-│       ├── registries.ts # Global registries (struct, trait, function, monomorphized)
 │       ├── type-utils.ts # Type comparison utilities
 │       └── reachability.ts  # Reachability analysis for tree-shaking
 ├── frontend/

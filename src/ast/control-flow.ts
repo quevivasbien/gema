@@ -194,7 +194,8 @@ export class ForLoop extends Expression {
                     class: "var",
                     name: this.varName,
                     type: innerType,
-                    isMutable: true, // loop variables are implicitly mutable (reassigned each iteration)
+                    isMutable: false,
+                    isConsumed: false,
                 });
             }
         }

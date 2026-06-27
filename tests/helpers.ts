@@ -2,7 +2,6 @@ import { expect } from "bun:test";
 import { parse } from "../src/parse";
 import { scan } from "../src/scan";
 import { compile } from "../src/compiler";
-import { resetRegistries } from "../src/ast/index";
 
 /**
  * Parse + compile a Gema program, then eval the JS.
@@ -60,7 +59,6 @@ export function testCompileAndCheck(
  * Parse a program and assert no errors. Returns the AST.
  */
 export function testParse(text: string) {
-    resetRegistries();
     const tokens = scan(text);
     const { ast, errors } = parse(tokens);
     if (errors.length > 0) {
@@ -74,7 +72,6 @@ export function testParse(text: string) {
  * Parse a program and assert at least one error. Returns the AST.
  */
 export function testParseExpectError(text: string, expectedMessage?: string) {
-    resetRegistries();
     const tokens = scan(text);
     const { errors } = parse(tokens);
     expect(errors.length).toBeGreaterThan(0);

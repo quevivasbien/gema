@@ -8,7 +8,6 @@ import {
 import { Assignment } from "./assignment";
 import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
 
-import { isVarConsumed, restoreConsumedVars, saveConsumedVars } from "./registries";
 import { collectTraitsForTypeParam, deepEquals } from "./type-utils";
 import {
     ArrayType,
@@ -349,7 +348,7 @@ export class Variable extends Expression {
                 if (attrs.class === "var") {
                     // Check if this variable was consumed (e.g., by detrans).
                     // Variables consumed via detrans cannot be used afterward.
-                    if (isVarConsumed(this.name)) {
+                    if (attrs.isConsumed) {
                         throw this.error(
                             `cannot use variable '${this.name}' after it was detrans'd`
                         );
@@ -522,6 +521,7 @@ export class AnonymousFunction extends Expression {
                 name: param.name,
                 type: param.type,
                 isMutable: false,
+                isConsumed: false,
             });
         }
         // Chain this function's scope to the enclosing scope (use parent if given,
@@ -571,6 +571,7 @@ export class AnonymousFunction extends Expression {
                         name: param.name,
                         type: param.type,
                         isMutable: false,
+                        isConsumed: false,
                     });
                 }
             }
@@ -884,6 +885,7 @@ export class FunctionDef extends Expression {
                 name: param.name,
                 type: param.type,
                 isMutable: false,
+                isConsumed: false,
             });
         }
         // Register type params (e.g. `T` in `func foo(x: T) where T is Any`) in scope
@@ -900,6 +902,7 @@ export class FunctionDef extends Expression {
                 name: tp,
                 type: ct,
                 isMutable: false,
+                isConsumed: false,
             });
         }
         // Chain the body scope to this function's scope so lookups from inside the body
@@ -912,11 +915,7 @@ export class FunctionDef extends Expression {
             this.body.cascadeTypes(this, true);
             return;
         }
-        // Save/restore consumedVars so detrans inside function bodies doesn't
-        // leak consumed status to outer scopes
-        const savedConsumed = saveConsumedVars();
         this.body.cascadeTypes(this, true);
-        restoreConsumedVars(savedConsumed);
 
         if (this.returnType === "Null" && this.body.type !== null && this.body.type !== "Null") {
             this.returnType = this.body.type;

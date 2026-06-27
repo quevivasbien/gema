@@ -1,4 +1,4 @@
-import { ASTError, Block, Expression, resetRegistries, UseModule } from "./ast";
+import { ASTError, Block, Expression, UseModule } from "./ast";
 import { parse } from "./parse";
 import { scan } from "./scan";
 import { writeJS } from "./write-js";
@@ -9,7 +9,6 @@ interface CompileResult {
     js: string;
     result: null;
     errors: { line: number; col: number; message: string; filename?: string }[];
-    runtimeError: null;
 }
 
 // TODO: This should happen as part of parsing instead
@@ -117,7 +116,6 @@ export function compile(
         entry = entry ?? "main.gema";
     }
 
-    resetRegistries();
     const errors: { line: number; col: number; message: string; filename?: string }[] = [];
 
     try {
@@ -134,7 +132,6 @@ export function compile(
                         filename: entry,
                     },
                 ],
-                runtimeError: null,
             };
         }
 
@@ -161,7 +158,7 @@ export function compile(
             for (const e of parseErrors) {
                 errors.push({ line: e.line, col: e.col, message: e.message, filename: entry });
             }
-            return { js: "", result: null, errors, runtimeError: null };
+            return { js: "", result: null, errors };
         }
         if (!(entryAst instanceof Block)) {
             return {
@@ -175,7 +172,6 @@ export function compile(
                         filename: entry,
                     },
                 ],
-                runtimeError: null,
             };
         }
 
@@ -189,7 +185,7 @@ export function compile(
 
         // Type-check the AST (cascadeTypes sets parent pointers and resolves types)
         if (!typeCheckBlock(entryAst, errors)) {
-            return { js: "", result: null, errors, runtimeError: null };
+            return { js: "", result: null, errors };
         }
 
         // Tree-shaking — remove unreachable definitions
@@ -197,7 +193,7 @@ export function compile(
 
         // Codegen
         const js = writeJS(filteredBlock, mode);
-        return { js, result: null, errors: [], runtimeError: null };
+        return { js, result: null, errors: [] };
     } catch (e) {
         const message =
             e instanceof ASTError ? e.message : e instanceof Error ? e.message : String(e);
@@ -207,7 +203,6 @@ export function compile(
             js: "",
             result: null,
             errors: [{ line, col, message, filename: entry }],
-            runtimeError: null,
         };
     }
 }
