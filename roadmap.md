@@ -204,6 +204,8 @@ We currently have a weird hybrid variable resolution where some things look in s
 
 - Do not allow functions to take arguments of type null. Something like this should not compile: `func foo(x: Null) {1;} foo({1;}); 1`
 
+- Nodes should have their module names in addition to their lines and cols
+
 ### range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
 
 -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like

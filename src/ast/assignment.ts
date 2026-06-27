@@ -1,7 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
-import { isCrossModuleRefAllowed } from "./registries";
 import type { Scope } from "./scope";
 import { deepEquals } from "./type-utils";
 import { TupleType, type Type } from "./types";
@@ -14,22 +13,12 @@ function addVariableToScope(
 ) {
     let isReassignment = false;
 
-    // For module-level variable definitions, check selective import rules.
-    // If the variable name wasn't imported from this module, don't register
-    // it in scope so that Variable references correctly fail to resolve.
-    if (
-        isModuleLevel &&
-        sourceFile &&
-        Expression.entryFile !== null &&
-        !isCrossModuleRefAllowed(Expression.entryFile, sourceFile, varAttrs.name)
-    ) {
-        return { isReassignment: false };
-    }
-
+    // Module-level definitions always register in their own module's scope
+    // (UseModule.cascadeTypes injects them into the importing scope later).
     const existingDefinition = enclosingScope.lookup(varAttrs.name);
     if (existingDefinition !== null) {
-        // Module-level definitions from non-entry files that clash with existing
-        // definitions should be silently skipped — the tree-shaker handles dedup.
+        // Module-level definitions that clash should be skipped — the
+        // module's own scope doesn't need duplicate entries.
         if (isModuleLevel) {
             return { isReassignment: false };
         }
@@ -46,6 +35,12 @@ function addVariableToScope(
         if (existingAttrs.class === "func") {
             return {
                 error: `cannot assign variable ${varAttrs.name} since a function with the same name is already defined`,
+            };
+        }
+
+        if (existingAttrs.class !== "var") {
+            return {
+                error: `cannot reassign '${varAttrs.name}' — it is not a variable`,
             };
         }
 

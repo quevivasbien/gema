@@ -1,4 +1,3 @@
-import { findFunction, findFunctionByPrefix, getTrait } from "./registries";
 import { deepEquals, typesMatchWithConversion } from "./type-utils";
 import {
     ArrayType,
@@ -104,38 +103,58 @@ function extractBindings(
 
 /**
  * Check if a concrete type satisfies a trait by looking for standalone function definitions.
+ * Uses a scope for lookup if provided; falls back to optimistic assumption otherwise.
  */
 export function checkTraitSatisfied(
     concreteType: Type,
     traitName: string,
-    _contextFnName: string
-): boolean {
-    const traitFuncs = getTrait(traitName);
-    if (!traitFuncs) return false;
-
-    for (const { name, types } of traitFuncs) {
-        // Type-associated trait functions: Self.funcName → look for TypeName.funcName
-        if (name.startsWith("Self.")) {
-            const funcName = name.slice(5); // strip "Self."
-            const concreteTypeName =
-                concreteType instanceof CustomType
-                    ? concreteType.name
-                    : typeof concreteType === "string"
-                      ? concreteType
-                      : "";
-            const tafFullName = `${concreteTypeName}.${funcName}`;
-            const fn = findFunctionByPrefix(tafFullName + "$") ?? findFunction(tafFullName);
-            if (!fn) return false;
-        } else {
-            const requiredParamTypes = types.types.map((t) => {
-                if (t === "Self" || (t instanceof CustomType && t.name === "Self"))
-                    return concreteType;
-                return t;
-            });
-            const targetFullName = functionNameWithParamTypes(name, requiredParamTypes);
-            const fn = findFunction(targetFullName);
-            if (!fn) return false;
-        }
+    _contextFnName: string,
+    scope?: {
+        lookup: (
+            name: string
+        ) => { attrs: { class: string; name: string; [key: string]: unknown } } | null;
     }
+): boolean {
+    // Look up the trait definition from scope
+    if (scope) {
+        const traitLookup = scope.lookup(traitName);
+        if (!traitLookup || traitLookup.attrs.class !== "trait") return false;
+        const traitFuncs = (
+            traitLookup.attrs as unknown as {
+                requiredFunctions: {
+                    name: string;
+                    paramNames: string[];
+                    types: { types: Type[]; returnType: Type | null };
+                }[];
+            }
+        ).requiredFunctions;
+
+        for (const { name, types } of traitFuncs) {
+            if (name.startsWith("Self.")) {
+                const funcName = name.slice(5);
+                const concreteTypeName =
+                    concreteType instanceof CustomType
+                        ? concreteType.name
+                        : typeof concreteType === "string"
+                          ? concreteType
+                          : "";
+                const tafFullName = `${concreteTypeName}.${funcName}`;
+                // Look up TAF in scope by name
+                const fnLookup = scope.lookup(tafFullName);
+                if (!fnLookup) return false;
+            } else {
+                const requiredParamTypes = types.types.map((t) => {
+                    if (t === "Self" || (t instanceof CustomType && t.name === "Self"))
+                        return concreteType;
+                    return t;
+                });
+                const targetFullName = functionNameWithParamTypes(name, requiredParamTypes);
+                const fnLookup = scope.lookup(targetFullName);
+                if (!fnLookup) return false;
+            }
+        }
+        return true;
+    }
+    // Without scope context, optimistically assume the trait is satisfied
     return true;
 }

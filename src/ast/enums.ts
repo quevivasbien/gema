@@ -2,7 +2,7 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { ASTError, Expression } from "./expression";
 import { Scope } from "./scope";
-import { registerEnum } from "./registries";
+
 import { deepEquals } from "./type-utils";
 import { EnumType, MaybeType, substituteTypeParams, type Type } from "./types";
 
@@ -17,22 +17,17 @@ export class EnumDef extends Expression {
         this.name = name;
         this.variants = variants;
         this.type = "Null";
-
-        registerEnum(name, variants);
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
         // Register this enum's name in the enclosing scope so Variable references can find it
-        const variants = this.variants.map((v) => ({ name: v.name, type: v.type }));
-        const enumType = new EnumType(this.name, variants);
         const blockScope = this.getScope();
         if (blockScope) {
             blockScope.defineVariable({
-                class: "var",
+                class: "enum",
                 name: this.name,
-                type: enumType,
-                isMutable: false,
+                variants: this.variants.map((v) => ({ name: v.name, type: v.type })),
             });
         }
     }

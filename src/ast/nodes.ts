@@ -8,23 +8,13 @@ import {
 import { Assignment } from "./assignment";
 import { ASTError, Block, DropValue, Expression, lastExprShouldReturn } from "./expression";
 
-import {
-    findFunction,
-    getEnum,
-    getMonomorphized,
-    getStruct,
-    getTrait,
-    isVarConsumed,
-    registerFunction,
-    registerMonomorphized,
-    restoreConsumedVars,
-    saveConsumedVars,
-} from "./registries";
+import { isVarConsumed, restoreConsumedVars, saveConsumedVars } from "./registries";
 import { collectTraitsForTypeParam, deepEquals } from "./type-utils";
 import {
     ArrayType,
     collectCustomTypeNames,
     CustomType,
+    EnumType,
     FuncType,
     isBuiltinTypeName,
     IterType,
@@ -39,29 +29,80 @@ import { Call } from "./calls";
 import { Scope } from "./scope";
 
 /**
- * Compile-time `use` directive: loads another module's definitions.
- * Generates no runtime code — handled entirely during compilation.
- * TODO: Does this even need to be part of the AST? Maybe we should rework so that modules actually
- *  live entirely within a "UseModule" AST node?
+ * Use directive: contains the parsed AST of the imported module.
+ * During cascadeTypes, the module block is cascaded in isolation (parent = null)
+ * and the exported symbols are injected into the enclosing scope.
  */
 export class UseModule extends Expression {
+    /** The parsed top-level block of the imported module. */
+    moduleBlock: Block;
+
     constructor(
         rootToken: Token,
         public path: string,
+        moduleBlock: Block,
         public symbols?: string[]
     ) {
         super(rootToken.line, rootToken.col);
         this.type = "Null";
+        this.moduleBlock = moduleBlock;
     }
 
-    toJS(_writer: JSWriter): void {
-        // No runtime code generated for `use` directives.
+    getAllChildren(): Expression[] {
+        return [this.moduleBlock];
     }
 
-    clone(_bindings?: Map<string, Type>): Expression {
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+
+        // Cascade the module block in isolation (pass null parent so imports can't
+        // reach into the importing module's scope).
+        this.moduleBlock.scope.parent = null;
+        this.moduleBlock.cascadeTypes(null, false);
+
+        // After cascading the module, inject the exported symbols into the
+        // enclosing scope so expressions in the importing module can use them.
+        const enclosingScope = this.parent?.getScope();
+        if (!enclosingScope) return;
+
+        if (this.symbols && this.symbols.length > 0) {
+            // Selective import: only inject the requested symbols
+            for (const symName of this.symbols) {
+                const moduleLookup = this.moduleBlock.scope.lookup(symName);
+                if (!moduleLookup) {
+                    throw this.error(
+                        `module '${this.path}' does not export a symbol named '${symName}'`
+                    );
+                }
+                enclosingScope.defineVariable(moduleLookup.attrs, true);
+            }
+        } else {
+            // Bare import: inject all top-level definitions from the module scope
+            for (const v of this.moduleBlock.scope.variables) {
+                enclosingScope.defineVariable(v, true);
+            }
+        }
+    }
+
+    toJS(writer: JSWriter): void {
+        // Emit the module's expressions inline in the current scope (not wrapped
+        // in a nested block) so that function declarations and variables are
+        // accessible to the importing module's code.
+        const exprs = this.moduleBlock.expressions;
+        for (let i = 0; i < exprs.length; i++) {
+            exprs[i].toJS(writer);
+            if (i < exprs.length - 1 || writer.isInsideIIFE()) {
+                writer.write(";");
+            }
+            writer.newLine();
+        }
+    }
+
+    clone(bindings?: Map<string, Type>): Expression {
         return new UseModule(
             { line: this.line, col: this.col, text: "use", type: TokenType.Use },
             this.path,
+            this.moduleBlock.clone(bindings) as Block,
             this.symbols ? [...this.symbols] : undefined
         );
     }
@@ -230,56 +271,58 @@ export class Variable extends Expression {
 
     setTypeWithTemplateTypes(): void {
         this.fullName = functionNameWithParamTypes(this.name, this.templateTypes?.types ?? []);
-        // Check global registry first (for non-generic or already-monomorphized functions)
-        const registered = findFunction(this.fullName);
-        if (registered) {
-            this.type = registered.getFuncType();
-            return;
+        const argTypes = this.templateTypes?.types ?? [];
+
+        // Check scope first — search for a function entry by fullName
+        const scope = this.getScope();
+        if (scope) {
+            for (const v of scope.variables) {
+                if (v.class === "func" && v.fullName === this.fullName && !v.isGeneric) {
+                    // Non-generic or already-monomorphized function found in scope
+                    this.type = v.type;
+                    this.fullName = v.fullName;
+                    return;
+                }
+            }
+            // Check for generic entries by base name
+            const bareResult = scope.lookup(this.name);
+            if (bareResult && bareResult.attrs.class === "func" && bareResult.attrs.isGeneric) {
+                // Generic entry found in scope — monomorphization will happen via parent walk below
+            }
         }
-        // Walk up parent chain scanning older siblings in each enclosing Block
-        const found = this.walkEnclosingBlocks((olderSiblings) => {
-            for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                let olderSibling = olderSiblings[j];
-                if (olderSibling instanceof DropValue) {
-                    olderSibling = olderSibling.child;
+
+        // Check scope for function entries
+        const scope2 = this.getScope();
+        if (scope2) {
+            for (const v of scope2.variables) {
+                if (v.class === "func" && v.fullName === this.fullName && !v.isGeneric) {
+                    this.type = v.type;
+                    this.fullName = v.fullName;
+                    return;
                 }
-                // Exact match on fullName (non-generic or already monomorphized)
-                if (
-                    olderSibling instanceof FunctionDef &&
-                    olderSibling.fullName === this.fullName
-                ) {
-                    this.type = olderSibling.getFuncType();
-                    return true;
-                }
-                // Generic function match — attempt monomorphization
-                if (
-                    olderSibling instanceof FunctionDef &&
-                    olderSibling.name === this.name &&
-                    olderSibling.isGeneric
-                ) {
+            }
+            // Check for generic function entries — attempt monomorphization via the stored def
+            for (const v of scope2.variables) {
+                if (v.class === "func" && v.name === this.name && v.isGeneric && v.def) {
+                    const genericFn = v.def as FunctionDef;
                     const argTypes = this.templateTypes?.types ?? [];
-                    const result = olderSibling.monomorphize(argTypes);
+                    const result = genericFn.monomorphize(argTypes);
                     if (result !== null) {
                         this.fullName = result.fullName;
                         this.type = result.funcType;
-                        return true;
+                        return;
                     }
                 }
             }
-            return false;
-        });
-        if (
-            !found &&
-            (isBuiltinTypeName(this.name) || getStruct(this.name) || getEnum(this.name))
-        ) {
-            // Fall back to type reference (e.g., Arr[Int] → type Arr with template [Int])
+        }
+
+        // Fall back to type reference (e.g., Arr[Int] → type Arr with template [Int])
+        if (isBuiltinTypeName(this.name)) {
             this.type = new CustomType(this.name);
             this.fullName = this.name;
             return;
         }
-        if (!found) {
-            throw this.error(`cannot resolve type of variable '${this}'`);
-        }
+        throw this.error(`cannot resolve type of variable '${this}'`);
     }
 
     resolveAssignment(e: Expression): Type | null {
@@ -295,8 +338,8 @@ export class Variable extends Expression {
             this.setTypeWithTemplateTypes();
             return;
         }
-        // Phase 1: Scope-based lookup — resolves params, loop vars, local assignments,
-        // function references, and enum references from the enclosing scope hierarchy.
+        // Scope-based lookup — resolves params, loop vars, local assignments,
+        // function references, struct/enum/trait references from the enclosing scope hierarchy.
         const scope = this.getScope();
         if (scope) {
             const result = scope.lookup(this.name);
@@ -314,15 +357,33 @@ export class Variable extends Expression {
                     this.fullName = this.name;
                     return;
                 } else if (attrs.class === "func") {
+                    // Functions with parameters cannot be referenced as values
+                    // without explicit type annotations (e.g. foo[Int, Int]).
+                    if (attrs.type instanceof FuncType && attrs.type.paramTypes.length > 0) {
+                        throw this.error(
+                            `cannot reference function '${this.name}' without type annotations`
+                        );
+                    }
                     this.type = attrs.type;
                     this.fullName = attrs.fullName;
+                    return;
+                } else if (attrs.class === "struct") {
+                    this.type = new CustomType(this.name);
+                    this.fullName = this.name;
+                    return;
+                } else if (attrs.class === "enum") {
+                    this.type = new EnumType(
+                        attrs.name,
+                        attrs.variants.map((v) => ({ name: v.name, type: v.type }))
+                    );
+                    this.fullName = this.name;
                     return;
                 }
             }
         }
 
-        // Phase 2: Fallback — type param from enclosing generic function (e.g., T in T.zero())
-        if (!isBuiltinTypeName(this.name) && !getStruct(this.name) && !getEnum(this.name)) {
+        // type param from enclosing generic function (e.g., T in T.zero())
+        if (!isBuiltinTypeName(this.name)) {
             let fn: Expression | null = this.parent;
             while (fn) {
                 if (
@@ -344,9 +405,8 @@ export class Variable extends Expression {
             }
         }
 
-        // Phase 4: Fallback — builtin type name / struct / enum used as a type reference
-        // (e.g., Int in Int.zero(), or S in S.zero())
-        if (isBuiltinTypeName(this.name) || getStruct(this.name) || getEnum(this.name)) {
+        // builtin type name used as a type reference (e.g., Int in Int.zero())
+        if (isBuiltinTypeName(this.name)) {
             this.type = new CustomType(this.name);
             this.fullName = this.name;
             return;
@@ -728,31 +788,20 @@ export class FunctionDef extends Expression {
                 }
             }
 
-            // Validate: every non-builtin, non-struct CustomType in the signature must be a type param
+            // Validate: every non-builtin CustomType in the signature that isn't a type param
+            // is unresolvable. (Scope-based lookup will provide the real type during cascadeTypes.)
             const signatureTypes = new Set<string>();
             this.params.forEach((p) => collectCustomTypeNames(p.type, signatureTypes));
             collectCustomTypeNames(returnType, signatureTypes);
             for (const name of signatureTypes) {
-                if (
-                    !isBuiltinTypeName(name) &&
-                    !getStruct(name) &&
-                    !getTrait(name) &&
-                    !getEnum(name) &&
-                    !typeParamNames.has(name)
-                ) {
-                    throw new Error(
-                        `unknown type '${name}' — if it's a generic type parameter, add it to a 'where' clause with a trait bound (e.g., 'where ${name} is SomeTrait')`
-                    );
+                if (!isBuiltinTypeName(name) && !typeParamNames.has(name)) {
+                    // Allow unknown type names — they'll be resolved via scope during cascadeTypes.
+                    // If the type truly doesn't exist, cascadeTypes will throw an appropriate error.
                 }
             }
         }
 
         this.type = "Null";
-
-        // Register in the global function registry (non-generic functions only)
-        if (this.name && !this.isGeneric) {
-            registerFunction(this);
-        }
     }
 
     get isGeneric(): boolean {
@@ -766,34 +815,33 @@ export class FunctionDef extends Expression {
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
 
-        // Register this function's name in the enclosing scope so it can be referenced
-        // as a value (e.g. `x = foo; foo()`). Only register original (non-monomorphized)
-        // functions — monomorphized clones are instantiated during resolution and
-        // the scope registration is handled by the original.
+        // Register this function's name in the enclosing scope so call resolution
+        // can find it. Register all functions (zero-param and generic) in scope.
+        // Module-level functions register in their own module's scope (for injection
+        // into the importing scope by UseModule.cascadeTypes).
         // Skip type-associated functions (TAFs) — they're accessed via TypeName.funcName
         // syntax and not by bare function name.
-        // Skip module-level functions — they're already in the global functionRegistry
-        // and resolved via findCaller(). Registering them in scope would cause
-        // "already defined" errors when multiple modules define same-named functions.
-        // Only register zero-param functions — functions with params are ambiguous
-        // without explicit type annotation (e.g. foo[Int, Int]).
-        if (
-            this.name &&
-            this.params.length === 0 &&
-            !this.isGeneric &&
-            !this.isMonomorphizedClone &&
-            !this.typeAssociatedName &&
-            (!this.sourceFile || this.sourceFile === Expression.entryFile)
-        ) {
-            const enclosingScope = this.parent?.getScope();
-            if (enclosingScope) {
-                enclosingScope.defineVariable({
-                    class: "func",
-                    name: this.name,
-                    type: this.getFuncType(),
-                    isGeneric: false,
-                    fullName: this.fullName,
-                });
+        // Skip monomorphized clones — they're inserted before the generic by monomorphize().
+        // Skip functions with params — they can't be referenced as values without type annotations.
+        // Register this function in the enclosing scope BEFORE the body cascade
+        // so recursive calls within the body can find this function.
+        if (this.name && !this.isMonomorphizedClone) {
+            const preEnclosingScope = this.parent?.getScope();
+            if (preEnclosingScope) {
+                const preScopeName = this.typeAssociatedName
+                    ? `${this.typeAssociatedName}.${this.name}`
+                    : this.name;
+                preEnclosingScope.defineVariable(
+                    {
+                        class: "func",
+                        name: preScopeName,
+                        type: this.getFuncType(),
+                        isGeneric: this.isGeneric,
+                        fullName: this.fullName,
+                        def: this.isGeneric ? this : undefined,
+                    },
+                    true
+                );
             }
         }
 
@@ -863,6 +911,15 @@ export class FunctionDef extends Expression {
                 );
             }
         }
+
+        // Update the scope entry with the (possibly inferred) return type.
+        // The function was registered before the body cascade; now update the type.
+        if (this.name && !this.isMonomorphizedClone) {
+            const postEnclosingScope = this.parent?.getScope();
+            if (postEnclosingScope) {
+                postEnclosingScope.updateFuncType(this.fullName, this.getFuncType());
+            }
+        }
     }
 
     getFuncType(): FuncType {
@@ -891,22 +948,11 @@ export class FunctionDef extends Expression {
         const concreteReturnType = substituteTypeParams(this.returnType, bindings);
         const monomorphizedFullName = functionNameWithParamTypes(this.name!, concreteParamTypes);
 
-        const cached = getMonomorphized(monomorphizedFullName);
-        if (cached) {
-            return {
-                fullName: monomorphizedFullName,
-                funcType: cached.getFuncType(),
-                returnType: concreteReturnType,
-            };
-        }
-
         for (const param of this.params) {
             if (param.type instanceof CustomType && param.type.traits.length > 0) {
                 const concreteType = substituteTypeParams(param.type, bindings);
                 const isConcrete =
-                    !(concreteType instanceof CustomType) ||
-                    isBuiltinTypeName(concreteType.name) ||
-                    getStruct(concreteType.name) !== undefined;
+                    !(concreteType instanceof CustomType) || isBuiltinTypeName(concreteType.name);
                 if (isConcrete) {
                     for (const traitName of param.type.traits) {
                         if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
@@ -940,10 +986,7 @@ export class FunctionDef extends Expression {
         monomorphized.cascadeTypes(this.parent, true);
 
         const allConcrete = clonedParams.every(
-            (p) =>
-                !(p.type instanceof CustomType) ||
-                isBuiltinTypeName(p.type.name) ||
-                getStruct(p.type.name) !== undefined
+            (p) => !(p.type instanceof CustomType) || isBuiltinTypeName(p.type.name)
         );
         monomorphized.sourceFile = this.sourceFile;
 
@@ -966,8 +1009,27 @@ export class FunctionDef extends Expression {
         }
 
         if (allConcrete) {
-            registerMonomorphized(monomorphizedFullName, monomorphized);
             this.monomorphizedVersions.push(monomorphized);
+
+            // Insert the monomorphized version into the enclosing scope before the generic,
+            // so subsequent lookups find the concrete version first.
+            const enclosingScope = this.parent?.getScope();
+            if (enclosingScope) {
+                const genericInScope = enclosingScope.lookup(this.fullName);
+                if (
+                    genericInScope &&
+                    genericInScope.attrs.class === "func" &&
+                    genericInScope.attrs.isGeneric
+                ) {
+                    enclosingScope.defineVariableBefore(this.fullName, {
+                        class: "func",
+                        name: this.name!,
+                        type: monomorphized.getFuncType(),
+                        isGeneric: false,
+                        fullName: monomorphizedFullName,
+                    });
+                }
+            }
         }
 
         return {
@@ -997,23 +1059,12 @@ export class FunctionDef extends Expression {
         const concreteReturnType = substituteTypeParams(this.returnType, bindings);
         const monomorphizedFullName = functionNameWithParamTypes(this.name!, concreteParamTypes);
 
-        const cached = getMonomorphized(monomorphizedFullName);
-        if (cached) {
-            return {
-                fullName: monomorphizedFullName,
-                funcType: cached.getFuncType(),
-                returnType: concreteReturnType,
-            };
-        }
-
         // Verify trait satisfaction
         for (const param of this.params) {
             if (param.type instanceof CustomType && param.type.traits.length > 0) {
                 const concreteType = substituteTypeParams(param.type, bindings);
                 const isConcrete =
-                    !(concreteType instanceof CustomType) ||
-                    isBuiltinTypeName(concreteType.name) ||
-                    getStruct(concreteType.name) !== undefined;
+                    !(concreteType instanceof CustomType) || isBuiltinTypeName(concreteType.name);
                 if (isConcrete) {
                     for (const traitName of param.type.traits) {
                         if (!checkTraitSatisfied(concreteType, traitName, this.name!)) {
@@ -1053,14 +1104,10 @@ export class FunctionDef extends Expression {
         }
 
         const allConcrete = clonedParams.every(
-            (p) =>
-                !(p.type instanceof CustomType) ||
-                isBuiltinTypeName(p.type.name) ||
-                getStruct(p.type.name) !== undefined
+            (p) => !(p.type instanceof CustomType) || isBuiltinTypeName(p.type.name)
         );
 
         if (allConcrete) {
-            registerMonomorphized(monomorphizedFullName, monomorphized);
             this.monomorphizedVersions.push(monomorphized);
         }
 

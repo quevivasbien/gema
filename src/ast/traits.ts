@@ -1,6 +1,6 @@
 import type { Token } from "../tokens";
 import { Expression } from "./expression";
-import { registerTrait } from "./registries";
+
 import { paramTypesMatchArgTypes } from "./type-utils";
 import { CustomType, type TemplateTypes, type Type } from "./types";
 
@@ -38,7 +38,6 @@ export class Trait extends Expression {
         }
 
         this.type = "Null";
-        registerTrait(name, requiredFunctions);
     }
 
     getMatchingFunction(
@@ -65,7 +64,15 @@ export class Trait extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
-        // Nothing to do here
+        // Register in enclosing scope so trait dispatch can find this definition
+        const blockScope = this.getScope();
+        if (blockScope) {
+            blockScope.defineVariable({
+                class: "trait",
+                name: this.name,
+                requiredFunctions: this.requiredFunctions,
+            });
+        }
     }
 
     clone(_bindings?: Map<string, Type>): Expression {

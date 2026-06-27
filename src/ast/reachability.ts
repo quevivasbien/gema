@@ -2,9 +2,8 @@ import { Call, DirectCall } from "./calls";
 import { DropValue, Expression, Block } from "./expression";
 import { Assignment, TupleUnpack } from "./assignment";
 import { ForLoop, If } from "./control-flow";
-import { FunctionDef, Variable } from "./nodes";
+import { FunctionDef, UseModule, Variable } from "./nodes";
 import { Binary } from "./operators";
-import { findFunction, findFunctionByPrefix } from "./registries";
 import { FieldAccess, StructDef } from "./structs";
 import { Trait } from "./traits";
 import type { Type } from "./types";
@@ -76,10 +75,8 @@ export function collectReferences(
             referencedNames.add(fa.tafTargetName);
         } else if (fa.obj instanceof Variable && fa.obj.fullName) {
             const tafName = `${fa.obj.fullName}.${fa.fieldName}`;
-            const fnDef = findFunctionByPrefix(tafName + "$");
-            if (fnDef && fnDef.fullName) {
-                referencedNames.add(fnDef.fullName);
-            }
+            // TAF function lookup uses scope; without global registry, add the name directly
+            referencedNames.add(tafName);
         }
     } else if (node instanceof Assignment && node.name) {
         referencedNames.add(node.name);
@@ -197,21 +194,25 @@ export function computeReachable(block: Block): Set<string> {
             if (explored.has(name)) continue;
             explored.add(name);
 
-            // Follow function references
-            const fn = findFunction(name);
-            if (fn && fn.body) {
-                queue.push(fn.body);
-            }
-
-            // Follow variable references: find the assignment that defines
-            // this name in the top-level block and recurse into its value
-            for (const expr of block.expressions) {
-                let e = expr;
-                while (e instanceof DropValue) e = e.child;
-                if (e instanceof Assignment && e.name === name && e.value) {
-                    queue.push(e.value);
+            // Follow function references: find the FunctionDef in the block (or
+            // inside UseModule nodes) and recurse into its body.
+            const searchExprs = (exprs: Expression[]) => {
+                for (const expr of exprs) {
+                    let e = expr;
+                    while (e instanceof DropValue) e = e.child;
+                    if (e instanceof FunctionDef && (e.fullName === name || e.name === name)) {
+                        queue.push(e.body);
+                    }
+                    if (e instanceof Assignment && e.name === name && e.value) {
+                        queue.push(e.value);
+                    }
+                    // Also search inside UseModule module blocks
+                    if (e instanceof UseModule && e.moduleBlock) {
+                        searchExprs(e.moduleBlock.expressions);
+                    }
                 }
-            }
+            };
+            searchExprs(block.expressions);
         }
         for (const t of types) referencedTypes.add(t);
     }

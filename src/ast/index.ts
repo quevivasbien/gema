@@ -1,24 +1,10 @@
-// Registries & global state
+// Global state (consumedVars tracking only)
 export {
-    checkSelectiveImport,
-    findFunction,
-    findFunctionInModule,
-    getAllMonomorphized,
-    getMonomorphized,
-    getEnum,
-    getSelectiveImportRules,
-    getStruct,
-    getTrait,
-    isCrossModuleRefAllowed,
     isVarConsumed,
     markVarConsumed,
-    registerEnum,
-    registerFunction,
-    registerMonomorphized,
-    registerStruct,
-    registerTrait,
     resetRegistries,
-    setSelectiveImportRule,
+    restoreConsumedVars,
+    saveConsumedVars,
 } from "./registries";
 
 // Base expression classes
@@ -62,9 +48,6 @@ export { Trait } from "./traits";
 
 // Caller resolution
 export { findCaller } from "./caller";
-
-// Parent pointer setup
-export { setParentPointers } from "./set-parent-pointers";
 
 // Reachability (for tree shaking)
 export { computeReachable } from "./reachability";

@@ -4,16 +4,11 @@ import {
     DropValue,
     Expression,
     FunctionDef,
-    registerFunction,
-    registerStruct,
-    registerTrait,
     resetRegistries,
-    setSelectiveImportRule,
     UseModule,
 } from "./ast";
 import { parse } from "./parse";
 import { scan } from "./scan";
-import { TokenType } from "./tokens";
 import { writeJS } from "./write-js";
 
 import { treeShake } from "./tree-shake";
@@ -25,167 +20,19 @@ interface CompileResult {
     runtimeError: null;
 }
 
-/**
- * Scan tokens for `use "..."` directives and collect the module paths.
- */
-function collectUseDirectives(tokens: { type: TokenType; text: string }[]): string[] {
-    const paths: string[] = [];
-    for (let i = 0; i < tokens.length; i++) {
-        if (tokens[i].type === TokenType.Use) {
-            // Scan forward past (foo, bar) from / as ns to find the path string
-            for (let j = i + 1; j < tokens.length; j++) {
-                if (tokens[j].type === TokenType.String) {
-                    let path = tokens[j].text;
-                    if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
-                        path = path.slice(1, -1);
-                    }
-                    paths.push(path);
-                    i = j;
-                    break;
-                }
-                if (tokens[j].type === TokenType.Semicolon || tokens[j].type === TokenType.RBrace)
-                    break;
-            }
-        }
-    }
-    return paths;
-}
-
-/**
- * Pre-register struct and trait names from module files so the Function
- * constructor can resolve them during entry parsing. Does a lightweight
- * token scan to find `struct <Name>` and `trait <Name>` patterns.
- */
-function preRegisterModuleTypes(
-    filename: string,
-    files: Record<string, string>,
-    visited: Set<string>
-): void {
-    if (visited.has(filename)) return;
-    visited.add(filename);
-
-    const source = files[filename];
-    if (source === undefined) return;
-
-    const tokens = scan(source);
-
-    // Recursively process dependencies first
-    const usePaths = collectUseDirectives(tokens);
-    for (const depPath of usePaths) {
-        preRegisterModuleTypes(depPath, files, visited);
-    }
-
-    // Scan for struct and trait declarations
-    for (let i = 0; i < tokens.length; i++) {
-        if (tokens[i].type === TokenType.Struct) {
-            // struct <Name> { ... }
-            if (i + 1 < tokens.length && tokens[i + 1].type === TokenType.Identifier) {
-                const name = tokens[i + 1].text;
-                registerStruct(name, []);
-            }
-        }
-        if (tokens[i].type === TokenType.Trait) {
-            // trait <Name> { ... }
-            if (i + 1 < tokens.length && tokens[i + 1].type === TokenType.Identifier) {
-                const name = tokens[i + 1].text;
-                registerTrait(name, []);
-            }
-        }
-    }
-}
-
-/**
- * Recursively link module dependencies into a single flattened array of expressions.
- * Replaces each `use "path"` node with the target module's top-level expressions.
- * Returns the flattened expressions, or null on error.
- */
-function flattenModule(
-    filename: string,
-    files: Record<string, string>,
-    visiting: Set<string>,
-    visited: Set<string>,
-    errors: { line: number; col: number; message: string; filename?: string }[]
-): Expression[] | null {
-    if (visited.has(filename)) return [];
-    if (visiting.has(filename)) {
-        errors.push({
-            line: 0,
-            col: 0,
-            message: `Circular dependency detected: module '${filename}' is already being compiled.`,
-            filename,
-        });
-        return null;
-    }
-
-    const source = files[filename];
-    if (source === undefined) {
-        errors.push({
-            line: 0,
-            col: 0,
-            message: `Module '${filename}' not found. Make sure it is included in the provided files.`,
-            filename,
-        });
-        return null;
-    }
-
-    visiting.add(filename);
-
-    // Parse without cascadeTypes — we'll resolve types on the unified AST
-    const tokens = scan(source);
-    const { ast, errors: parseErrors } = parse(tokens, true, true);
-    if (parseErrors.length > 0) {
-        for (const e of parseErrors) {
-            errors.push({ line: e.line, col: e.col, message: e.message, filename });
-        }
-        return null;
-    }
-    if (!(ast instanceof Block)) {
-        errors.push({
-            line: 0,
-            col: 0,
-            message: `Module '${filename}' has no top-level block.`,
-            filename,
-        });
-        return null;
-    }
-
-    // Tag all expressions in this module with their source file
-    tagSourceFileTree(ast, filename);
-
-    // Re-register functions so the per-module registry gets them with sourceFile
-    for (const expr of ast.expressions) {
-        let e = expr;
-        while (e instanceof DropValue) e = e.child;
-        if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
-            registerFunction(e);
-        }
-    }
-
-    // Recursively flatten dependencies, then replace UseModule nodes
-    const result: Expression[] = [];
-    for (const expr of ast.expressions) {
-        if (expr instanceof UseModule) {
-            const subExprs = flattenModule(expr.path, files, visiting, visited, errors);
-            if (subExprs === null) return null;
-            result.push(...subExprs);
-        } else {
-            result.push(expr);
-        }
-    }
-
-    visiting.delete(filename);
-    visited.add(filename);
-    return result;
-}
-
+// TODO: This should happen as part of parsing instead
 /**
  * Recursively set sourceFile on every node in an expression tree.
- * TODO: This function is extremely inelegant. The way this should probably work instead
- *  is to have sourceFile be a required attribute of the Expression class, and set it for all
- *  expressions when they are first constructed during parsing.
+ * Walks into UseModule.moduleBlock children to tag module expressions too.
  */
 function tagSourceFileTree(node: Expression, sourceFile: string): void {
     node.sourceFile = sourceFile;
+    // Walk into UseModule blocks with their own path
+    if (node instanceof UseModule && node.moduleBlock) {
+        // Tag the module block with the module's path, not the entry path
+        tagSourceFileTree(node.moduleBlock, node.path);
+        return;
+    }
     const skipKeys = new Set(["parent", "type"]);
     for (const key of Object.keys(node) as (keyof Expression)[]) {
         if (skipKeys.has(key as string)) continue;
@@ -221,75 +68,45 @@ function tagSourceFileTree(node: Expression, sourceFile: string): void {
     }
 }
 
+// TODO: Why do we need this?
 /**
- * Phase 0: Pre-register struct and trait names from dependency modules so the
- * Function constructor can resolve type names during entry parsing.
+ * Walk the entry AST to set up selective import rules for UseModule nodes.
+ * For bare imports (use "path"), we add a wildcard rule that allows all symbols.
  */
-function preRegisterDependencies(
-    entryTokens: { type: TokenType; text: string }[],
-    files: Record<string, string>
-): void {
-    const visited = new Set<string>();
-    const usePaths = collectUseDirectives(entryTokens);
-    for (const depPath of usePaths) {
-        preRegisterModuleTypes(depPath, files, visited);
+function setupImportRules(ast: Expression, entry: string): void {
+    // Selective imports are now enforced by UseModule.cascadeTypes scope injection
+    if (ast instanceof UseModule) {
+        if (ast.moduleBlock) {
+            setupImportRules(ast.moduleBlock, ast.path);
+        }
+        return;
     }
-}
-
-/**
- * Phase 2: Link modules — flatten all `use` directives into a single array of
- * expressions, tag every node with its source file, and record selective import
- * rules. Entry functions are re-registered last so they take priority over
- * module functions with the same name.
- */
-function linkModules(
-    entryAst: Block,
-    entry: string,
-    files: Record<string, string>,
-    errors: { line: number; col: number; message: string; filename?: string }[]
-): Expression[] | null {
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
-    const expressions: Expression[] = [];
-
-    for (const expr of entryAst.expressions) {
-        if (expr instanceof UseModule) {
-            if (expr.symbols && expr.symbols.length > 0) {
-                setSelectiveImportRule(entry, expr.path, new Set(expr.symbols));
+    const skipKeys = new Set(["parent", "type"]);
+    for (const key of Object.keys(ast) as (keyof Expression)[]) {
+        if (skipKeys.has(key as string)) continue;
+        const val = (ast as unknown as Record<string, unknown>)[key as string];
+        if (val instanceof Expression) {
+            setupImportRules(val, entry);
+        } else if (Array.isArray(val)) {
+            for (const item of val) {
+                if (item instanceof Expression) {
+                    setupImportRules(item, entry);
+                }
             }
-            const subExprs = flattenModule(expr.path, files, visiting, visited, errors);
-            if (subExprs === null) return null;
-            expressions.push(...subExprs);
-        } else {
-            tagSourceFileTree(expr, entry);
-            expressions.push(expr);
         }
     }
-
-    // Re-register entry functions after flattening so they take priority
-    for (const expr of expressions) {
-        if (expr.sourceFile !== entry) continue;
-        let e = expr;
-        while (e instanceof DropValue) e = e.child;
-        if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
-            registerFunction(e);
-        }
-    }
-
-    return expressions;
 }
 
 /**
- * Phase 3: Set parent pointers, type-check the unified AST, and verify it
- * produces a non-Null value. Returns null on error (errors are pushed into
- * the `errors` array).
+ * Type-check a Block and verify it produces a non-Null value.
+ * Returns false on error (errors are pushed into the `errors` array).
  */
 function typeCheckBlock(
-    unifiedBlock: Block,
+    block: Block,
     errors: { line: number; col: number; message: string; filename?: string }[]
 ): boolean {
     try {
-        unifiedBlock.cascadeTypes(null, true);
+        block.cascadeTypes(null, true);
     } catch (e) {
         if (e instanceof ASTError) {
             errors.push({ line: e.line, col: e.col, message: e.message, filename: e.sourceFile });
@@ -300,8 +117,8 @@ function typeCheckBlock(
         }
         return false;
     }
-    if (unifiedBlock.type === "Null") {
-        const lastExpr = unifiedBlock.expressions[unifiedBlock.expressions.length - 1];
+    if (block.type === "Null") {
+        const lastExpr = block.expressions[block.expressions.length - 1];
         errors.push({
             line: lastExpr.line,
             col: lastExpr.col,
@@ -358,13 +175,25 @@ export function compile(
             };
         }
 
-        const entryTokens = scan(entrySource);
+        // Scan all files upfront so the parser can look up module tokens
+        const moduleTokens: Record<string, ReturnType<typeof scan>> = {};
+        for (const [filename, source] of Object.entries(files)) {
+            moduleTokens[filename] = scan(source);
+        }
 
-        // Phase 0: Pre-register struct/trait names from dependencies
-        preRegisterDependencies(entryTokens, files);
+        const entryTokens = moduleTokens[entry];
 
-        // Phase 1: Parse entry (AST only, no type resolution yet)
-        const { ast: entryAst, errors: parseErrors } = parse(entryTokens, false, true);
+        // Parse entry — this recursively parses imported modules via child parsers.
+        // Pass skipCascadeTypes=true so we cascade the unified tree once.
+        const visitedModules = new Set<string>();
+        visitedModules.add(entry); // mark entry as visited to prevent self-import
+        const { ast: entryAst, errors: parseErrors } = parse(
+            entryTokens,
+            false,
+            true, // skipCascadeTypes — we'll cascade the unified tree
+            moduleTokens,
+            visitedModules
+        );
         if (parseErrors.length > 0) {
             for (const e of parseErrors) {
                 errors.push({ line: e.line, col: e.col, message: e.message, filename: entry });
@@ -387,24 +216,23 @@ export function compile(
             };
         }
 
-        // Phase 2: Link modules into a unified expression list
-        const linkedExprs = linkModules(entryAst, entry!, files, errors);
-        if (linkedExprs === null || errors.length > 0) {
-            return { js: "", result: null, errors, runtimeError: null };
-        }
-
-        // Phase 3: Type-check the unified AST
+        // Tag entry expressions with sourceFile and set up selective import rules.
+        // This ensures the global function registry only finds entry-level functions,
+        // and selective import rules restrict cross-module lookups.
         Expression.entryFile = entry;
-        const rootToken = { line: 0, col: 0, text: "", type: TokenType.LBrace };
-        const unifiedBlock = new Block(rootToken, linkedExprs);
-        if (!typeCheckBlock(unifiedBlock, errors)) {
+        tagSourceFileTree(entryAst, entry);
+        // Import rules are now enforced by UseModule.cascadeTypes scope injection.
+        // No need for global registry or per-module function indexing.
+
+        // Type-check the AST (cascadeTypes sets parent pointers and resolves types)
+        if (!typeCheckBlock(entryAst, errors)) {
             return { js: "", result: null, errors, runtimeError: null };
         }
 
-        // Phase 3.5: Tree-shaking — remove unreachable definitions
-        const filteredBlock = treeShake(unifiedBlock, entry);
+        // Tree-shaking — remove unreachable definitions
+        const filteredBlock = treeShake(entryAst, entry);
 
-        // Phase 4: Codegen
+        // Codegen
         const js = writeJS(filteredBlock, mode);
         return { js, result: null, errors: [], runtimeError: null };
     } catch (e) {

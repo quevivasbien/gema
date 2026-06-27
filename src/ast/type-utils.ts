@@ -1,4 +1,3 @@
-import { getStruct } from "./registries";
 import {
     ArrayType,
     CustomType,
@@ -180,7 +179,7 @@ export function typeEquals(a: Type, b: Type): boolean {
 export function isConcreteType(t: Type): boolean {
     if (typeof t === "string") return true;
     if (t instanceof CustomType) {
-        return isBuiltinTypeName(t.name) || getStruct(t.name) !== undefined;
+        return isBuiltinTypeName(t.name);
     }
     if (t instanceof ArrayType) return isConcreteType(t.innerType);
     if (t instanceof IterType) return isConcreteType(t.innerType);

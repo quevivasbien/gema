@@ -1,17 +1,8 @@
 import { functionNameWithParamTypes } from "./caller-utils";
-import type { Expression } from "./expression";
-import { DropValue } from "./expression";
 import { Assignment } from "./assignment";
-import { Block } from "./expression";
+import { Block, DropValue, type Expression } from "./expression";
 import { AnonymousFunction, FunctionDef } from "./nodes";
-import {
-    findFunctionInModule,
-    getSelectiveImportRules,
-    getStruct,
-    getTrait,
-    isCrossModuleRefAllowed,
-    isVarConsumed,
-} from "./registries";
+import { isVarConsumed } from "./registries";
 import {
     collectTraitsForTypeParam,
     deepEquals,
@@ -29,6 +20,7 @@ import {
     MutDictType,
     MutSetType,
     SetType,
+    TemplateTypes,
     TupleType,
     type CallableType,
     type Type,
@@ -1511,484 +1503,177 @@ export function findCaller(
         scanNode = scanNode.parent;
     }
 
-    // First try direct match by fullName (skip if a local variable shadows)
     const fullName = functionNameWithParamTypes(name, argTypes);
     const sourceFile = (root as { sourceFile?: string }).sourceFile;
-    const foundFn = !hasLocalVar
-        ? findFunctionInModule(fullName, sourceFile, getSelectiveImportRules)
-        : undefined;
-    if (foundFn) {
-        return {
-            error: null,
-            result: {
-                kind: "function",
-                referToByName: fullName,
-                callerType: foundFn.getFuncType(),
-                rootType: foundFn.returnType,
-            },
-        };
-    }
 
-    // Walk up parent chain from original root looking for sibling function defs
-    let walkNode: Expression | null = root.parent;
-    let child: Expression = root;
-    while (walkNode) {
-        if (walkNode instanceof Block) {
-            const olderSiblings = walkNode.expressions.slice(
-                0,
-                walkNode.expressions.indexOf(child)
-            );
-            for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                let olderSibling = olderSiblings[j];
-                while (olderSibling instanceof DropValue) {
-                    olderSibling = olderSibling.child;
-                }
+    // Scope-based lookup — the single source of truth for name resolution.
+    // Scope entries are populated by FunctionDef.cascadeTypes (for functions),
+    // Assignment.cascadeTypes (for variables), and UseModule.cascadeTypes (for imports).
+    const fnCallScope = root.getScope();
+    if (fnCallScope && !hasLocalVar) {
+        const scopeResult = fnCallScope.lookup(name);
+        if (scopeResult) {
+            const fa = scopeResult.attrs;
 
-                // Direct match with a non-generic function
-                // (skip type-associated functions — they must be called via TypeName.funcName())
-                if (
-                    olderSibling instanceof FunctionDef &&
-                    !olderSibling.isGeneric &&
-                    !olderSibling.typeAssociatedName &&
-                    olderSibling.name === name &&
-                    paramTypesMatchArgTypes(
-                        olderSibling.params.map((t) => t.type),
-                        argTypes
-                    )
-                ) {
-                    // Skip cross-module functions unless allowed by import rules
+            // Function resolution
+            if (fa.class === "func") {
+                if (!fa.isGeneric) {
+                    // Non-generic function: check param types
                     if (
-                        !isCrossModuleRefAllowed(
-                            (root as { sourceFile?: string }).sourceFile,
-                            olderSibling.sourceFile,
-                            name
-                        )
-                    )
-                        continue;
-                    return {
-                        error: null,
-                        result: {
-                            kind: "function",
-                            referToByName: olderSibling.fullName,
-                            callerType: olderSibling.getFuncType(),
-                            rootType: olderSibling.returnType,
-                        },
-                    };
-                }
-
-                // Generic function matching — attempt monomorphization
-                // (skip type-associated functions — they must be called via TypeName.funcName())
-                if (
-                    olderSibling instanceof FunctionDef &&
-                    !olderSibling.typeAssociatedName &&
-                    olderSibling.isGeneric &&
-                    olderSibling.params.length === argTypes.length
-                ) {
-                    if (olderSibling.name === name) {
-                        const result = olderSibling.monomorphize(argTypes);
-                        if (result !== null) {
-                            return {
-                                error: null,
-                                result: {
-                                    kind: "function",
-                                    referToByName: result.fullName,
-                                    callerType: result.funcType,
-                                    rootType: result.returnType,
-                                },
-                            };
+                        fa.type instanceof FuncType &&
+                        paramTypesMatchArgTypes(fa.type.paramTypes, argTypes)
+                    ) {
+                        return {
+                            error: null,
+                            result: {
+                                kind: "function",
+                                referToByName: fa.fullName,
+                                callerType: fa.type,
+                                rootType: fa.type.returnType,
+                            },
+                        };
+                    }
+                } else {
+                    // Generic function: use the def reference stored in the scope entry
+                    // to attempt monomorphization.
+                    if (fa.def) {
+                        const genericFn = fa.def as FunctionDef;
+                        if (genericFn.params.length === argTypes.length) {
+                            const result = genericFn.monomorphize(argTypes);
+                            if (result !== null) {
+                                return {
+                                    error: null,
+                                    result: {
+                                        kind: "function",
+                                        referToByName: result.fullName,
+                                        callerType: result.funcType,
+                                        rootType: result.returnType,
+                                    },
+                                };
+                            }
                         }
                     }
                 }
+            }
 
-                // Variable-based callable (assignment)
-                if (olderSibling instanceof Assignment && olderSibling.name === name) {
-                    if (isVarConsumed(name)) {
+            // Variable-based callable (e.g., FuncType variable, array indexing, etc.)
+            if (fa.class === "var") {
+                const varType = fa.type;
+                if (isVarConsumed(name)) {
+                    return {
+                        error: `cannot use variable '${name}' after it was detrans'd`,
+                        result: null,
+                    };
+                }
+                if (varType instanceof FuncType) {
+                    if (!paramTypesMatchArgTypes(varType.paramTypes, argTypes)) {
                         return {
-                            error: `cannot use variable '${name}' after it was detrans'd`,
+                            error: `variable ${name} has an incompatible type signature for this function call.`,
                             result: null,
                         };
                     }
-                    const varType = olderSibling.value.type;
-                    if (varType instanceof FuncType) {
-                        if (!paramTypesMatchArgTypes(varType.paramTypes, argTypes)) {
-                            return {
-                                error: `most recent definition of variable ${name} has an incompatible type signature for this function call.`,
-                                result: null,
-                            };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: varType,
-                                rootType: varType.returnType,
-                            },
-                        };
-                    }
-                    if (varType instanceof ArrayType || varType instanceof MutArrType) {
-                        // Array slicing with range: arr(a..b) returns array
-                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
-                            return {
-                                error: null,
-                                result: {
-                                    kind: "variable",
-                                    referToByName: name,
-                                    callerType: varType,
-                                    rootType: varType,
-                                },
-                            };
-                        }
-                        const incompatible = varType.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: varType,
-                                rootType: new MaybeType(varType.innerType),
-                            },
-                        };
-                    }
-                    if (varType instanceof IterType) {
-                        const incompatible = varType.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: varType,
-                                rootType: new MaybeType(varType.innerType),
-                            },
-                        };
-                    }
-                    if (varType instanceof TupleType) {
-                        const incompatible = varType.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        // For literal indices, the exact type will be resolved in Call.cascadeTypes
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: varType,
-                                rootType: varType.types.length > 0 ? varType.types[0] : "Null",
-                            },
-                        };
-                    }
-                    if (varType instanceof DictType || varType instanceof MutDictType) {
-                        const incompatible = varType.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: varType,
-                                rootType: new MaybeType(varType.valueType),
-                            },
-                        };
-                    }
-                    if (varType instanceof CustomType && getStruct(varType.name)) {
-                        break;
-                    }
-                    if (varType === "Str") {
-                        break;
-                    }
                     return {
-                        error: `most recent definition of variable ${name} is of type ${varType}, which is not a callable object.`,
-                        result: null,
+                        error: null,
+                        result: {
+                            kind: "variable",
+                            referToByName: name,
+                            callerType: varType,
+                            rootType: varType.returnType,
+                        },
                     };
                 }
-            }
-        } else if (walkNode instanceof FunctionDef) {
-            for (const param of walkNode.params) {
-                if (param.name === name) {
-                    if (param.type instanceof FuncType) {
-                        if (!paramTypesMatchArgTypes(param.type.paramTypes, argTypes)) {
-                            return {
-                                error: `variable ${name} (parameter of function ${walkNode.name}) has an incompatible type signature for this function call.`,
-                                result: null,
-                            };
-                        }
+                if (varType instanceof ArrayType || varType instanceof MutArrType) {
+                    if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
                         return {
                             error: null,
                             result: {
                                 kind: "variable",
                                 referToByName: name,
-                                callerType: param.type,
-                                rootType: param.type.returnType,
+                                callerType: varType,
+                                rootType: varType,
                             },
                         };
                     }
-                    if (param.type instanceof ArrayType) {
-                        // Array slicing with range: arr(a..b) returns array
-                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
-                            return {
-                                error: null,
-                                result: {
-                                    kind: "variable",
-                                    referToByName: name,
-                                    callerType: param.type,
-                                    rootType: param.type,
-                                },
-                            };
-                        }
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: new MaybeType(param.type.innerType),
-                            },
-                        };
-                    }
-                    if (param.type instanceof MutArrType) {
-                        // Array slicing with range: arr(a..b) returns array
-                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
-                            return {
-                                error: null,
-                                result: {
-                                    kind: "variable",
-                                    referToByName: name,
-                                    callerType: param.type,
-                                    rootType: param.type,
-                                },
-                            };
-                        }
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: new MaybeType(param.type.innerType),
-                            },
-                        };
-                    }
-                    if (param.type instanceof IterType) {
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: new MaybeType(param.type.innerType),
-                            },
-                        };
-                    }
-                    if (param.type instanceof TupleType) {
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType:
-                                    param.type.types.length > 0 ? param.type.types[0] : "Null",
-                            },
-                        };
-                    }
-                    if (param.type instanceof DictType) {
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: param.type.valueType,
-                            },
-                        };
-                    }
-                    if (param.type instanceof CustomType && getStruct(param.type.name)) {
-                        break;
-                    }
-                    if (param.type === "Str") {
-                        break;
+                    const incompatible = varType.checkIndicesCompatible(argTypes);
+                    if (incompatible !== null) {
+                        return { error: incompatible, result: null };
                     }
                     return {
-                        error: `variable ${name} (parameter of function ${walkNode.name}) is not a function.`,
-                        result: null,
+                        error: null,
+                        result: {
+                            kind: "variable",
+                            referToByName: name,
+                            callerType: varType,
+                            rootType: new MaybeType(varType.innerType),
+                        },
                     };
                 }
-            }
-            if (walkNode.fullName === fullName) {
-                return {
-                    error: null,
-                    result: {
-                        kind: "function",
-                        referToByName: fullName,
-                        callerType: walkNode.getFuncType(),
-                        rootType: walkNode.returnType,
-                    },
-                };
-            }
-        } else if (walkNode instanceof AnonymousFunction) {
-            for (const param of walkNode.params) {
-                if (param.name === name) {
-                    if (param.type instanceof FuncType) {
-                        if (!paramTypesMatchArgTypes(param.type.paramTypes, argTypes)) {
-                            return {
-                                error: `variable ${name} (parameter of anonymous function) has an incompatible type signature for this function call.`,
-                                result: null,
-                            };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: param.type.returnType,
-                            },
-                        };
-                    }
-                    if (param.type instanceof ArrayType) {
-                        // Array slicing with range: arr(a..b) returns array
-                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
-                            return {
-                                error: null,
-                                result: {
-                                    kind: "variable",
-                                    referToByName: name,
-                                    callerType: param.type,
-                                    rootType: param.type,
-                                },
-                            };
-                        }
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: new MaybeType(param.type.innerType),
-                            },
-                        };
-                    }
-                    if (param.type instanceof MutArrType) {
-                        // Array slicing with range: arr(a..b) returns array
-                        if (argTypes.length === 1 && argTypes[0] instanceof IterType) {
-                            return {
-                                error: null,
-                                result: {
-                                    kind: "variable",
-                                    referToByName: name,
-                                    callerType: param.type,
-                                    rootType: param.type,
-                                },
-                            };
-                        }
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: new MaybeType(param.type.innerType),
-                            },
-                        };
-                    }
-                    if (param.type instanceof IterType) {
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: new MaybeType(param.type.innerType),
-                            },
-                        };
-                    }
-                    if (param.type instanceof TupleType) {
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType:
-                                    param.type.types.length > 0 ? param.type.types[0] : "Null",
-                            },
-                        };
-                    }
-                    if (param.type instanceof DictType || param.type instanceof MutDictType) {
-                        const incompatible = param.type.checkIndicesCompatible(argTypes);
-                        if (incompatible !== null) {
-                            return { error: incompatible, result: null };
-                        }
-                        return {
-                            error: null,
-                            result: {
-                                kind: "variable",
-                                referToByName: name,
-                                callerType: param.type,
-                                rootType: param.type.valueType,
-                            },
-                        };
-                    }
-                    if (param.type instanceof CustomType && getStruct(param.type.name)) {
-                        break;
-                    }
-                    if (param.type === "Str") {
-                        break;
+                if (varType instanceof IterType) {
+                    const incompatible = varType.checkIndicesCompatible(argTypes);
+                    if (incompatible !== null) {
+                        return { error: incompatible, result: null };
                     }
                     return {
-                        error: `variable ${name} (parameter of anonymous function) is not a function.`,
+                        error: null,
+                        result: {
+                            kind: "variable",
+                            referToByName: name,
+                            callerType: varType,
+                            rootType: new MaybeType(varType.innerType),
+                        },
+                    };
+                }
+                if (varType instanceof TupleType) {
+                    const incompatible = varType.checkIndicesCompatible(argTypes);
+                    if (incompatible !== null) {
+                        return { error: incompatible, result: null };
+                    }
+                    return {
+                        error: null,
+                        result: {
+                            kind: "variable",
+                            referToByName: name,
+                            callerType: varType,
+                            rootType: varType.types.length > 0 ? varType.types[0] : "Null",
+                        },
+                    };
+                }
+                if (varType instanceof DictType || varType instanceof MutDictType) {
+                    const incompatible = varType.checkIndicesCompatible(argTypes);
+                    if (incompatible !== null) {
+                        return { error: incompatible, result: null };
+                    }
+                    return {
+                        error: null,
+                        result: {
+                            kind: "variable",
+                            referToByName: name,
+                            callerType: varType,
+                            rootType: new MaybeType(varType.valueType),
+                        },
+                    };
+                }
+                if (varType instanceof CustomType) {
+                    // Check if this is a struct type (fall through to struct constructor)
+                    const structCheck = fnCallScope?.lookup(varType.name);
+                    if (structCheck && structCheck.attrs.class === "struct") {
+                        // fall through
+                    } else {
+                        return {
+                            error: `variable ${name} is of type ${varType}, which is not a callable object.`,
+                            result: null,
+                        };
+                    }
+                } else if (varType === "Str") {
+                    // fall through to string indexing
+                } else {
+                    return {
+                        error: `variable ${name} is of type ${varType}, which is not a callable object.`,
                         result: null,
                     };
                 }
             }
         }
-        child = walkNode;
-        walkNode = walkNode.parent;
     }
 
     // Check for iterator/array builtins (includes type conversions like toInt/toStr etc.)
@@ -1997,7 +1682,8 @@ export function findCaller(
         return builtinResult;
     }
 
-    // Trait dispatch
+    // Trait dispatch — resolve trait definitions from scope
+    const callScope = root.getScope();
     const traitCandidates: { traitName: string; selfType: Type }[] = [];
     for (const argType of argTypes) {
         if (argType instanceof CustomType) {
@@ -2006,8 +1692,22 @@ export function findCaller(
             }
         }
     }
+
+    /** Look up a trait's required functions from the scope chain. */
+    const findTraitInfo = (
+        traitName: string
+    ): { name: string; paramNames: string[]; types: TemplateTypes }[] | undefined => {
+        if (callScope) {
+            const lookup = callScope.lookup(traitName);
+            if (lookup && lookup.attrs.class === "trait") {
+                return lookup.attrs.requiredFunctions;
+            }
+        }
+        return undefined;
+    };
+
     for (const { traitName, selfType } of traitCandidates) {
-        const traitFuncs = getTrait(traitName);
+        const traitFuncs = findTraitInfo(traitName);
         if (!traitFuncs) continue;
         for (const tf of traitFuncs) {
             if (tf.name !== name) continue;
@@ -2053,7 +1753,7 @@ export function findCaller(
                     traits.add(t);
                 }
                 for (const traitName of traits) {
-                    const traitFuncs = getTrait(traitName);
+                    const traitFuncs = findTraitInfo(traitName);
                     if (!traitFuncs) continue;
                     for (const tf of traitFuncs) {
                         if (tf.name !== name) continue;
@@ -2092,7 +1792,15 @@ export function findCaller(
     }
 
     // No user-defined function matched — fall back to struct constructor if one exists.
-    const structDef = getStruct(name);
+    let structDef:
+        | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
+        | undefined;
+    if (callScope) {
+        const lookup = callScope.lookup(name);
+        if (lookup && lookup.attrs.class === "struct") {
+            structDef = { name: lookup.attrs.name, fields: lookup.attrs.fields };
+        }
+    }
     if (structDef) {
         const fieldTypes = structDef.fields.map((f) => f.type);
         if (paramTypesMatchArgTypes(fieldTypes, argTypes)) {

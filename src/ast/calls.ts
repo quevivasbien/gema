@@ -6,13 +6,7 @@ import { Literal } from "./literals";
 import { Assignment } from "./assignment";
 import { Block } from "./expression";
 import { AnonymousFunction, FunctionDef, RangeIter, Variable } from "./nodes";
-import {
-    findFunction,
-    getAllMonomorphized,
-    getStruct,
-    isVarConsumed,
-    markVarConsumed,
-} from "./registries";
+import { isVarConsumed, markVarConsumed } from "./registries";
 import { deepEquals, paramTypesMatchArgTypes } from "./type-utils";
 import {
     ArrayType,
@@ -42,8 +36,8 @@ function findStructTypedVariable(
         if (node instanceof FunctionDef || node instanceof AnonymousFunction) {
             for (const param of node.params) {
                 if (param.name === name && param.type instanceof CustomType) {
-                    const structInfo = getStruct(param.type.name);
-                    if (structInfo) return { varName: name, structType: param.type };
+                    // Assume any CustomType could be a struct (scope will confirm during cascadeTypes)
+                    return { varName: name, structType: param.type };
                 }
             }
         } else if (node instanceof Block) {
@@ -53,8 +47,7 @@ function findStructTypedVariable(
                 if (e instanceof Assignment && e.name === name) {
                     const varType = e.value.type;
                     if (varType instanceof CustomType) {
-                        const structInfo = getStruct(varType.name);
-                        if (structInfo) return { varName: name, structType: varType };
+                        return { varName: name, structType: varType };
                     }
                 }
             }
@@ -140,7 +133,20 @@ export class Call extends Expression {
         if (this.keywordArgs.length > 0) {
             const totalArgs = this.args.length + keywordInfos.length;
 
-            const structDef = getStruct(this.name);
+            // Resolve struct from scope, falling back to global registry
+            let structDef:
+                | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
+                | undefined;
+            const callScope = this.getScope();
+            if (callScope) {
+                const lookup = callScope.lookup(this.name);
+                if (lookup && lookup.attrs.class === "struct") {
+                    structDef = { name: lookup.attrs.name, fields: lookup.attrs.fields };
+                }
+            }
+            if (!structDef) {
+                // struct not found in scope — not a struct constructor
+            }
             if (structDef) {
                 const fieldNames = structDef.fields.map((f) => f.name);
                 if (totalArgs !== fieldNames.length) {
@@ -254,7 +260,19 @@ export class Call extends Expression {
                 if (structVar !== null) {
                     const structInfo =
                         structVar.structType instanceof CustomType
-                            ? getStruct(structVar.structType.name)
+                            ? (() => {
+                                  const svScope = this.getScope();
+                                  if (svScope) {
+                                      const svLookup = svScope.lookup(structVar.structType.name);
+                                      if (svLookup && svLookup.attrs.class === "struct") {
+                                          return {
+                                              name: svLookup.attrs.name,
+                                              fields: svLookup.attrs.fields,
+                                          };
+                                      }
+                                  }
+                                  return undefined;
+                              })()
                             : undefined;
                     if (structInfo) {
                         const field = structInfo.fields.find((f) => f.name === fieldName);
@@ -404,15 +422,11 @@ export class Call extends Expression {
             this.keywordArgs = [];
         } else if (
             this.keywordArgs.length > 0 &&
-            this.args.length < positionalArgTypes.length + keywordInfos.length &&
-            (result.kind === "function" || result.kind === "struct-constructor")
+            this.args.length < positionalArgTypes.length + keywordInfos.length
         ) {
-            const resolvedFn = findFunction(result.referToByName);
-            if (
-                resolvedFn &&
-                resolvedFn.params.length === positionalArgTypes.length + keywordInfos.length
-            ) {
-                const paramNames = resolvedFn.params.map((p) => p.name);
+            // Use paramNames from the CallerResult if available (set by trait dispatch / direct match).
+            const paramNames = (result as { paramNames?: string[] }).paramNames;
+            if (paramNames && paramNames.length > 0) {
                 const totalArgs = positionalArgTypes.length + keywordInfos.length;
                 const ordered: Expression[] = [];
                 ordered.length = totalArgs;
@@ -440,6 +454,9 @@ export class Call extends Expression {
                     this.keywordArgs = [];
                 }
             }
+        } else {
+            // No paramNames available — keyword args can't be resolved without function info.
+            // This will be caught as a compile error by findCaller.
         }
     }
 
@@ -558,22 +575,6 @@ export class Call extends Expression {
             }
             child = parent;
             parent = parent.parent;
-        }
-        // Generic functions: try monomorphized versions already cached
-        for (const [, fn] of getAllMonomorphized()) {
-            if (fn.name === this.name) {
-                const fnParams = fn.params;
-                if (fnParams.length - 1 === otherArgTypes.length) {
-                    let match = true;
-                    for (let k = 0; k < otherArgTypes.length; k++) {
-                        if (!deepEquals(otherArgTypes[k], fnParams[k + 1].type)) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    if (match) return { params: fnParams, returnType: fn.returnType };
-                }
-            }
         }
         return null;
     }
@@ -1243,43 +1244,33 @@ export class Call extends Expression {
         }
         if (this.callerType instanceof FuncType) {
             if (this.isStructConstructor) {
-                const structInfo = getStruct(this.name)!;
+                // Resolve struct fields from scope
+                let structFields: { name: string; type: Type; mutable: boolean }[] = [];
+                const callScope = this.getScope();
+                if (callScope) {
+                    const lookup = callScope.lookup(this.name);
+                    if (lookup && lookup.attrs.class === "struct") {
+                        structFields = lookup.attrs.fields;
+                    }
+                }
+                const safeNames = structFields.map((f) => writer.safeName(f.name));
                 writer.write("{");
                 this.args.forEach((arg, i) => {
                     if (i > 0) {
                         writer.write(", ");
                     }
-                    writer.write(`${structInfo.fields[i].name}: `);
+                    writer.write(`${safeNames[i]}: `);
                     arg.toJS(writer);
                 });
                 writer.write("}");
             } else {
                 writer.write(writer.safeName(this.referToByName));
                 writer.write("(");
-                const calledFn = findFunction(this.referToByName);
-                const iterParamIndices: number[] = [];
-                if (calledFn) {
-                    calledFn.params.forEach((p: { type: Type; name: string }, i: number) => {
-                        if (p.type instanceof IterType && i < this.args.length) {
-                            const argType = this.args[i].type;
-                            if (argType instanceof ArrayType) {
-                                iterParamIndices.push(i);
-                            }
-                        }
-                    });
-                }
                 this.args.forEach((arg, i) => {
                     if (i > 0) {
                         writer.write(", ");
                     }
-                    if (iterParamIndices.includes(i)) {
-                        writer.useBuiltin("$ArrayIterator$");
-                        writer.write("new $ArrayIterator$(");
-                        arg.toJS(writer);
-                        writer.write(")");
-                    } else {
-                        arg.toJS(writer);
-                    }
+                    arg.toJS(writer);
                 });
                 writer.write(")");
             }
@@ -1539,7 +1530,16 @@ export class DirectCall extends Expression {
 
         // Struct field access: instance("fieldName")
         if (this.caller.type instanceof CustomType) {
-            const structInfo = getStruct(this.caller.type.name);
+            const structScope = this.getScope();
+            let structInfo:
+                | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
+                | undefined;
+            if (structScope) {
+                const lookup = structScope.lookup(this.caller.type.name);
+                if (lookup && lookup.attrs.class === "struct") {
+                    structInfo = { name: lookup.attrs.name, fields: lookup.attrs.fields };
+                }
+            }
             if (structInfo) {
                 if (this.args.length !== 1) {
                     throw this.error(
@@ -1617,12 +1617,21 @@ export class DirectCall extends Expression {
                 this.args[0].toJS(writer);
                 writer.write(")");
             }
-        } else if (this.caller.type instanceof CustomType && getStruct(this.caller.type.name)) {
-            const fieldName =
-                this.args[0] instanceof Literal ? this.args[0].value.slice(1, -1) : "";
-            writer.write("(");
-            this.caller.toJS(writer);
-            writer.write(`).${fieldName}`);
+        } else if (this.caller.type instanceof CustomType) {
+            // Resolve struct from scope, falling back to global registry
+            const structScope = this.getScope();
+            let isStruct = false;
+            if (structScope) {
+                const lookup = structScope.lookup(this.caller.type.name);
+                if (lookup && lookup.attrs.class === "struct") isStruct = true;
+            }
+            if (isStruct) {
+                const fieldName =
+                    this.args[0] instanceof Literal ? this.args[0].value.slice(1, -1) : "";
+                writer.write("(");
+                this.caller.toJS(writer);
+                writer.write(`).${fieldName}`);
+            }
         } else if (this.caller.type instanceof IterType) {
             writer.useBuiltin("$iterGet$");
             writer.write("$iterGet$(");
@@ -1640,30 +1649,12 @@ export class DirectCall extends Expression {
             this.caller.toJS(writer);
             writer.write(")");
             if (this.caller.type instanceof FuncType) {
-                // Determine which args need Array→Iter conversion
-                const iterParamIndices: number[] = [];
-                const fnType = this.caller.type;
-                fnType.paramTypes.forEach((pt, i) => {
-                    if (pt instanceof IterType && i < this.args.length) {
-                        const argType = this.args[i].type;
-                        if (argType instanceof ArrayType) {
-                            iterParamIndices.push(i);
-                        }
-                    }
-                });
                 writer.write("(");
                 this.args.forEach((arg, i) => {
                     if (i > 0) {
                         writer.write(", ");
                     }
-                    if (iterParamIndices.includes(i)) {
-                        writer.useBuiltin("$ArrayIterator$");
-                        writer.write("new $ArrayIterator$(");
-                        arg.toJS(writer);
-                        writer.write(")");
-                    } else {
-                        arg.toJS(writer);
-                    }
+                    arg.toJS(writer);
                 });
                 writer.write(")");
             } else if (
