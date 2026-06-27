@@ -108,7 +108,6 @@ function extractBindings(
 export function checkTraitSatisfied(
     concreteType: Type,
     traitName: string,
-    _contextFnName: string,
     scope?: {
         lookup: (
             name: string

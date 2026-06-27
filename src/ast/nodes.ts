@@ -6,7 +6,7 @@ import {
     functionNameWithParamTypes,
 } from "./caller-utils";
 import { Assignment } from "./assignment";
-import { ASTError, Block, DropValue, Expression, lastExprShouldReturn } from "./expression";
+import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
 
 import { isVarConsumed, restoreConsumedVars, saveConsumedVars } from "./registries";
 import { collectTraitsForTypeParam, deepEquals } from "./type-utils";
@@ -271,7 +271,6 @@ export class Variable extends Expression {
 
     setTypeWithTemplateTypes(): void {
         this.fullName = functionNameWithParamTypes(this.name, this.templateTypes?.types ?? []);
-        const argTypes = this.templateTypes?.types ?? [];
 
         // Check scope first — search for a function entry by fullName
         const scope = this.getScope();
@@ -1002,14 +1001,7 @@ export class FunctionDef extends Expression {
                                       },
                                   } as const)
                                 : undefined;
-                        if (
-                            !checkTraitSatisfied(
-                                concreteType,
-                                traitName,
-                                this.name!,
-                                traitLookupWrapper
-                            )
-                        ) {
+                        if (!checkTraitSatisfied(concreteType, traitName, traitLookupWrapper)) {
                             return null;
                         }
                     }
@@ -1129,36 +1121,29 @@ export class FunctionDef extends Expression {
                     !(concreteType instanceof CustomType) || isBuiltinTypeName(concreteType.name);
                 if (isConcrete) {
                     for (const traitName of param.type.traits) {
-                        const traitScope2 = this.parent?.getScope() ?? null;
-                        const traitLookupWrapper2 =
-                            traitScope2 !== null
+                        const traitScope = this.parent?.getScope() ?? null;
+                        const traitLookupWrapper =
+                            traitScope !== null
                                 ? ({
-                                      lookup: (n: string) => traitScope2.lookup(n),
+                                      lookup: (n: string) => traitScope.lookup(n),
                                       allVariables: () => {
-                                          const v2: {
+                                          const variables: {
                                               class: string;
                                               name: string;
                                               fullName?: string;
                                           }[] = [];
-                                          let cur2: typeof traitScope2 | null = traitScope2;
-                                          while (cur2) {
-                                              for (const v of cur2.variables) {
-                                                  v2.push(v);
+                                          let cur: typeof traitScope | null = traitScope;
+                                          while (cur) {
+                                              for (const variable of cur.variables) {
+                                                  variables.push(variable);
                                               }
-                                              cur2 = cur2.parent;
+                                              cur = cur.parent;
                                           }
-                                          return v2;
+                                          return variables;
                                       },
                                   } as const)
                                 : undefined;
-                        if (
-                            !checkTraitSatisfied(
-                                concreteType,
-                                traitName,
-                                this.name!,
-                                traitLookupWrapper2
-                            )
-                        ) {
+                        if (!checkTraitSatisfied(concreteType, traitName, traitLookupWrapper)) {
                             return null;
                         }
                     }

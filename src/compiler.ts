@@ -1,12 +1,4 @@
-import {
-    ASTError,
-    Block,
-    DropValue,
-    Expression,
-    FunctionDef,
-    resetRegistries,
-    UseModule,
-} from "./ast";
+import { ASTError, Block, Expression, resetRegistries, UseModule } from "./ast";
 import { parse } from "./parse";
 import { scan } from "./scan";
 import { writeJS } from "./write-js";
@@ -62,35 +54,6 @@ function tagSourceFileTree(node: Expression, sourceFile: string): void {
                     if (cb.condition instanceof Expression)
                         tagSourceFileTree(cb.condition, sourceFile);
                     if (cb.branch instanceof Expression) tagSourceFileTree(cb.branch, sourceFile);
-                }
-            }
-        }
-    }
-}
-
-// TODO: Why do we need this?
-/**
- * Walk the entry AST to set up selective import rules for UseModule nodes.
- * For bare imports (use "path"), we add a wildcard rule that allows all symbols.
- */
-function setupImportRules(ast: Expression, entry: string): void {
-    // Selective imports are now enforced by UseModule.cascadeTypes scope injection
-    if (ast instanceof UseModule) {
-        if (ast.moduleBlock) {
-            setupImportRules(ast.moduleBlock, ast.path);
-        }
-        return;
-    }
-    const skipKeys = new Set(["parent", "type"]);
-    for (const key of Object.keys(ast) as (keyof Expression)[]) {
-        if (skipKeys.has(key as string)) continue;
-        const val = (ast as unknown as Record<string, unknown>)[key as string];
-        if (val instanceof Expression) {
-            setupImportRules(val, entry);
-        } else if (Array.isArray(val)) {
-            for (const item of val) {
-                if (item instanceof Expression) {
-                    setupImportRules(item, entry);
                 }
             }
         }
@@ -230,7 +193,7 @@ export function compile(
         }
 
         // Tree-shaking — remove unreachable definitions
-        const filteredBlock = treeShake(entryAst, entry);
+        const filteredBlock = treeShake(entryAst);
 
         // Codegen
         const js = writeJS(filteredBlock, mode);

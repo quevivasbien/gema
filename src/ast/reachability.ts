@@ -175,6 +175,7 @@ export function computeReachable(block: Block): Set<string> {
         if (e instanceof StructDef) continue;
         if (e instanceof Trait) continue;
         if (e instanceof Assignment) continue;
+        if (e instanceof UseModule) continue; // Skip UseModule — inner defs traced via their callers
         queue.push(e);
     }
     // If nothing non-definition, start from the last expression (which may be

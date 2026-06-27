@@ -1,63 +1,24 @@
 # Roadmap for `gema` development
 
+## Rework numeric types
+
+Change `Float` to `Num` and have it behave basically how the JS `Number` type works -- we use it both as our integer type and as our float type.
+
+The existing `Int` type is still available, but `Int` literals need to be suffixed with `i`; for example, `x = 121i; y = x + 2i;` The intention is for this to be used _only_ in cases where we require an arbitrary size integer.
+
+Range iterators should accept either `Num` or `Int` starts, stops, and steps. E.g., `1..10`, `(1i..)`, `range(1, 100, 0.5)` are all OK, though you can't mix and match types, so something like `1..10i` would be illegal.
+
+We should have an integer divide operator, `//` (and accompanying `//=`). We should also use the default JS behavior for the `%` operator (go up on negative numbers, not down) but have a second `%%` operator (and `%%=`) that behaves like our `%` operator currently does (uses the `$mod$` builtin function).
+
+This will require re-working many of our tests to use the new `Num` and `Int` types and `Int` syntax. Most of the existing tests should use `Num` where `Int` is currently used, but we should also add some new tests in cases where either `Num` or `Int` would be appropriate.
+
+Scientific notation syntax with `e`, like `13e6` should be allowed for defining `Num` literals.
+
+Including a num literal in a program that is outside the 53 bits of integer precision allowed by the FP64 data type should be a compile-time error, unless the user includes a decimal point in the literal (as a clarification that it is intended to be a floating-point number, not an integer), or uses the scientific notation syntax.
+
 ## IO
 
 We need some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
-
-## Explicit creation and improved handling of Maybe type
-
-We should allow users to explicitly create these instead of just having them as the result of indexing operations.
-
-Example of proposed syntax:
-
-```gema
-func retainIfEven(x: Int): Maybe[Int] {
-  if x % 2 == 0 {
-    some(x)   # This is just a no-op in JS -- the Maybe type exists purely as a type-checking construct to check for the presence of `undefined` values
-  } else {
-    none:Int  # Requires a new `none` keyword, also uses the same type annotation that we have in use currently for empty lists; otherwise "none" on its own would have an ambiguous type
-  }
-}
-```
-
-It would be helpful to have a new matching syntax:
-
-```gema
-func sumMaybes(iter: Iter[Maybe[Int]]) {
-  reduce(
-    \(acc, x) {
-      match x {
-        some(value) value,  # syntax is some(<var>) <expression that can use var> -- {} is optional around the expression
-        none 0,  # syntax is <none> <expression>
-      }
-    },
-    0,
-    iter
-  )
-}
-```
-
-this example would be functionally equivalent to the currently possible
-
-```gema
-func sumMaybes(iter: Iter[Maybe[Int]]) {
-  reduce(
-    \(acc, x) {
-      if isnone(x) {
-        0
-      } else {
-        unwrap(value)
-      }
-    },
-    0,
-    iter
-  )
-}
-```
-
-(but would compile slightly differently, since the latter has an unnecessary check for `undefined` on the `unwrap`).
-
-(When we implement enums later, we can reuse this match syntax there.)
 
 ## Error handling
 
@@ -156,7 +117,7 @@ The `:` that we have as part of our type annotations is not really needed--it's 
 
 ## Misc improvements and bug fixes
 
-### Tail-call optimization for if / else branching. Currently, this will use TCO:
+### Tentative: Tail-call optimization for if / else branching. Currently, this will use TCO:
 
 ```gema
 func f(n: Int, res: Int): Int {
@@ -175,6 +136,8 @@ func f(n: Int, res: Int): Int {
 ```
 
 Maybe the most straightforward way to support this and any other deep recursion case is to detect any other case where we have a recursive function (beside the easily TCO-optimized case we already support) and use trampoline functions in these cases.
+
+This is maybe not a huge priority, since usually the iterate iterator is a better way to solve this sort of problem, anyway.
 
 ### Add a proper name registry so we can get rid of all the weird name mangling and be sure to avoid name collisions
 
@@ -204,7 +167,11 @@ We currently have a weird hybrid variable resolution where some things look in s
 
 - Do not allow functions to take arguments of type null. Something like this should not compile: `func foo(x: Null) {1;} foo({1;}); 1`
 
-- Nodes should have their module names in addition to their lines and cols
+- Nodes should have their module names in addition to their lines and cols, set during parsing instead of as a post-parsing step
+
+- Get rid of automatic Str -> Iter conversions. Users can explicitly convert strings to iter if they want to do this.
+
+- It should be possible to break/continue/return out of match expressions or if/else statements (special control flow statements need special type resolution logic)
 
 ### range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
 

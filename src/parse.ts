@@ -1749,7 +1749,6 @@ class Parser {
         // Check if we're looking at identifiers (a symbol list) or a string (bare import)
         if (!hasParens && this.current().type !== TokenType.String) {
             // Could be a bare identifier list without parens
-            let savedIndex = this.index;
             // Peek ahead: if we see Identifier [Comma Identifier]* [From] String, it's a symbol list
             if (this.current().type === TokenType.Identifier && !this.atEnd()) {
                 hasSymbolList = true;

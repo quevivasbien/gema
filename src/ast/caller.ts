@@ -1,4 +1,3 @@
-import { functionNameWithParamTypes } from "./caller-utils";
 import type { Expression } from "./expression";
 import { FunctionDef } from "./nodes";
 import type { Scope } from "./scope";
@@ -20,7 +19,7 @@ import {
     MutDictType,
     MutSetType,
     SetType,
-    TemplateTypes,
+    type TemplateTypes,
     TupleType,
     type CallableType,
     type Type,
@@ -1459,9 +1458,6 @@ export function findCaller(
           result: CallerResult;
       }
     | { error: string; result: null } {
-    const fullName = functionNameWithParamTypes(name, argTypes);
-    const sourceFile = (root as { sourceFile?: string }).sourceFile;
-
     // Scope-based lookup — the single source of truth for name resolution.
     // Scope entries are populated by FunctionDef.cascadeTypes (for functions),
     // Assignment.cascadeTypes (for variables), and UseModule.cascadeTypes (for imports).
@@ -1518,6 +1514,7 @@ export function findCaller(
                                         referToByName: result.fullName,
                                         callerType: result.funcType,
                                         rootType: result.returnType,
+                                        paramNames: v.paramNames,
                                     };
                                 }
                             }

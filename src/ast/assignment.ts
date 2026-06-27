@@ -7,9 +7,7 @@ import { TupleType, type Type } from "./types";
 
 function addVariableToScope(
     enclosingScope: Scope,
-    varAttrs: { name: string; type: Type; isMutable: boolean },
-    isModuleLevel: boolean = false,
-    sourceFile?: string
+    varAttrs: { name: string; type: Type; isMutable: boolean }
 ) {
     let isReassignment = false;
 
@@ -17,12 +15,6 @@ function addVariableToScope(
     // (UseModule.cascadeTypes injects them into the importing scope later).
     const existingDefinition = enclosingScope.lookup(varAttrs.name);
     if (existingDefinition !== null) {
-        // Module-level definitions that clash should be skipped — the
-        // module's own scope doesn't need duplicate entries.
-        if (isModuleLevel) {
-            return { isReassignment: false };
-        }
-
         const existingAttrs = existingDefinition.attrs;
         if (varAttrs.isMutable) {
             return {
@@ -99,20 +91,11 @@ export class Assignment extends Expression {
             // Should be impossible
             throw new Error("Tried to define a variable in a position with no enclosing scope");
         }
-        const isModuleLevel =
-            this.sourceFile !== undefined &&
-            Expression.entryFile !== null &&
-            this.sourceFile !== Expression.entryFile;
-        const { error, isReassignment } = addVariableToScope(
-            enclosingScope,
-            {
-                name: this.name,
-                type: this.value.type!,
-                isMutable: this.isMutable,
-            },
-            isModuleLevel,
-            this.sourceFile
-        );
+        const { error, isReassignment } = addVariableToScope(enclosingScope, {
+            name: this.name,
+            type: this.value.type!,
+            isMutable: this.isMutable,
+        });
         if (error) {
             throw this.error(error);
         }
@@ -187,24 +170,15 @@ export class TupleUnpack extends Expression {
         if (enclosingScope === null) {
             throw new Error("Tried to unpack a tuple in a position with no enclosing scope");
         }
-        const isModuleLevel =
-            this.sourceFile !== undefined &&
-            Expression.entryFile !== null &&
-            this.sourceFile !== Expression.entryFile;
         for (let i = 0; i < this.bindings.length; i++) {
             const binding = this.bindings[i];
             const elemType = this.source.type.types[i];
 
-            const { error, isReassignment } = addVariableToScope(
-                enclosingScope,
-                {
-                    name: binding.name,
-                    type: elemType,
-                    isMutable: binding.isMutable,
-                },
-                isModuleLevel,
-                this.sourceFile
-            );
+            const { error, isReassignment } = addVariableToScope(enclosingScope, {
+                name: binding.name,
+                type: elemType,
+                isMutable: binding.isMutable,
+            });
             if (error) {
                 throw this.error(error);
             }

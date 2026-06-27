@@ -11,7 +11,7 @@ import {
     FuncType,
     isBuiltinTypeName,
     substituteTypeParams,
-    TemplateTypes,
+    type TemplateTypes,
     type Type,
 } from "./types";
 

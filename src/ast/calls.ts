@@ -1270,7 +1270,19 @@ export class Call extends Expression {
                     if (i > 0) {
                         writer.write(", ");
                     }
-                    arg.toJS(writer);
+                    // Auto-convert Arg to Iter when the function expects Iter but gets Arg
+                    if (
+                        this.callerType instanceof FuncType &&
+                        this.callerType.paramTypes[i] instanceof IterType &&
+                        arg.type instanceof ArrayType
+                    ) {
+                        writer.useBuiltin("$ArrayIterator$");
+                        writer.write("new $ArrayIterator$(");
+                        arg.toJS(writer);
+                        writer.write(")");
+                    } else {
+                        arg.toJS(writer);
+                    }
                 });
                 writer.write(")");
             }
@@ -1654,7 +1666,19 @@ export class DirectCall extends Expression {
                     if (i > 0) {
                         writer.write(", ");
                     }
-                    arg.toJS(writer);
+                    // Auto-convert Arr to Iter when function expects Iter
+                    if (
+                        this.caller.type instanceof FuncType &&
+                        this.caller.type.paramTypes[i] instanceof IterType &&
+                        arg.type instanceof ArrayType
+                    ) {
+                        writer.useBuiltin("$ArrayIterator$");
+                        writer.write("new $ArrayIterator$(");
+                        arg.toJS(writer);
+                        writer.write(")");
+                    } else {
+                        arg.toJS(writer);
+                    }
                 });
                 writer.write(")");
             } else if (
