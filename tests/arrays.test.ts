@@ -151,6 +151,6 @@ test("array: contains", () => {
 
 test("array: find", () => {
     testCompile("unwrap(find(20, [10, 20, 30]))", 1);
-    testCompile("isnone(find(99, [1, 2, 3], 99))", true);
+    testCompile("isnone(find(99, [1, 2, 3]))", true);
     testCompile('unwrap(find("a", ["a", "b", "c"]))', 0);
 });

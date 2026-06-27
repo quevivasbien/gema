@@ -376,7 +376,7 @@ export class Call extends Expression {
             this.callerType instanceof TupleType &&
             this.args.length === 1 &&
             this.args[0] instanceof Literal &&
-            this.args[0].type === "Int"
+            (this.args[0].type === "Int" || this.args[0].type === "Num")
         ) {
             const idx = parseInt(this.args[0].value, 10);
             if (idx >= 0 && idx < this.callerType.types.length) {
@@ -1235,21 +1235,21 @@ export class Call extends Expression {
                     return;
                 case "find":
                     if (
-                        this.args[0]?.type instanceof ArrayType ||
-                        this.args[0]?.type instanceof MutArrType ||
-                        this.args[0]?.type === "Str"
+                        this.args[1]?.type instanceof ArrayType ||
+                        this.args[1]?.type instanceof MutArrType ||
+                        this.args[1]?.type === "Str"
                     ) {
                         writer.write("((i) => i === -1 ? undefined : i)(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(".indexOf(");
                         this.args[1]?.toJS(writer);
+                        writer.write(".indexOf(");
+                        this.args[0]?.toJS(writer);
                         writer.write("))");
-                    } else if (this.args[0]?.type instanceof IterType) {
+                    } else if (this.args[1]?.type instanceof IterType) {
                         writer.useBuiltin("$find$");
                         writer.write("$find$(");
-                        this.args[0].toJS(writer);
+                        this.args[0]?.toJS(writer);
                         writer.write(", ");
-                        this.args[1]?.toJS(writer);
+                        this.args[1].toJS(writer);
                         writer.write(")");
                     }
                     return;
@@ -1597,9 +1597,8 @@ export class DirectCall extends Expression {
             // Resolve the exact element type for literal indices
             if (
                 this.args.length === 1 &&
-                this.args[0].type === "Int" &&
-                this.args[0] instanceof Literal &&
-                typeof this.args[0].value === "bigint"
+                (this.args[0].type === "Int" || this.args[0].type === "Num") &&
+                this.args[0] instanceof Literal
             ) {
                 const idx = Number(this.args[0].value);
                 if (idx < 0 || idx >= this.caller.type.types.length) {

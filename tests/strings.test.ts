@@ -81,9 +81,9 @@ test("string: contains", () => {
 });
 
 test("string: find", () => {
-    testCompile('unwrap(find("hello", "ll"))', 2);
-    testCompile('isnone(find("hello", "xyz"))', true);
-    testCompile('unwrap(find("hello", "h"))', 0);
+    testCompile('unwrap(find("ll", "hello"))', 2);
+    testCompile('isnone(find("xyz", "hello"))', true);
+    testCompile('unwrap(find("h", "hello"))', 0);
 });
 
 // ============================================================
