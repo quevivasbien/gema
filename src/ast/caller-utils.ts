@@ -97,7 +97,7 @@ function extractBindings(
     if (paramType instanceof MaybeType && argType instanceof MaybeType) {
         return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
     }
-    if (!typesMatchWithConversion(paramType, argType)) return false;
+    if (!typesMatchWithConversion(paramType, argType, true)) return false;
     return true;
 }
 

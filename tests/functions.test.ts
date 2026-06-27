@@ -432,3 +432,34 @@ test("TAF trait: struct implementing Self.zero", () => {
         6n
     );
 });
+
+// ── Automatic array -> iterator conversion ────────────────────────────────────
+
+test("automatic Arr -> Iter conversion: fallback on Iter signature if no matching Arr signature exists", () => {
+    testCompile(
+        `
+        func foo(iter: Iter[Int]) { 1 }
+        foo([1,2,3])
+        `,
+        1n
+    );
+});
+
+test("automatic Arr -> Iter conversion: fallback should happen only if no matching Arr signature exists", () => {
+    testCompile(
+        `
+        func foo(iter: Iter[Int]) { 1 }
+        func foo(iter: Arr[Int]) { 2 }
+        foo([1,2,3])
+        `,
+        2n
+    );
+    testCompile(
+        `
+        func foo(iter: Arr[Int]) { 2 }
+        func foo(iter: Iter[Int]) { 1 }
+        foo([1,2,3])
+        `,
+        2n
+    );
+});

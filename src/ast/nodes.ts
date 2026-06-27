@@ -386,6 +386,8 @@ export class Variable extends Expression {
         // type param from enclosing generic function (e.g., T in T.zero())
         if (!isBuiltinTypeName(this.name)) {
             let fn: Expression | null = this.parent;
+            // TODO: we could get rid of the instanceof check here and just
+            // have a class method called something like getGenericTypeParams
             while (fn) {
                 if (
                     fn instanceof FunctionDef &&

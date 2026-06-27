@@ -7,6 +7,7 @@ import {
     deepEquals,
     looseMatch,
     paramTypesMatchArgTypes,
+    stripTraits,
 } from "./type-utils";
 import {
     ArrayType,
@@ -61,8 +62,6 @@ export type CallerResult =
           callerType: CallableType;
           rootType: Type;
       };
-
-// ── Type conversion builtins ──
 
 // ── Builtin function dispatch ──
 
@@ -1487,6 +1486,9 @@ export function findCaller(
             // (to handle overloads — multiple functions with same name, different types).
             // Iterate the entire scope chain to find all matching entries.
             const matchedFunc = (() => {
+                // Pass 1: strict match — require exact param type match without Arr→Iter conversion.
+                // This ensures that when both `foo(iter: Arr[Int])` and `foo(iter: Iter[Int])` exist,
+                // the Arr overload is preferred for array arguments.
                 let searchScope: Scope | null = fnCallScope;
                 while (searchScope) {
                     for (const v of searchScope.variables) {
@@ -1494,7 +1496,49 @@ export function findCaller(
                         if (!v.isGeneric) {
                             if (
                                 v.type instanceof FuncType &&
-                                paramTypesMatchArgTypes(v.type.paramTypes, argTypes)
+                                paramTypesMatchArgTypes(v.type.paramTypes, argTypes, false)
+                            ) {
+                                return {
+                                    kind: "function" as const,
+                                    referToByName: v.fullName,
+                                    callerType: v.type,
+                                    rootType: v.type.returnType,
+                                    paramNames: v.paramNames,
+                                };
+                            }
+                        } else if (v.def) {
+                            const genericFn = v.def as FunctionDef;
+                            if (genericFn.params.length === argTypes.length) {
+                                const result = genericFn.monomorphize(argTypes);
+                                if (result !== null) {
+                                    return {
+                                        kind: "function" as const,
+                                        referToByName: result.fullName,
+                                        callerType: result.funcType,
+                                        rootType: result.returnType,
+                                        paramNames: v.paramNames,
+                                    };
+                                }
+                            }
+                        }
+                    }
+                    searchScope = searchScope.parent;
+                }
+
+                if (!argTypes.some(e => e instanceof ArrayType)) {
+                    return null;
+                }
+
+                // Pass 2: loose match — allow Arr→Iter conversion. Only reached if
+                // no strict match was found in pass 1 and one of the argTypes is an array type
+                searchScope = fnCallScope;
+                while (searchScope) {
+                    for (const v of searchScope.variables) {
+                        if (v.class !== "func" || v.name !== name) continue;
+                        if (!v.isGeneric) {
+                            if (
+                                v.type instanceof FuncType &&
+                                paramTypesMatchArgTypes(v.type.paramTypes, argTypes, true)
                             ) {
                                 return {
                                     kind: "function" as const,
