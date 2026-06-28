@@ -265,4 +265,35 @@ func multiply(z: Complex, c: Complex): Complex {
 func abs2(z: Complex): Num { z.re * z.re + z.im * z.im }`,
         },
     },
+    jsInterop: {
+        label: "JS Interop",
+        files: {
+            "main.gema": `# Importing functions from a JavaScript module
+#
+# Use the "use" keyword with type annotations to import
+# symbols from a JS file. The types are trusted as-is
+# (this is an "unsafe" operation — no runtime verification).
+
+use (
+    double: Func[Num: Num],
+    greet: Func[Str: Str],
+) from "utils.js"
+
+# Use the imported JS functions alongside gema code
+result1 = double(21.0);
+result2 = greet("gema");
+
+(result1, result2)`,
+            "utils.js": `// JavaScript utility functions imported by main.gema
+
+export function double(x) {
+    return x * 2;
+}
+
+export function greet(name) {
+    return "Hello, " + name + "!";
+}
+`,
+        },
+    },
 };
