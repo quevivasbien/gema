@@ -1723,8 +1723,9 @@ class Parser {
             return this.error("Expected module path or symbol list after 'use'.");
         }
 
-        // Parse the optional symbol list: (foo, bar) or foo, bar
+        // Parse the optional symbol list: (foo, bar) or foo, bar or (foo: Type, bar: Type)
         const symbols: string[] = [];
+        const typedSymbols: AST.JSImportSymbol[] = [];
         let hasParens = false;
         let hasSymbolList = false;
 
@@ -1743,14 +1744,39 @@ class Parser {
         }
 
         if (hasParens || hasSymbolList) {
-            // Parse comma-separated identifier list
+            // Parse comma-separated identifier list, optionally with type annotations
             while (!this.atEnd() && this.current().type === TokenType.Identifier) {
-                symbols.push(this.current().text);
+                const symName = this.current().text;
                 this.advance(); // consume the identifier
-                if (this.current().type === TokenType.Comma) {
-                    this.advance(); // consume ','
+
+                // Check for type annotation (name: Type)
+                if (!this.atEnd() && this.current().type === TokenType.Colon) {
+                    // Type-annotated symbol
+                    if (symbols.length > 0) {
+                        return this.error(
+                            "Cannot mix typed and un-typed imports in the same list."
+                        );
+                    }
+                    this.advance(); // consume ':'
+                    const typeAnnotation = this.getTypeName();
+                    if (!typeAnnotation) {
+                        return this.error("Expected type annotation after ':'.");
+                    }
+                    typedSymbols.push({ name: symName, typeAnnotation });
+                    // getTypeName already consumed trailing comma if present
                 } else {
-                    break;
+                    // Plain symbol name (existing behavior)
+                    if (typedSymbols.length > 0) {
+                        return this.error(
+                            "Cannot mix typed and un-typed imports in the same list."
+                        );
+                    }
+                    symbols.push(symName);
+                    if (this.current().type === TokenType.Comma) {
+                        this.advance(); // consume ','
+                    } else {
+                        break;
+                    }
                 }
             }
 
@@ -1759,10 +1785,6 @@ class Parser {
                     return this.error("Expected ')' after symbol list.");
                 }
                 this.advance(); // consume ')'
-            }
-
-            if (symbols.length === 0) {
-                return this.error("Expected at least one symbol name.");
             }
 
             if (this.atEnd() || this.current().type !== TokenType.From) {
@@ -1780,6 +1802,34 @@ class Parser {
             path = path.slice(1, -1);
         }
         this.advance(); // consume the string
+
+        // Determine if this is a JS module import
+        const isJSModule = path.endsWith(".js") || path.endsWith(".mjs");
+
+        if (isJSModule) {
+            // JS module import: require parens and type annotations
+            if (!hasParens) {
+                return this.error("JS module imports require parentheses around the symbol list.");
+            }
+            if (typedSymbols.length > 0 && symbols.length > 0) {
+                return this.error("Cannot mix typed and un-typed imports in the same list.");
+            }
+            // If symbols list was provided but without type annotations, that's an error
+            if (symbols.length > 0 && typedSymbols.length === 0) {
+                return this.error("Type annotations are required for JS module imports.");
+            }
+            // Empty import lists are not allowed for JS modules
+            if (typedSymbols.length === 0) {
+                return this.error(
+                    "JS module imports require at least one symbol."
+                );
+            }
+            return this.tryCreateASTExpression(
+                () => new AST.UseJSModule(rootToken, path, typedSymbols)
+            );
+        }
+
+        // ── Gema module import (existing behavior) ──
 
         // Check for circular imports
         if (this.visitedModules.has(path)) {

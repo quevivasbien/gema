@@ -192,13 +192,28 @@ export function lastExprShouldReturn(lastExpr: Expression): boolean {
 export class Block extends Expression {
     expressions: Expression[];
     scope: Scope = new Scope();
+    /** JS module imports collected from UseJSModule nodes during cascadeTypes.
+     *  Maps module path → array of imported symbol names.
+     *  Only meaningful on the top-level Block. */
+    jsImports: Map<string, string[]>;
 
-    constructor(rootToken: Token, expressions: Expression[]) {
+    constructor(rootToken: Token, expressions: Expression[], jsImports: Map<string, string[]> = new Map()) {
         super(rootToken.line, rootToken.col);
         if (expressions.length === 0) {
             throw new Error("block expression must not be empty.");
         }
         this.expressions = expressions;
+        this.jsImports = jsImports;
+    }
+
+    /** Register a JS module import on this block. */
+    addJSImport(path: string, names: string[]): void {
+        if (this.jsImports.has(path)) {
+            const existing = this.jsImports.get(path)!;
+            this.jsImports.set(path, [...existing, ...names]);
+        } else {
+            this.jsImports.set(path, [...names]);
+        }
     }
 
     getAllChildren(): Expression[] {
@@ -228,7 +243,8 @@ export class Block extends Expression {
     clone(bindings?: Map<string, Type>): Expression {
         return new Block(
             { line: this.line, col: this.col, text: "", type: TokenType.LBrace },
-            this.expressions.map((e) => e.clone(bindings))
+            this.expressions.map((e) => e.clone(bindings)),
+            new Map(this.jsImports),
         );
     }
 

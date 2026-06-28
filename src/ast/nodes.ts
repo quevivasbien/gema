@@ -107,6 +107,103 @@ export class UseModule extends Expression {
     }
 }
 
+// ── JS Import Symbol ──
+
+/** A symbol imported from a JS module with its declared type annotation. */
+export interface JSImportSymbol {
+    name: string;
+    typeAnnotation: Type;
+}
+
+/**
+ * Use directive for importing symbols from a JavaScript module.
+ * Unlike UseModule (which parses a .gema file), this trusts the user-provided
+ * type annotations without verification — it is an "unsafe" operation.
+ *
+ * During cascadeTypes, the imported symbols are registered in the enclosing scope
+ * and the import is recorded on the top-level Block for codegen.
+ * During codegen, the JSWriter emits ES module import statements at the top level.
+ */
+export class UseJSModule extends Expression {
+    constructor(
+        rootToken: Token,
+        public path: string,
+        public imports: JSImportSymbol[]
+    ) {
+        super(rootToken.line, rootToken.col);
+        this.type = "Null";
+    }
+
+    getAllChildren(): Expression[] {
+        return [];
+    }
+
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+
+        // Find the top-level Block to register JS imports
+        // (Start from parent — UseJSModule itself is never a Block)
+        let topBlock: Block | null = null;
+        let ancestor: Expression | null = this.parent;
+        while (ancestor) {
+            if (ancestor instanceof Block) {
+                topBlock = ancestor;
+            }
+            ancestor = ancestor.parent;
+        }
+
+        if (topBlock) {
+            // Check for duplicate symbol names across all JS imports
+            for (const imp of this.imports) {
+                for (const [existingPath, existingNames] of topBlock.jsImports) {
+                    if (existingNames.includes(imp.name)) {
+                        throw this.error(
+                            `Duplicate JS import: symbol '${imp.name}' is already imported from '${existingPath}'`
+                        );
+                    }
+                }
+            }
+            topBlock.addJSImport(
+                this.path,
+                this.imports.map((i) => i.name)
+            );
+        }
+
+        // Register imported symbols in the enclosing scope
+        const enclosingScope = this.parent?.getScope();
+        if (!enclosingScope) return;
+
+        for (const imp of this.imports) {
+            enclosingScope.defineVariable(
+                {
+                    class: "var",
+                    name: imp.name,
+                    type: imp.typeAnnotation,
+                    isMutable: false,
+                    isConsumed: false,
+                },
+                true
+            );
+        }
+    }
+
+    toJS(_writer: JSWriter): void {
+        // JS imports are emitted at the top level by the JSWriter.
+        // This node produces no inline code.
+    }
+
+    clone(_bindings?: Map<string, Type>): Expression {
+        return new UseJSModule(
+            { line: this.line, col: this.col, text: "use", type: TokenType.Use },
+            this.path,
+            this.imports.map((i) => ({
+                name: i.name,
+                typeAnnotation: i.typeAnnotation,
+            }))
+        );
+    }
+}
+
 /**
  * Range literal created by the `..` syntax.
  * `a..b` → start=a, end=b (inclusive)

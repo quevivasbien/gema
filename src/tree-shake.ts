@@ -154,5 +154,5 @@ export function treeShake(unifiedBlock: Block): Block {
         return shouldKeepDefinition(e, reachable);
     });
     const rootToken = { line: 0, col: 0, text: "", type: TokenType.LBrace };
-    return new Block(rootToken, filteredExprs);
+    return new Block(rootToken, filteredExprs, unifiedBlock.jsImports);
 }

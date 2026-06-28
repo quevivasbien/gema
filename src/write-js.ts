@@ -1,4 +1,5 @@
 import type * as AST from "./ast/index";
+import { Block } from "./ast/expression";
 import { BUILTINS } from "./builtins";
 
 const INDENT = "    ";
@@ -174,6 +175,23 @@ export class JSWriter {
         this.ast.toJS(this);
         this.newLine();
 
+        // Collect JS import statements from the top-level Block
+        let jsImportStmts = "";
+        if (this.ast instanceof Block) {
+            for (const [path, names] of this.ast.jsImports) {
+                // Ensure the path starts with ./ or ../ for relative imports.
+                // Users should not need to prefix with ./ in gema source.
+                const importPath =
+                    path.startsWith("./") || path.startsWith("../") ? path : `./${path}`;
+                if (names.length > 0) {
+                    jsImportStmts += `import { ${names.join(", ")} } from "${importPath}";\n`;
+                } else {
+                    jsImportStmts += `import "${importPath}";\n`;
+                }
+            }
+            if (jsImportStmts) jsImportStmts += "\n";
+        }
+
         const builtinFuncs =
             this.builtins.size === 0
                 ? ""
@@ -191,7 +209,7 @@ export class JSWriter {
                 mainProgram.replace(/^\(/, "").replace(/\)\(\)$/g, ";");
         }
 
-        return builtinFuncs + "// PROGRAM //\n" + mainProgram;
+        return jsImportStmts + builtinFuncs + "// PROGRAM //\n" + mainProgram;
     }
 }
 

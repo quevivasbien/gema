@@ -11,7 +11,16 @@ export { Literal } from "./literals";
 export { Binary, Unary } from "./operators";
 
 // Nodes (variables, functions, tuples)
-export { AnonymousFunction, FunctionDef, RangeIter, TupleLit, UseModule, Variable } from "./nodes";
+export {
+    AnonymousFunction,
+    FunctionDef,
+    RangeIter,
+    TupleLit,
+    UseModule,
+    UseJSModule,
+    type JSImportSymbol,
+    Variable,
+} from "./nodes";
 
 // Calls
 export { Call, DirectCall } from "./calls";
