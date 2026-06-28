@@ -115,14 +115,14 @@ export class UseModule extends Expression {
  * `..`   → start=null, end=null (from 0 to infinity)
  */
 export class RangeIter extends Expression {
-    start: Expression | null;
+    start: Expression;
     end: Expression | null;
     step: Expression | null;
-    innerType: Type | null = null;
+    innerType: "Num" | "Int" | null = null;
 
     constructor(
         startToken: Token,
-        start: Expression | null,
+        start: Expression,
         end: Expression | null,
         step: Expression | null
     ) {
@@ -135,45 +135,27 @@ export class RangeIter extends Expression {
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
 
-        if (this.start !== null) {
-            this.start.cascadeTypes(this, true);
-            this.innerType = this.start.type;
-            if (this.innerType !== "Int" && this.innerType !== "Num") {
-                throw this.error(`range start must be Int or Num, got ${this.innerType}`);
-            }
+        this.start.cascadeTypes(this, true);
+        if (this.start.type !== "Int" && this.start.type !== "Num") {
+            throw this.error(`range start must be Int or Num, got ${this.start.type}`);
         }
+        this.innerType = this.start.type;
+        
         if (this.end !== null) {
             this.end.cascadeTypes(this, true);
-            if (this.innerType === null) {
-                this.innerType = this.end.type;
-            }
             if (this.end.type !== this.innerType) {
                 throw this.error(
                     `range end type ${this.end.type} does not match range start type ${this.innerType}`
                 );
             }
-            if (this.end.type !== "Int" && this.end.type !== "Num") {
-                throw this.error(`range end must be Int or Num, got ${this.end.type}`);
-            }
         }
         if (this.step !== null) {
             this.step.cascadeTypes(this, true);
-            if (this.innerType === null) {
-                this.innerType = this.step.type;
-            }
             if (this.step.type !== this.innerType) {
                 throw this.error(
                     `range step type ${this.step.type} does not match range value type ${this.innerType}`
                 );
             }
-            if (this.step.type !== "Int" && this.step.type !== "Num") {
-                throw this.error(`range step must be Int or Num, got ${this.step.type}`);
-            }
-        }
-
-        if (this.innerType === null) {
-            // Should be unreachable
-            throw new Error("couldn't resolve inner type of range iterator");
         }
 
         this.type = new IterType(this.innerType);
@@ -182,22 +164,21 @@ export class RangeIter extends Expression {
     clone(bindings?: Map<string, Type>): Expression {
         return new RangeIter(
             { line: this.line, col: this.col, text: "..", type: TokenType.DotDot },
-            this.start ? this.start.clone(bindings) : null,
+            this.start.clone(bindings),
             this.end ? this.end.clone(bindings) : null,
             this.step ? this.step.clone(bindings) : null
         );
     }
 
     toJS(writer: JSWriter): void {
-        writer.useBuiltin("$RangeIterator$");
-        writer.write("new $RangeIterator$(");
-        if (this.start !== null) {
-            this.start.toJS(writer);
-        } else if (this.type instanceof IterType && this.type.innerType === "Int") {
-            writer.write("0n");
+        if (this.innerType === "Int") {
+            writer.useBuiltin("$IntRangeIterator$");
+            writer.write("new $IntRangeIterator$(");
         } else {
-            writer.write("0");
+            writer.useBuiltin("$RangeIterator$");
+            writer.write("new $RangeIterator$(");
         }
+        this.start.toJS(writer);
         writer.write(", ");
         if (this.end !== null) {
             this.end.toJS(writer);

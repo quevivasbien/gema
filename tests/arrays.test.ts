@@ -128,9 +128,8 @@ test("array slice: arr(a..)", () => {
     testCompile("arr = [1, 2, 3]; arr(5..)", []);
 });
 
-test("array slice: arr(..b)", () => {
-    testCompile("arr = [0, 1, 2, 3]; arr(..2)", [0, 1, 2]);
-    testCompile("arr = [10, 20, 30]; arr(..0)", [10]);
+test("array slice: arr(..b) is not legal", () => {
+    testParseExpectError("arr = [0, 1, 2, 3]; arr(..2)");
 });
 
 test("array slice: with mutarr", () => {

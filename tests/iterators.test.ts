@@ -355,9 +355,9 @@ test("range syntax: precedence i..i*2+1", () => {
     testCompile("i = 3; collect(i..i*2+1)", [3, 4, 5, 6, 7]);
 });
 
-test("range syntax: empty ..b (from 0 to b)", () => {
-    testParse("..5");
-    testCompile("collect(..5)", [0, 1, 2, 3, 4, 5]);
+test("range syntax: ..b (with no start value) is not legal", () => {
+    testParseExpectError("..5");
+    testParseExpectError("(..5)");
 });
 
 test("range syntax: a.. (infinite from a, take n)", () => {

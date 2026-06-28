@@ -1,4 +1,4 @@
-func quicksort(arr: Iter[Int]): Iter[Int] {
+func quicksort(arr: Iter[Num]): Iter[Num] {
     first = arr(0);
     if isnone(first){
         arr

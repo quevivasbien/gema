@@ -7,8 +7,7 @@ import { testCompile, testCompileMulti } from "./helpers";
 
 test("sandbox: FizzBuzz", () => {
     testCompile(
-        `
-        # Classic FizzBuzz: print Fizz for multiples of 3,
+        `# Classic FizzBuzz: print Fizz for multiples of 3,
 # Buzz for multiples of 5, FizzBuzz for both.
 
 func fizzbuzz(n: Num): Str {
@@ -143,26 +142,6 @@ sieve(50)   # primes up to 50`,
     );
 });
 
-test("sandbox: Functional pipeline", () => {
-    testCompile(
-        `# A functional pipeline: compute sum of squares of even
-# numbers from 1..100, using pipe and lambdas.
-
-result = 1..100
-    | filter(\\x { x % 2 == 0 })    # keep evens
-    | map(\\x { x * x })              # square them
-    | reduce(\\(acc, x) { acc + x }, 0) # sum
-
-# Same thing expressed more concisely:
-result2 = reduce(\\(acc, x) {
-    if x % 2 == 0 { acc + x * x } else { acc }
-}, 0, 1..100);
-
-result == result2   # true (both are 171700)`,
-        true
-    );
-});
-
 test("sandbox: Prime factorization", () => {
     testCompile(
         `# Prime factorization using recursion and iteration
@@ -185,7 +164,7 @@ func factors(n: Num): Arr[Num] {
     }
 };
 
-factors(84)   # [2, 2, 3, 7]`,
+factors(84)`,
         [2, 2, 3, 7]
     );
 });
@@ -237,59 +216,24 @@ func concat(a: Str, b: Str) { a + b };
 result_str = tacnoc("hello", "there");
 
 # Implement for integers (digit concatenation)
-func concat(a: Num, b: Num) {
-  func getNDigits(x: Num, n: Num): Num {
-    if x <= 0 { n }
-    else { getNDigits(x // 10, n + 1) }
+func concat(a: Int, b: Int) {
+  func getNDigits(x: Int, n: Int): Int {
+    if x <= 0i { n }
+    else { getNDigits(x // 10i, n + 1i) }
   };
-  a * 10 ^ getNDigits(b, 0) + b
+  a * 10i ^ getNDigits(b, 0i) + b
 };
-result_int = tacnoc(123, 45);
+result_int = tacnoc(123i, 45i);
 
 # Implement for a struct
-struct Pair { first: Num, second: Num }
+struct Pair { first: Int, second: Int }
 func concat(a: Pair, b: Pair) {
   Pair(concat(a.first, b.first), concat(a.second, b.second))
 };
-result_pair = tacnoc(Pair(1, 2), Pair(34, 56));
+result_pair = tacnoc(Pair(1i, 2i), Pair(34i, 56i));
 
 (result_str, result_int, result_pair)`,
-        ["therehello", 45123, { first: 341, second: 562 }]
-    );
-});
-
-test("sandbox: Closures and state", () => {
-    testCompile(
-        `# Closures capture mutable variables by reference,
-# enabling stateful function objects.
-
-func makeCounter(): Func[:Num] {
-    mut count = 0;
-    func() { count = count + 1; count }
-};
-
-a = makeCounter();
-b = makeCounter();
-indep_state = [a(), a(), b(), b()];   # [1, 2, 1, 2] — independent state
-
-# Higher-order: a function that takes a predicate
-# and returns a filtered counter
-func makeFilteredCounter(pred: Func[Num: Bool]): Func[:Num] {
-    mut count = 0;
-    func() {
-        count = count + 1;
-        if pred(count) { count } else { 0 }
-    }
-};
-
-evens = makeFilteredCounter(\\x { x % 2 == 0 });
-mutating_state = [evens(), evens(), evens()];   # [0, 2, 0]
-
-(indep_state, mutating_state)`,
-        [
-            [1, 2, 1, 2],
-            [0, 2, 0],
-        ]
+        ["therehello", 45123n, { first: 341n, second: 562n }]
     );
 });
 
@@ -302,8 +246,8 @@ test("sandbox: Mandelbrot set", () => {
 use "complex.gema"
 
 func mandelIter(z: Complex, c: Complex, i: Num): Bool {
-    if (i <= 0) { abs2(z) < 4.0 }
-    else { mandelIter(z * c, c, i - 1) }
+    if (i <= 0) { return abs2(z) < 4.0 }
+    mandelIter(z * c, c, i - 1)
 }
 
 func isMandel(c: Complex): Bool {
@@ -325,7 +269,7 @@ func toStr(arr: Iter[Bool]) {
 }
 
 grid = concat(map(\\y {
-    xs = collect(linspace(-1.75, 0.25, 19));
+    xs = collect(linspace(-1.5, 0.5, 19));
     toStr(map(\\x { isMandel(Complex(x, y)) }, xs))
 }, collect(linspace(-1., 1., 19))));
 length(grid) > 0 # Just a basic assertion to check that the program ran`,

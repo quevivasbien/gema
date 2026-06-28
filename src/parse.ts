@@ -148,7 +148,7 @@ PARSE_RULES[TokenType.Bang] = {
     precedence: Precedence.Call,
 };
 PARSE_RULES[TokenType.DotDot] = {
-    prefix: parseRangePrefix,
+    prefix: null,
     infix: parseRange,
     precedence: Precedence.Range,
 };
@@ -741,31 +741,6 @@ function parseRange(parser: Parser, leftExpr: AST.Expression): AST.Expression {
         endExpr = parser.parseWithPrecedence(Precedence.Range + 1);
     }
     return parser.tryCreateASTExpression(() => new AST.RangeIter(token, leftExpr, endExpr, null));
-}
-
-function parseRangePrefix(parser: Parser): AST.Expression {
-    const token = parser.previous(); // '..'
-    // Check for open-ended: just '..' with no following expression
-    if (
-        parser.atEnd() ||
-        parser.current().type === TokenType.RParen ||
-        parser.current().type === TokenType.Semicolon ||
-        parser.current().type === TokenType.RBrace ||
-        parser.current().type === TokenType.RBracket ||
-        parser.current().type === TokenType.Comma ||
-        parser.current().type === TokenType.Pipe ||
-        parser.current().type === TokenType.Colon
-    ) {
-        // No end expression specified — range from 0 to infinity
-        return parser.tryCreateASTExpression(() => new AST.RangeIter(token, null, null, null));
-    }
-    // Parse the end expression
-    const endExpr = parser.parseWithPrecedence(Precedence.Range + 1);
-    if (endExpr === null) {
-        return parser.error(`Expected expression after '..'.`);
-    }
-    // Start from 0, go to endExpr
-    return parser.tryCreateASTExpression(() => new AST.RangeIter(token, null, endExpr, null));
 }
 
 function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {

@@ -1,4 +1,4 @@
-func quicksort(arr: Arr[Int]): Arr[Int] {
+func quicksort(arr: Arr[Num]): Arr[Num] {
     if (length(arr) <= 1) {
         arr
     } else {

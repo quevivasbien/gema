@@ -110,6 +110,9 @@ class Scanner {
             if (this.text[this.index] === "+" || this.text[this.index] === "-") {
                 this.index += 1;
             }
+            if (!/^\d$/.test(this.text[this.index])) {
+                throw this.error("expected exponent for for float with scientific notation syntax");
+            }
             while (/^\d$/.test(this.text[this.index])) {
                 this.index += 1;
             }

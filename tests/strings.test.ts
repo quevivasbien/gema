@@ -59,14 +59,12 @@ test("string: slice with a.. (to end)", () => {
     testCompile('"hello"(3..)', "lo");
 });
 
-test("string: slice with ..b (from start)", () => {
-    testCompile('"hello"(..3)', "hell");
-    testCompile('"hello"(..0)', "h");
+test("string: slice with ..b is not legal", () => {
+    testParseExpectError('"hello"(..3)');
 });
 
 test("string: slice string variable", () => {
     testCompile('x = "hello"; x(1..2)', "el");
-    testCompile('x = "hello"; x(..2)', "hel");
     testCompile('x = "hello"; x(1..)', "ello");
 });
 
