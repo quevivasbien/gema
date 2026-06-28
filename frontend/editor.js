@@ -3,13 +3,14 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap, Decoration } from "@codemirror/view";
 import { compile } from "../src/compiler.ts";
 
-import { Prec, StateEffect, StateField } from "@codemirror/state";
+import { Prec, StateEffect, StateField, Compartment } from "@codemirror/state";
 import { indentUnit } from "@codemirror/language";
 import { indentWithTab, toggleComment } from "@codemirror/commands";
+import { javascriptLanguage } from "@codemirror/lang-javascript";
 
 import { PRESETS } from "./editor-presets.js";
 import { gema } from "./gema-language.js";
-import { getWorker } from "./get-worker.js";
+import { getWorker, getJSModuleWorker } from "./get-worker.js";
 
 // ── Multi-file state ────────────────────────────────────────────
 
@@ -19,6 +20,8 @@ let openFiles = [];
 let activeTabIndex = 0;
 /** Whether we're in the middle of switching tabs (suppress doc change events). */
 let isSwitchingTab = false;
+/** Compartment for the editor language so we can swap between gema and JS highlighting. */
+const languageComp = new Compartment();
 
 function currentFile() {
     return openFiles[activeTabIndex];
@@ -168,6 +171,7 @@ function switchTab(index, view) {
 
     isSwitchingTab = false;
     renderTabs(view);
+    updateLanguage(view);
 
     // Re-apply error highlights for the newly active file
     highlightCurrentFileErrors(view);
@@ -240,6 +244,7 @@ function loadPresetFiles(files, view) {
     isSwitchingTab = false;
 
     renderTabs(view);
+    updateLanguage(view);
 }
 
 // ── Editor setup ────────────────────────────────────────────────
@@ -253,7 +258,7 @@ function createEditor(parent) {
         doc: Object.values(files)[0] || "",
         extensions: [
             basicSetup,
-            gema(),
+            languageComp.of(gema()),
             oneDark,
             indentUnit.of("    "),
             Prec.highest(
@@ -293,8 +298,24 @@ function createEditor(parent) {
     openFiles = entries.map(([name, content]) => ({ name, content }));
     activeTabIndex = 0;
     renderTabs(view);
+    updateLanguage(view);
 
     return view;
+}
+
+/** Swap the editor's syntax highlighting to match the active file's extension. */
+function updateLanguage(view) {
+    const file = currentFile();
+    const ext = file ? file.name.split(".").pop() : "gema";
+    if (ext === "js" || ext === "mjs") {
+        view.dispatch({
+            effects: languageComp.reconfigure(javascriptLanguage),
+        });
+    } else {
+        view.dispatch({
+            effects: languageComp.reconfigure(gema()),
+        });
+    }
 }
 
 /** Display error lines by highlighting them in the editor. */
@@ -372,8 +393,22 @@ async function runCode(view) {
     runBtn.textContent = "Running...";
 
     try {
-        // Compile — multi-file mode
-        const compiled = compile(files, "inline", "main.gema");
+        // Separate JS module files from gema files before compiling.
+        // The compiler only processes .gema files; JS modules are handled at runtime
+        // by the worker via ES module imports.
+        const gemaFiles = {};
+        const jsModules = {};
+        for (const [name, content] of Object.entries(files)) {
+            const ext = name.split(".").pop();
+            if (ext === "js" || ext === "mjs") {
+                jsModules[name] = content;
+            } else {
+                gemaFiles[name] = content;
+            }
+        }
+        const hasJSImports = Object.keys(jsModules).length > 0;
+
+        const compiled = compile(gemaFiles, hasJSImports ? "export" : "inline", "main.gema");
 
         if (compiled.errors && compiled.errors.length > 0) {
             displayErrors(view, compiled.errors, files);
@@ -388,7 +423,9 @@ async function runCode(view) {
 
         // Step 2: Execute in a sandboxed Worker
         new Promise((resolve, reject) => {
-            const worker = getWorker(compiled.js);
+            const worker = hasJSImports
+                ? getJSModuleWorker(compiled.js, jsModules)
+                : getWorker(compiled.js);
             worker.onmessage = (event) => {
                 const { status, data } = event.data;
                 if (status === "success") {

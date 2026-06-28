@@ -1201,34 +1201,32 @@ export class Call extends Expression {
                     this.args[0].toJS(writer);
                     return;
                 case "contains":
-                    const cVal = this.args[0];
-                    const cIter = this.args[1];
-                    if (cIter.type instanceof ArrayType || cIter.type instanceof MutArrType) {
-                        cIter.toJS(writer);
+                    if (this.args[1].type instanceof ArrayType || this.args[1].type instanceof MutArrType) {
+                        this.args[1].toJS(writer);
                         writer.write(".indexOf(");
-                        cVal.toJS(writer);
+                        this.args[0].toJS(writer);
                         writer.write(") !== -1");
                     } else if (
-                        cIter.type instanceof SetType ||
-                        cIter.type instanceof MutSetType ||
-                        cIter.type instanceof DictType ||
-                        cIter.type instanceof MutDictType
+                        this.args[1].type instanceof SetType ||
+                        this.args[1].type instanceof MutSetType ||
+                        this.args[1].type instanceof DictType ||
+                        this.args[1].type instanceof MutDictType
                     ) {
-                        cIter.toJS(writer);
+                        this.args[1].toJS(writer);
                         writer.write(".has(");
-                        cVal.toJS(writer);
+                        this.args[0].toJS(writer);
                         writer.write(")");
-                    } else if (cIter.type === "Str") {
-                        cIter.toJS(writer);
+                    } else if (this.args[1].type === "Str") {
+                        this.args[1].toJS(writer);
                         writer.write(".includes(");
-                        cVal.toJS(writer);
+                        this.args[0].toJS(writer);
                         writer.write(")");
-                    } else if (cIter.type instanceof IterType) {
+                    } else if (this.args[1].type instanceof IterType) {
                         writer.useBuiltin("$contains$");
                         writer.write("$contains$(");
-                        cVal.toJS(writer);
+                        this.args[0].toJS(writer);
                         writer.write(", ");
-                        cIter.toJS(writer);
+                        this.args[1].toJS(writer);
                         writer.write(")");
                     }
                     return;

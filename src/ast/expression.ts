@@ -197,7 +197,11 @@ export class Block extends Expression {
      *  Only meaningful on the top-level Block. */
     jsImports: Map<string, string[]>;
 
-    constructor(rootToken: Token, expressions: Expression[], jsImports: Map<string, string[]> = new Map()) {
+    constructor(
+        rootToken: Token,
+        expressions: Expression[],
+        jsImports: Map<string, string[]> = new Map()
+    ) {
         super(rootToken.line, rootToken.col);
         if (expressions.length === 0) {
             throw new Error("block expression must not be empty.");
@@ -244,7 +248,7 @@ export class Block extends Expression {
         return new Block(
             { line: this.line, col: this.col, text: "", type: TokenType.LBrace },
             this.expressions.map((e) => e.clone(bindings)),
-            new Map(this.jsImports),
+            new Map(this.jsImports)
         );
     }
 

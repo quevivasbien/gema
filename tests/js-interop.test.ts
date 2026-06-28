@@ -433,4 +433,75 @@ describe("JS interop — runtime", () => {
             ["hello!", "world!"]
         );
     });
+
+    test("runtime: More complex code example", async () => {
+        await testJSInteropRuntime(
+            {
+                "hashmap.js": `export function newHashMap() {
+    return new Map([]);
+}
+
+export function put(value, key, map) {
+    map.set(key, value);
+    return map;
+}
+
+export function get(key, map) {
+    return map.get(key);
+}
+
+class HashMapIterator {
+    constructor(items) {
+        this.items = items;
+        this.index = 0;
+    }
+    next() {
+        const value = this.items[this.index];
+        if (value === undefined) {
+            this.reset();
+        } else {
+            this.index++;
+        }
+        return value;
+    }
+    reset() {
+        this.index = 0;
+    }
+    clone() {
+        return new HashMapIterator([...this.items]);
+    }
+}
+
+export function toIter(map) {
+    return new HashMapIterator([...map]);
+}
+`,
+            },
+            {
+                "main.gema": `struct HashMap {}
+
+use (
+    newHashMap: Func[:HashMap],
+    put: Func[Num, Str, HashMap: HashMap],
+    get: Func[Str, HashMap: Maybe[Num]],
+    toIter: Func[HashMap: Iter[Tup[Str, Num]]],
+) from "hashmap.js"
+
+func HashMap(items: Arr[Tup[Str, Num]]) {
+    reduce(
+        \\(acc, item) { put(item(1), item(0), acc) },
+        newHashMap(),
+        items
+    )
+}
+
+HashMap([("a", 1), ("b", 2)]) | toIter | collect`,
+            },
+            "main.gema",
+            [
+                ["a", 1],
+                ["b", 2],
+            ]
+        );
+    });
 });

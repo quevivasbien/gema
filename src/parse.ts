@@ -1820,9 +1820,7 @@ class Parser {
             }
             // Empty import lists are not allowed for JS modules
             if (typedSymbols.length === 0) {
-                return this.error(
-                    "JS module imports require at least one symbol."
-                );
+                return this.error("JS module imports require at least one symbol.");
             }
             return this.tryCreateASTExpression(
                 () => new AST.UseJSModule(rootToken, path, typedSymbols)
