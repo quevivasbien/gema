@@ -118,7 +118,7 @@ test("tuple: unpack tuple within body of for loop", () => {
         out = []:Num | trans;
         for tup = zip(range(1,3), range(3,5)) {
             (a, b) = tup;
-            push(out, a + b)
+            push(a + b, out)
         }
         out
         `,
@@ -131,7 +131,7 @@ test.todo("tuple: unpack tuple in for loop declaration", () => {
         `
         out = []:Int | trans;
         for (a, b) = zip(range(1,3), range(3,5)) {
-            push(out, a + b)
+            push(a + b, out)
         }
         out
         `,
@@ -195,7 +195,7 @@ test("tuple: list of tuples", () => {
 });
 
 test("tuple: operations on list of tuples", () => {
-    testCompile("x = trans([]:Tup[Num]); push(x, (1,)); x!(0)(0)", 1);
+    testCompile("x = trans([]:Tup[Num]); push((1,), x); x!(0)(0)", 1);
     testCompile("([]:Tup[Num] + [(1,)])!(0)(0)", 1);
     testCompile("([(1,)] + [(2,)])!(1)(0)", 2);
 });

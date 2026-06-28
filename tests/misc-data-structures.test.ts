@@ -39,10 +39,10 @@ test("Dict: access missing key", () => {
 });
 
 test("Dict: contains", () => {
-    testCompile("m = Dict([(1,1)]); contains(m, 1)", true);
-    testCompile("m = Dict([(1,1)]); contains(m, 2)", false);
-    testCompile('m = Dict([("a",1)]); contains(m, "a")', true);
-    testParseExpectError('m = Dict([("a",1)]); contains(m, 1)');
+    testCompile("m = Dict([(1,1)]); contains(1, m)", true);
+    testCompile("m = Dict([(1,1)]); contains(2, m)", false);
+    testCompile('m = Dict([("a",1)]); contains("a", m)', true);
+    testParseExpectError('m = Dict([("a",1)]); contains(1, m)');
 });
 
 test("MutDict: create mutable dict with trans", () => {
@@ -56,31 +56,31 @@ test("MutDict: create mutable dict with unsafeTrans", () => {
 });
 
 test("MutDict: add to a mutable dict", () => {
-    testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2); m("b")`, 2);
-    testCompile(`m = trans(Dict([("a", 1),])); put(m, "b", 2)("b")`, 2); // Put should return the MutDict itself (chainable)
+    testCompile(`m = trans(Dict([("a", 1),])); put(2, "b", m); m("b")`, 2);
+    testCompile(`m = trans(Dict([("a", 1),])); put(2, "b", m)("b")`, 2); // Put should return the MutDict itself (chainable)
 });
 
 test("MutDict: remove from a mutable dict", () => {
-    testCompile(`m = trans(Dict([("a", 1),])); remove(m, "a"); m("a")`, undefined);
-    testCompile(`m = trans(Dict([("a", 1),])); remove(m, "a")("a")`, undefined); // Remove should return the MutDict
+    testCompile(`m = trans(Dict([("a", 1),])); remove("a", m); m("a")`, undefined);
+    testCompile(`m = trans(Dict([("a", 1),])); remove("a", m)("a")`, undefined); // Remove should return the MutDict
 });
 
 test("MutDict: when using trans, mutating a mutable dict does not change the original", () => {
-    testCompile(`d = Dict([("a", 1),]); m = trans(d); remove(m, "a"); d("a")`, 1);
+    testCompile(`d = Dict([("a", 1),]); m = trans(d); remove("a", m); d("a")`, 1);
 });
 
 test("MutDict: when using unsafeTrans, mutating a mutable dict does change the original", () => {
-    testCompile(`d = Dict([("a", 1),]); m = unsafeTrans(d); remove(m, "a"); d("a")`, undefined);
+    testCompile(`d = Dict([("a", 1),]); m = unsafeTrans(d); remove("a", m); d("a")`, undefined);
 });
 
 test("MutDict: detrans gives an immutable Dict", () => {
     testCompile(`m = trans(Dict([("a", 1),])); d = detrans(m); d("a")`, 1);
-    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(d, "b", 2)`);
+    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(2, "b", d)`);
 });
 
 test("MutDict: cannot use after detrans", () => {
-    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(m, "b", 2)`);
-    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); remove(m, "a")`);
+    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(2, "b", m)`);
+    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); remove("a", m)`);
     testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m("a")`); // Not even non-mutating operations are allowed
     testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m2 = m;`);
     testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m`); // Cannot even reference the variable
@@ -95,10 +95,10 @@ test("MutDict: detrans is a no-op", () => {
 });
 
 test("MutDict: contains", () => {
-    testCompile("m = Dict([(1,1)]) | trans; contains(m, 1)", true);
-    testCompile("m = Dict([(1,1)]) | trans; contains(m, 2)", false);
-    testCompile('m = Dict([("a",1)]) | trans; contains(m, "a")', true);
-    testParseExpectError('m = Dict([("a",1)]) | trans; contains(m, 1)');
+    testCompile("m = Dict([(1,1)]) | trans; contains(1, m)", true);
+    testCompile("m = Dict([(1,1)]) | trans; contains(2. m)", false);
+    testCompile('m = Dict([("a",1)]) | trans; contains("a", m)', true);
+    testParseExpectError('m = Dict([("a",1)]) | trans; contains(1, m)');
 });
 
 // ============================================================
@@ -114,8 +114,8 @@ test("Set: compile", () => {
 });
 
 test("Set: contains", () => {
-    testCompile("s = Set([1, 2, 3]); contains(s, 1)", true);
-    testCompile("s = Set([1, 2, 3]); contains(s, 4)", false);
+    testCompile("s = Set([1, 2, 3]); contains(1, s)", true);
+    testCompile("s = Set([1, 2, 3]); contains(4, s)", false);
 });
 
 test("Set: union", () => {
@@ -137,32 +137,33 @@ test("MutSet: create mutable set with unsafeTrans", () => {
 });
 
 test("MutSet: add to a mutable set", () => {
-    testCompile(`m = trans(Set([1, 2])); push(m, 3); contains(m, 3)`, true);
-    testCompile(`m = trans(Set([1, 2])); contains(push(m, 3), 2)`, true); // Push should return the MutSet itself (chainable)
+    testCompile(`m = trans(Set([1, 2])); push(3, m); contains(3, m)`, true);
+    testCompile(`m = trans(Set([1, 2])); contains(2, push(3, m))`, true); // Push should return the MutSet itself (chainable)
+    testCompile(`m = trans(Set([1, 2])); m | push(3) | contains(3)`, true); // Push should return the MutSet itself (chainable)
 });
 
 test("MutSet: remove from a mutable set", () => {
-    testCompile(`m = trans(Set([1, 2])); remove(m, 2); contains(m, 2)`, false);
-    testCompile(`m = trans(Set([1, 2])); contains(remove(m, 2) 2)`, false); // Remove should return the MutSet
+    testCompile(`m = trans(Set([1, 2])); remove(2, m); contains(2, m)`, false);
+    testCompile(`m = trans(Set([1, 2])); contains(2, remove(2, m))`, false); // Remove should return the MutSet
 });
 
 test("MutSet: when using trans, mutating a mutable set does not change the original", () => {
-    testCompile(`s = Set([1, 2]); m = trans(s); remove(m, 2); contains(s, 2)`, true);
+    testCompile(`s = Set([1, 2]); m = trans(s); remove(2, m); contains(2, s)`, true);
 });
 
 test("MutSet: when using unsafeTrans, mutating a mutable set does change the original", () => {
-    testCompile(`s = Set([1, 2]); m = unsafeTrans(s); remove(m, 2); contains(s, 2)`, false);
+    testCompile(`s = Set([1, 2]); m = unsafeTrans(s); remove(2, m); contains(2, s)`, false);
 });
 
 test("MutSet: detrans gives an immutable Set", () => {
-    testCompile(`m = trans(Set([1, 2])); s = detrans(m); contains(s, 2)`, true);
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(s, 2)`);
+    testCompile(`m = trans(Set([1, 2])); s = detrans(m); contains(2, s)`, true);
+    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(2, s)`);
 });
 
 test("MutSet: cannot use after detrans", () => {
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(m, 2)`);
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); remove(m, 2)`);
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); contains(m, 2)`); // Not even non-mutating operations are allowed
+    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(2, m)`);
+    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); remove(2, m)`);
+    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); contains(2, m)`); // Not even non-mutating operations are allowed
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); m2 = m;`);
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); m`); // Cannot even reference the variable
 });
@@ -183,8 +184,8 @@ test("MutSet: detrans is a no-op", () => {
 test("Dict: monomorphization with different value types", () => {
     testCompile(
         `
-        func foo(d: Dict[Str, Int]) { contains(d, "a") }
-        func foo(d: Dict[Str, Str]) { contains(d, "a") }
+        func foo(d: Dict[Str, Int]) { contains("a", d) }
+        func foo(d: Dict[Str, Str]) { contains("a", d) }
         foo(Dict([]:Tup[Str, Int]))
         `,
         false
@@ -194,8 +195,8 @@ test("Dict: monomorphization with different value types", () => {
 test("Set: monomorphization with different inner types", () => {
     testCompile(
         `
-        func foo(s: Set[Num]) { contains(s, 1) }
-        func foo(s: Set[Str]) { contains(s, "a") }
+        func foo(s: Set[Num]) { contains(1, s) }
+        func foo(s: Set[Str]) { contains("a", s) }
         (foo(Set([]:Num)), foo(Set(["a"])))
         `,
         [false, true]

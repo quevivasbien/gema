@@ -73,8 +73,8 @@ test("string: slice string variable", () => {
 // ============================================================
 
 test("string: contains", () => {
-    testCompile('contains("hello", "ll")', true);
-    testCompile('contains("hello", "xyz")', false);
+    testCompile('contains("ll", "hello")', true);
+    testCompile('contains("xyz", "hello")', false);
     testCompile('contains("", "")', true);
 });
 
@@ -89,15 +89,15 @@ test("string: find", () => {
 // ============================================================
 
 test("string: split", () => {
-    testCompile('split("a,b,c", ",")', ["a", "b", "c"]);
-    testCompile('split("hello", "")', ["h", "e", "l", "l", "o"]);
-    testCompile('split("abc", ",")', ["abc"]);
+    testCompile('split(",", "a,b,c")', ["a", "b", "c"]);
+    testCompile('split("", "hello")', ["h", "e", "l", "l", "o"]);
+    testCompile('split(",", "abc")', ["abc"]);
 });
 
 test("string: replace", () => {
-    testCompile('replace("hello", "l", "z")', "hezzo");
-    testCompile('replace("hello", "x", "y")', "hello");
-    testCompile('replace("hello", "el", "y")', "hylo");
+    testCompile('replace("l", "z", "hello")', "hezzo");
+    testCompile('replace("x", "y", "hello")', "hello");
+    testCompile('replace("el", "y", "hello")', "hylo");
 });
 
 // ============================================================

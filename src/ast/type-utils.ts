@@ -228,6 +228,7 @@ export function paramTypesMatchArgTypes(
 export function looseMatch(a: Type, b: Type): boolean {
     if (a === b) return true;
     // If either type is not concrete, allow the match (for generic function bodies)
+    // TODO: This probably is not quite correct and could lead to bugs!
     if (!isConcreteType(a) || !isConcreteType(b)) return true;
     return typeEquals(a, b);
 }

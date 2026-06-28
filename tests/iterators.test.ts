@@ -394,8 +394,8 @@ test("iterator concatenation with + operator", () => {
 });
 
 test("iter: contains", () => {
-    testCompile("contains(range(0, 5), 3)", true);
-    testCompile("contains(range(0, 5), 99)", false);
+    testCompile("contains(3, range(0, 5))", true);
+    testCompile("contains(99, range(0, 5))", false);
 });
 
 test("iter: find", () => {
@@ -491,7 +491,7 @@ test("iterator variable auto-clone: filter with contains", () => {
     // and we'd end up with an infinite loop
     testCompile(
         `x = 1..3;
-x | filter(\\i contains(x, i)) | collect`,
+x | filter(\\i contains(i, x)) | collect`,
         [1, 2, 3]
     );
 });

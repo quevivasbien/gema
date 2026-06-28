@@ -18,7 +18,7 @@ export const PRESETS = {
             "main.gema": `# Classic FizzBuzz: print Fizz for multiples of 3,
 # Buzz for multiples of 5, FizzBuzz for both.
 
-func fizzbuzz(n: Num): Str {
+func fizzBuzz(n: Num): Str {
     if (n % 15 == 0) {
         "FizzBuzz"
     } else if (n % 3 == 0) {
@@ -31,7 +31,7 @@ func fizzbuzz(n: Num): Str {
 };
 
 # Apply to range 1..20, collect into array
-1..20 | map(fizzbuzz[Num]) | collect`,
+1..20 | map(fizzBuzz[Num]) | collect`,
         },
     },
     fibonacci: {
@@ -83,15 +83,14 @@ func fibLoop(n: Num): Num {
         files: {
             "main.gema": `# Quicksort using functional style
 func quicksort(iter: Iter[Num]): Iter[Num] {
-    first = iter(0);
-    if isnone(first){
-        iter
-    } else {
-        pivot = unwrap(first);
-        rest = (drop(1, iter));
-        left = filter(\\x { x <= pivot }, rest);
-        right = filter(\\x { x > pivot }, rest);
-        quicksort(left) + toIter([pivot]) + quicksort(right)
+    match iter(0) {
+        none { iter },
+        some(pivot) {
+            rest = (drop(1, iter));
+            left = filter(\\x { x <= pivot }, rest);
+            right = filter(\\x { x > pivot }, rest);
+            quicksort(left) + toIter([pivot]) + quicksort(right)
+        }
     }
 };
 
@@ -105,20 +104,20 @@ quicksort(unsorted) | collect   # [1, 2, 3, 4, 5, 6, 7, 8, 9]`,
             "main.gema": `# Sieve of Eratosthenes using mutable arrays
 
 func sieve(n: Num): Arr[Num] {
-    mut isPrime = map(\\_ true, 0..n) | collect | trans;
-    put(isPrime, 0, false);
-    put(isPrime, 1, false);
+    mut is_prime = map(\\_ true, 0..n) | collect | trans;
+    put(false, 0, is_prime);
+    put(false, 1, is_prime);
 
     for i = (2..) {
         if i * i > n { break; }
-        if (isPrime(i) | unwrap) {
+        if (is_prime(i) | unwrap) {
             for j = step(i, (i * 2)..n) {
-                put(isPrime, j, false)
+                put(false, j, is_prime)
             }
         }
     };
 
-    (0..n) | filter(\\x { isPrime(x) | unwrap }) | collect
+    (0..n) | filter(\\x { is_prime(x) | unwrap }) | collect
 };
 
 sieve(50)   # primes up to 50`,
@@ -132,10 +131,11 @@ sieve(50)   # primes up to 50`,
 func smallestFactor(n: Num): Num {
     if (n % 2 == 0) { 2 }
     else {
-        factors = (3..)
+        (3..)
             | takeWhile(\\x { x * x <= n})
-            | filter(\\x { n % x == 0 });
-        unwrap(factors(0), n)
+            | filter(\\x { n % x == 0 })
+            | \\x x(0)
+            | unwrap(n)
     }
 };
 
@@ -147,7 +147,7 @@ func factors(n: Num): Arr[Num] {
     }
 };
 
-factors(84)`,
+factors(84)  # [2, 2, 3, 7]`,
         },
     },
     wordCount: {
@@ -164,7 +164,7 @@ func countWords(words: Arr[Str]): Dict[Str, Num] {
     freq = trans(Dict([]:Tup[Str, Num]));
     for w = words {
         count = freq(w);
-        put(freq, w, (if isnone(count) { 0 } else { unwrap(count) }) + 1)
+        put(unwrap(0, count) + 1, w, freq)
     };
     detrans(freq)
 };

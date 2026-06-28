@@ -1,0 +1,81 @@
+func toDigits(x: Int) {
+    iterate(\d d / 10, x)
+        | takeWhile(\d d > 0)
+        | map(\d d % 10)
+}
+
+func fromDigits(ds: Iter[Int]) {
+    zip(0.., ds)
+        | reduce(\(acc, pair) { acc + 10^pair(0) * pair(1) }, 0)
+}
+
+func longDivision(dividend: Int, divisor: Int) {
+    iteration = func(divquot: Tup[Int, Arr[Int]]) {
+        (remaining_dividend, quotient_so_far) = divquot;
+        dividend_digits = toDigits(remaining_dividend) | collect;
+        # Get the least number of digits from the dividend that is >= the divisor
+        dividend_portion = range(length(dividend_digits)-1, 0, -1)
+            | map(\i (i, dividend_digits(i..) | fromDigits))
+            | dropWhile(\pair pair(1) < divisor)
+            | \x x(0);
+        if isnone(dividend_portion) {
+            # We can't go any further. The remaining dividend is the remainder
+            return none:Tup[Int, Arr[Int]]
+            # return none:Tup[Int, Int]
+        }
+        # dividend_portion
+        udp = unwrap(dividend_portion);
+        (n_dividend_digits, dp) = udp;  # this creates a runtime error, for some reason # figured it out: it's because the compiled code doesn't have a semicolon ending the previous line, so the tuple unpacking tries to work as indexed access
+        # (n_dividend_digits, dp) = unwrap(dividend_portion);  # for some reason unpacking doesn't work here
+        
+        new_dividend = remaining_dividend - (dp - dp % divisor) * 10^n_dividend_digits;
+        new_quotient = quotient_so_far + [dp / divisor];
+        
+        some((new_dividend, new_quotient))  # The refactored code resolves this as null
+    };
+    iteration((dividend, []:Int))
+}
+
+longDivision(123, 6)
+
+
+# this version also fails (the return in the anonymous function tries to return from the outer function)
+func toDigits(x: Int) {
+    iterate(\d d / 10, x)
+        | takeWhile(\d d > 0)
+        | map(\d d % 10)
+}
+
+func fromDigits(ds: Iter[Int]) {
+    zip(0.., ds)
+        | reduce(\(acc, pair) { acc + 10^pair(0) * pair(1) }, 0)
+}
+
+func longDivision(dividend: Int, divisor: Int) {
+    iteration = func(divquot: Maybe[Tup[Int, Arr[Int]]]) {
+        if isnone(divquot) {
+            return divquot
+        };
+        (remaining_dividend, quotient_so_far) = unwrap(divquot);
+        dividend_digits = toDigits(remaining_dividend) | collect;
+        # Get the least number of digits from the dividend that is >= the divisor
+        dividend_portion = range(length(dividend_digits)-1, 0, -1)
+            | map(\i (i, dividend_digits(i..) | fromDigits))
+            | dropWhile(\pair pair(1) < divisor)
+            | \x x(0);
+        if isnone(dividend_portion) {
+            # We can't go any further. The remaining dividend is the remainder
+            return none:Tup[Int, Arr[Int]]
+        };
+        (n_dividend_digits, dp) = unwrap(dividend_portion);
+        
+        new_dividend = remaining_dividend - (dp - dp % divisor) * 10^n_dividend_digits;
+        new_quotient = quotient_so_far + [dp / divisor];
+        
+        some((new_dividend, new_quotient))
+    };
+    iterate(iteration, some((dividend, []:Int)))
+        | takeWhile(\x !isnone(x))
+}
+
+longDivision(123, 6)

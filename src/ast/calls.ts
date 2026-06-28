@@ -1201,35 +1201,34 @@ export class Call extends Expression {
                     this.args[0].toJS(writer);
                     return;
                 case "contains":
-                    if (
-                        this.args[0]?.type instanceof ArrayType ||
-                        this.args[0]?.type instanceof MutArrType
-                    ) {
-                        this.args[0]?.toJS(writer);
+                    const cVal = this.args[0];
+                    const cIter = this.args[1];
+                    if (cIter.type instanceof ArrayType || cIter.type instanceof MutArrType) {
+                        cIter.toJS(writer);
                         writer.write(".indexOf(");
-                        this.args[1]?.toJS(writer);
+                        cVal.toJS(writer);
                         writer.write(") !== -1");
                     } else if (
-                        this.args[0]?.type instanceof SetType ||
-                        this.args[0]?.type instanceof MutSetType ||
-                        this.args[0]?.type instanceof DictType ||
-                        this.args[0]?.type instanceof MutDictType
+                        cIter.type instanceof SetType ||
+                        cIter.type instanceof MutSetType ||
+                        cIter.type instanceof DictType ||
+                        cIter.type instanceof MutDictType
                     ) {
-                        this.args[0]?.toJS(writer);
+                        cIter.toJS(writer);
                         writer.write(".has(");
-                        this.args[1]?.toJS(writer);
+                        cVal.toJS(writer);
                         writer.write(")");
-                    } else if (this.args[0]?.type === "Str") {
-                        this.args[0]?.toJS(writer);
+                    } else if (cIter.type === "Str") {
+                        cIter.toJS(writer);
                         writer.write(".includes(");
-                        this.args[1]?.toJS(writer);
+                        cVal.toJS(writer);
                         writer.write(")");
-                    } else if (this.args[0]?.type instanceof IterType) {
+                    } else if (cIter.type instanceof IterType) {
                         writer.useBuiltin("$contains$");
                         writer.write("$contains$(");
-                        this.args[0].toJS(writer);
+                        cVal.toJS(writer);
                         writer.write(", ");
-                        this.args[1]?.toJS(writer);
+                        cIter.toJS(writer);
                         writer.write(")");
                     }
                     return;
@@ -1254,17 +1253,17 @@ export class Call extends Expression {
                     }
                     return;
                 case "split":
-                    this.args[0]?.toJS(writer);
-                    writer.write(".split(");
                     this.args[1]?.toJS(writer);
+                    writer.write(".split(");
+                    this.args[0]?.toJS(writer);
                     writer.write(")");
                     return;
                 case "replace":
-                    this.args[0]?.toJS(writer);
-                    writer.write(".replaceAll(");
-                    this.args[1]?.toJS(writer);
-                    writer.write(", ");
                     this.args[2]?.toJS(writer);
+                    writer.write(".replaceAll(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(", ");
+                    this.args[1]?.toJS(writer);
                     writer.write(")");
                     return;
                 case "union":

@@ -140,7 +140,7 @@ export class RangeIter extends Expression {
             throw this.error(`range start must be Int or Num, got ${this.start.type}`);
         }
         this.innerType = this.start.type;
-        
+
         if (this.end !== null) {
             this.end.cascadeTypes(this, true);
             if (this.end.type !== this.innerType) {
@@ -1297,6 +1297,7 @@ export class FunctionDef extends Expression {
             writer.newLine();
             this.body.expressions.slice(0, -1).forEach((expr) => {
                 expr.toJS(writer);
+                writer.write(";");
                 writer.newLine();
             });
             // Instead of returning the call to self, we reassign the args of this function to those passed to the call
@@ -1319,6 +1320,7 @@ export class FunctionDef extends Expression {
             // No tail call optimization
             this.body.expressions.slice(0, -1).forEach((expr) => {
                 expr.toJS(writer);
+                writer.write(";");
                 writer.newLine();
             });
             const lastExpr = this.body.expressions[this.body.expressions.length - 1];

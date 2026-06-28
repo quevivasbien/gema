@@ -651,7 +651,7 @@ export const BUILTINS: Record<string, string> = {
 
     // ── Iterator search helpers ──
     // contains(iter, value) — check if value exists in iterator
-    $contains$: `function $contains$(iter, value) {
+    $contains$: `function $contains$(value, iter) {
     while (true) {
         const v = iter.next();
         if (v === undefined) {
@@ -677,36 +677,36 @@ export const BUILTINS: Record<string, string> = {
 
     // ── Mutable array operations ──
     // arr.push(val)
-    $push$: `function $push$(mutarr, val) {
+    $push$: `function $push$(val, mutarr) {
     mutarr.push(val);
     return mutarr;
 }`,
     // arr[idx] = val
-    $put$: `function $put$(mutarr, idx, val) {
+    $put$: `function $put$(val, idx, mutarr) {
     mutarr[idx] = val;
     return mutarr;
 }`,
 
     // ── Mutable dict operations ──
     // dict.set(key, val)
-    $putMutDict$: `function $putMutDict$(mutdict, key, val) {
+    $putMutDict$: `function $putMutDict$(val, key, mutdict) {
     mutdict.set(key, val);
     return mutdict;
 }`,
     // dict.delete(key)
-    $removeMutDict$: `function $removeMutDict$(mutdict, key) {
+    $removeMutDict$: `function $removeMutDict$(key, mutdict) {
     mutdict.delete(key);
     return mutdict;
 }`,
 
     // ── Mutable set operations ──
     // set.add(val)
-    $pushMutSet$: `function $pushMutSet$(mutset, val) {
+    $pushMutSet$: `function $pushMutSet$(val, mutset) {
     mutset.add(val);
     return mutset;
 }`,
     // set.delete(val)
-    $removeMutSet$: `function $removeMutSet$(mutset, val) {
+    $removeMutSet$: `function $removeMutSet$(val, mutset) {
     mutset.delete(val);
     return mutset;
 }`,
@@ -729,7 +729,7 @@ export const BUILTINS: Record<string, string> = {
 
     // ── Maybe / None handling ──
     // Unwrap a Maybe value; returns the value or fallback (throws if no fallback)
-    $unwrapWithFallback$: `function $unwrapWithFallback$(value, fallback) {
+    $unwrapWithFallback$: `function $unwrapWithFallback$(fallback, value) {
     if (value === undefined) {
         return fallback;
     }

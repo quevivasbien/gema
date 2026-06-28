@@ -143,9 +143,9 @@ test("array slice: slice result of pipe", () => {
 });
 
 test("array: contains", () => {
-    testCompile("contains([1, 2, 3], 2)", true);
-    testCompile("contains([1, 2, 3], 4)", false);
-    testCompile('contains(["a", "b"], "c")', false);
+    testCompile("contains(2, [1, 2, 3])", true);
+    testCompile("contains(4, [1, 2, 3])", false);
+    testCompile('contains("c", ["a", "b"])', false);
 });
 
 test("array: find", () => {

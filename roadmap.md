@@ -179,6 +179,8 @@ We currently have a weird hybrid variable resolution where some things look in s
 
 - We could often figure out the type of un-annotated empty arrays or `none`s from context.
 
+- Check the `looseMatch` helper -- see if it could result in bugs and fix it if so.
+
 ### range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
 
 -- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like

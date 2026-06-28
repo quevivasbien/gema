@@ -285,7 +285,7 @@ test("for: infinite loop with continue", () => {
             if count % 2 == 0 {
                 continue
             };
-            push(seen, count);
+            push(count, seen);
             if count >= 5 {
                 break
             }
@@ -343,7 +343,7 @@ test("for: nested for loop with same iterator", () => {
             result = []: Tup[T, T] | trans;
             for a = iter {
                 for b = iter {
-                    push(result, (a, b));
+                    push((a, b), result);
                 }
             }
             result
@@ -606,7 +606,7 @@ test("continue: basic continue in for loop", () => {
             if i % 2 == 0 {
                 continue
             };
-            push(out, i)
+            push(i, out)
         };
         out
         `,
@@ -624,7 +624,7 @@ test("continue: continue inside nested block in loop", () => {
                     continue
                 }
             };
-            push(out, i)
+            push(i, out)
         };
         out
         `,
@@ -641,7 +641,7 @@ test("continue: continue with nested for loops", () => {
                 if j == 2 {
                     continue
                 };
-                push(out, i * 10 + j)
+                push(i * 10 + j, out)
             }
         };
         out
@@ -704,7 +704,7 @@ test("break: basic break in for loop", () => {
             if i % 2 == 0 {
                 break
             };
-            push(out, i)
+            push(i, out)
         };
         out
         `,
@@ -722,7 +722,7 @@ test("break: break inside nested block in loop", () => {
                     break
                 }
             };
-            push(out, i)
+            push(i, out)
         };
         out
         `,
@@ -739,7 +739,7 @@ test("break: break with nested for loops", () => {
                 if j == 2 {
                     break
                 };
-                push(out, i * 10 + j)
+                push(i * 10 + j, out)
             }
         };
         out

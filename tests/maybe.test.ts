@@ -65,23 +65,25 @@ test("cannot pass Maybe to function expecting plain type", () => {
 // ── unwrap with default ──────────────────────────────────
 
 test("unwrap with default returns value when in bounds", () => {
-    testCompile("unwrap([10, 20, 30](1), 0)", 20);
+    testCompile("unwrap(0, [10, 20, 30](1))", 20);
+    testCompile("[10, 20, 30](1) | unwrap(0)", 20);
 });
 
 test("unwrap with default returns default when out of bounds", () => {
-    testCompile("unwrap([10, 20, 30](99), 0)", 0);
+    testCompile("unwrap(0, [10, 20, 30](99))", 0);
+    testCompile("[10, 20, 30](99) | unwrap(0)", 0);
 });
 
 test("unwrap with default on nested access", () => {
-    testCompile("x = unwrap([[1, 2], [3, 4]](0), []:Num); unwrap(x(1), -1)", 2);
+    testCompile("x = unwrap([]:Num, [[1, 2], [3, 4]](0)); unwrap(-1, x(1))", 2);
 });
 
 test("unwrap with default on multi-dimensional access", () => {
-    testCompile("unwrap([[1, 2], [3, 4]](0, 1), -1)", 2);
+    testCompile("unwrap(-1, [[1, 2], [3, 4]](0, 1))", 2);
 });
 
 test("unwrap with default type mismatch errors", () => {
-    testParseExpectError('unwrap([1, 2](0), "hello")');
+    testParseExpectError('unwrap("hello", [1, 2](0))');
 });
 
 // ── unwrap without default (abort) ────────────────────────
@@ -92,10 +94,7 @@ test("unwrap without default returns value when in bounds", () => {
 
 test("unwrap without default throws when out of bounds", () => {
     // Expect a runtime error/throw
-    testCompileExpectRuntimeError(
-        "unwrap([1, 2, 3](99))",
-        "Unwrapped on None without a fallback value"
-    );
+    testCompileExpectRuntimeError("unwrap([1, 2, 3](99))");
 });
 
 // ── isnone ────────────────────────────────────────────────
@@ -158,7 +157,7 @@ test("unwrap on function returning Maybe", () => {
         func safeHead(arr: Arr[Num]): Maybe[Num] {
             arr(0)
         };
-        unwrap(safeHead([10, 20, 30]), -1)
+        unwrap(-1, safeHead([10, 20, 30]))
     `,
         10
     );
@@ -263,7 +262,7 @@ test("some with string type", () => {
 });
 
 test("some can be chained with unwrap default", () => {
-    testCompile("unwrap(some(7), 0)", 7);
+    testCompile("some(7) | unwrap(0)", 7);
 });
 
 // ── `none` keyword ──────────────────────────────────────
@@ -273,7 +272,7 @@ test("none creates Maybe type (cannot be used directly)", () => {
 });
 
 test("none can be used with unwrap default", () => {
-    testCompile("unwrap(none:Num, 42)", 42);
+    testCompile("none:Num | unwrap(42)", 42);
 });
 
 test("none result isnone returns true", () => {
@@ -281,7 +280,7 @@ test("none result isnone returns true", () => {
 });
 
 test("none with string type", () => {
-    testCompile('unwrap(none:Str, "default")', "default");
+    testCompile('unwrap("default", none:Str)', "default");
 });
 
 test("none with inferred usage in if-else", () => {

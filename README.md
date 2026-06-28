@@ -346,7 +346,7 @@ d = detrans(md);
 
 # Set
 s = Set([1, 2, 3]);
-contains(s, 2)  # → true
+contains(2, s)  # → true
 union(Set([1,2]), Set([2,3]))       # → Set([1,2,3])
 intersect(Set([1,2,3]), Set([2,3,4])) # → Set([2,3])
 
