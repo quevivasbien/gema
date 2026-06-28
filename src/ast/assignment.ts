@@ -2,7 +2,7 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import type { Scope } from "./scope";
-import { deepEquals } from "./type-utils";
+import { typeEquals } from "./type-utils";
 import { TupleType, type Type } from "./types";
 
 function addVariableToScope(
@@ -41,7 +41,7 @@ function addVariableToScope(
         }
 
         const assignType = varAttrs.type;
-        if (!deepEquals(existingAttrs.type, assignType)) {
+        if (!typeEquals(existingAttrs.type, assignType)) {
             return {
                 error: `tried to reassign variable '${varAttrs.name}' with type ${assignType} but it was previously defined with type ${existingAttrs.type}`,
             };

@@ -8,7 +8,7 @@ import {
 import { Assignment } from "./assignment";
 import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
 
-import { collectTraitsForTypeParam, deepEquals } from "./type-utils";
+import { collectTraitsForTypeParam, typeEquals } from "./type-utils";
 import {
     ArrayType,
     collectCustomTypeNames,
@@ -115,13 +115,14 @@ export class UseModule extends Expression {
  * `..`   → start=null, end=null (from 0 to infinity)
  */
 export class RangeIter extends Expression {
-    start: Expression | null;
+    start: Expression;
     end: Expression | null;
     step: Expression | null;
+    innerType: "Num" | "Int" | null = null;
 
     constructor(
         startToken: Token,
-        start: Expression | null,
+        start: Expression,
         end: Expression | null,
         step: Expression | null
     ) {
@@ -133,45 +134,51 @@ export class RangeIter extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
-        if (this.start !== null) {
-            this.start.cascadeTypes(this, true);
-            if (this.start.type !== "Int") {
-                throw this.error("range start must be an integer");
-            }
+
+        this.start.cascadeTypes(this, true);
+        if (this.start.type !== "Int" && this.start.type !== "Num") {
+            throw this.error(`range start must be Int or Num, got ${this.start.type}`);
         }
+        this.innerType = this.start.type;
+        
         if (this.end !== null) {
             this.end.cascadeTypes(this, true);
-            if (this.end.type !== "Int") {
-                throw this.error("range end must be an integer");
+            if (this.end.type !== this.innerType) {
+                throw this.error(
+                    `range end type ${this.end.type} does not match range start type ${this.innerType}`
+                );
             }
         }
         if (this.step !== null) {
             this.step.cascadeTypes(this, true);
-            if (this.step.type !== "Int") {
-                throw this.error("range step must be an integer");
+            if (this.step.type !== this.innerType) {
+                throw this.error(
+                    `range step type ${this.step.type} does not match range value type ${this.innerType}`
+                );
             }
         }
 
-        this.type = new IterType("Int");
+        this.type = new IterType(this.innerType);
     }
 
     clone(bindings?: Map<string, Type>): Expression {
         return new RangeIter(
             { line: this.line, col: this.col, text: "..", type: TokenType.DotDot },
-            this.start ? this.start.clone(bindings) : null,
+            this.start.clone(bindings),
             this.end ? this.end.clone(bindings) : null,
             this.step ? this.step.clone(bindings) : null
         );
     }
 
     toJS(writer: JSWriter): void {
-        writer.useBuiltin("$RangeIterator$");
-        writer.write("new $RangeIterator$(");
-        if (this.start !== null) {
-            this.start.toJS(writer);
+        if (this.innerType === "Int") {
+            writer.useBuiltin("$IntRangeIterator$");
+            writer.write("new $IntRangeIterator$(");
         } else {
-            writer.write("0n");
+            writer.useBuiltin("$RangeIterator$");
+            writer.write("new $RangeIterator$(");
         }
+        this.start.toJS(writer);
         writer.write(", ");
         if (this.end !== null) {
             this.end.toJS(writer);
@@ -540,7 +547,7 @@ export class AnonymousFunction extends Expression {
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
         }
-        if (this.returnType !== null && !deepEquals(bodyReturnType, this.returnType)) {
+        if (this.returnType !== null && !typeEquals(bodyReturnType, this.returnType)) {
             throw this.error(
                 `anonymous function body should return ${this.returnType}, but found ${bodyReturnType}`
             );
@@ -601,13 +608,13 @@ export class AnonymousFunction extends Expression {
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
         }
-        if (this.returnType !== null && !deepEquals(bodyReturnType, this.returnType)) {
+        if (this.returnType !== null && !typeEquals(bodyReturnType, this.returnType)) {
             throw this.error(
                 `anonymous function body should return ${this.returnType}, but found ${bodyReturnType}`
             );
         }
         for (const rsv of this.returnStatementValues) {
-            if (!deepEquals(rsv.type, this.returnType)) {
+            if (!typeEquals(rsv.type, this.returnType)) {
                 throw new ASTError(
                     rsv.line,
                     rsv.col,
@@ -921,14 +928,14 @@ export class FunctionDef extends Expression {
             this.returnType = this.body.type;
         }
 
-        if (!deepEquals(this.body.type, this.returnType)) {
+        if (!typeEquals(this.body.type, this.returnType)) {
             throw this.error(
                 `function body should return ${this.returnType}, but found ${this.body.type}`
             );
         }
 
         for (const rsv of this.returnStatementValues) {
-            if (!deepEquals(rsv.type, this.returnType)) {
+            if (!typeEquals(rsv.type, this.returnType)) {
                 throw new ASTError(
                     rsv.line,
                     rsv.col,
@@ -1055,7 +1062,7 @@ export class FunctionDef extends Expression {
 
         const finalReturnType =
             this.returnType === "Null" ? monomorphized.returnType : concreteReturnType;
-        if (!deepEquals(monomorphized.body.type, finalReturnType)) {
+        if (!typeEquals(monomorphized.body.type, finalReturnType)) {
             throw new ASTError(
                 this.line,
                 this.col,

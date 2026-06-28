@@ -37,17 +37,20 @@ export const BUILTINS: Record<string, string> = {
     }
 }`,
     // Numeric range: start..end with optional step
+    // Different versions implemented for Num and Int inputs
     $RangeIterator$: `class $RangeIterator$ {
-    constructor(start, end, step=1n) {
+    constructor(start, end, step=1) {
         this.value = start;
         this.start = start;
         this.end = end;
         this.step = step;
     }
     next() {
-        if (this.end !== undefined && (this.step > 0n ? this.value > this.end : this.value < this.end)) {
-            this.reset();
-            return undefined;
+        if (this.end !== undefined) {
+            if (this.step > 0 ? this.value > this.end : this.value < this.end) {
+                this.reset();
+                return undefined;
+            }
         }
         const value = this.value;
         this.value += this.step;
@@ -58,6 +61,31 @@ export const BUILTINS: Record<string, string> = {
     }
     clone() {
         return new $RangeIterator$(this.start, this.end, this.step);
+    }
+}`,
+    $IntRangeIterator$: `class $IntRangeIterator$ {
+    constructor(start, end, step=1n) {
+        this.value = start;
+        this.start = start;
+        this.end = end;
+        this.step = step;
+    }
+    next() {
+        if (this.end !== undefined) {
+            if (this.step > 0n ? this.value > this.end : this.value < this.end) {
+                this.reset();
+                return undefined;
+            }
+        }
+        const value = this.value;
+        this.value += this.step;
+        return value;
+    }
+    reset() {
+        this.value = this.start;
+    }
+    clone() {
+        return new $IntRangeIterator$(this.start, this.end, this.step);
     }
 }`,
     $ConcatIterator$: `class $ConcatIterator$ {
@@ -166,7 +194,7 @@ export const BUILTINS: Record<string, string> = {
         this.originalCount = count;
     }
     next() {
-        if (this.remaining <= 0) {
+        if (!this.remaining) {
             this.reset();
             return undefined;
         }
@@ -302,10 +330,10 @@ export const BUILTINS: Record<string, string> = {
 }`,
     // Yields every stepSize-th element from an iterator
     $StepIterator$: `class $StepIterator$ {
-    constructor(innerIter, stepSize) {
-        this.innerIter = innerIter;
+    constructor(stepSize, innerIter) {
         this.stepSize = stepSize;
-        this.count = 0n;
+        this.innerIter = innerIter;
+        this.count = 0;
     }
     next() {
         while (true) {
@@ -314,7 +342,7 @@ export const BUILTINS: Record<string, string> = {
                 this.reset();
                 return undefined;
             }
-            if (this.count % this.stepSize === 0n) {
+            if (this.count % this.stepSize === 0) {
                 this.count++;
                 return value;
             }
@@ -323,10 +351,10 @@ export const BUILTINS: Record<string, string> = {
     }
     reset() {
         this.innerIter.reset();
-        this.count = 0n;
+        this.count = 0;
     }
     clone() {
-        return new $StepIterator$(this.innerIter.clone(), this.stepSize);
+        return new $StepIterator$(this.stepSize, this.innerIter.clone());
     }
 }`,
     // Zips multiple iterators together, yielding arrays of values
@@ -366,9 +394,9 @@ export const BUILTINS: Record<string, string> = {
         const value = this.innerIter.next();
         if (value !== undefined) return value;
         this.innerIter.reset();
-        if (this.remaining > 0n) {
+        if (this.remaining > 0) {
             this.remaining--;
-            if (this.remaining === 0n) return undefined;
+            if (this.remaining === 0) return undefined;
         }
         // remaining <= 0 means infinite — keep going
         return this.innerIter.next();
@@ -525,7 +553,7 @@ export const BUILTINS: Record<string, string> = {
             }
             innerIter.reset();
         }
-        this.choose = Number(choose);
+        this.choose = choose;
         this.indices = new Array(this.choose).fill(0).map((_, i) => i);
         this.done = this.choose > this.elements.length || this.choose === 0;
     }
@@ -581,8 +609,8 @@ export const BUILTINS: Record<string, string> = {
     return accumulated;
 }`,
     // Indexed access into an iterator
-    $iterGet$: `function $iterGet$(iter, index) {
-    let count = 0n;
+    $iterGet$: `function $iterGet$(index, iter) {
+    let count = 0;
     while (true) {
         const value = iter.next();
         if (value === undefined) {
@@ -610,7 +638,7 @@ export const BUILTINS: Record<string, string> = {
 }`,
     // Number of elements
     $length$: `function $length$(iter) {
-    let count = 0n;
+    let count = 0;
     while (true) {
         const value = iter.next();
         if (value === undefined) {
@@ -634,8 +662,8 @@ export const BUILTINS: Record<string, string> = {
     }
 }`,
     // find(iter, value) — find index of value in iterator (returns undefined if not found)
-    $find$: `function $find$(iter, value) {
-    let idx = 0n;
+    $find$: `function $find$(value, iter) {
+    let idx = 0;
     while (true) {
         const v = iter.next();
         if (v === undefined) {

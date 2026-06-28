@@ -80,14 +80,45 @@ class Scanner {
         while (/^\d$/.test(this.text[this.index])) {
             this.index += 1;
         }
+
+        // Int literal suffix: 42i
+        if (
+            this.text[this.index] === "i" &&
+            !/^[A-Za-z_\d]$/.test(this.text[this.index + 1] ?? "")
+        ) {
+            this.index += 1;
+            // Return a token with text excluding the 'i' suffix
+            return {
+                type: TokenType.Integer,
+                text: this.text.slice(this.tokenStartIndex, this.index - 1),
+                line: this.line,
+                col: this.tokenStartIndex - this.lineStartIndex,
+            };
+        }
+
+        // Decimal part
         if (this.text[this.index] === "." && this.text[this.index + 1] !== ".") {
             this.index += 1;
             while (/^\d$/.test(this.text[this.index])) {
                 this.index += 1;
             }
-            return this.makeToken(TokenType.Float);
         }
-        return this.makeToken(TokenType.Integer);
+
+        // Scientific notation (e.g. 13e6, 13e+6, 13.5e-6)
+        if (this.text[this.index] === "e" || this.text[this.index] === "E") {
+            this.index += 1;
+            if (this.text[this.index] === "+" || this.text[this.index] === "-") {
+                this.index += 1;
+            }
+            if (!/^\d$/.test(this.text[this.index])) {
+                throw this.error("expected exponent for for float with scientific notation syntax");
+            }
+            while (/^\d$/.test(this.text[this.index])) {
+                this.index += 1;
+            }
+        }
+
+        return this.makeToken(TokenType.Num); // Num literal
     }
 
     readIdentifierOrKeyword(): Token {
@@ -119,6 +150,20 @@ class Scanner {
         if (!this.atEnd() && this.text[this.index] === "=" && "+-*/%^".includes(c)) {
             this.index += 1;
             return this.makeToken(c + "=");
+        }
+
+        // Handle double-character operators //, %%, //=, %%=
+        if (
+            (c === "/" && !this.atEnd() && this.text[this.index] === "/") ||
+            (c === "%" && !this.atEnd() && this.text[this.index] === "%")
+        ) {
+            this.index += 1;
+            // Check for compound assignment //=, %%=
+            if (!this.atEnd() && this.text[this.index] === "=") {
+                this.index += 1;
+                return this.makeToken(c + c + "=");
+            }
+            return this.makeToken(c + c);
         }
 
         // Also handle these characters as single-char operators when not followed by =

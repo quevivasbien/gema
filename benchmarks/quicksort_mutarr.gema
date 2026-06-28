@@ -1,4 +1,4 @@
-func quicksortRecursion(arr: MutArr[Int], start_idx: Int, end_idx: Int) {
+func quicksortRecursion(arr: MutArr[Num], start_idx: Num, end_idx: Num) {
   if start_idx < end_idx {
     pivot = arr!(start_idx);
     mut i = start_idx + 1;
@@ -33,7 +33,7 @@ func quicksortRecursion(arr: MutArr[Int], start_idx: Int, end_idx: Int) {
   };
 }
 
-func quicksort(arr: MutArr[Int]): MutArr[Int] {
+func quicksort(arr: MutArr[Num]): MutArr[Num] {
     quicksortRecursion(arr, 0, length(arr)-1);
     arr
 };

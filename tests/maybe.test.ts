@@ -32,12 +32,12 @@ test("cannot assign null from else-less if", () => {
 
 test("can use dropped statement on assignment", () => {
     // The semicolon on the assignment itself is fine (x = 1;)
-    testCompile("x = 1; x", 1n);
+    testCompile("x = 1; x", 1);
 });
 
 test("can use else-less if as statement", () => {
     // else-less if as a statement (not assigned) is fine
-    testCompile(`mut x = 0; if true { x = 5 }; x`, 5n);
+    testCompile(`mut x = 0; if true { x = 5 }; x`, 5);
 });
 
 test("array index out of bounds compiles but returns undefined", () => {
@@ -57,7 +57,7 @@ test("cannot compare Maybe with ==", () => {
 
 test("cannot pass Maybe to function expecting plain type", () => {
     testParseExpectError(`
-        func double(x: Int): Int { x * 2 };
+        func double(x: Num): Num { x * 2 };
         double([1, 2, 3](0))
     `);
 });
@@ -65,19 +65,19 @@ test("cannot pass Maybe to function expecting plain type", () => {
 // ── unwrap with default ──────────────────────────────────
 
 test("unwrap with default returns value when in bounds", () => {
-    testCompile("unwrap([10, 20, 30](1), 0)", 20n);
+    testCompile("unwrap([10, 20, 30](1), 0)", 20);
 });
 
 test("unwrap with default returns default when out of bounds", () => {
-    testCompile("unwrap([10, 20, 30](99), 0)", 0n);
+    testCompile("unwrap([10, 20, 30](99), 0)", 0);
 });
 
 test("unwrap with default on nested access", () => {
-    testCompile("x = unwrap([[1, 2], [3, 4]](0), []:Int); unwrap(x(1), -1)", 2n);
+    testCompile("x = unwrap([[1, 2], [3, 4]](0), []:Num); unwrap(x(1), -1)", 2);
 });
 
 test("unwrap with default on multi-dimensional access", () => {
-    testCompile("unwrap([[1, 2], [3, 4]](0, 1), -1)", 2n);
+    testCompile("unwrap([[1, 2], [3, 4]](0, 1), -1)", 2);
 });
 
 test("unwrap with default type mismatch errors", () => {
@@ -87,7 +87,7 @@ test("unwrap with default type mismatch errors", () => {
 // ── unwrap without default (abort) ────────────────────────
 
 test("unwrap without default returns value when in bounds", () => {
-    testCompile("unwrap([10, 20, 30](1))", 20n);
+    testCompile("unwrap([10, 20, 30](1))", 20);
 });
 
 test("unwrap without default throws when out of bounds", () => {
@@ -124,7 +124,7 @@ test("Maybe array access can be assigned to variable", () => {
             unwrap(x)
         }
         `,
-        1n
+        1
     );
 });
 
@@ -136,16 +136,16 @@ test("Maybe variable cannot be used without unwrapping", () => {
 
 test("function returning Maybe", () => {
     testParse(`
-        func safeHead(arr: Arr[Int]): Maybe[Int] {
+        func safeHead(arr: Arr[Num]): Maybe[Num] {
             arr(0)
         }
-        safeHead[Arr[Int]]
+        safeHead[Arr[Num]]
     `);
 });
 
 test("calling function that returns Maybe requires unwrap", () => {
     testParseExpectError(`
-        func safeHead(arr: Arr[Int]): Maybe[Int] {
+        func safeHead(arr: Arr[Num]): Maybe[Num] {
             arr(0)
         };
         safeHead([1, 2, 3]) + 1
@@ -155,12 +155,12 @@ test("calling function that returns Maybe requires unwrap", () => {
 test("unwrap on function returning Maybe", () => {
     testCompile(
         `
-        func safeHead(arr: Arr[Int]): Maybe[Int] {
+        func safeHead(arr: Arr[Num]): Maybe[Num] {
             arr(0)
         };
         unwrap(safeHead([10, 20, 30]), -1)
     `,
-        10n
+        10
     );
 });
 
@@ -169,7 +169,7 @@ test("unwrap on function returning Maybe", () => {
 test("function with Maybe parameter", () => {
     testCompile(
         `
-        func issome(x: Maybe[Int]): Bool {
+        func issome(x: Maybe[Num]): Bool {
             !isnone(x)
         }
         x = [1,2](0);
@@ -196,23 +196,23 @@ test("function with generic Maybe parameter", () => {
 // ── Unsafe call (!) syntax ──────────────────────────────
 
 test("unsafe call returns raw type not Maybe", () => {
-    testCompile("[10, 20, 30]!(1)", 20n);
+    testCompile("[10, 20, 30]!(1)", 20);
 });
 
 test("unsafe call can be used in operations directly", () => {
-    testCompile("[10, 20, 30]!(1) + 1", 21n);
+    testCompile("[10, 20, 30]!(1) + 1", 21);
 });
 
 test("unsafe call on multi-dimensional array", () => {
-    testCompile("[[1, 2], [3, 4]]!(0, 1)", 2n);
+    testCompile("[[1, 2], [3, 4]]!(0, 1)", 2);
 });
 
 test("unsafe call on nested access", () => {
-    testCompile("[[1, 2], [3, 4]]!(0)!(1)", 2n);
+    testCompile("[[1, 2], [3, 4]]!(0)!(1)", 2);
 });
 
 test("unsafe call on variable", () => {
-    testCompile("x = [1, 2, 3]; x!(1)", 2n);
+    testCompile("x = [1, 2, 3]; x!(1)", 2);
 });
 
 test("unsafe call out of bounds still returns undefined at runtime", () => {
@@ -225,9 +225,9 @@ test("unsafe call in map iterator", () => {
         n = 5;
         p = 4;
         x = 1..n | collect;
-        map(func(i: Int){x!((i*p) % n)}, 1..n) | collect
+        map(func(i: Num){x!((i*p) % n)}, 1..n) | collect
         `,
-        [5n, 4n, 3n, 2n, 1n]
+        [5, 4, 3, 2, 1]
     );
     testCompile(
         `
@@ -236,14 +236,14 @@ test("unsafe call in map iterator", () => {
         x = 1..n | collect;
         map(\\i x!((i*p) % n), 1..n) | collect
         `,
-        [5n, 4n, 3n, 2n, 1n]
+        [5, 4, 3, 2, 1]
     );
 });
 
 // ── `some()` builtin ─────────────────────────────────────
 
 test("some wraps a value", () => {
-    testCompile("some(42)", 42n);
+    testCompile("some(42)", 42);
 });
 
 test("some returns Maybe type (cannot be used directly)", () => {
@@ -251,7 +251,7 @@ test("some returns Maybe type (cannot be used directly)", () => {
 });
 
 test("some result can be unwrapped", () => {
-    testCompile("unwrap(some(42))", 42n);
+    testCompile("unwrap(some(42))", 42);
 });
 
 test("some result isnone returns false", () => {
@@ -263,7 +263,7 @@ test("some with string type", () => {
 });
 
 test("some can be chained with unwrap default", () => {
-    testCompile("unwrap(some(7), 0)", 7n);
+    testCompile("unwrap(some(7), 0)", 7);
 });
 
 // ── `none` keyword ──────────────────────────────────────
@@ -273,7 +273,7 @@ test("none creates Maybe type (cannot be used directly)", () => {
 });
 
 test("none can be used with unwrap default", () => {
-    testCompile("unwrap(none:Int, 42)", 42n);
+    testCompile("unwrap(none:Num, 42)", 42);
 });
 
 test("none result isnone returns true", () => {
@@ -287,33 +287,33 @@ test("none with string type", () => {
 test("none with inferred usage in if-else", () => {
     testCompile(
         `
-        x = none:Int;
+        x = none:Num;
         if isnone(x) {
             -1
         } else {
             unwrap(x)
         }
         `,
-        -1n
+        -1
     );
 });
 
 // ── `match` expression ───────────────────────────────────
 
 test("match some extracts value", () => {
-    testCompile("match some(42) { some(v) v, none 0 }", 42n);
+    testCompile("match some(42) { some(v) v, none 0 }", 42);
 });
 
 test("match none returns default", () => {
-    testCompile("match none:Int { some(v) v, none 0 }", 0n);
+    testCompile("match none:Num { some(v) v, none 0 }", 0);
 });
 
 test("match some with expression", () => {
-    testCompile("match some(5) { some(v) v * 2, none -1 }", 10n);
+    testCompile("match some(5) { some(v) v * 2, none -1 }", 10);
 });
 
 test("match some with block expression", () => {
-    testCompile("match some(5) { some(v) { w = v * 2; w + 1 }, none -1 }", 11n);
+    testCompile("match some(5) { some(v) { w = v * 2; w + 1 }, none -1 }", 11);
 });
 
 test("match some from array access", () => {
@@ -322,7 +322,7 @@ test("match some from array access", () => {
         x = [10, 20, 30](1);
         match x { some(v) v, none -1 }
         `,
-        20n
+        20
     );
 });
 
@@ -332,31 +332,31 @@ test("match none from out-of-bounds access", () => {
         x = [10, 20, 30](99);
         match x { some(v) v, none -1 }
         `,
-        -1n
+        -1
     );
 });
 
 test("match on function returning Maybe", () => {
     testCompile(
         `
-        func safeHead(arr: Arr[Int]): Maybe[Int] {
+        func safeHead(arr: Arr[Num]): Maybe[Num] {
             arr(0)
         };
         match safeHead([10, 20, 30]) { some(v) v, none -1 }
         `,
-        10n
+        10
     );
 });
 
 test("match on function returning Maybe with out-of-bounds", () => {
     testCompile(
         `
-        func safeHead(arr: Arr[Int]): Maybe[Int] {
+        func safeHead(arr: Arr[Num]): Maybe[Num] {
             arr(0)
         };
-        match safeHead([]:Int) { some(v) v, none -1 }
+        match safeHead([]:Num) { some(v) v, none -1 }
         `,
-        -1n
+        -1
     );
 });
 
@@ -369,7 +369,7 @@ test("match on value of variable with same name as unwrapped var", () => {
             none 1
         }
         `,
-        2n
+        2
     );
 });
 
@@ -382,11 +382,11 @@ test("match on non-Maybe type errors", () => {
 });
 
 test("match value used as expression", () => {
-    testCompile("(match some(3) { some(v) v + 1, none 0 }) + 10", 14n);
+    testCompile("(match some(3) { some(v) v + 1, none 0 }) + 10", 14);
 });
 
 test("match some arm uses binding in expression", () => {
-    testCompile("match some(7) { some(n) n * n, none 0 }", 49n);
+    testCompile("match some(7) { some(n) n * n, none 0 }", 49);
 });
 
 test("match without check for all conditions has null type", () => {

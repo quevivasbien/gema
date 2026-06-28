@@ -68,12 +68,12 @@ test("tagged enum constructor", () => {
     testCompile(
         `
         enum Number {
-            integer: Int,
-            decimal: Float,
+            integer: Num,
+            decimal: Num,
         };
         Number.integer(1)
         `,
-        { $tag: 0, $val: 1n }
+        { $tag: 0, $val: 1 }
     );
 });
 
@@ -81,8 +81,8 @@ test("tagged enum second variant", () => {
     testCompile(
         `
         enum Number {
-            integer: Int,
-            decimal: Float,
+            integer: Num,
+            decimal: Num,
         };
         Number.decimal(1.0)
         `,
@@ -95,7 +95,7 @@ test("tagged enum with string type", () => {
         `
         enum Label {
             name: Str,
-            id: Int,
+            id: Num,
         };
         Label.name("hello")
         `,
@@ -111,12 +111,12 @@ test("mixed enum with value and plain variants", () => {
     testCompile(
         `
         enum OptionalInt {
-            value: Int,
+            value: Num,
             missing
         };
         OptionalInt.value(42)
         `,
-        { $tag: 0, $val: 42n }
+        { $tag: 0, $val: 42 }
     );
 });
 
@@ -124,7 +124,7 @@ test("mixed enum plain variant", () => {
     testCompile(
         `
         enum OptionalInt {
-            value: Int,
+            value: Num,
             missing
         };
         OptionalInt.missing
@@ -137,7 +137,7 @@ test("mixed enum with more variants", () => {
     testCompile(
         `
         enum Event {
-            click: Int,
+            click: Num,
             keypress: Str,
             timeout
         };
@@ -161,7 +161,7 @@ test("match on plain enum with else", () => {
             else { 50 }
         }
         `,
-        100n
+        100
     );
 });
 
@@ -175,7 +175,7 @@ test("match on plain enum else branch", () => {
             else { 50 }
         }
         `,
-        50n
+        50
     );
 });
 
@@ -189,7 +189,7 @@ test("match on plain enum with brace-less body", () => {
             else 0
         }
         `,
-        200n
+        200
     );
 });
 
@@ -203,7 +203,7 @@ test("match on plain enum covers all variants", () => {
             c 3
         }
         `,
-        1n
+        1
     );
 });
 
@@ -216,9 +216,9 @@ test("match on tagged enum extracts value", () => {
         `
         enum Number {
             integer: Int,
-            decimal: Float,
+            decimal: Num,
         };
-        match Number.integer(5) {
+        match Number.integer(5i) {
             integer(i) i,
             decimal(d) toInt(d)
         }
@@ -232,10 +232,10 @@ test("match on tagged enum with transformation", () => {
         `
         enum Number {
             integer: Int,
-            decimal: Float,
+            decimal: Num,
         };
         match Number.decimal(3.5) {
-            integer(i) i * 2,
+            integer(i) i * 2i,
             decimal(d) toInt(d * 2.0)
         }
         `,
@@ -247,8 +247,8 @@ test("match on tagged enum returns different type per arm", () => {
     testCompile(
         `
         enum Number {
-            integer: Int,
-            decimal: Float,
+            integer: Num,
+            decimal: Num,
         };
         func square(n: Number): Number {
             match n {
@@ -261,7 +261,7 @@ test("match on tagged enum returns different type per arm", () => {
             decimal(d) 0
         }
         `,
-        9n
+        9
     );
 });
 
@@ -269,8 +269,8 @@ test("match on tagged enum binding same name as scrutinee", () => {
     testCompile(
         `
         enum Number {
-            integer: Int,
-            decimal: Float,
+            integer: Num,
+            decimal: Num,
         };
         x = Number.integer(7);
         match x {
@@ -278,7 +278,7 @@ test("match on tagged enum binding same name as scrutinee", () => {
             decimal(d) 0
         }
         `,
-        8n
+        8
     );
 });
 
@@ -290,10 +290,10 @@ test("match on mixed enum with plain and tagged arms", () => {
     testCompile(
         `
         enum OptionalInt {
-            value: Int,
+            value: Num,
             missing
         };
-        func unwrapOptional(oi: OptionalInt, fallback: Int) {
+        func unwrapOptional(oi: OptionalInt, fallback: Num) {
             match oi {
                 value(i) i,
                 missing fallback
@@ -301,7 +301,7 @@ test("match on mixed enum with plain and tagged arms", () => {
         };
         unwrapOptional(OptionalInt.value(42), -1)
         `,
-        42n
+        42
     );
 });
 
@@ -309,10 +309,10 @@ test("match on mixed enum returns default for plain variant", () => {
     testCompile(
         `
         enum OptionalInt {
-            value: Int,
+            value: Num,
             missing
         };
-        func unwrapOptional(oi: OptionalInt, fallback: Int) {
+        func unwrapOptional(oi: OptionalInt, fallback: Num) {
             match oi {
                 value(i) i,
                 missing fallback
@@ -320,7 +320,7 @@ test("match on mixed enum returns default for plain variant", () => {
         };
         unwrapOptional(OptionalInt.missing, -1)
         `,
-        -1n
+        -1
     );
 });
 
@@ -342,8 +342,8 @@ test("partial match on tagged enum without else errors as Null", () => {
     testParseExpectError(
         `
         enum Number {
-            integer: Int,
-            decimal: Float,
+            integer: Num,
+            decimal: Num,
         };
         x = match Number.integer(1) { integer(i) i }
         `,
@@ -387,7 +387,7 @@ test("invalid variant name errors", () => {
 test("tagged enum variant with wrong argument type errors", () => {
     testParseExpectError(
         `
-        enum Number { integer: Int, decimal: Float };
+        enum Number { integer: Num, decimal: Num };
         Number.integer("hello")
         `,
         "expected"
@@ -397,7 +397,7 @@ test("tagged enum variant with wrong argument type errors", () => {
 test("match arm type mismatch errors", () => {
     testParseExpectError(
         `
-        enum Number { integer: Int, decimal: Float };
+        enum Number { integer: Num, decimal: Num };
         match Number.integer(1) {
             integer(i) i,
             decimal(d) "hello"
@@ -473,7 +473,7 @@ test("enums with traits -- trait implemented for one enum type but not another",
 
         enum Bar {
             a,
-            b: Int,
+            b: Num,
         }
 
         trait Bim {
@@ -504,7 +504,7 @@ test("enums with traits -- trait implemented for both enum types", () => {
 
         enum Bar {
             a,
-            b: Int,
+            b: Num,
         }
 
         trait Bim {
@@ -526,8 +526,8 @@ test("enums with traits -- trait implemented for both enum types", () => {
             }
         }
 
-        (neeb(Foo.a(1)), neeb(Bar.b(1)))
+        (neeb(Foo.a(1i)), neeb(Bar.b(1)))
         `,
-        [[{ $tag: 0, $val: 1n }], [{ $tag: 1, $val: 2n }]]
+        [[{ $tag: 0, $val: 1n }], [{ $tag: 1, $val: 2 }]]
     );
 });

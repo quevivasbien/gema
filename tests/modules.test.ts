@@ -4,22 +4,22 @@ import { testCompile, testCompileMulti, testCompileMultiExpectError } from "./he
 test("basic: function from module", () => {
     testCompileMulti(
         {
-            "math.gema": `func add(x: Int, y: Int) { x + y }`,
+            "math.gema": `func add(x: Num, y: Num) { x + y }`,
             "main.gema": `use "math.gema"\nadd(3, 4)`,
         },
         "main.gema",
-        7n
+        7
     );
 });
 
 test("basic: struct from module", () => {
     testCompileMulti(
         {
-            "structs.gema": `struct Point { x: Int, y: Int }`,
+            "structs.gema": `struct Point { x: Num, y: Num }`,
             "main.gema": `use "structs.gema"\nPoint(3, 4)`,
         },
         "main.gema",
-        { x: 3n, y: 4n }
+        { x: 3, y: 4 }
     );
 });
 
@@ -30,19 +30,19 @@ test("basic: variable from module", () => {
             "main.gema": `use "config.gema"\npi`,
         },
         "main.gema",
-        3n
+        3
     );
 });
 
 test("chain: module A imports module B", () => {
     testCompileMulti(
         {
-            "helpers.gema": `func double(x: Int) { x * 2 }`,
-            "math.gema": `use "helpers.gema"\nfunc addDouble(x: Int, y: Int) { x + double(y) }`,
+            "helpers.gema": `func double(x: Num) { x * 2 }`,
+            "math.gema": `use "helpers.gema"\nfunc addDouble(x: Num, y: Num) { x + double(y) }`,
             "main.gema": `use "math.gema"\naddDouble(3, 4)`,
         },
         "main.gema",
-        11n
+        11
     );
 });
 
@@ -87,49 +87,49 @@ test("multiple modules: three independent modules", () => {
             "main.gema": `use "c.gema"\nc()`,
         },
         "main.gema",
-        3n
+        3
     );
 });
 
 test("struct + func from same module", () => {
     testCompileMulti(
         {
-            "calc.gema": `struct Pair { x: Int, y: Int }
-func makePair(v: Int) { Pair(v, v * 2) }`,
+            "calc.gema": `struct Pair { x: Num, y: Num }
+func makePair(v: Num) { Pair(v, v * 2) }`,
             "main.gema": `use "calc.gema"\nmakePair(5)`,
         },
         "main.gema",
-        { x: 5n, y: 10n }
+        { x: 5, y: 10 }
     );
 });
 
 test("trait from module", () => {
     testCompileMulti(
         {
-            "traits.gema": `trait Doublable { double[(self: Self): Int], }
-struct S { v: Int }
-func double(s: S): Int { s.v * 2 }`,
+            "traits.gema": `trait Doublable { double[(self: Self): Num], }
+struct S { v: Num }
+func double(s: S): Num { s.v * 2 }`,
             "main.gema": `use "traits.gema"\ndouble(S(3))`,
         },
         "main.gema",
-        6n
+        6
     );
 });
 
 test("module with iterator: use in pipeline", () => {
     testCompileMulti(
         {
-            "utils.gema": `func square(x: Int) { x * x }`,
+            "utils.gema": `func square(x: Num) { x * x }`,
             "main.gema": `use "utils.gema"\n1..3 | map(\\x square(x)) | collect`,
         },
         "main.gema",
-        [1n, 4n, 9n]
+        [1, 4, 9]
     );
 });
 
 test("parse multi-file source: #--- markers", () => {
     const source = `#--- math.gema ---
-func add(x: Int, y: Int) { x + y }
+func add(x: Num, y: Num) { x + y }
 #--- main.gema ---
 use "math.gema"
 add(3, 4)`;
@@ -137,7 +137,7 @@ add(3, 4)`;
     // Split the source by #--- markers
     const files = parseMultiFileSource(source);
     expect(files).toEqual({
-        "math.gema": "func add(x: Int, y: Int) { x + y }",
+        "math.gema": "func add(x: Num, y: Num) { x + y }",
         "main.gema": 'use "math.gema"\nadd(3, 4)',
     });
 });
@@ -150,10 +150,10 @@ test("parse multi-file source: no markers falls back to single file", () => {
 
 test("parse multi-file source: windows-style line endings", () => {
     const source =
-        '#--- math.gema ---\r\nfunc add(x: Int, y: Int) { x + y }\r\n#--- main.gema ---\r\nuse "math.gema"\r\nadd(3, 4)';
+        '#--- math.gema ---\r\nfunc add(x: Num, y: Num) { x + y }\r\n#--- main.gema ---\r\nuse "math.gema"\r\nadd(3, 4)';
     const files = parseMultiFileSource(source);
     expect(files).toEqual({
-        "math.gema": "func add(x: Int, y: Int) { x + y }",
+        "math.gema": "func add(x: Num, y: Num) { x + y }",
         "main.gema": 'use "math.gema"\nadd(3, 4)',
     });
 });
@@ -163,50 +163,50 @@ test("parse multi-file source: windows-style line endings", () => {
 test("module: function uses reduce builtin", () => {
     testCompileMulti(
         {
-            "math.gema": `func sum(xs: Iter[Int]): Int {
+            "math.gema": `func sum(xs: Iter[Num]): Num {
     reduce(\\(acc, x) { acc + x }, 0, xs)
 }`,
             "main.gema": `use "math.gema"\nsum(1..3)`,
         },
         "main.gema",
-        6n
+        6
     );
 });
 
 test("module: function uses collect builtin", () => {
     testCompileMulti(
         {
-            "utils.gema": `func toArray(xs: Iter[Int]): Arr[Int] { collect(xs) }`,
+            "utils.gema": `func toArray(xs: Iter[Num]): Arr[Num] { collect(xs) }`,
             "main.gema": `use "utils.gema"\ntoArray(1..3)`,
         },
         "main.gema",
-        [1n, 2n, 3n]
+        [1, 2, 3]
     );
 });
 
 test("module: function uses map with lambda", () => {
     testCompileMulti(
         {
-            "utils.gema": `func doubleAll(xs: Iter[Int]): Iter[Int] {
+            "utils.gema": `func doubleAll(xs: Iter[Num]): Iter[Num] {
     map(\\x { x * 2 }, xs)
 }`,
             "main.gema": `use "utils.gema"\ncollect(doubleAll(1..4))`,
         },
         "main.gema",
-        [2n, 4n, 6n, 8n]
+        [2, 4, 6, 8]
     );
 });
 
 test("module: function uses iterate builtin", () => {
     testCompileMulti(
         {
-            "utils.gema": `func countFrom(n: Int): Iter[Int] {
+            "utils.gema": `func countFrom(n: Num): Iter[Num] {
     iterate(\\x { x + 1 }, n)
 }`,
             "main.gema": `use "utils.gema"\ncollect(take(3, countFrom(5)))`,
         },
         "main.gema",
-        [5n, 6n, 7n]
+        [5, 6, 7]
     );
 });
 
@@ -216,78 +216,78 @@ test("module: generic function with trait bound", () => {
         {
             "traits.gema": `trait Any {}
 
-func getLength(arr: Arr[T]): Int where T is Any {
+func getLength(arr: Arr[T]): Num where T is Any {
     length(arr)
 }`,
             "main.gema": `use "traits.gema"
 getLength([10, 20, 30])`,
         },
         "main.gema",
-        3n
+        3
     );
 });
 
 test("module: trait used across module boundary", () => {
     testCompileMulti(
         {
-            "traits.gema": `trait Doublable { double[(self: Self): Int], }`,
+            "traits.gema": `trait Doublable { double[(self: Self): Num], }`,
             "impl.gema": `use "traits.gema"
-struct S { v: Int }
-func double(s: S): Int { s.v * 2 }`,
+struct S { v: Num }
+func double(s: S): Num { s.v * 2 }`,
             "main.gema": `use "impl.gema"\ndouble(S(3))`,
         },
         "main.gema",
-        6n
+        6
     );
 });
 
 test("module: transitive builtins (module imports module that uses builtins)", () => {
     testCompileMulti(
         {
-            "base.gema": `func collectAndDouble(xs: Iter[Int]): Arr[Int] {
+            "base.gema": `func collectAndDouble(xs: Iter[Num]): Arr[Num] {
     collect(xs) | map(\\x { x * 2 }) | collect
 }`,
             "utils.gema": `use "base.gema"
-func process(xs: Iter[Int]): Arr[Int] { collectAndDouble(xs) }`,
+func process(xs: Iter[Num]): Arr[Num] { collectAndDouble(xs) }`,
             "main.gema": `use "utils.gema"\nprocess(1..3)`,
         },
         "main.gema",
-        [2n, 4n, 6n]
+        [2, 4, 6]
     );
 });
 
 test("module: same builtin used in both entry and module", () => {
     testCompileMulti(
         {
-            "utils.gema": `func collectOne(xs: Iter[Int]): Arr[Int] { collect(take(1, xs)) }`,
+            "utils.gema": `func collectOne(xs: Iter[Num]): Arr[Num] { collect(take(1, xs)) }`,
             "main.gema": `use "utils.gema"\ncollect(1..3) + collectOne(4..6)`,
         },
         "main.gema",
-        [1n, 2n, 3n, 4n]
+        [1, 2, 3, 4]
     );
 });
 
 test("module: filter + take builtins in module", () => {
     testCompileMulti(
         {
-            "utils.gema": `func firstEven(xs: Iter[Int]): Iter[Int] {
+            "utils.gema": `func firstEven(xs: Iter[Num]): Iter[Num] {
     take(1, filter(\\x { x % 2 == 0 }, xs))
 }`,
             "main.gema": `use "utils.gema"\ncollect(firstEven(1..10))`,
         },
         "main.gema",
-        [2n]
+        [2]
     );
 });
 
 test("module: step builtin in module", () => {
     testCompileMulti(
         {
-            "utils.gema": `func everyOther(xs: Iter[Int]): Iter[Int] { step(xs, 2) }`,
+            "utils.gema": `func everyOther(xs: Iter[Num]): Iter[Num] { step(2, xs) }`,
             "main.gema": `use "utils.gema"\ncollect(everyOther(1..6))`,
         },
         "main.gema",
-        [1n, 3n, 5n]
+        [1, 3, 5]
     );
 });
 
@@ -295,7 +295,7 @@ test("module: custom type defined in module", () => {
     testCompileMulti(
         {
             "point.gema": `
-                struct Point { x: Float, y: Float, }
+                struct Point { x: Num, y: Num, }
                 func abs(p: Point) { (p.x^2.0 + p.y^2.0)^0.5 }
 `,
             "main.gema": `
@@ -313,7 +313,7 @@ test("module: use struct defined in another module", () => {
     testCompileMulti(
         {
             "point.gema": `
-                struct Point { x: Float, y: Float, }
+                struct Point { x: Num, y: Num, }
 `,
             "main.gema": `
                 use "point.gema"
@@ -336,7 +336,7 @@ test("tree-shaking: unused function eliminated", () => {
             "main.gema": 'use "utils.gema"\nused()',
         },
         "main.gema",
-        1n
+        1
     );
     expect(js).not.toInclude("unused");
 });
@@ -348,7 +348,7 @@ test("tree-shaking: unused variable eliminated", () => {
             "main.gema": 'use "config.gema"\nused',
         },
         "main.gema",
-        1n
+        1
     );
     expect(js).not.toInclude("unused");
 });
@@ -356,7 +356,7 @@ test("tree-shaking: unused variable eliminated", () => {
 test("tree-shaking: struct used as type is kept", () => {
     testCompileMulti(
         {
-            "point.gema": "struct Point { x: Float, y: Float }",
+            "point.gema": "struct Point { x: Num, y: Num }",
             "main.gema":
                 'use "point.gema"\nfunc abs(p: Point) { (p.x^2.0 + p.y^2.0)^0.5 }\nabs(Point(3., 4.))',
         },
@@ -369,11 +369,11 @@ test("tree-shaking: transitive reachability", () => {
     testCompileMulti(
         {
             "utils.gema":
-                "func square(x: Int) { x * x }\nfunc double(x: Int) { x * 2 }\nfunc process(x: Int) { square(x) }",
+                "func square(x: Num) { x * x }\nfunc double(x: Num) { x * 2 }\nfunc process(x: Num) { square(x) }",
             "main.gema": 'use "utils.gema"\nprocess(3)',
         },
         "main.gema",
-        9n
+        9
     );
 });
 
@@ -381,11 +381,11 @@ test("tree-shaking: unreferenced struct eliminated", () => {
     const js = testCompileMulti(
         {
             "shapes.gema":
-                "struct Point { x: Int, y: Int }\nstruct Line { a: Int, b: Int }\nfunc makePoint(x: Int, y: Int) { Point(x, y) }",
+                "struct Point { x: Num, y: Num }\nstruct Line { a: Num, b: Num }\nfunc makePoint(x: Num, y: Num) { Point(x, y) }",
             "main.gema": 'use "shapes.gema"\nmakePoint(1, 2)',
         },
         "main.gema",
-        { x: 1n, y: 2n }
+        { x: 1, y: 2 }
     );
     expect(js).toInclude("Point");
     expect(js).not.toInclude("Line");
@@ -404,7 +404,7 @@ test("tree-shaking: retain variable referenced in for loop", () => {
         }
         max
         `,
-        0n
+        0
     );
     expect(js).toInclude("x = ");
 });
@@ -414,45 +414,45 @@ test("tree-shaking: retain variable referenced in for loop", () => {
 test("selective: basic function import", () => {
     testCompileMulti(
         {
-            "math.gema": `func add(x: Int, y: Int) { x + y }`,
+            "math.gema": `func add(x: Num, y: Num) { x + y }`,
             "main.gema": `use (add) from "math.gema"\nadd(3, 4)`,
         },
         "main.gema",
-        7n
+        7
     );
 });
 
 test("selective: function import without parens", () => {
     testCompileMulti(
         {
-            "math.gema": `func add(x: Int, y: Int) { x + y }`,
+            "math.gema": `func add(x: Num, y: Num) { x + y }`,
             "main.gema": `use add from "math.gema"\nadd(3, 4)`,
         },
         "main.gema",
-        7n
+        7
     );
 });
 
 test("selective: multiple symbols imported", () => {
     testCompileMulti(
         {
-            "utils.gema": `func add(x: Int, y: Int) { x + y }
-func sub(x: Int, y: Int) { x - y }`,
+            "utils.gema": `func add(x: Num, y: Num) { x + y }
+func sub(x: Num, y: Num) { x - y }`,
             "main.gema": `use (add, sub) from "utils.gema"\nadd(sub(10, 3), 2)`,
         },
         "main.gema",
-        9n
+        9
     );
 });
 
 test("selective: struct import", () => {
     testCompileMulti(
         {
-            "shapes.gema": `struct Point { x: Int, y: Int }`,
+            "shapes.gema": `struct Point { x: Num, y: Num }`,
             "main.gema": `use (Point) from "shapes.gema"\nPoint(3, 4)`,
         },
         "main.gema",
-        { x: 3n, y: 4n }
+        { x: 3, y: 4 }
     );
 });
 
@@ -463,15 +463,15 @@ test("selective: variable import", () => {
             "main.gema": `use (pi) from "config.gema"\npi`,
         },
         "main.gema",
-        3n
+        3
     );
 });
 
 test("selective: error on non-imported function", () => {
     testCompileMultiExpectError(
         {
-            "math.gema": `func add(x: Int, y: Int) { x + y }
-func sub(x: Int, y: Int) { x - y }`,
+            "math.gema": `func add(x: Num, y: Num) { x + y }
+func sub(x: Num, y: Num) { x - y }`,
             "main.gema": `use (add) from "math.gema"\nsub(5, 3)`,
         },
         "main.gema",
@@ -493,37 +493,37 @@ test("selective: error on non-imported variable", () => {
 test("selective: transitive deps of imported symbol work", () => {
     testCompileMulti(
         {
-            "utils.gema": `func square(x: Int) { x * x }
-func double(x: Int) { x * 2 }
-func process(x: Int) { square(x) + double(x) }`,
+            "utils.gema": `func square(x: Num) { x * x }
+func double(x: Num) { x * 2 }
+func process(x: Num) { square(x) + double(x) }`,
             "main.gema": `use (process) from "utils.gema"\nprocess(3)`,
         },
         "main.gema",
-        15n
+        15
     );
 });
 
 test("selective: importing function that uses module-internal helper", () => {
     testCompileMulti(
         {
-            "utils.gema": `func helper(x: Int) { x * 10 }
-func foo(x: Int) { helper(x) + 1 }`,
+            "utils.gema": `func helper(x: Num) { x * 10 }
+func foo(x: Num) { helper(x) + 1 }`,
             "main.gema": `use (foo) from "utils.gema"\nfoo(3)`,
         },
         "main.gema",
-        31n
+        31
     );
 });
 
 test("selective: chain through intermediate module", () => {
     testCompileMulti(
         {
-            "helpers.gema": `func double(x: Int) { x * 2 }`,
-            "math.gema": `use "helpers.gema"\nfunc addDouble(x: Int, y: Int) { x + double(y) }`,
+            "helpers.gema": `func double(x: Num) { x * 2 }`,
+            "math.gema": `use "helpers.gema"\nfunc addDouble(x: Num, y: Num) { x + double(y) }`,
             "main.gema": `use (addDouble) from "math.gema"\naddDouble(3, 4)`,
         },
         "main.gema",
-        11n
+        11
     );
 });
 
@@ -534,7 +534,7 @@ test("selective: non-imported function still tree-shaken", () => {
             "main.gema": `use (used) from "utils.gema"\nused()`,
         },
         "main.gema",
-        1n
+        1
     );
     expect(js).not.toInclude("unused");
 });
@@ -542,11 +542,11 @@ test("selective: non-imported function still tree-shaken", () => {
 test("selective: trailing comma", () => {
     testCompileMulti(
         {
-            "math.gema": `func add(x: Int, y: Int) { x + y }`,
+            "math.gema": `func add(x: Num, y: Num) { x + y }`,
             "main.gema": `use (add,) from "math.gema"\nadd(3, 4)`,
         },
         "main.gema",
-        7n
+        7
     );
 });
 
@@ -557,7 +557,7 @@ test("selective: can also use regular imports alongside selective", () => {
             "main.gema": `use "utils.gema"\na() + b()`,
         },
         "main.gema",
-        3n
+        3
     );
 });
 
@@ -569,7 +569,7 @@ test("selective: mixed regular and selective imports", () => {
             "main.gema": `use "alpha.gema"\nuse (b) from "beta.gema"\na() + b()`,
         },
         "main.gema",
-        30n
+        30
     );
 });
 
@@ -579,12 +579,12 @@ test("selective: same-named function in entry shadows module", () => {
     testCompileMulti(
         {
             "module.gema": `
-                func foo(x: Int, y: Int) { x + y }
-                func bar(x: Int) { x }
+                func foo(x: Num, y: Num) { x + y }
+                func bar(x: Num) { x }
             `,
             "main.gema": `
                 use (bar) from "module.gema"
-                func foo(x: Float, y: Float) { x + y }
+                func foo(x: Num, y: Num) { x + y }
                 foo(1.0, 2.0)
             `,
         },
@@ -616,12 +616,12 @@ test("selective: import function where matching symbol exists in multiple module
     testCompileMulti(
         {
             "module1.gema": `
-                func foo(x: Int) { x + 1 }
-                func bar(x: Int) { x + 2 }
+                func foo(x: Num) { x + 1 }
+                func bar(x: Num) { x + 2 }
             `,
             "module2.gema": `
-                func foo(x: Int) { x + 3 }
-                func bar(x: Int) { x + 4 }
+                func foo(x: Num) { x + 3 }
+                func bar(x: Num) { x + 4 }
             `,
             "main.gema": `
                 use (foo) from "module1.gema"
@@ -630,7 +630,7 @@ test("selective: import function where matching symbol exists in multiple module
             `,
         },
         "main.gema",
-        6n
+        6
     );
 });
 
@@ -652,7 +652,7 @@ test("selective: definition of same variable in multiple modules", () => {
             `,
         },
         "main.gema",
-        4n
+        4
     );
 });
 

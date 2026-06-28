@@ -3,7 +3,7 @@ import { FunctionDef } from "./nodes";
 import type { Scope } from "./scope";
 import {
     collectTraitsForTypeParam,
-    deepEquals,
+    typeEquals,
     looseMatch,
     paramTypesMatchArgTypes,
 } from "./type-utils";
@@ -135,7 +135,7 @@ function findBuiltin(
                     return undefined;
                 const secondInner =
                     mapSecond instanceof IterType ? mapSecond.innerType : mapSecond.innerType;
-                if (secondInner !== "Int") return undefined;
+                if (secondInner !== "Int" && secondInner !== "Num") return undefined;
                 return {
                     error: null,
                     result: {
@@ -281,14 +281,17 @@ function findBuiltin(
         }
         case "range": {
             if (argTypes.length !== 2 && argTypes.length !== 3) return undefined;
-            if (argTypes.some((t) => t !== "Int")) return undefined;
+            const allInt = argTypes.every((t) => t === "Int");
+            const allNum = argTypes.every((t) => t === "Num");
+            if (!allInt && !allNum) return undefined;
+            const innerType = allInt ? "Int" : "Num";
             return {
                 error: null,
                 result: {
                     kind: "builtin",
                     referToByName: "range",
-                    callerType: new FuncType(argTypes, new IterType("Int")),
-                    rootType: new IterType("Int"),
+                    callerType: new FuncType(argTypes, new IterType(innerType)),
+                    rootType: new IterType(innerType),
                     builtinKind: "range",
                 },
             };
@@ -312,20 +315,20 @@ function findBuiltin(
         }
         case "step": {
             if (argTypes.length !== 2) return undefined;
-            const [sIter, sStep] = argTypes;
-            if (sStep !== "Int") return undefined;
+            const [sStep, sIter] = argTypes;
+            if (sStep !== "Int" && sStep !== "Num") return undefined;
             if (
                 sIter instanceof IterType ||
                 sIter instanceof ArrayType ||
                 sIter instanceof MutArrType
             ) {
-                const sInner = sIter instanceof IterType ? sIter.innerType : sIter.innerType;
+                const sInner = sIter.innerType;
                 return {
                     error: null,
                     result: {
                         kind: "builtin",
                         referToByName: "step",
-                        callerType: new FuncType([sIter, sStep], new IterType(sInner)),
+                        callerType: new FuncType([sStep, sIter], new IterType(sInner)),
                         rootType: new IterType(sInner),
                         builtinKind: "step",
                     },
@@ -337,7 +340,7 @@ function findBuiltin(
                     result: {
                         kind: "builtin",
                         referToByName: "step",
-                        callerType: new FuncType([sIter, sStep], new IterType("Str")),
+                        callerType: new FuncType([sStep, sIter], new IterType("Str")),
                         rootType: new IterType("Str"),
                         builtinKind: "step",
                     },
@@ -391,8 +394,8 @@ function findBuiltin(
                     result: {
                         kind: "builtin",
                         referToByName: "length",
-                        callerType: new FuncType([lenInner], "Int"),
-                        rootType: "Int",
+                        callerType: new FuncType([lenInner], "Num"),
+                        rootType: "Num",
                         builtinKind: "length",
                     },
                 };
@@ -403,8 +406,8 @@ function findBuiltin(
                     result: {
                         kind: "builtin",
                         referToByName: "length",
-                        callerType: new FuncType([lenInner], "Int"),
-                        rootType: "Int",
+                        callerType: new FuncType([lenInner], "Num"),
+                        rootType: "Num",
                         builtinKind: "length",
                     },
                 };
@@ -413,7 +416,7 @@ function findBuiltin(
         }
         case "take": {
             if (argTypes.length !== 2) return undefined;
-            if (argTypes[0] !== "Int") return undefined;
+            if (argTypes[0] !== "Int" && argTypes[0] !== "Num") return undefined;
             const tInner = argTypes[1];
             if (tInner instanceof IterType) {
                 return {
@@ -461,7 +464,7 @@ function findBuiltin(
         }
         case "drop": {
             if (argTypes.length !== 2) return undefined;
-            if (argTypes[0] !== "Int") return undefined;
+            if (argTypes[0] !== "Int" && argTypes[0] !== "Num") return undefined;
             const dInner = argTypes[1];
             if (dInner instanceof IterType) {
                 return {
@@ -780,7 +783,7 @@ function findBuiltin(
             if (argTypes.length !== 3) return undefined;
             // MutArr put: (mutarr, Int index, value) → MutArr (chainable)
             if (argTypes[0] instanceof MutArrType) {
-                if (argTypes[1] !== "Int") return undefined;
+                if (argTypes[1] !== "Int" && argTypes[1] !== "Num") return undefined;
                 if (!looseMatch(argTypes[0].innerType, argTypes[2])) return undefined;
                 const mutArrResult = argTypes[0];
                 return {
@@ -925,29 +928,29 @@ function findBuiltin(
         }
         case "find": {
             if (argTypes.length !== 2) return undefined;
-            const [fContainer, fValue] = argTypes;
+            const [fValue, fContainer] = argTypes;
             if (fContainer instanceof ArrayType || fContainer instanceof MutArrType) {
-                if (!deepEquals(fContainer.innerType, fValue)) return undefined;
+                if (!typeEquals(fContainer.innerType, fValue)) return undefined;
                 return {
                     error: null,
                     result: {
                         kind: "builtin",
                         referToByName: "find",
-                        callerType: new FuncType(argTypes, new MaybeType("Int")),
-                        rootType: new MaybeType("Int"),
+                        callerType: new FuncType(argTypes, new MaybeType("Num")),
+                        rootType: new MaybeType("Num"),
                         builtinKind: "find",
                     },
                 };
             }
             if (fContainer instanceof IterType) {
-                if (!deepEquals(fContainer.innerType, fValue)) return undefined;
+                if (!typeEquals(fContainer.innerType, fValue)) return undefined;
                 return {
                     error: null,
                     result: {
                         kind: "builtin",
                         referToByName: "find",
-                        callerType: new FuncType(argTypes, new MaybeType("Int")),
-                        rootType: new MaybeType("Int"),
+                        callerType: new FuncType(argTypes, new MaybeType("Num")),
+                        rootType: new MaybeType("Num"),
                         builtinKind: "find",
                     },
                 };
@@ -958,8 +961,8 @@ function findBuiltin(
                     result: {
                         kind: "builtin",
                         referToByName: "find",
-                        callerType: new FuncType(argTypes, new MaybeType("Int")),
-                        rootType: new MaybeType("Int"),
+                        callerType: new FuncType(argTypes, new MaybeType("Num")),
+                        rootType: new MaybeType("Num"),
                         builtinKind: "find",
                     },
                 };
@@ -1003,7 +1006,7 @@ function findBuiltin(
             if (
                 argTypes[0] instanceof SetType &&
                 argTypes[1] instanceof SetType &&
-                deepEquals(argTypes[0].innerType, argTypes[1].innerType)
+                typeEquals(argTypes[0].innerType, argTypes[1].innerType)
             ) {
                 return {
                     error: null,
@@ -1023,7 +1026,7 @@ function findBuiltin(
             if (
                 argTypes[0] instanceof SetType &&
                 argTypes[1] instanceof SetType &&
-                deepEquals(argTypes[0].innerType, argTypes[1].innerType)
+                typeEquals(argTypes[0].innerType, argTypes[1].innerType)
             ) {
                 return {
                     error: null,
@@ -1071,7 +1074,7 @@ function findBuiltin(
         case "repeat": {
             if (argTypes.length !== 2) return undefined;
             const [repeatCount, repeatInner] = argTypes;
-            if (repeatCount !== "Int") return undefined;
+            if (repeatCount !== "Int" && repeatCount !== "Num") return undefined;
             if (
                 repeatInner instanceof IterType ||
                 repeatInner instanceof ArrayType ||
@@ -1107,7 +1110,7 @@ function findBuiltin(
         case "repeatInner": {
             if (argTypes.length !== 2) return undefined;
             const [riCount, riInner] = argTypes;
-            if (riCount !== "Int") return undefined;
+            if (riCount !== "Int" && riCount !== "Num") return undefined;
             if (
                 riInner instanceof IterType ||
                 riInner instanceof ArrayType ||
@@ -1192,7 +1195,7 @@ function findBuiltin(
         case "combinations": {
             if (argTypes.length !== 2) return undefined;
             const [combN, combIter] = argTypes;
-            if (combN !== "Int") return undefined;
+            if (combN !== "Num" && combN !== "Int") return undefined;
             if (
                 combIter instanceof IterType ||
                 combIter instanceof ArrayType ||
@@ -1323,7 +1326,7 @@ function findBuiltin(
             if (!(argTypes[0] instanceof MaybeType)) return undefined;
             const innerType = argTypes[0].innerType;
             if (argTypes.length === 2) {
-                if (!deepEquals(innerType, argTypes[1])) return undefined;
+                if (!typeEquals(innerType, argTypes[1])) return undefined;
                 return {
                     error: null,
                     result: {
@@ -1375,7 +1378,7 @@ function findBuiltin(
         }
         case "toStr": {
             if (argTypes.length !== 1) return undefined;
-            if (argTypes[0] === "Int" || argTypes[0] === "Float" || argTypes[0] === "Bool") {
+            if (argTypes[0] === "Int" || argTypes[0] === "Num" || argTypes[0] === "Bool") {
                 return {
                     error: null,
                     result: {
@@ -1391,7 +1394,7 @@ function findBuiltin(
         }
         case "toInt": {
             if (argTypes.length !== 1) return undefined;
-            if (argTypes[0] === "Float" || argTypes[0] === "Bool") {
+            if (argTypes[0] === "Num" || argTypes[0] === "Bool") {
                 return {
                     error: null,
                     result: {
@@ -1405,17 +1408,17 @@ function findBuiltin(
             }
             return undefined;
         }
-        case "toFloat": {
+        case "toNum": {
             if (argTypes.length !== 1) return undefined;
             if (argTypes[0] === "Int") {
                 return {
                     error: null,
                     result: {
                         kind: "builtin",
-                        referToByName: "toFloat",
-                        callerType: new FuncType(argTypes, "Float"),
-                        rootType: "Float",
-                        builtinKind: "toFloat",
+                        referToByName: "toNum",
+                        callerType: new FuncType(argTypes, "Num"),
+                        rootType: "Num",
+                        builtinKind: "toNum",
                     },
                 };
             }
@@ -1423,7 +1426,7 @@ function findBuiltin(
         }
         case "toBool": {
             if (argTypes.length !== 1) return undefined;
-            if (argTypes[0] === "Int" || argTypes[0] === "Float") {
+            if (argTypes[0] === "Int" || argTypes[0] === "Num" || argTypes[0] === "Str") {
                 return {
                     error: null,
                     result: {

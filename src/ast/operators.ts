@@ -2,7 +2,7 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller";
 import { Expression } from "./expression";
-import { deepEquals, typeEquals } from "./type-utils";
+import { typeEquals, typeEqualsWithStrippedTraits } from "./type-utils";
 import { ArrayType, CustomType, EnumType, IterType, type Type } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
@@ -11,7 +11,9 @@ const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {
     [TokenType.Minus]: "subtract",
     [TokenType.Star]: "multiply",
     [TokenType.Slash]: "divide",
+    [TokenType.SlashSlash]: "intDiv",
     [TokenType.Percent]: "modulo",
+    [TokenType.PercentPercent]: "eucModulo",
     [TokenType.EqualEqual]: "equal",
     [TokenType.BangEqual]: "notEqual",
     [TokenType.Less]: "less",
@@ -25,6 +27,8 @@ const OPERATOR_TRANSLATIONS: Record<string, string> = {
     [TokenType.Minus]: "-",
     [TokenType.Star]: "*",
     [TokenType.Slash]: "/",
+    [TokenType.Percent]: "%",
+    [TokenType.Caret]: "**",
     [TokenType.Greater]: ">",
     [TokenType.GreaterEqual]: ">=",
     [TokenType.Less]: "<",
@@ -57,9 +61,9 @@ export class Unary extends Expression {
                     return;
                 }
                 break;
-            case "Float":
+            case "Num":
                 if (this.operator === TokenType.Minus) {
-                    this.type = "Float";
+                    this.type = "Num";
                     return;
                 }
                 break;
@@ -124,7 +128,7 @@ export class Binary extends Expression {
 
         // Enforce that left-hand type == right-hand type for all binary ops
         // (ignore trait metadata — traits are not part of type identity)
-        if (!typeEquals(ltype, rtype)) {
+        if (!typeEqualsWithStrippedTraits(ltype, rtype)) {
             throw this.error(
                 `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
             );
@@ -135,7 +139,9 @@ export class Binary extends Expression {
             TokenType.Minus,
             TokenType.Star,
             TokenType.Slash,
+            TokenType.SlashSlash,
             TokenType.Percent,
+            TokenType.PercentPercent,
             TokenType.Caret,
         ];
         const COMPARISON_OPS = [
@@ -155,7 +161,7 @@ export class Binary extends Expression {
 
         switch (ltype) {
             case "Int":
-                if (rtype === "Int" || rtype === "Float") {
+                if (rtype === "Int" || rtype === "Num") {
                     if (NUMERIC_OPS.includes(this.operator)) {
                         this.type = rtype;
                         return;
@@ -167,10 +173,10 @@ export class Binary extends Expression {
                 }
                 break;
 
-            case "Float":
-                if (rtype === "Int" || rtype === "Float") {
+            case "Num":
+                if (rtype === "Int" || rtype === "Num") {
                     if (NUMERIC_OPS.includes(this.operator)) {
-                        this.type = "Float";
+                        this.type = "Num";
                         return;
                     }
                     if (COMPARISON_OPS.includes(this.operator)) {
@@ -198,12 +204,12 @@ export class Binary extends Expression {
                 break;
         }
         if (ltype instanceof ArrayType && rtype instanceof ArrayType) {
-            if (deepEquals(ltype.innerType, rtype.innerType) && this.operator === TokenType.Plus) {
+            if (typeEquals(ltype.innerType, rtype.innerType) && this.operator === TokenType.Plus) {
                 this.type = ltype;
                 return;
             }
             if (
-                deepEquals(ltype.innerType, rtype.innerType) &&
+                typeEquals(ltype.innerType, rtype.innerType) &&
                 this.operator === TokenType.EqualEqual
             ) {
                 this.type = "Bool";
@@ -214,7 +220,7 @@ export class Binary extends Expression {
             ltype instanceof IterType &&
             (rtype instanceof IterType || rtype instanceof ArrayType)
         ) {
-            if (deepEquals(ltype.innerType, rtype.innerType) && this.operator === TokenType.Plus) {
+            if (typeEquals(ltype.innerType, rtype.innerType) && this.operator === TokenType.Plus) {
                 this.type = ltype;
                 return;
             }
@@ -323,14 +329,8 @@ export class Binary extends Expression {
                 return;
             }
         }
-        if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
-            writer.write("(");
-            this.left.toJS(writer);
-            writer.write(` ${OPERATOR_TRANSLATIONS[this.operator]} `);
-            this.right.toJS(writer);
-            writer.write(")");
-            return;
-        } else if (this.operator === TokenType.Percent) {
+        if (this.operator === TokenType.PercentPercent) {
+            // Euclidean modulo (%%): uses $mod$ builtin
             writer.useBuiltin("$mod$");
             writer.write("$mod$(");
             this.left.toJS(writer);
@@ -338,10 +338,30 @@ export class Binary extends Expression {
             this.right.toJS(writer);
             writer.write(")");
             return;
-        } else if (this.operator === TokenType.Caret) {
+        }
+        if (this.operator === TokenType.SlashSlash) {
+            // Integer division (//): for Num use Math.floor, for Int, this functions the same as "/"
+            if (this.left.type === "Int" && this.right.type === "Int") {
+                writer.write("(");
+                this.left.toJS(writer);
+                writer.write(" / ");
+                this.right.toJS(writer);
+                writer.write(")");
+            } else {
+                writer.write("Math.floor(");
+                this.left.toJS(writer);
+                writer.write(" / ");
+                this.right.toJS(writer);
+                writer.write(")");
+            }
+            return;
+        }
+        if (Object.keys(OPERATOR_TRANSLATIONS).includes(this.operator)) {
+            writer.write("(");
             this.left.toJS(writer);
-            writer.write(" ** ");
+            writer.write(` ${OPERATOR_TRANSLATIONS[this.operator]} `);
             this.right.toJS(writer);
+            writer.write(")");
             return;
         }
         throw this.error(`tried to use token ${this.operator} as binary operator`);

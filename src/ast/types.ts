@@ -1,7 +1,7 @@
 // Built-in type names that cannot be used as type parameters or user-defined types
 const BUILTIN_TYPE_NAMES = new Set([
     "Int",
-    "Float",
+    "Num",
     "Str",
     "Bool",
     "Func",
@@ -142,8 +142,8 @@ export class ArrayType {
         if (indexTypes.length > this.nDims()) {
             return `incompatible number of array indices: expected at most ${this.nDims()}, got ${indexTypes.length}`;
         }
-        if (indexTypes.some((type) => type !== "Int")) {
-            return `array indices are not of type Int`;
+        if (indexTypes.some((type) => type !== "Int" && type !== "Num")) {
+            return `array indices are not of type Int or Num`;
         }
         return null;
     }
@@ -160,8 +160,8 @@ export class IterType {
         if (indexTypes.length !== 1) {
             return `iter type requires exactly one index, got ${indexTypes.length}`;
         }
-        if (indexTypes[0] !== "Int") {
-            return `iter index must be of type Int`;
+        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
+            return `iter index must be of type Int or Num`;
         }
         return null;
     }
@@ -178,8 +178,8 @@ export class MutArrType {
         if (indexTypes.length !== 1) {
             return `mutable array requires exactly one index, got ${indexTypes.length}`;
         }
-        if (indexTypes[0] !== "Int") {
-            return `mutable array index must be of type Int`;
+        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
+            return `mutable array index must be of type Int or Num`;
         }
         return null;
     }
@@ -200,8 +200,8 @@ export class TupleType {
         if (indexTypes.length !== 1) {
             return `tuple type requires exactly one index, got ${indexTypes.length}`;
         }
-        if (indexTypes[0] !== "Int") {
-            return `tuple index must be of type Int`;
+        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
+            return `tuple index must be of type Int or Num`;
         }
         return null;
     }
@@ -324,7 +324,7 @@ export class CustomType {
 
 export type Type =
     | "Int"
-    | "Float"
+    | "Num"
     | "Str"
     | "Bool"
     | "Null"
@@ -372,7 +372,7 @@ export class TemplateTypes {
 }
 
 export function getType(typeName: string, templateTypes: TemplateTypes): Type {
-    if (["Int", "Float", "Str", "Bool", "Null", "Self"].includes(typeName)) {
+    if (["Int", "Num", "Str", "Bool", "Null", "Self"].includes(typeName)) {
         if (!templateTypes.empty()) {
             throw new Error(`${typeName} cannot have template types`);
         }

@@ -6,9 +6,9 @@ import { testCompile, testParseExpectError } from "./helpers";
 // ============================================================
 
 test("string: length", () => {
-    testCompile('length("hello")', 5n);
-    testCompile('length("")', 0n);
-    testCompile('length("abc")', 3n);
+    testCompile('length("hello")', 5);
+    testCompile('length("")', 0);
+    testCompile('length("abc")', 3);
 });
 
 test("string: last", () => {
@@ -59,18 +59,12 @@ test("string: slice with a.. (to end)", () => {
     testCompile('"hello"(3..)', "lo");
 });
 
-test("string: slice with ..b (from start)", () => {
-    testCompile('"hello"(..3)', "hell");
-    testCompile('"hello"(..0)', "h");
-});
-
-test("string: slice with .. (full copy)", () => {
-    testCompile('"hello"(..)', "hello");
+test("string: slice with ..b is not legal", () => {
+    testParseExpectError('"hello"(..3)');
 });
 
 test("string: slice string variable", () => {
     testCompile('x = "hello"; x(1..2)', "el");
-    testCompile('x = "hello"; x(..2)', "hel");
     testCompile('x = "hello"; x(1..)', "ello");
 });
 
@@ -85,9 +79,9 @@ test("string: contains", () => {
 });
 
 test("string: find", () => {
-    testCompile('unwrap(find("hello", "ll"))', 2n);
-    testCompile('isnone(find("hello", "xyz"))', true);
-    testCompile('unwrap(find("hello", "h"))', 0n);
+    testCompile('unwrap(find("ll", "hello"))', 2);
+    testCompile('isnone(find("xyz", "hello"))', true);
+    testCompile('unwrap(find("h", "hello"))', 0);
 });
 
 // ============================================================
@@ -151,8 +145,8 @@ test("string: dropWhile", () => {
 });
 
 test("string: step", () => {
-    testCompile('collect(step("hello", 2))', ["h", "l", "o"]);
-    testCompile('collect(step("abc", 1))', ["a", "b", "c"]);
+    testCompile('collect(step(2, "hello"))', ["h", "l", "o"]);
+    testCompile('collect(step(1, "abc"))', ["a", "b", "c"]);
 });
 
 test("string: zip", () => {

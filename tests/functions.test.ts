@@ -3,13 +3,13 @@ import { test } from "bun:test";
 import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 test("compile functions", () => {
-    testCompile(`func myFunc(a: Int, b: Int): Int { a + b }; myFunc(1, 2)`, 3n);
+    testCompile(`func myFunc(a: Num, b: Num): Num { a + b }; myFunc(1, 2)`, 3);
 });
 
 test("compile recursive functions", () => {
     testCompile(
         `
-        func factorial(n: Int): Int {
+        func factorial(n: Num): Num {
             if n <= 1 {
                 1
             } else {
@@ -19,14 +19,14 @@ test("compile recursive functions", () => {
 
         factorial(4)
         `,
-        24n
+        24
     );
 });
 
 test("compile functions as variables", () => {
     testCompile(
         `
-        func foo(): Int {
+        func foo(): Num {
             1
         };
         x = foo;
@@ -34,48 +34,48 @@ test("compile functions as variables", () => {
     
         x() + y()
         `,
-        2n
+        2
     );
     testCompile(
         `
-        func foo(a: Int): Int {
+        func foo(a: Num): Num {
             a
         };
-        x = foo[Int];
+        x = foo[Num];
         x(1)
         `,
-        1n
+        1
     );
     testCompile(
         `
-            func call(f: Func[Int: Int], x: Int): Int {
+            func call(f: Func[Num: Num], x: Num): Num {
                 f(x)
             };
             
-            func add1(x: Int): Int {
+            func add1(x: Num): Num {
                 x + 1
             };
             
-            call(add1[Int], 1)
+            call(add1[Num], 1)
         `,
-        2n
+        2
     );
 });
 
 test("allow calling non-variable objects", () => {
     testCompile(
         `
-        func foo(x: Int): Int {
+        func foo(x: Num): Num {
             x + 1
         };
 
-        func bar(): Func[Int: Int] {
-            foo[Int]
+        func bar(): Func[Num: Num] {
+            foo[Num]
         };
 
         bar()(1)
         `,
-        2n
+        2
     );
 });
 
@@ -86,7 +86,7 @@ test("compile generic function without return type annotation", () => {
         func id(x: T) where T is Any { x }
         id(42)
     `,
-        42n
+        42
     );
     testCompile(
         `
@@ -104,7 +104,7 @@ test("compile generic function without return type annotation", () => {
         func wrap(x: T): T where T is Any { id(x) }
         wrap(10)
     `,
-        10n
+        10
     );
     // Generic with trait-defined function, nested in another generic
     testCompile(
@@ -112,45 +112,45 @@ test("compile generic function without return type annotation", () => {
         trait Foo {
             foo[(x: Self): Self]
         }
-        func foo(x: Int) { x }
+        func foo(x: Num) { x }
         func id(x: T) where T is Foo { foo(x) }
         func wrap(x: T): T where T is Foo { id(x) }
         id(10)
     `,
-        10n
+        10
     );
     testCompile(
         `
         trait Foo {
             foo[(x: Self): Self]
         }
-        func foo(x: Int) { x }
+        func foo(x: Num) { x }
         func id(x: T) where T is Foo { foo(x) }
         func wrap(x: T): T where T is Foo { id(x) }
         wrap(10)
     `,
-        10n
+        10
     );
 });
 
 test("parse function", () => {
     // Functions without return types are allowed (inferred from body)
     testParse(`func foo() { 1 } foo[]`);
-    testParse(`func add(a: Int, b: Int): Int { a + b }; add[Int, Int]`);
+    testParse(`func add(a: Num, b: Num): Num { a + b }; add[Num, Num]`);
     testParse(`
-        func myFunc(a: Func[Int: Func[Int: Int]], b: Func[:Int]): Func[Int: Func[Int: Int]] {
+        func myFunc(a: Func[Num: Func[Num: Num]], b: Func[:Num]): Func[Num: Func[Num: Num]] {
             a
         }
-        myFunc[Func[Int: Func[Int: Int]], Func[:Int]]
+        myFunc[Func[Num: Func[Num: Num]], Func[:Num]]
     `);
-    testParse(`func myFunc(a: Int): Int { a }; myFunc(1)`);
-    testParseExpectError(`func myFunc(a: Int): Int { a }; myFunc(1.0)`);
+    testParse(`func myFunc(a: Int): Int { a }; myFunc(1i)`);
+    testParseExpectError(`func myFunc(a: Num): Num { a }; myFunc(1i)`);
 });
 
 test("non-anonymous functions do not have values unless annotated with param types", () => {
     testParseExpectError(
         `
-        func foo(a: Int): Int {
+        func foo(a: Num): Num {
             a
         }
         foo
@@ -158,7 +158,7 @@ test("non-anonymous functions do not have values unless annotated with param typ
     );
     testParseExpectError(
         `
-        func foo(a: Int): Int {
+        func foo(a: Num): Num {
             a
         }
         x = foo
@@ -168,11 +168,11 @@ test("non-anonymous functions do not have values unless annotated with param typ
 
 test("allow references to named functions", () => {
     testParse(`
-        func foo(x: Int): Int {
+        func foo(x: Num): Num {
             x
         };
         
-        bar = foo[Int];
+        bar = foo[Num];
 
         bar(1)
     `);
@@ -181,25 +181,25 @@ test("allow references to named functions", () => {
 test("functions: a function that returns a function on an iterable", () => {
     testCompile(
         `
-        func makeGetter(i: Int) {
-            func(t: Iter[Int]) {
+        func makeGetter(i: Num) {
+            func(t: Iter[Num]) {
                 t(i)
             }
         }
         makeGetter(1)(range(1, 3))
         `,
-        2n
+        2
     );
     testCompile(
         `
-        func makeGetter(i: Int) {
-            func(t: Iter[Int]) {
+        func makeGetter(i: Num) {
+            func(t: Iter[Num]) {
                 t(i)
             }
         }
         makeGetter(1)([1,2,3])
         `,
-        2n
+        2
     );
 });
 
@@ -207,7 +207,7 @@ test("functions: generic type must appear in at least one param", () => {
     testParseExpectError(
         `
         trait Any {}
-        func makeGetter(i: Int): Func[Iter[T]: Maybe[T]] where T is Any {
+        func makeGetter(i: Num): Func[Iter[T]: Maybe[T]] where T is Any {
             func(t: Iter[T]) {
                 t(i)
             }
@@ -220,8 +220,8 @@ test("functions: generic type must appear in at least one param", () => {
 test("recursive function with tail call optimization", () => {
     testCompile(
         `
-        func sumUpto(n: Int) {
-            func f(n: Int, res: Int): Int {
+        func sumUpto(n: Num) {
+            func f(n: Num, res: Num): Num {
                 if n <= 0 { return res };
                 f(n - 1, res + n)
             };
@@ -230,15 +230,15 @@ test("recursive function with tail call optimization", () => {
         # This is enough to exceed the max recursion depth limit in most JS runtimes
         sumUpto(10000)
         `,
-        50005000n
+        50005000
     );
 });
 
 test("recursive function with tail call optimization and keyword args", () => {
     testCompile(
         `
-        func sumUpto(n: Int) {
-            func f(n: Int, res: Int): Int {
+        func sumUpto(n: Num) {
+            func f(n: Num, res: Num): Num {
                 if n <= 0 { return res };
                 f(res=res + n, n=n-1)
             };
@@ -246,15 +246,15 @@ test("recursive function with tail call optimization and keyword args", () => {
         }
         sumUpto(10)
         `,
-        55n
+        55
     );
 });
 
 test("recursive function with tail call optimization and JS reserved keyword", () => {
     testCompile(
         `
-        func sumUpto(n: Int) {
-            func f(n: Int, class: Int): Int {
+        func sumUpto(n: Num) {
+            func f(n: Num, class: Num): Num {
                 if n <= 0 { return class };
                 f(n - 1, class + n)
             };
@@ -262,28 +262,28 @@ test("recursive function with tail call optimization and JS reserved keyword", (
         }
         sumUpto(10)
         `,
-        55n
+        55
     );
 });
 
 // ── Type-associated functions (static methods) ───────────
 
 test("type-associated function: basic definition and call", () => {
-    testCompile("func Int.zero() { 0 }; Int.zero()", 0n);
+    testCompile("func Int.zero() { 0 }; Int.zero()", 0);
 });
 
 test("type-associated function: with parameters", () => {
-    testCompile("func Int.add(n: Int): Int { n + 1 }; Int.add(5)", 6n);
+    testCompile("func Int.add(n: Num): Num { n + 1 }; Int.add(5)", 6);
 });
 
 test("type-associated function: on struct", () => {
     testCompile(
         `
-        struct S { x: Int }
+        struct S { x: Num }
         func S.zero() { S(0) }
         S.zero().x
         `,
-        0n
+        0
     );
 });
 
@@ -292,50 +292,50 @@ test("type-associated function: on Str type", () => {
 });
 
 test("type-associated function: missing type", () => {
-    testParseExpectError("func Int.increment(i: Int) { i + 1 }; increment(1)");
+    testParseExpectError("func Int.increment(i: Num) { i + 1 }; increment(1)");
 });
 
 test("type-associated function: non-type-associated function with same base name", () => {
     testCompile(
         `
-        func Int.increment(i: Int) { i + 1 }
-        func increment(i: Int) { i + 2 }
+        func Int.increment(i: Num) { i + 1 }
+        func increment(i: Num) { i + 2 }
         (Int.increment(1), increment(1))
         `,
-        [2n, 3n]
+        [2, 3]
     );
 });
 
-// ── Templated TAFs: func Arr[Int].empty() ───────────────
+// ── Templated TAFs: func Arr[Num].empty() ───────────────
 
-test("TAF template: concrete Arr[Int].empty()", () => {
+test("TAF template: concrete Arr[Num].empty()", () => {
     testCompile(
         `
-        func Arr[Int].empty() { []:Int }
-        Arr[Int].empty()
+        func Arr[Num].empty() { []:Int }
+        Arr[Num].empty()
         `,
         []
     );
 });
 
-test("TAF template: Arr[Int].zeros(n)", () => {
+test("TAF template: Arr[Num].zeros(n)", () => {
     testCompile(
         `
-        func Arr[Int].zeros(n: Int) {
+        func Arr[Num].zeros(n: Num) {
             map(\\_ 0, 1..n) | collect
         }
-        Arr[Int].zeros(3)
+        Arr[Num].zeros(3)
         `,
-        [0n, 0n, 0n]
+        [0, 0, 0]
     );
 });
 
 test("TAF template: multiple template args", () => {
     testCompile(
         `
-        func Arr[Int].empty() { []:Int }
+        func Arr[Num].empty() { []:Int }
         func Arr[Str].empty() { []:Str }
-        (Arr[Int].empty(), Arr[Str].empty())
+        (Arr[Num].empty(), Arr[Str].empty())
         `,
         [[], []]
     );
@@ -348,7 +348,7 @@ test("TAF generic: Arr[T].empty() monomorphized to Int", () => {
         `
         trait Any {}
         func Arr[T].empty() where T is Any { []:T }
-        Arr[Int].empty()
+        Arr[Num].empty()
         `,
         []
     );
@@ -369,12 +369,12 @@ test("TAF generic: Arr[T].empty with type-param body", () => {
     testCompile(
         `
         trait Any {}
-        func Arr[T].fill(v: T, n: Int): Arr[T] where T is Any {
+        func Arr[T].fill(v: T, n: Num): Arr[T] where T is Any {
             map(\\_ v, 1..n) | collect
         }
-        Arr[Int].fill(42, 3)
+        Arr[Num].fill(42, 3)
         `,
-        [42n, 42n, 42n]
+        [42, 42, 42]
     );
 });
 
@@ -421,7 +421,7 @@ test("TAF trait: struct implementing Self.zero", () => {
             add[(a: Self, b: Self): Self],
             Self.zero[():Self]
         }
-        struct S { s: Int }
+        struct S { s: Num }
         func add(a: S, b: S) { S(a.s + b.s) }
         func S.zero() { S(0) }
         func sum(iter: Iter[T]) where T is Summable {
@@ -429,7 +429,7 @@ test("TAF trait: struct implementing Self.zero", () => {
         }
         sum([S(1), S(2), S(3)]).s
         `,
-        6n
+        6
     );
 });
 
@@ -438,28 +438,28 @@ test("TAF trait: struct implementing Self.zero", () => {
 test("automatic Arr -> Iter conversion: fallback on Iter signature if no matching Arr signature exists", () => {
     testCompile(
         `
-        func foo(iter: Iter[Int]) { 1 }
+        func foo(iter: Iter[Num]) { 1 }
         foo([1,2,3])
         `,
-        1n
+        1
     );
 });
 
 test("automatic Arr -> Iter conversion: fallback should happen only if no matching Arr signature exists", () => {
     testCompile(
         `
-        func foo(iter: Iter[Int]) { 1 }
-        func foo(iter: Arr[Int]) { 2 }
+        func foo(iter: Iter[Num]) { 1 }
+        func foo(iter: Arr[Num]) { 2 }
         foo([1,2,3])
         `,
-        2n
+        2
     );
     testCompile(
         `
-        func foo(iter: Arr[Int]) { 2 }
-        func foo(iter: Iter[Int]) { 1 }
+        func foo(iter: Arr[Num]) { 2 }
+        func foo(iter: Iter[Num]) { 1 }
         foo([1,2,3])
         `,
-        2n
+        2
     );
 });

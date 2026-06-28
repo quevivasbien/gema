@@ -3,10 +3,10 @@ import { test } from "bun:test";
 import { testCompile, testCompileAndCheck, testParse, testParseExpectError } from "./helpers";
 
 test("compile if expressions", () => {
-    testCompile(`if true { 1 } else { 2 }`, 1n);
-    testCompile(`if false { 1 } else { 2 }`, 2n);
-    testCompile(`if 1 == 1 { 1 } else { 2 }`, 1n);
-    testCompile(`if 1 == 2 { 1 } else { 2 }`, 2n);
+    testCompile(`if true { 1 } else { 2 }`, 1);
+    testCompile(`if false { 1 } else { 2 }`, 2);
+    testCompile(`if 1 == 1 { 1 } else { 2 }`, 1);
+    testCompile(`if 1 == 2 { 1 } else { 2 }`, 2);
     testCompile(
         `
         mut x = 1;
@@ -17,7 +17,7 @@ test("compile if expressions", () => {
         }
         x
         `,
-        2n
+        2
     );
     testCompile(
         `
@@ -31,7 +31,7 @@ test("compile if expressions", () => {
             2
         }
         `,
-        1n
+        1
     );
 });
 
@@ -40,7 +40,7 @@ test("parse if", () => {
     testParseExpectError(`if 1 { 1 } else { 2 }`);
     testParseExpectError(`if true { 1 }`); // else-less if is value-less
     testParse(`if true { 1 }; 1`);
-    testParseExpectError(`if true { 1 } else { 2.0 }`);
+    testParseExpectError(`if true { "hello" } else { 2 }`); // type mismatch
     testParse(`x = 10; if x < 0 { 1 } else if x > 10 { 2 } else { 3 }`);
 });
 
@@ -57,7 +57,7 @@ test("if-else: else-less if as statement mutates variable", () => {
         };
         x
         `,
-        5n
+        5
     );
 });
 
@@ -70,7 +70,7 @@ test("if-else: else-less if false does not mutate", () => {
         };
         x
         `,
-        1n
+        1
     );
 });
 
@@ -85,7 +85,7 @@ test("if-else: else-less if with else-if chain still works", () => {
         };
         x
         `,
-        10n
+        10
     );
 });
 
@@ -100,8 +100,8 @@ test("if-else: error if + if-else if without else in expression context", () => 
 });
 
 test("if-else: regular if-else still works", () => {
-    testCompile("if true { 1 } else { 2 }", 1n);
-    testCompile("if false { 1 } else { 2 }", 2n);
+    testCompile("if true { 1 } else { 2 }", 1);
+    testCompile("if false { 1 } else { 2 }", 2);
     testCompile(
         `
         mut x = 1;
@@ -112,18 +112,18 @@ test("if-else: regular if-else still works", () => {
         };
         x
         `,
-        2n
+        2
     );
 });
 
 test("if-else: basic if/ifelse/else", () => {
-    testCompile("if false { 1 } else if false { 2 } else { 3 }", 3n);
+    testCompile("if false { 1 } else if false { 2 } else { 3 }", 3);
 });
 
 test("if-else: if+else if+else works as an expression", () => {
-    testCompile("if true { 1 } else if true { 2 } else { 3 }", 1n);
-    testCompile("if false { 1 } else if true { 2 } else { 3 }", 2n);
-    testCompile("if false { 1 } else if false { 2 } else { 3 }", 3n);
+    testCompile("if true { 1 } else if true { 2 } else { 3 }", 1);
+    testCompile("if false { 1 } else if true { 2 } else { 3 }", 2);
+    testCompile("if false { 1 } else if false { 2 } else { 3 }", 3);
     testCompile(
         `
         mut x = 1;
@@ -136,7 +136,7 @@ test("if-else: if+else if+else works as an expression", () => {
         };
         (x, y)
         `,
-        [3n, 3n]
+        [3, 3]
     );
 });
 
@@ -153,7 +153,7 @@ test("for: basic for loop over range", () => {
         };
         sum
         `,
-        6n
+        6
     );
 });
 
@@ -166,7 +166,7 @@ test("for: for loop over array", () => {
         };
         sum
         `,
-        6n
+        6
     );
 });
 
@@ -206,7 +206,7 @@ test("for: for loop with break", () => {
         };
         sum
         `,
-        6n
+        6
     );
 });
 
@@ -241,7 +241,7 @@ test("for: repeated for loop with same iterating variable", () => {
         }
         total
         `,
-        8n
+        8
     );
 });
 
@@ -261,7 +261,7 @@ test("for: infinite loop with break", () => {
         };
         count
         `,
-        5n
+        5
     );
 });
 
@@ -271,7 +271,7 @@ test("for: infinite loop break immediately", () => {
         for { break };
         42
         `,
-        42n
+        42
     );
 });
 
@@ -279,7 +279,7 @@ test("for: infinite loop with continue", () => {
     testCompile(
         `
         mut count = 0;
-        mut seen = []:Int | trans;
+        mut seen = []:Num | trans;
         for {
             count += 1;
             if count % 2 == 0 {
@@ -292,7 +292,7 @@ test("for: infinite loop with continue", () => {
         };
         detrans(seen)
         `,
-        [1n, 3n, 5n]
+        [1, 3, 5]
     );
 });
 
@@ -311,14 +311,14 @@ test("for: nested infinite loops with break", () => {
         };
         sum
         `,
-        3n
+        3
     );
 });
 
 test("for: infinite loop inside function with break", () => {
     testCompile(
         `
-        func findTarget(target: Int): Int {
+        func findTarget(target: Num): Num {
             mut guess = 0;
             for {
                 if guess == target {
@@ -330,7 +330,7 @@ test("for: infinite loop inside function with break", () => {
         };
         findTarget(10)
         `,
-        10n
+        10
     );
 });
 
@@ -351,10 +351,10 @@ test("for: nested for loop with same iterator", () => {
         square([1,2])
         `,
         [
-            [1n, 1n],
-            [1n, 2n],
-            [2n, 1n],
-            [2n, 2n],
+            [1, 1],
+            [1, 2],
+            [2, 1],
+            [2, 2],
         ]
     );
 });
@@ -369,7 +369,7 @@ test("return: cannot end function with return", () => {
     // since this would imply that the function both does and does not return a Null
     testParseExpectError(
         `
-        func foo(): Int {
+        func foo(): Num {
             return 42
         };
         foo()
@@ -377,7 +377,7 @@ test("return: cannot end function with return", () => {
     );
     testParseExpectError(
         `
-        func add(a: Int, b: Int): Int {
+        func add(a: Num, b: Num): Num {
             return a + b
         };
         add(3, 4)
@@ -418,7 +418,7 @@ test("return: conditional return where Null value is allowed", () => {
     // Ofc the idiomatic way to do this would be to omit the returns
     testCompile(
         `
-        func min(a: Int, b: Int) {
+        func min(a: Num, b: Num) {
             if a < b {
                 return a
             } else {
@@ -429,7 +429,7 @@ test("return: conditional return where Null value is allowed", () => {
         };
         min(5, 3)
         `,
-        3n
+        3
     );
 });
 
@@ -438,7 +438,7 @@ test("return: nested conditional return where Null value is not allowed", () => 
     // Which conflicts with what is returned.
     testParseExpectError(
         `
-        func min(a: Int, b: Int) {
+        func min(a: Num, b: Num) {
             if a < b {
                 return a
             } else {
@@ -454,7 +454,7 @@ test("return: deeply nested conditional return where Null value is not allowed",
     // This is NOT okay, for the same reason as the previous test
     testParseExpectError(
         `
-        func categorize(x: Int): Str {
+        func categorize(x: Num): Str {
             if x > 0 {
                 if x > 10 {
                     return "large"
@@ -505,14 +505,14 @@ test("return: if/elseif/else with mismatch in type", () => {
         };
         foo()
         `,
-        2n
+        2
     );
 });
 
 test("return: return followed by semicolon", () => {
     testCompile(
         `
-        func foo(): Int {
+        func foo(): Num {
             if true {
                 return 99;
             }
@@ -520,14 +520,14 @@ test("return: return followed by semicolon", () => {
         };
         foo()
         `,
-        99n
+        99
     );
 });
 
 test("return: return inside block inside function", () => {
     testCompile(
         `
-        func foo(): Int {
+        func foo(): Num {
             {
                 return 99
             };
@@ -535,14 +535,14 @@ test("return: return inside block inside function", () => {
         };
         foo()
         `,
-        99n
+        99
     );
 });
 
 test("return: return inside deeply nested blocks", () => {
     testCompile(
         `
-        func foo(): Int {
+        func foo(): Num {
             {
                 {
                     {
@@ -554,14 +554,14 @@ test("return: return inside deeply nested blocks", () => {
         };
         foo()
         `,
-        42n
+        42
     );
 });
 
 test("return: return in a loop body", () => {
     testCompile(
         `
-        func findFirst(): Int {
+        func findFirst(): Num {
             for i = 1..10 {
                 if i > 5 {
                     return i
@@ -571,14 +571,14 @@ test("return: return in a loop body", () => {
         };
         findFirst()
         `,
-        6n
+        6
     );
 });
 
 test("return: return in a chain of else-ifs", () => {
     testCompile(
         `
-        func grade(score: Int): Str {
+        func grade(score: Num): Str {
             if score >= 90 {
                 return "A"
             } else if score >= 80 {
@@ -601,7 +601,7 @@ test("return: return in a chain of else-ifs", () => {
 test("continue: basic continue in for loop", () => {
     testCompile(
         `
-        mut out = []:Int | trans;
+        mut out = []:Num | trans;
         for i = 1..5 {
             if i % 2 == 0 {
                 continue
@@ -610,14 +610,14 @@ test("continue: basic continue in for loop", () => {
         };
         out
         `,
-        [1n, 3n, 5n]
+        [1, 3, 5]
     );
 });
 
 test("continue: continue inside nested block in loop", () => {
     testCompile(
         `
-        mut out = []:Int | trans;
+        mut out = []:Num | trans;
         for i = 1..5 {
             {
                 if i == 3 {
@@ -628,14 +628,14 @@ test("continue: continue inside nested block in loop", () => {
         };
         out
         `,
-        [1n, 2n, 4n, 5n]
+        [1, 2, 4, 5]
     );
 });
 
 test("continue: continue with nested for loops", () => {
     testCompile(
         `
-        mut out = []:Int | trans;
+        mut out = []:Num | trans;
         for i = 1..3 {
             for j = 1..3 {
                 if j == 2 {
@@ -646,7 +646,7 @@ test("continue: continue with nested for loops", () => {
         };
         out
         `,
-        [11n, 13n, 21n, 23n, 31n, 33n]
+        [11, 13, 21, 23, 31, 33]
     );
 });
 
@@ -657,7 +657,7 @@ test("continue: continue with nested for loops", () => {
 test("return+continue: return exits loop early", () => {
     testCompile(
         `
-        func firstEven(): Int {
+        func firstEven(): Num {
             for i = 1..10 {
                 if i % 2 == 0 {
                     return i
@@ -669,14 +669,14 @@ test("return+continue: return exits loop early", () => {
         };
         firstEven()
         `,
-        2n
+        2
     );
 });
 
 test("return: return in braced block inside if-else branch", () => {
     testCompile(
         `
-        func foo(): Int {
+        func foo(): Num {
             for i = 1..10 {
                 if true {
                     { return i }
@@ -688,7 +688,7 @@ test("return: return in braced block inside if-else branch", () => {
         };
         foo()
         `,
-        1n
+        1
     );
 });
 
@@ -699,7 +699,7 @@ test("return: return in braced block inside if-else branch", () => {
 test("break: basic break in for loop", () => {
     testCompile(
         `
-        mut out = []:Int | trans;
+        mut out = []:Num | trans;
         for i = 1..5 {
             if i % 2 == 0 {
                 break
@@ -708,14 +708,14 @@ test("break: basic break in for loop", () => {
         };
         out
         `,
-        [1n]
+        [1]
     );
 });
 
 test("break: break inside nested block in loop", () => {
     testCompile(
         `
-        mut out = []:Int | trans;
+        mut out = []:Num | trans;
         for i = 1..5 {
             {
                 if i == 3 {
@@ -726,14 +726,14 @@ test("break: break inside nested block in loop", () => {
         };
         out
         `,
-        [1n, 2n]
+        [1, 2]
     );
 });
 
 test("break: break with nested for loops", () => {
     testCompile(
         `
-        mut out = []:Int | trans;
+        mut out = []:Num | trans;
         for i = 1..3 {
             for j = 1..3 {
                 if j == 2 {
@@ -744,7 +744,7 @@ test("break: break with nested for loops", () => {
         };
         out
         `,
-        [11n, 21n, 31n]
+        [11, 21, 31]
     );
 });
 
@@ -775,7 +775,7 @@ test("break: error when break outside loop", () => {
 test("optimization: no try/catch in function without return", () => {
     testCompileAndCheck(
         `
-        func add(a: Int, b: Int): Int { a + b };
+        func add(a: Num, b: Num): Num { a + b };
         add(3, 4)
         `,
         [],
@@ -786,7 +786,7 @@ test("optimization: no try/catch in function without return", () => {
 test("optimization: no try/catch in loop without break/continue", () => {
     testCompileAndCheck(
         `
-        func sum(): Int {
+        func sum(): Num {
             mut total = 0;
             for i = 1..5 { total = total + i };
             total
@@ -812,7 +812,7 @@ test("optimization: direct return when not inside IIFE", () => {
 test("optimization: direct break when not inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo(): Int {
+        func foo(): Num {
             for i = 1..10 {
                 if i > 5 { break };
             };
@@ -828,7 +828,7 @@ test("optimization: direct break when not inside IIFE", () => {
 test("optimization: direct continue when not inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo(): Int {
+        func foo(): Num {
             for i = 1..10 {
                 if i % 2 == 0 { continue };
             };
@@ -844,7 +844,7 @@ test("optimization: direct continue when not inside IIFE", () => {
 test("optimization: exception return when inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo(): Int {
+        func foo(): Num {
             x = {
                 if true { return 1 };
                 42
@@ -860,7 +860,7 @@ test("optimization: exception return when inside IIFE", () => {
 test("optimization: exception break when inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo(): Int {
+        func foo(): Num {
             for i = 1..10 {
                 x = {
                     if true { break };
@@ -878,7 +878,7 @@ test("optimization: exception break when inside IIFE", () => {
 test("optimization: exception continue when inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo(): Int {
+        func foo(): Num {
             for i = 1..10 {
                 x = {
                     if true { continue };
@@ -896,7 +896,7 @@ test("optimization: exception continue when inside IIFE", () => {
 test("optimization: return in dropped block doesn't require try/catch", () => {
     testCompileAndCheck(
         `
-        func foo(): Int {
+        func foo(): Num {
             {
                 return 99
             }
@@ -912,7 +912,7 @@ test("optimization: return in dropped block doesn't require try/catch", () => {
 test("optimization: return in non-nested if statement doesn't require try/catch", () => {
     testCompileAndCheck(
         `
-        func sign(x: Int) {
+        func sign(x: Num) {
             if x > 0 {
                 return 1 
             }
@@ -923,7 +923,7 @@ test("optimization: return in non-nested if statement doesn't require try/catch"
         }
         sign(1)
         `,
-        ["return 1n", "return (-(1n))"],
+        ["return 1", "return (-(1))"],
         ["throw new $Return$", "try {"]
     );
 });
@@ -931,7 +931,7 @@ test("optimization: return in non-nested if statement doesn't require try/catch"
 test("optimization: return in nested if statement doesn't require try/catch", () => {
     testCompileAndCheck(
         `
-        func superSign(x: Int) {
+        func superSign(x: Num) {
         if x > 0 {
             if x > 10 {
             return 2
@@ -949,7 +949,7 @@ test("optimization: return in nested if statement doesn't require try/catch", ()
 
         superSign(1)
         `,
-        ["return 2n", "return 1n", "return (-(1n))", "return (-(2n))"],
+        ["return 2", "return 1", "return (-(1))", "return (-(2))"],
         ["throw new $Return$", "try {"]
     );
 });

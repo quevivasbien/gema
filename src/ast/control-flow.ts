@@ -2,7 +2,7 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Block, Expression, lastExprShouldReturn } from "./expression";
 import { Scope } from "./scope";
-import { deepEquals } from "./type-utils";
+import { typeEquals } from "./type-utils";
 import { ArrayType, IterType, MutArrType, type Type } from "./types";
 
 export class If extends Expression {
@@ -43,7 +43,7 @@ export class If extends Expression {
             }
             branch.cascadeTypes(this, valueUsed);
             if (this.hasElse) {
-                if (!deepEquals(this.elseBranch.type, branch.type)) {
+                if (!typeEquals(this.elseBranch.type, branch.type)) {
                     throw this.error(
                         `all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`
                     );

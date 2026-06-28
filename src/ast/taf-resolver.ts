@@ -1,5 +1,5 @@
 import { Block, DropValue, type Expression } from "./expression";
-import { deepEquals } from "./type-utils";
+import { typeEquals } from "./type-utils";
 import { CustomType, type FuncType, type Type } from "./types";
 
 /**
@@ -75,7 +75,7 @@ export function resolveGenericTaf(
                               : null;
                     if (defTypeName && fnTypeParams.includes(defTypeName)) {
                         bindings.set(defTypeName, callT);
-                    } else if (!deepEquals(defT, callT)) {
+                    } else if (!typeEquals(defT, callT)) {
                         match = false;
                         break;
                     }

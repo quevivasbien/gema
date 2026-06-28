@@ -1,9 +1,9 @@
 export enum TokenType {
-    Identifier = "<IDENTIFIER>",
+    Identifier = "<IDENT>",
     // Literals
-    Integer = "<INTEGER>",
-    Float = "<FLOAT>",
-    String = "<STRING>",
+    Integer = "<INT>",
+    Num = "<NUM>",
+    String = "<STR>",
     // Brackets
     LParen = "(",
     RParen = ")",
@@ -29,6 +29,8 @@ export enum TokenType {
     Star = "*",
     Slash = "/",
     Percent = "%",
+    SlashSlash = "//",
+    PercentPercent = "%%",
     Caret = "^",
     BangEqual = "!=",
     Equal = "=",
@@ -62,6 +64,8 @@ export enum TokenType {
     StarEqual = "*=",
     SlashEqual = "/=",
     PercentEqual = "%=",
+    SlashSlashEqual = "//=",
+    PercentPercentEqual = "%%=",
     CaretEqual = "^=",
     // Literals
     True = "true",

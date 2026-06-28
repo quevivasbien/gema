@@ -12,7 +12,7 @@ test("compile arrays", () => {
         `
             [1, 2, 3]
         `,
-        [1n, 2n, 3n]
+        [1, 2, 3]
     );
 
     testCompile(
@@ -24,9 +24,9 @@ test("compile arrays", () => {
 
     testCompile(
         `
-            []: Int + [1, 2, 3] + [1]
+            []: Num + [1, 2, 3] + [1]
         `,
-        [1n, 2n, 3n, 1n]
+        [1, 2, 3, 1]
     );
 });
 
@@ -36,20 +36,20 @@ test("compile array indexed access", () => {
             x = [1, 2, 3];
             x(0)
         `,
-        1n
+        1
     );
     testCompile(
         `
             x = [[1, 2], [3, 4]];
             x(0, 1)
         `,
-        2n
+        2
     );
     testCompile(
         `
             [1, 2, 3](0)
         `,
-        1n
+        1
     );
 });
 
@@ -58,14 +58,14 @@ test("compile nested array indexed access", () => {
         `
             [[1, 2], [3, 4]](0, 1)
         `,
-        2n
+        2
     );
 
     testCompile(
         `
             x = [[1, 2], [3, 4]]; x(0, 1)
         `,
-        2n
+        2
     );
 });
 
@@ -74,14 +74,14 @@ test("compile unwrapping on nested array indexed access", () => {
         `
             1 + ([[1, 2], [3, 4]](0, 1) | unwrap)
         `,
-        3n
+        3
     );
 
     testCompile(
         `
             x = [[1, 2], [3, 4]]; x!(0, 1)
         `,
-        2n
+        2
     );
 });
 
@@ -99,7 +99,7 @@ test("parse array literal", () => {
     testParseExpectError(`[]`);
     testParseExpectError(`[1, 2]: Str`);
     testParseExpectError(`[1, "2"]`);
-    testParse(`[]: Arr[Int]`);
+    testParse(`[]: Arr[Num]`);
     testParseExpectError(`[]: Arr`);
     testParseExpectError(`[]: Arr[Int, Str]`);
 });
@@ -118,33 +118,28 @@ test("parse array indexed access", () => {
 // ============================================================
 
 test("array slice: arr(a..b)", () => {
-    testCompile("arr = [0, 1, 2, 3, 4]; arr(1..3)", [1n, 2n, 3n]);
-    testCompile("arr = [10, 20, 30, 40]; arr(0..2)", [10n, 20n, 30n]);
+    testCompile("arr = [0, 1, 2, 3, 4]; arr(1..3)", [1, 2, 3]);
+    testCompile("arr = [10, 20, 30, 40]; arr(0..2)", [10, 20, 30]);
 });
 
 test("array slice: arr(a..)", () => {
-    testCompile("arr = [0, 1, 2, 3]; arr(2..)", [2n, 3n]);
-    testCompile("arr = [10, 20]; arr(0..)", [10n, 20n]);
+    testCompile("arr = [0, 1, 2, 3]; arr(2..)", [2, 3]);
+    testCompile("arr = [10, 20]; arr(0..)", [10, 20]);
     testCompile("arr = [1, 2, 3]; arr(5..)", []);
 });
 
-test("array slice: arr(..b)", () => {
-    testCompile("arr = [0, 1, 2, 3]; arr(..2)", [0n, 1n, 2n]);
-    testCompile("arr = [10, 20, 30]; arr(..0)", [10n]);
-});
-
-test("array slice: arr(..)", () => {
-    testCompile("arr = [0, 1, 2]; arr(..)", [0n, 1n, 2n]);
+test("array slice: arr(..b) is not legal", () => {
+    testParseExpectError("arr = [0, 1, 2, 3]; arr(..2)");
 });
 
 test("array slice: with mutarr", () => {
-    testCompile("arr = trans([0, 1, 2, 3]); arr(1..3)", [1n, 2n, 3n]);
-    testCompile("arr = trans([0, 1, 2]); arr(1..)", [1n, 2n]);
+    testCompile("arr = trans([0, 1, 2, 3]); arr(1..3)", [1, 2, 3]);
+    testCompile("arr = trans([0, 1, 2]); arr(1..)", [1, 2]);
 });
 
 test("array slice: slice result of pipe", () => {
     // Pipe into collect, then slice the result
-    testCompile("x = collect(1..5); x(1..3)", [2n, 3n, 4n]);
+    testCompile("x = collect(1..5); x(1..3)", [2, 3, 4]);
 });
 
 test("array: contains", () => {
@@ -154,7 +149,7 @@ test("array: contains", () => {
 });
 
 test("array: find", () => {
-    testCompile("unwrap(find([10, 20, 30], 20))", 1n);
-    testCompile("isnone(find([1, 2, 3], 99))", true);
-    testCompile('unwrap(find(["a", "b", "c"], "a"))', 0n);
+    testCompile("unwrap(find(20, [10, 20, 30]))", 1);
+    testCompile("isnone(find(99, [1, 2, 3]))", true);
+    testCompile('unwrap(find("a", ["a", "b", "c"]))', 0);
 });

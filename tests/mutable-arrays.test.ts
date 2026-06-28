@@ -9,11 +9,11 @@ import { testCompile, requireIdenticalCompilation, testParseExpectError } from "
 // ── Creating mutable arrays ──
 
 test("mutarr: create empty", () => {
-    testCompile("mutarr = trans([]:Int); detrans(mutarr)", []);
+    testCompile("mutarr = trans([]:Num); detrans(mutarr)", []);
 });
 
 test("mutarr: create from array", () => {
-    testCompile("mutarr = trans([1, 2, 3]); detrans(mutarr)", [1n, 2n, 3n]);
+    testCompile("mutarr = trans([1, 2, 3]); detrans(mutarr)", [1, 2, 3]);
 });
 
 test("mutarr: create from array with strings or bools", () => {
@@ -26,19 +26,19 @@ test("mutarr: create from array with strings or bools", () => {
 test("mutarr: push elements", () => {
     testCompile(
         `
-        mutarr = trans([]:Int);
+        mutarr = trans([]:Num);
         push(mutarr, 1);
         push(mutarr, 2);
         push(mutarr, 3);
         detrans(mutarr)
         `,
-        [1n, 2n, 3n]
+        [1, 2, 3]
     );
 });
 
 test("mutarr: push returns the array", () => {
-    testCompile(`mutarr = trans([]:Int); push(mutarr, 10); detrans(mutarr)`, [10n]);
-    testCompile(`mutarr = trans([1, 2]); push(mutarr, 3); detrans(mutarr)`, [1n, 2n, 3n]);
+    testCompile(`mutarr = trans([]:Num); push(mutarr, 10); detrans(mutarr)`, [10]);
+    testCompile(`mutarr = trans([1, 2]); push(mutarr, 3); detrans(mutarr)`, [1, 2, 3]);
 });
 
 // ── set element ──
@@ -50,56 +50,56 @@ test("mutarr: set element", () => {
         put(mutarr, 1, 99);
         detrans(mutarr)
         `,
-        [1n, 99n, 3n]
+        [1, 99, 3]
     );
 });
 
 test("mutarr: put returns mutarr", () => {
-    testCompile("mutarr = trans([1, 2, 3]); put(mutarr, 0, 99)", [99n, 2n, 3n]);
+    testCompile("mutarr = trans([1, 2, 3]); put(mutarr, 0, 99)", [99, 2, 3]);
 });
 
 // ── Element access (indexing) ──
 
 test("mutarr: element access via indexing", () => {
-    testCompile("mutarr = trans([10, 20, 30]); mutarr(0)", 10n);
-    testCompile("mutarr = trans([10, 20, 30]); mutarr(2)", 30n);
+    testCompile("mutarr = trans([10, 20, 30]); mutarr(0)", 10);
+    testCompile("mutarr = trans([10, 20, 30]); mutarr(2)", 30);
 });
 
 test("mutarr: length on MutArr", () => {
-    testCompile("mutarr = trans([1, 2, 3]); length(mutarr)", 3n);
-    testCompile("mutarr = trans([]:Int); length(mutarr)", 0n);
+    testCompile("mutarr = trans([1, 2, 3]); length(mutarr)", 3);
+    testCompile("mutarr = trans([]:Num); length(mutarr)", 0);
 });
 
 test("mutarr: last on MutArr", () => {
-    testCompile("mutarr = trans([10, 20, 30]); last(mutarr)", 30n);
-    testCompile("mutarr = trans([42]); last(mutarr)", 42n);
+    testCompile("mutarr = trans([10, 20, 30]); last(mutarr)", 30);
+    testCompile("mutarr = trans([42]); last(mutarr)", 42);
 });
 
 // ── trans() makes a deep copy ──
 
 test("mutarr: trans creates deep copy", () => {
     // Make a mutable copy, mutate it
-    testCompile(`x = [1, 2, 3]; y = trans(x); put(y, 0, 99); detrans(y)`, [99n, 2n, 3n]);
+    testCompile(`x = [1, 2, 3]; y = trans(x); put(y, 0, 99); detrans(y)`, [99, 2, 3]);
     // Original should be unaffected
-    testCompile(`x = [1, 2, 3]; y = trans(x); put(y, 0, 99); x`, [1n, 2n, 3n]);
+    testCompile(`x = [1, 2, 3]; y = trans(x); put(y, 0, 99); x`, [1, 2, 3]);
 });
 
 // ── unsafeTrans — no copy ──
 
 test("mutarr: unsafeTrans shares the array", () => {
-    testCompile(`x = [1, 2, 3]; y = unsafeTrans(x); put(y, 0, 99); detrans(y)`, [99n, 2n, 3n]);
+    testCompile(`x = [1, 2, 3]; y = unsafeTrans(x); put(y, 0, 99); detrans(y)`, [99, 2, 3]);
     // With unsafeTrans, the original is also affected
-    testCompile(`x = [1, 2, 3]; y = unsafeTrans(x); put(y, 0, 99); x`, [99n, 2n, 3n]);
+    testCompile(`x = [1, 2, 3]; y = unsafeTrans(x); put(y, 0, 99); x`, [99, 2, 3]);
 });
 
 // ── detrans then use as regular array ──
 
 test("mutarr: detransed array can be used normally", () => {
     testCompile(
-        `mutarr = trans([1, 2, 3]); arr = detrans(mutarr); map(func(x: Int){ x + 1 }, arr) | collect`,
-        [2n, 3n, 4n]
+        `mutarr = trans([1, 2, 3]); arr = detrans(mutarr); map(func(x: Num){ x + 1 }, arr) | collect`,
+        [2, 3, 4]
     );
-    testCompile(`mutarr = trans([1, 2, 3]); arr = detrans(mutarr); arr(0)`, 1n);
+    testCompile(`mutarr = trans([1, 2, 3]); arr = detrans(mutarr); arr(0)`, 1);
 });
 
 // ── unsafeTrans and detrans should both compile to no-ops ──
@@ -120,14 +120,14 @@ test("mutarr: unsafeTrans and detrans are no-ops", () => {
 test("mutarr: push after set after push", () => {
     testCompile(
         `
-        mutarr = trans([]:Int);
+        mutarr = trans([]:Num);
         push(mutarr, 1);
         push(mutarr, 2);
         put(mutarr, 0, 99);
         push(mutarr, 3);
         detrans(mutarr)
         `,
-        [99n, 2n, 3n]
+        [99, 2, 3]
     );
 });
 
@@ -136,14 +136,14 @@ test("mutarr: push after set after push", () => {
 test("mutarr: pass mutarr to function", () => {
     testCompile(
         `
-        func addOne(mutarr: MutArr[Int]) {
+        func addOne(mutarr: MutArr[Num]) {
             put(mutarr, 0, mutarr!(0) + 1)
         };
         mutarr = trans([1, 2, 3]);
         addOne(mutarr);
         detrans(mutarr)
         `,
-        [2n, 2n, 3n]
+        [2, 2, 3]
     );
 });
 
@@ -158,7 +158,7 @@ test("mutarr: mutate via nested block", () => {
         };
         detrans(mutarr)
         `,
-        [99n, 2n, 3n]
+        [99, 2, 3]
     );
 });
 
@@ -170,22 +170,22 @@ test("mutarr: mutate via closure", () => {
         f();
         detrans(mutarr)
         `,
-        [99n, 2n, 3n]
+        [99, 2, 3]
     );
 });
 
 test("mutarr: pass mutarr into function and push", () => {
     testCompile(
         `
-        func addOne(m: MutArr[Int]) {
+        func addOne(m: MutArr[Num]) {
             push(m, 1)
         };
-        mutarr = trans([]:Int);
+        mutarr = trans([]:Num);
         addOne(mutarr);
         addOne(mutarr);
         detrans(mutarr)
         `,
-        [1n, 1n]
+        [1, 1]
     );
 });
 
@@ -267,7 +267,7 @@ test("mutarray: contains", () => {
 });
 
 test("mutarray: find", () => {
-    testCompile("unwrap(find([10, 20, 30] | trans, 20))", 1n);
-    testCompile("isnone(find([1, 2, 3] | trans, 99))", true);
-    testCompile('unwrap(find(["a", "b", "c"] | trans, "a"))', 0n);
+    testCompile("unwrap(find(20, [10, 20, 30] | trans))", 1);
+    testCompile("isnone(find(99, [1, 2, 3] | trans))", true);
+    testCompile('unwrap(find("a", ["a", "b", "c"] | trans))', 0);
 });

@@ -14,32 +14,32 @@ test("tuple compile basic", () => {
     // A tuple that is immediately indexed must produce a literal value.
     // (1, "a")(0) should produce 1
     // We test via a simple variable first.
-    testCompile('x = (1, "a", 3.0); x', [1n, "a", 3.0]);
+    testCompile('x = (1, "a", 3.0); x', [1, "a", 3.0]);
 });
 
 test("tuple access by literal index", () => {
-    testCompile('(1, "a", 3.0)(0)', 1n);
+    testCompile('(1, "a", 3.0)(0)', 1);
     testCompile('(1, "a", 3.0)(1)', "a");
     testCompile('(1, "a", 3.0)(2)', 3.0);
 });
 
 test("tuple access variable by literal index", () => {
-    testCompile('t = (1, "a", 3.0); t(0)', 1n);
+    testCompile('t = (1, "a", 3.0); t(0)', 1);
     testCompile('t = (1, "a", 3.0); t(1)', "a");
     testCompile('t = (1, "a", 3.0); t(2)', 3.0);
 });
 
 test("nested tuple", () => {
-    testCompile("t = (1, (2, 3)); t(1)(1)", 3n);
+    testCompile("t = (1, (2, 3)); t(1)(1)", 3);
 });
 
 test("tuple: function with tuple parameter", () => {
     testCompile(
         `
-        func foo(t: Tup[Int, Float, Str]) {
+        func foo(t: Tup[Int, Num, Str]) {
             toStr(t(0)) + toStr(t(1)) + t(2)
         }
-        foo((1, 2.0, "3"))
+        foo((1i, 2.0, "3"))
         `,
         "123"
     );
@@ -50,32 +50,32 @@ test("tuple: function with tuple parameter", () => {
 // ============================================================
 
 test("tuple unpacking basic", () => {
-    testCompile('(a, b) = (1, "hello"); a', 1n);
+    testCompile('(a, b) = (1, "hello"); a', 1);
     testCompile('(a, b) = (1, "hello"); b', "hello");
 });
 
 test("tuple unpacking from variable", () => {
-    testCompile('x = (1, "hello"); (a, b) = x; a', 1n);
+    testCompile('x = (1, "hello"); (a, b) = x; a', 1);
     testCompile('x = (1, "hello"); (a, b) = x; b', "hello");
 });
 
 test("tuple unpacking with mut", () => {
-    testCompile('(mut a, mut b) = (1, "hello"); a = 2; a', 2n);
-    testCompile('x = (1, "hello"); (mut a, mut b) = x; a = 2; a', 2n);
+    testCompile('(mut a, mut b) = (1, "hello"); a = 2; a', 2);
+    testCompile('x = (1, "hello"); (mut a, mut b) = x; a = 2; a', 2);
     testCompile('x = (1, "hello"); (a, mut b) = x; b = "bye"; b', "bye");
 });
 
 test("tuple unpacking as expression", () => {
     // Tuple unpacking expressions should evaluate to the tuple
-    testCompile('(a, b) = (1, "hello")', [1n, "hello"]);
-    testCompile('(a, b) = (1, "hello")', [1n, "hello"]);
-    testCompile('(mut a, mut b) = (1, "hello")', [1n, "hello"]);
+    testCompile('(a, b) = (1, "hello")', [1, "hello"]);
+    testCompile('(a, b) = (1, "hello")', [1, "hello"]);
+    testCompile('(mut a, mut b) = (1, "hello")', [1, "hello"]);
 });
 
 test("assign variable equal to tuple unpacking", () => {
     // Tuple unpacking expressions should evaluate to the tuple
-    testCompile('x = {(a, b) = (1, "hello")}', [1n, "hello"]);
-    testCompile('x = {(a, b) = (1, "hello")}; x', [1n, "hello"]);
+    testCompile('x = {(a, b) = (1, "hello")}', [1, "hello"]);
+    testCompile('x = {(a, b) = (1, "hello")}; x', [1, "hello"]);
 });
 
 test("dropped tuple unpacking", () => {
@@ -83,25 +83,25 @@ test("dropped tuple unpacking", () => {
 });
 
 test("reassign var in tuple unpacking", () => {
-    testCompile("mut x = 1; (x, y) = (2, 3); x", 2n);
-    testCompile("mut x = 1; { (x, y) = (2, 3) }; x", 2n);
+    testCompile("mut x = 1; (x, y) = (2, 3); x", 2);
+    testCompile("mut x = 1; { (x, y) = (2, 3) }; x", 2);
     testParseExpectError("x = 1; (x, y) = (2, 3); x");
 });
 
 test("tuple unpacking three elements", () => {
-    testCompile("(a, b, c) = (1, 2, 3); a + b + c", 6n);
+    testCompile("(a, b, c) = (1, 2, 3); a + b + c", 6);
 });
 
 test("tuple unpacking on nested scope", () => {
-    testCompile("(a, b, c) = { (1, 2, 3) }; a + b + c", 6n);
+    testCompile("(a, b, c) = { (1, 2, 3) }; a + b + c", 6);
 });
 
 test("tuple unpacking from function", () => {
-    testCompile("func foo() { (1, 2, 3) } (a, b, c) = foo(); a + b + c", 6n);
+    testCompile("func foo() { (1, 2, 3) } (a, b, c) = foo(); a + b + c", 6);
 });
 
 test.todo("tuple unpacking on nested tuple", () => {
-    testCompile("t = (1, (2, 3)); (a, (b, c)) = t; c", 3n);
+    testCompile("t = (1, (2, 3)); (a, (b, c)) = t; c", 3);
 });
 
 test("tuple unpacking error on non-tuple rhs", () => {
@@ -115,14 +115,14 @@ test("tuple unpacking error on type mismatch", () => {
 test("tuple: unpack tuple within body of for loop", () => {
     testCompile(
         `
-        out = []:Int | trans;
+        out = []:Num | trans;
         for tup = zip(range(1,3), range(3,5)) {
             (a, b) = tup;
             push(out, a + b)
         }
         out
         `,
-        [4n, 6n, 8n]
+        [4, 6, 8]
     );
 });
 
@@ -135,7 +135,7 @@ test.todo("tuple: unpack tuple in for loop declaration", () => {
         }
         out
         `,
-        [4n, 6n, 8n]
+        [4, 6, 8]
     );
 });
 
@@ -149,38 +149,38 @@ test("zip basic two iterators", () => {
 
 test("zip collect two arrays", () => {
     testCompile(`collect(zip([1, 2, 3], ["a", "b", "c"]))`, [
-        [1n, "a"],
-        [2n, "b"],
-        [3n, "c"],
+        [1, "a"],
+        [2, "b"],
+        [3, "c"],
     ]);
 });
 
 test("zip stops at shortest", () => {
     testCompile(`collect(zip([1, 2], ["a", "b", "c", "d"]))`, [
-        [1n, "a"],
-        [2n, "b"],
+        [1, "a"],
+        [2, "b"],
     ]);
 });
 
 test("zip three iterators", () => {
     testCompile(`collect(zip([1, 2], ["a", "b"], [true, false]))`, [
-        [1n, "a", true],
-        [2n, "b", false],
+        [1, "a", true],
+        [2, "b", false],
     ]);
 });
 
 test("zip with collect on array and range", () => {
     testCompile(`collect(zip([10, 20, 30], range(0, 3)))`, [
-        [10n, 0n],
-        [20n, 1n],
-        [30n, 2n],
+        [10, 0],
+        [20, 1],
+        [30, 2],
     ]);
 });
 
 test("zip with map", () => {
     testCompile(
-        `collect(map(func(pair: Tup[Int, Int]) { pair(0) + pair(1) }, zip([1, 2, 3], [10, 20, 30])))`,
-        [11n, 22n, 33n]
+        `collect(map(func(pair: Tup[Num, Num]) { pair(0) + pair(1) }, zip([1, 2, 3], [10, 20, 30])))`,
+        [11, 22, 33]
     );
 });
 
@@ -189,19 +189,19 @@ test("zip with map", () => {
 // ============================================================
 
 test("tuple: list of tuples", () => {
-    testCompile("x = [(1,2,3), (4,5,6)]; x!(1)(1)", 5n);
+    testCompile("x = [(1,2,3), (4,5,6)]; x!(1)(1)", 5);
     testParseExpectError("x = [(1,2,3), (4,6)];"); // Can't have mismatching tuple types in the same array
     testParseExpectError("x = [(1,2,3), (4,5,6.0)];"); // Can't have mismatching tuple types in the same array
 });
 
 test("tuple: operations on list of tuples", () => {
-    testCompile("x = trans([]:Tup[Int]); push(x, (1,)); x!(0)(0)", 1n);
-    testCompile("([]:Tup[Int] + [(1,)])!(0)(0)", 1n);
-    testCompile("([(1,)] + [(2,)])!(1)(0)", 2n);
+    testCompile("x = trans([]:Tup[Num]); push(x, (1,)); x!(0)(0)", 1);
+    testCompile("([]:Tup[Num] + [(1,)])!(0)(0)", 1);
+    testCompile("([(1,)] + [(2,)])!(1)(0)", 2);
 });
 
 test("tuple: struct with tuple field", () => {
-    testCompile("struct P { p: Tup[Float, Float] } P((1.0,2.0)).p(0)", 1.0);
+    testCompile("struct P { p: Tup[Num, Num] } P((1.0,2.0)).p(0)", 1.0);
 });
 
 // ── Monomorphization with different tuple sizes ──────────
@@ -209,21 +209,21 @@ test("tuple: struct with tuple field", () => {
 test("tuple: monomorphization with different tuple sizes", () => {
     testCompile(
         `
-        func foo(t: Tup[Int, Int]) { t(0) + t(1) }
-        func foo(t: Tup[Int, Int, Int]) { t(0) + t(1) + t(2) }
+        func foo(t: Tup[Num, Num]) { t(0) + t(1) }
+        func foo(t: Tup[Num, Num, Num]) { t(0) + t(1) + t(2) }
         foo((1, 2)) + foo((1, 2, 3))
         `,
-        9n
+        9
     );
 });
 
 test("tuple: monomorphization with mixed types", () => {
     testCompile(
         `
-        func bar(t: Tup[Int, Str]) { t(0) }
-        func bar(t: Tup[Str, Int]) { length(t(0)) }
+        func bar(t: Tup[Num, Str]) { t(0) }
+        func bar(t: Tup[Str, Num]) { length(t(0)) }
         bar((1, "hello")) + bar(("abc", 0))
         `,
-        4n
+        4
     );
 });

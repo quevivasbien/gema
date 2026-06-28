@@ -3,7 +3,7 @@ import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import { resolveGenericTaf } from "./taf-resolver";
 import type { Scope } from "./scope";
-import { deepEquals } from "./type-utils";
+import { typeEquals } from "./type-utils";
 import {
     ArrayType,
     CustomType,
@@ -61,7 +61,7 @@ export class ArrLit extends Expression {
             }
             if (this.innerType === undefined) {
                 this.innerType = expr.type;
-            } else if (!deepEquals(this.innerType, expr.type)) {
+            } else if (!typeEquals(this.innerType, expr.type)) {
                 throw this.error(
                     `incompatible types in array: expected ${this.innerType}, got ${expr.type}`
                 );
@@ -417,7 +417,7 @@ export class FieldAssignment extends Expression {
             );
         }
         const assignType = this.value.type!;
-        if (!deepEquals(field.type, assignType)) {
+        if (!typeEquals(field.type, assignType)) {
             throw this.error(
                 `cannot assign value of type ${assignType} to field '${this.fieldName}' of type ${field.type}`
             );
