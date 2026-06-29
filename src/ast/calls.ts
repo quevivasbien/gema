@@ -1030,6 +1030,23 @@ export class Call extends Expression {
                     wrapArrayToIter(0);
                     writer.write(")");
                     return;
+                case "head":
+                    if (
+                        this.args[0]?.type instanceof ArrayType ||
+                        this.args[0]?.type instanceof MutArrType ||
+                        this.args[0]?.type === "Str"
+                    ) {
+                        this.args[0].toJS(writer);
+                        writer.write("[0]");
+                        return;
+                    } else if (this.args[0]?.type instanceof IterType) {
+                        writer.useBuiltin("$iterGet$");
+                        writer.write("$iterGet$(0, ");
+                        this.args[0].toJS(writer);
+                        writer.write(")");
+                        return;
+                    }
+                    return;
                 case "take":
                     writer.useBuiltin("$TakeIterator$");
                     writer.write("new $TakeIterator$(");
@@ -1201,7 +1218,10 @@ export class Call extends Expression {
                     this.args[0].toJS(writer);
                     return;
                 case "contains":
-                    if (this.args[1].type instanceof ArrayType || this.args[1].type instanceof MutArrType) {
+                    if (
+                        this.args[1].type instanceof ArrayType ||
+                        this.args[1].type instanceof MutArrType
+                    ) {
                         this.args[1].toJS(writer);
                         writer.write(".indexOf(");
                         this.args[0].toJS(writer);

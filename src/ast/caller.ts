@@ -414,6 +414,38 @@ function findBuiltin(
             }
             return undefined;
         }
+        case "head": {
+            if (argTypes.length !== 1) return undefined;
+            const hInner = argTypes[0];
+            if (
+                hInner instanceof IterType ||
+                hInner instanceof ArrayType ||
+                hInner instanceof MutArrType
+            ) {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "head",
+                        callerType: new FuncType([hInner], new MaybeType(hInner.innerType)),
+                        rootType: new MaybeType(hInner.innerType),
+                        builtinKind: "head",
+                    },
+                };
+            } else if (hInner === "Str") {
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "head",
+                        callerType: new FuncType([hInner], new MaybeType("Str")),
+                        rootType: new MaybeType("Str"),
+                        builtinKind: "head",
+                    },
+                };
+            }
+            return undefined;
+        }
         case "take": {
             if (argTypes.length !== 2) return undefined;
             if (argTypes[0] !== "Int" && argTypes[0] !== "Num") return undefined;

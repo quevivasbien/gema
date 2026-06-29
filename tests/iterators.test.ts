@@ -140,6 +140,15 @@ test("compile last", () => {
     testCompile("last([1, 2, 3])", 3);
     testCompile("last([42])", 42);
     testCompile("last(range(0, 5))", 5);
+    testCompile("last([]:Num) | unwrap(0)", 0);
+});
+
+test("compile head", () => {
+    // last(iter) — last element
+    testCompile("head([1, 2, 3])", 1);
+    testCompile("head([42])", 42);
+    testCompile("head(range(0, 5))", 0);
+    testCompile("head([]:Num) | unwrap(0)", 0);
 });
 
 test("compile length", () => {
