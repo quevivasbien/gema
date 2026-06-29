@@ -19,10 +19,10 @@ Or use the static site directly: `open frontend/static-site/index.html` -- this 
 Everything in Gema is an expression — every piece of code produces a value.
 
 ```gema
-42              # Integer (compiles to JS BigInt)
-3.14            # Float (compiles to JS Number)
-"hello"         # String
-true            # Boolean
+3.14            # Num (compiles to JS Number)
+42i             # Int (compiles to JS BigInt)
+"hello"         # Str
+true            # Bool
 
 # Blocks: the last expression is the return value
 { 1 + 2 }       # → 3
@@ -33,14 +33,15 @@ true            # Boolean
 
 **Operators** follow standard precedence:
 
-| Category   | Operators                                              |
-| ---------- | ------------------------------------------------------ |
-| Arithmetic | `+`, `-`, `*`, `/`, `%` (modulo), `^` (exponentiation) |
-| Comparison | `==`, `!=`, `<`, `<=`, `>`, `>=`                       |
-| Logical    | `and`, `or`                                            |
-| Unary      | `-` (negate), `!` (not)                                |
-| Range      | `..` (inclusive range)                                 |
-| Pipe       | `\|` (forward pipe)                                    |
+| Category     | Operators                                                        |
+| ------------ | ---------------------------------------------------------------- |
+| Arithmetic   | `+`, `-`, `*`, `/`, `%` (modulo), `//` (floor div), `%%` (euclidean mod), `^` (exponentiation) |
+| Comparison   | `==`, `!=`, `<`, `<=`, `>`, `>=`                                 |
+| Logical      | `and`, `or`                                                      |
+| Unary        | `-` (negate), `!` (not)                                          |
+| Range        | `..` (inclusive range)                                           |
+| Pipe         | `\|` (forward pipe)                                              |
+| Compound     | `+=`, `-=`, `*=`, `/=`, `%=`, `//=`, `%%=`, `^=`                 |
 
 ### 2. Variables
 
@@ -66,13 +67,13 @@ a();  # 2
 
 ```gema
 # Named function with explicit types
-func add(a: Int, b: Int): Int {
+func add(a: Num, b: Num): Num {
     a + b
 };
 add(3, 4)  # → 7
 
 # Anonymous function (func syntax — requires type annotations)
-f = func(x: Int, y: Int): Int { x + y };
+f = func(x: Num, y: Num): Num { x + y };
 f(10, 20)  # → 30
 
 # Lambda syntax (backslash — types inferred from context)
@@ -87,11 +88,32 @@ func greet(name: Str, greeting: Str): Str {
 greet(greeting="Hello", name="Gema")  # → "Hello, Gema!"
 
 # Functions can be passed as values
-func apply(fn: Func[Int: Int], x: Int): Int { fn(x) };
+func apply(fn: Func[Num: Num], x: Num): Num { fn(x) };
 apply(\x { x * 3 }, 5)  # → 15
 ```
 
-### 4. Conditionals
+### 4. Tuples
+
+```gema
+t = (1, "hello", 3.0);  # Tuple literal — groups values of different types
+t(0)                    # → 1 — indexed access
+Tup[Int, Str, Num]      # Type annotation syntax
+
+# Nested tuples
+nested = (1, (2, 3));
+nested(1)(0)            # → 2
+
+# Tuple unpacking
+(a, b, c) = (10, 20, 30);
+a + b + c               # → 60
+
+# Mutable unpacking
+(mut i, mut j) = (1, 2);
+i = i + j;
+i                       # → 3
+```
+
+### 5. Conditionals
 
 ```gema
 # if/else is an expression — both branches must have the same type
@@ -114,7 +136,24 @@ if x > 0 {
 };
 ```
 
-### 5. Loops and Control Flow
+### 6. Loops and Control Flow
+
+```gema
+# break — exit a loop early
+mut sum = 0;
+for i = 1.. {
+    if i > 10 { break };
+    sum += i
+};
+sum  # → 55 (sum of 1..10)
+
+# continue — skip to next iteration
+mut evens = 0;
+for i = 1..10 {
+    if i % 2 == 0 { continue };
+    evens += i
+};
+```
 
 ```gema
 # For loop over a range
@@ -130,13 +169,6 @@ for x in [10, 20, 30] {
     push(values, x + 1);
 };
 # values: 11, 21, 31
-
-# For loop over a string (iterates characters)
-chars = []:Str | trans;
-for ch in "abc" {
-    push(chars, ch);
-};
-# chars: "a", "b", "c"
 
 # break — exit a loop early
 values = []:Int | trans;
@@ -177,10 +209,6 @@ arr = [1, 2, 3];        # Array literal
 arr(0)                  # → 1 — indexed access
 arr(1)                  # → 2
 
-# Multi-dimensional
-matrix = [[1, 2], [3, 4]];
-matrix(0, 1)            # → 2
-
 # Concatenation with +
 [1, 2] + [3, 4]         # → [1, 2, 3, 4]
 
@@ -196,7 +224,6 @@ Gema has first-class iterator combinators — all lazy, no intermediate arrays.
 # Range: create an inclusive integer range
 range(1, 5)             # iter of [1, 2, 3, 4, 5]
 1..5                    # same, using .. syntax
-..5                     # from 0 to 5
 
 # Pipe syntax: value | function
 1..10 | filter(\x { x % 2 == 0 })
@@ -204,16 +231,16 @@ range(1, 5)             # iter of [1, 2, 3, 4, 5]
       | collect          # → [4, 16, 36, 64, 100]
 
 # Iterator combinators
-map(\x { x * 2 }, [1, 2, 3])           # transform
-filter(\x { x > 2 }, [1, 2, 3, 4])     # filter
+map(\x { x * 2 }, [1, 2, 3])                # transform
+filter(\x { x > 2 }, [1, 2, 3, 4])          # filter
 reduce(\acc, x { acc + x }, 0, [1, 2, 3])   # fold → 6
-take(3, 1..)                             # first 3 of infinite range → [1, 2, 3]
-drop(2, 1..5)                            # skip first 2 → [3, 4, 5]
-takeWhile(\x { x < 4 }, 1..10)           # → [1, 2, 3]
-dropWhile(\x { x < 4 }, 1..10)           # → [4, 5, 6, 7, 8, 9, 10]
-iterate(\x { x * 2 }, 1)                 # infinite: 1, 2, 4, 8, ...
-step(1..10, 2)                           # every 2nd → [1, 3, 5, 7, 9]
-zip([1, 2, 3], ["a", "b", "c"])          # → iter of [(1,"a"), (2,"b"), (3,"c")]
+take(3, 1..)                                # first 3 of infinite range → [1, 2, 3]
+drop(2, 1..5)                               # skip first 2 → [3, 4, 5]
+takeWhile(\x { x < 4 }, 1..10)              # → [1, 2, 3]
+dropWhile(\x { x < 4 }, 1..10)              # → [4, 5, 6, 7, 8, 9, 10]
+iterate(\x { x * 2 }, 1)                    # infinite: 1, 2, 4, 8, ...
+step(2, 1..10)                              # every 2nd → [1, 3, 5, 7, 9]
+zip([1, 2, 3], ["a", "b", "c"])             # → iter of [(1,"a"), (2,"b"), (3,"c")]
 
 # Collect: materialize an iterator into an array
 collect(1..5)           # → [1, 2, 3, 4, 5]
@@ -222,8 +249,6 @@ collect(1..5)           # → [1, 2, 3, 4, 5]
 arr = [0, 10, 20, 30, 40];
 arr(1..3)               # → [10, 20, 30] — slice from index 1 to 3 inclusive
 arr(2..)                # → [20, 30, 40] — slice to end
-arr(..2)                # → [0, 10, 20]  — slice from start
-arr(..)                 # → copy of entire array
 
 # last / length — optimized for arrays
 last([10, 20, 30])      # → 30
@@ -234,8 +259,8 @@ length([1, 2, 3])       # → 3
 
 ```gema
 struct Point {
-    x: Float,
-    y: Float
+    x: Num,
+    y: Num
 };
 
 # Constructor: Point(field1, field2, ...)
@@ -245,8 +270,8 @@ p.y                     # → 4.0
 
 # Mutable fields
 struct MutablePoint {
-    mut x: Float,
-    mut y: Float
+    mut x: Num,
+    mut y: Num
 };
 mp = MutablePoint(1.0, 2.0);
 mp.x = 10.0;             # Field mutation
@@ -269,7 +294,56 @@ func concat(a: Pair, b: Pair): Pair {
 };
 ```
 
-### 8. Generics and Traits
+### 8. Enums
+
+```gema
+# Plain enum — numbered variants
+enum Grade { a, b, c }
+Grade.a    # → 0
+Grade.b    # → 1
+
+# Tagged enum — variants with associated values
+enum Number {
+    integer: Int,
+    decimal: Num,
+}
+Number.integer(5i)    # → { $tag: 0, $val: 5n }
+Number.decimal(3.14)  # → { $tag: 1, $val: 3.14 }
+
+# Mixed enum — some variants tagged, some plain
+enum OptionalInt {
+    value: Num,
+    missing
+}
+OptionalInt.value(42)  # → { $tag: 0, $val: 42 }
+OptionalInt.missing    # → { $tag: 1, $val: null }
+```
+
+### 9. Match Expressions
+
+```gema
+# Match on a plain enum
+match Grade.a {
+    a { 100 },
+    b { 200 },
+    else { 0 }
+}
+
+# Match on a tagged enum — destructure the value
+match Number.integer(5i) {
+    integer(i) i,
+    decimal(d) toInt(d)
+}
+
+# Match on Maybe type
+opt = 1..3 | head;      # returns Maybe[Num]
+match opt {
+    some(v) { v * 2 },
+    none { 0 }
+}
+```
+
+### 10. Generics and Traits
 
 ```gema
 # Traits define required function signatures
@@ -283,9 +357,9 @@ func lte(a: T, b: T): Bool where T is Comparable {
     lt(a, b) or eq(a, b)
 };
 
-# Implement the trait for Int
-func eq(a: Int, b: Int): Bool { a == b };
-func lt(a: Int, b: Int): Bool { a < b };
+# Implement the trait for Num
+func eq(a: Num, b: Num): Bool { a == b };
+func lt(a: Num, b: Num): Bool { a < b };
 
 lte(2, 3)   # → true
 lte(3, 3)   # → true
@@ -298,13 +372,46 @@ id(42)      # → 42
 id("hello") # → "hello"
 
 # Generic functions work with structs
-struct Point { x: Int, y: Int };
+struct Point { x: Num, y: Num };
 p = Point(1, 2);
 q = id(p);      # T = Point
 q.x + q.y       # → 3
+
+# Generic structs — type params in square brackets
+struct Pair[T] { a: T, b: T }
+Pair(1, 2)              # → Pair[Num]
+Pair(1i, 2i)            # → Pair[Int]
+p = Pair(10, 20);
+p.a + p.b               # → 30
+
+# Generic structs with multiple type params
+struct Triple[T, U, V] { a: T, b: U, c: V }
+
+# Nested generic structs
+Pair(Pair(1, 2), Pair(3, 4))
+
+# Generic structs in function params / return types
+func first(p: Pair[T]): T where T is Any { p.a }
+
+# Generic enums
+enum Option[T] { some: T, nothing }
+Option[Int].some(1i)     # → { $tag: 0, $val: 5n }
+Option[Str].some("hi")
+
+# Match on a generic enum variant
+x = Option[Str].some("hello");
+match x {
+    some(v) { v },
+    nothing { "empty" }
+}
+
+# Generic enums with multiple type params
+enum Result[T, E] { value: T, error: E }
+Result[Int, Str].value(42i)
+Result[Int, Str].error("oops")
 ```
 
-### 9. Tuples
+### 11. Tuples
 
 ```gema
 # Tuple literals group values of different types
@@ -379,7 +486,33 @@ d = detrans(mutarr);
 # mutarr is no longer usable — compile error
 ```
 
-### 12. For Loops
+### 12. Modules and JS Interop
+
+```gema
+# Import a gema module (all top-level definitions are exported)
+use "math.gema"
+
+# Selective import from a gema module
+use (add, sub) from "utils.gema"
+
+# Import symbols from a JavaScript module — type annotations required
+use (
+    double: Func[Num: Num],
+    greet: Func[Str: Str],
+) from "utils.js"
+
+# Imported JS functions work naturally in gema code
+5 | double      # → 10
+greet("world") # → "Hello, world!"
+
+# Multiple JS modules
+use (PI: Num) from "constants.js"
+use (log: Func[Str: Str]) from "logger.js"
+```
+
+JS imports generate proper ES module `import` statements. Type annotations are trusted as-is — this is an "unsafe" operation with no runtime verification.
+
+### 13. For Loops
 
 ```gema
 # Iterate over a range
@@ -401,41 +534,69 @@ for i = 1.. {
 sum  # → 55 (sum of 1..10)
 ```
 
-### 13. Type Conversions
+### 14. Maybe Type
+
+```gema
+# Array/iterator/string indexing returns Maybe[T]
+arr = [10, 20, 30];
+arr(0)          # → Maybe[Num] (wraps the value)
+arr(99)         # → Maybe[Num] (undefined — out of bounds)
+
+# Maybe values must be explicitly handled before use
+unwrap(0, arr(0))     # → 10 — unwrap with default
+unwrap(arr(0))        # → 10 — unwrap without fallback (throws on undefined)
+isnone(arr(99))       # → true
+
+# head/last return Maybe
+head(1..3)            # → Maybe[Num]
+last([]:Int)          # → Maybe[Int] (none for empty)
+
+# Unsafe call ! bypasses Maybe wrapping
+arr!(0)               # → 10 (Int, not Maybe[Int]) -- out-of-bounds is UB
+```
+
+### 15. Type Conversions
 
 ```gema
 toStr(42)       # → "42"
 toInt(3.14)     # → 3
-toFloat(3)      # → 3.0
+toNum(3i)        # → 3.0
 toBool(1)       # → true
 toBool(0)       # → false
 
 msg = "gema";
-msg(0)          # → "g" — string indexing
+msg(0)          # → "g" — string indexing (returns Maybe[Str])
+msg!(0)         # → "g" — unsafe access
+"hello"(1..3)   # → "ell" — string slicing
+length("hello") # → 5
+split(",", "a,b,c")   # → ["a", "b", "c"]
+replace("old", "new", "hello old world")  # → "hello new world"
 ```
 
-### 14. Type Annotations
+### 16. Type Annotations
 
 Gema uses `:` for type annotations:
 
-| Syntax                 | Meaning                          |
-| ---------------------- | -------------------------------- |
-| `Int`                  | BigInt                           |
-| `Float`                | Number                           |
-| `Str`                  | String                           |
-| `Bool`                 | Boolean                          |
-| `Null`                 | null/undefined                   |
-| `Arr[Int]`             | Array of Int                     |
-| `Iter[Int]`            | Lazy iterator of Int             |
-| `MutArr[Int]`          | Mutable array of Int             |
-| `Func[Int: Str]`       | Function: Int → Str              |
-| `Func[Int, Str: Bool]` | Function: (Int, Str) → Bool      |
-| `Tup[Int, Str, Bool]`  | Tuple of (Int, Str, Bool)        |
-| `Dict[Str, Int]`       | Dict with Str keys, Int values   |
-| `MutDict[Str, Int]`    | Mutable dict                     |
-| `Set[Int]`             | Immutable set of Int             |
-| `MutSet[Int]`          | Mutable set of Int               |
-| `Maybe[Int]`           | Optional Int (undefined allowed) |
+| Syntax                  | Meaning                          |
+| ----------------------- | -------------------------------- |
+| `Int`                   | BigInt                           |
+| `Num`                   | Number                           |
+| `Str`                   | String                           |
+| `Bool`                  | Boolean                          |
+| `Null`                  | null/undefined                   |
+| `Arr[Int]`              | Array of Int                     |
+| `Iter[Int]`             | Lazy iterator of Int             |
+| `MutArr[Int]`           | Mutable array of Int             |
+| `Func[Int: Str]`        | Function: Int → Str              |
+| `Func[Int, Str: Bool]`  | Function: (Int, Str) → Bool      |
+| `Tup[Int, Str, Bool]`   | Tuple of (Int, Str, Bool)        |
+| `Dict[Str, Int]`        | Dict with Str keys, Int values   |
+| `MutDict[Str, Int]`     | Mutable dict                     |
+| `Set[Int]`              | Immutable set of Int             |
+| `MutSet[Int]`           | Mutable set of Int               |
+| `Maybe[Int]`            | Optional Int (undefined allowed) |
+| `Pair[Num]`             | Generic struct (user-defined)    |
+| `Option[Int]`           | Generic enum (user-defined)      |
 
 ## Project Structure
 
@@ -466,13 +627,36 @@ gema/
 │       ├── type-utils.ts # Type comparison utilities
 │       └── reachability.ts  # Reachability analysis for tree-shaking
 ├── frontend/
-│   ├── index.html        # Playground page
-│   ├── styles.css        # Playground styling
-│   ├── editor.js         # CodeMirror editor + presets
-│   ├── get-worker.js     # Web worker for compilation
-│   └── dist/             # Built bundles
-│       └── bundle.js     # Bundled frontend assets
-├── tests/                # Test suite (14 test files)
+│   ├── index.html         # Playground page
+│   ├── styles.css         # Playground styling
+│   ├── editor.js          # CodeMirror editor + presets
+│   ├── editor-presets.js  # Example programs for the playground
+│   ├── gema-language.js   # CodeMirror syntax highlighting for .gema
+│   ├── get-worker.js      # Web worker for compilation
+│   └── dist/
+│       └── bundle.js      # Bundled frontend assets
+├── tests/                 # Test suite (20 test files)
+│   ├── helpers.ts
+│   ├── basics.test.ts
+│   ├── functions.test.ts
+│   ├── structs.test.ts
+│   ├── enums.test.ts
+│   ├── generics-structs.test.ts
+│   ├── generics-enums.test.ts
+│   ├── modules.test.ts
+│   ├── js-interop.test.ts
+│   ├── control-flow.test.ts
+│   ├── arrays.test.ts
+│   ├── iterators.test.ts
+│   ├── variables.test.ts
+│   ├── tuples.test.ts
+│   ├── strings.test.ts
+│   ├── mutable-arrays.test.ts
+│   ├── misc-data-structures.test.ts
+│   ├── maybe.test.ts
+│   ├── anon-functions.test.ts
+│   ├── advanced.test.ts
+│   └── sandbox.test.ts
 └── benchmarks/           # Performance benchmarks
 ```
 
