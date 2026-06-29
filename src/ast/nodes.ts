@@ -7,6 +7,8 @@ import {
 } from "./caller-utils";
 import { Assignment } from "./assignment";
 import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
+import type { EnumDef } from "./enums";
+import type { StructDef } from "./structs";
 
 import { collectTraitsForTypeParam, typeEquals } from "./type-utils";
 import {
@@ -418,6 +420,44 @@ export class Variable extends Expression {
                 }
             }
             currentScope = currentScope.parent;
+        }
+
+        // Check for generic struct — e.g., Pair[Int]
+        if (scope) {
+            const structResult = scope.lookup(this.name);
+            if (
+                structResult &&
+                structResult.attrs.class === "struct" &&
+                structResult.attrs.isGeneric &&
+                structResult.attrs.def
+            ) {
+                const structDefNode = structResult.attrs.def as StructDef;
+                const monomorphized = structDefNode.monomorphize(this.templateTypes.types);
+                if (monomorphized) {
+                    this.type = new CustomType(this.name);
+                    this.fullName = this.name;
+                    return;
+                }
+            }
+        }
+
+        // Check for generic enum — e.g., Result[Int, Str]
+        if (scope) {
+            const enumResult = scope.lookup(this.name);
+            if (
+                enumResult &&
+                enumResult.attrs.class === "enum" &&
+                enumResult.attrs.isGeneric &&
+                enumResult.attrs.def
+            ) {
+                const enumDefNode = enumResult.attrs.def as EnumDef;
+                const monomorphized = enumDefNode.monomorphize(this.templateTypes.types);
+                if (monomorphized) {
+                    this.type = monomorphized.enumType;
+                    this.fullName = this.name;
+                    return;
+                }
+            }
         }
 
         // Fall back to type reference (e.g., Arr[Int] → type Arr with template [Int])
@@ -966,6 +1006,20 @@ export class FunctionDef extends Expression {
             if (t instanceof CustomType && !isBuiltinTypeName(t.name)) {
                 const enumCheck = this.parent?.getScope()?.lookup(t.name);
                 if (enumCheck && enumCheck.attrs.class === "enum") {
+                    // If this is a generic enum with concrete template args (e.g., Option[Str]),
+                    // monomorphize it to get concrete variant types.
+                    if (
+                        enumCheck.attrs.isGeneric &&
+                        enumCheck.attrs.def &&
+                        t.templateArgs &&
+                        t.templateArgs.length > 0
+                    ) {
+                        const enumDefNode = enumCheck.attrs.def as EnumDef;
+                        const result = enumDefNode.monomorphize(t.templateArgs);
+                        if (result) {
+                            return result.enumType;
+                        }
+                    }
                     return new EnumType(
                         enumCheck.attrs.name,
                         enumCheck.attrs.variants.map((v: { name: string; type: Type | null }) => ({

@@ -23,6 +23,11 @@ export function isBuiltinTypeName(name: string): boolean {
 export function collectCustomTypeNames(type: Type, names: Set<string>): void {
     if (type instanceof CustomType) {
         names.add(type.name);
+        if (type.templateArgs) {
+            for (const ta of type.templateArgs) {
+                collectCustomTypeNames(ta, names);
+            }
+        }
     } else if (type instanceof FuncType) {
         type.paramTypes.forEach((pt) => collectCustomTypeNames(pt, names));
         collectCustomTypeNames(type.returnType, names);
@@ -58,6 +63,13 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     if (type instanceof CustomType && bindings.has(type.name)) {
         const substituted = bindings.get(type.name)!;
         return substituted;
+    }
+    if (type instanceof CustomType && type.templateArgs) {
+        return new CustomType(
+            type.name,
+            type.traits,
+            type.templateArgs.map((t) => substituteTypeParams(t, bindings))
+        );
     }
     if (type instanceof FuncType) {
         return new FuncType(
@@ -304,10 +316,14 @@ export class EnumType {
 export class CustomType {
     name: string;
     traits: string[];
+    /** Template arguments for generic types (e.g., Pair[Int] → templateArgs=[Int]).
+     *  Used by generic structs and enums to carry concrete type args. */
+    templateArgs?: Type[];
 
-    constructor(name: string, traits: string[] = []) {
+    constructor(name: string, traits: string[] = [], templateArgs?: Type[]) {
         this.name = name;
         this.traits = traits;
+        this.templateArgs = templateArgs && templateArgs.length > 0 ? templateArgs : undefined;
     }
 
     toString(): string {
@@ -470,5 +486,9 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
         return new MaybeType(templateTypes.types[0]);
     }
 
-    return new CustomType(typeName);
+    return new CustomType(
+        typeName,
+        [],
+        templateTypes.types.length > 0 ? templateTypes.types : undefined
+    );
 }

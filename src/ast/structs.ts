@@ -2,6 +2,7 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import { resolveGenericTaf } from "./taf-resolver";
+import { extractBindingsFromParams } from "./caller-utils";
 import type { Scope } from "./scope";
 import { typeEquals } from "./type-utils";
 import {
@@ -100,16 +101,24 @@ export class ArrLit extends Expression {
 export class StructDef extends Expression {
     name: string;
     fields: { name: string; type: Type; mutable: boolean }[];
+    typeParams: string[] = [];
+    monomorphizedVersions: StructDef[] = [];
 
     constructor(
         rootToken: Token,
         name: string,
-        fields: { name: string; type: Type; mutable: boolean }[]
+        fields: { name: string; type: Type; mutable: boolean }[],
+        typeParams: string[] = []
     ) {
         super(rootToken.line, rootToken.col);
         this.name = name;
         this.fields = fields;
+        this.typeParams = typeParams;
         this.type = "Null";
+    }
+
+    get isGeneric(): boolean {
+        return this.typeParams.length > 0;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -121,8 +130,54 @@ export class StructDef extends Expression {
                 class: "struct",
                 name: this.name,
                 fields: this.fields,
+                isGeneric: this.isGeneric || undefined,
+                typeParams: this.typeParams.length > 0 ? this.typeParams : undefined,
+                def: this.isGeneric ? this : undefined,
             });
         }
+    }
+
+    /**
+     * Monomorphize this generic struct with concrete type arguments inferred
+     * from constructor argument types. Returns the concrete field types and
+     * registers the monomorphized version in scope.
+     */
+    monomorphize(argTypes: Type[]): {
+        fields: { name: string; type: Type; mutable: boolean }[];
+        structType: CustomType;
+    } | null {
+        if (!this.isGeneric) return null;
+
+        const bindings = new Map<string, Type>();
+        // Match field types against arg types to infer type param bindings
+        if (
+            !extractBindingsFromParams(
+                this.fields.map((f) => ({ name: f.name, type: f.type })),
+                argTypes,
+                this.typeParams,
+                bindings
+            )
+        ) {
+            return null;
+        }
+
+        // Verify all type params have bindings
+        for (const tp of this.typeParams) {
+            if (!bindings.has(tp)) return null;
+        }
+
+        // Substitute field types with concrete types
+        const concreteFields = this.fields.map((f) => ({
+            name: f.name,
+            type: substituteTypeParams(f.type, bindings),
+            mutable: f.mutable,
+        }));
+
+        const concreteTypeArgs = this.typeParams.map(
+            (tp) => bindings.get(tp) ?? new CustomType(tp)
+        );
+        const structType = new CustomType(this.name, [], concreteTypeArgs);
+        return { fields: concreteFields, structType };
     }
 
     clone(_bindings?: Map<string, Type>): Expression {
@@ -153,29 +208,20 @@ export class FieldAccess extends Expression {
         }
 
         if (this.obj.type instanceof EnumType) {
-            // Resolve enum definition from scope (since we no longer rely on global registry)
-            const enumScope = this.obj.getScope();
-            let enumInfo: { name: string; variants: { name: string; type: Type | null }[] } | null =
-                null;
-            if (enumScope) {
-                const lookup = enumScope.lookup(this.obj.type.name);
-                if (lookup && lookup.attrs.class === "enum") {
-                    enumInfo = { name: lookup.attrs.name, variants: lookup.attrs.variants };
-                }
-            }
-            if (!enumInfo) {
-                throw this.error(`enum ${this.obj.type.name} not found in scope`);
-            }
-            const variant = enumInfo.variants.find((v) => v.name === this.fieldName);
+            // Use the concrete EnumType from the object's type directly.
+            // This handles both generic and non-generic enums correctly,
+            // as monomorphized enums carry their concrete variant types.
+            const enumType = this.obj.type;
+            const variant = enumType.variants.find((v) => v.name === this.fieldName);
             if (!variant) {
-                throw this.error(`enum ${enumInfo.name} has no variant named "${this.fieldName}"`);
+                throw this.error(`enum ${enumType.name} has no variant named "${this.fieldName}"`);
             }
             // Tagged variant: resolves to a constructor function (valueType → Enum)
             if (variant.type !== null) {
-                this.type = new FuncType([variant.type], this.obj.type);
+                this.type = new FuncType([variant.type], enumType);
             } else {
                 // Plain variant: resolves to the enum type itself
-                this.type = this.obj.type;
+                this.type = enumType;
             }
             return;
         }
@@ -222,13 +268,23 @@ export class FieldAccess extends Expression {
         const findStructInScope = (
             typeName: string
         ):
-            | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
+            | {
+                  name: string;
+                  fields: { name: string; type: Type; mutable: boolean }[];
+                  isGeneric?: boolean;
+                  typeParams?: string[];
+              }
             | undefined => {
             const scope = this.getScope();
             if (scope) {
                 const lookup = scope.lookup(typeName);
                 if (lookup && lookup.attrs.class === "struct") {
-                    return { name: lookup.attrs.name, fields: lookup.attrs.fields };
+                    return {
+                        name: lookup.attrs.name,
+                        fields: lookup.attrs.fields,
+                        isGeneric: (lookup.attrs as { isGeneric?: true }).isGeneric,
+                        typeParams: (lookup.attrs as { typeParams?: string[] }).typeParams,
+                    };
                 }
             }
             return undefined;
@@ -327,7 +383,24 @@ export class FieldAccess extends Expression {
         if (!field) {
             throw this.error(`struct ${structInfo.name} has no field named "${this.fieldName}"`);
         }
-        this.type = field.type;
+        // If the struct type has template args (it was monomorphized), substitute
+        // the type parameters in the field type to get the concrete field type.
+        if (
+            this.obj.type instanceof CustomType &&
+            this.obj.type.templateArgs &&
+            structInfo.isGeneric &&
+            structInfo.typeParams
+        ) {
+            const bindings = new Map<string, Type>();
+            for (let i = 0; i < structInfo.typeParams.length; i++) {
+                if (i < this.obj.type.templateArgs.length) {
+                    bindings.set(structInfo.typeParams[i], this.obj.type.templateArgs[i]);
+                }
+            }
+            this.type = substituteTypeParams(field.type, bindings);
+        } else {
+            this.type = field.type;
+        }
     }
 
     clone(bindings?: Map<string, Type>): Expression {

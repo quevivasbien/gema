@@ -29,11 +29,17 @@ export type VariableAttributes =
           class: "struct";
           name: string;
           fields: { name: string; type: Type; mutable: boolean }[];
+          isGeneric?: true;
+          typeParams?: string[];
+          def?: unknown;
       }
     | {
           class: "enum";
           name: string;
           variants: EnumVariant[];
+          isGeneric?: true;
+          typeParams?: string[];
+          def?: unknown;
       }
     | {
           class: "trait";

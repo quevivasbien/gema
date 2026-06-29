@@ -69,6 +69,28 @@ function extractBindings(
         bindings.set(paramType.name, argType);
         return true;
     }
+    // CustomType with template args: Pair[T] ← Pair[Num] → extract T←Num
+    if (
+        paramType instanceof CustomType &&
+        paramType.templateArgs &&
+        argType instanceof CustomType &&
+        argType.templateArgs &&
+        paramType.name === argType.name &&
+        paramType.templateArgs.length === argType.templateArgs.length
+    ) {
+        for (let i = 0; i < paramType.templateArgs.length; i++) {
+            if (
+                !extractBindings(
+                    paramType.templateArgs[i],
+                    argType.templateArgs[i],
+                    typeParams,
+                    bindings
+                )
+            )
+                return false;
+        }
+        return true;
+    }
     if (paramType instanceof ArrayType && argType instanceof ArrayType) {
         return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
     }

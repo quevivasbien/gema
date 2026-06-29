@@ -1,5 +1,52 @@
 # Roadmap for `gema` development
 
+## Adjust type resolution for branching control flow where one branch has a break/continue/return
+
+Currently, `break`, `continue`, and `return` expressions all have `Null` type. This means that constructions like the following are not possible:
+
+```gema
+func add(a: Maybe[Num], b: Maybe[Num]) {
+  a_unwrapped = match a {
+    some(v) { v },
+    none { return none:Num },
+  };
+  b_unwrapped = match b {
+    some(v) { v },
+    none { return none:Num },
+  };
+  some(a_unwrapped + b_unwrapped)
+}
+```
+
+because the types of each of the match statement branches are not be the same (the `some` branch has type `Num`, and the `none` branch has type `Maybe[Num]`).
+
+Similarly, we can't do things like
+
+```gema
+mut total = 0;
+for i = 1..10 {
+  delta = if inbounds(i) {
+    break;
+  } else {
+    getdelta(i)
+  };
+  total += delta
+}
+```
+
+(though it's less important to be able to do this with if/else clauses, because they don't need to have branches for all of a fixed set of variants).
+
+I think a solution here is for continue/break/return statements to have a special "Short-circuited" type, instead of "Null" type, that behaves like "Null" (e.g. you can't set a variable equal to a value of "Null" type, and you can't do that with a short-circuited value, either), with the difference that if you have a branching expression like a match, then a branch with "Short-circuited" type can have be overriden by other branches when we are figuring out the time of the entire branching expression.
+
+To take part of the example above
+
+```gema
+a_unwrapped = match a {
+  some(v) { v },  # This branch has type `Num`
+  none { return none:Num },  # This branch has type `Escape` (or whatever we want to call the short-circuited type)
+};  # Match expression has type `Num` -- `Num` overrides `Escape`
+```
+
 ## IO
 
 We should have some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
@@ -8,49 +55,9 @@ We should have some form of IO capabilities. The form this takes really depends 
 
 I think my preferred way to do this would be to have a `Result` type, like in Rust. We could also have a `panic` builtin that aborts the program with an error message.
 
-## JS Interoperability
-
-It would be really helpful to be able to have bindings to JS modules or libraries. This could serve as an easy way to build out a good standard library for the language.
-
-A simple solution could be to extend our module import syntax to something like:
-
-```gema
-use (
-  foo: Func[Int, Int: Int],
-  bar: Func[Num: Num],
-  PI: Num,
-) from "module.js"
-```
-
-to import functions `foo` and `bar` that are exported from a JS module. At least for an MVP, we wouldn't do any parsing here to make sure that the type signature provided is correct or that the imported variables even exist and are exported from the module we're importing -- this would be an "unsafe" operation. Not giving type annotations when importing from a file with a ".js" extension is an error.
-
-To keep this simple, the rules here would be that you can only import functions and constants -- you cannot import trait, struct, or enum definitions (since those are just figments of the gema type system and don't really have direct equivalents in JS). You also couldn't import things like JS classes, since those don't exist in gema.
-
-When we write this statement to JS, we either would just write it as an import statement (so we keep the imported JS module separate), or concatenate the entire imported module with our output (that's probably not the best solution, because it could cause collisions, and we wouldn't really be able to tree-shake it, unless we want to add rudimentary JS parsing).
-
-We maybe also could embed js directly in the code, something like
-
-```gema
-use (
-  foo: Func[Int, Int: Int],
-  bar: Func[Num: Num],
-  pi: Num,
-) from js!"""
-function foo(x, y) { x + y }
-function bar(x) { x + 1 }
-const pi = 3.14159;
-"""
-```
-
-although that would give us the same concerns about collisions and tree shaking.
-
 ## 64-bit ndarray types based on JS's TypedArray
 
-TBD
-
-## Tentative: list comprehensions
-
-List comprehensions are helpful as a succinct map + zip + filter. Could be nice to have.
+This could be implemented as a JS extension to the language, maybe doesn't need to be built-in.
 
 ## Stdlib
 
@@ -75,6 +82,10 @@ func sumFrom(iter: Iter[T], start: T) where T is Summable {
   reduce(\(acc, x) { acc + x }, start, iter)
 }
 ```
+
+## Metaprogramming
+
+It could be cool to support some simple template metaprogramming.
 
 ### Potential future extension
 
@@ -108,33 +119,30 @@ Maybe the most straightforward way to support this and any other deep recursion 
 
 This is maybe not a huge priority, since usually the iterate iterator is a better way to solve this sort of problem, anyway.
 
-### range index syntax needs to work for iterators (can maybe get rid of take and drop syntax), probably should also add tail iterator
+### Weirdness when combining TAFs and generics
 
--- on second thought here, the `take` and `drop` ops are better suited to functional semantics, and a tail operation would be rather expensive. If users really do want to take the tail of an iterator, they can collect the iterator or use something like
+Something like
 
 ```gema
 trait Any {}
 
-func tail(n: Num, iter: Iter[T]) where T is Any {
-    mut arr_out = []:T;
-    for i = iter {
-        if length(arr_out) < n {
-            arr_out += [i];
-        } else {
-            arr_out = arr_out(1..) + [i];
-        }
-    }
-    toIter(arr_out)
-}
+func Int.foo(x: T) where T is Any { 1i }
 
-tail(3, 1..10)  # result is 8, 9, 10
+Int.foo(1)
 ```
 
-Note: this code example actually does not seem to work right now. It doesn't want to concat `arr_out(1..) + [i]` -- this appears to be a bug in generic type inference.
+fails at runtime with error:
 
-We _should_ add a `head` builtin, though, as I find myself piping `| \x x(0)` quite often.
+```
+Error in main.gema at line 5, column 1: incompatible argument types in function call: expected T[[Any]], got Num
+  5 | Int.foo(1)
+```
 
 ### Others
+
+- Separate more things from the giant `nodes.ts` file
+
+- Break up the huge switch statements in the caller resolution logic? Or at least rename things (including the file names) so it's clearer what everything does.
 
 - Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
 
@@ -169,6 +177,8 @@ We _should_ add a `head` builtin, though, as I find myself piping `| \x x(0)` qu
 - We could often figure out the type of un-annotated empty arrays or `none`s from context.
 
 - Check the `looseMatch` helper -- see if it could result in bugs and fix it if so.
+
+- `typeof` expression -- would just evaluate to a Str that shows the type of whatever it contains -- basically, useful for debugging purposes.
 
 ## Optimizations
 
@@ -276,3 +286,7 @@ enum Shape {
 ## Remove `:` from type annotations.
 
 The `:` that we have as part of our type annotations is not really needed--it's just an extra character to type. We could just have go-style type annotations like `func(a Int, b Float) Float { toFloat(a) + b }`
+
+## Tentative: list comprehensions
+
+List comprehensions are helpful as a succinct map + zip + filter. Could be nice to have.

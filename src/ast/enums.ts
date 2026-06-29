@@ -11,12 +11,24 @@ import { EnumType, MaybeType, substituteTypeParams, type Type } from "./types";
 export class EnumDef extends Expression {
     name: string;
     variants: { name: string; type: Type | null }[];
+    typeParams: string[] = [];
+    monomorphizedVersions: EnumDef[] = [];
 
-    constructor(rootToken: Token, name: string, variants: { name: string; type: Type | null }[]) {
+    constructor(
+        rootToken: Token,
+        name: string,
+        variants: { name: string; type: Type | null }[],
+        typeParams: string[] = []
+    ) {
         super(rootToken.line, rootToken.col);
         this.name = name;
         this.variants = variants;
+        this.typeParams = typeParams;
         this.type = "Null";
+    }
+
+    get isGeneric(): boolean {
+        return this.typeParams.length > 0;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -28,8 +40,37 @@ export class EnumDef extends Expression {
                 class: "enum",
                 name: this.name,
                 variants: this.variants.map((v) => ({ name: v.name, type: v.type })),
+                isGeneric: this.isGeneric || undefined,
+                typeParams: this.typeParams.length > 0 ? this.typeParams : undefined,
+                def: this.isGeneric ? this : undefined,
             });
         }
+    }
+
+    /**
+     * Monomorphize this generic enum with concrete type arguments.
+     * Returns the concrete variant types and an EnumType with concrete types.
+     */
+    monomorphize(
+        typeArgs: Type[]
+    ): { variants: { name: string; type: Type | null }[]; enumType: EnumType } | null {
+        if (!this.isGeneric) return null;
+        if (typeArgs.length !== this.typeParams.length) return null;
+
+        const bindings = new Map<string, Type>();
+        for (let i = 0; i < this.typeParams.length; i++) {
+            bindings.set(this.typeParams[i], typeArgs[i]);
+        }
+
+        const concreteVariants = this.variants.map((v) => ({
+            name: v.name,
+            type: v.type ? substituteTypeParams(v.type, bindings) : null,
+        }));
+
+        return {
+            variants: concreteVariants,
+            enumType: new EnumType(this.name, concreteVariants),
+        };
     }
 
     clone(_bindings?: Map<string, Type>): Expression {

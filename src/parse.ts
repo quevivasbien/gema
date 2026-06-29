@@ -630,6 +630,30 @@ function parseEnum(parser: Parser): AST.Expression {
     const name = parser.current().text;
     parser.advance(); // consume enum name
 
+    // Parse optional type parameter list: enum Result[T, E] { ... }
+    const typeParams: string[] = [];
+    if (!parser.atEnd() && parser.current().type === TokenType.LBracket) {
+        parser.advance(); // consume '['
+        while (!parser.atEnd() && parser.current().type !== TokenType.RBracket) {
+            if (parser.current().type !== TokenType.Identifier) {
+                return parser.error("Expected type parameter name.");
+            }
+            const tpName = parser.current().text;
+            if (typeParams.includes(tpName)) {
+                return parser.error(`Duplicate type parameter '${tpName}'.`);
+            }
+            typeParams.push(tpName);
+            parser.advance();
+            if (parser.current().type === TokenType.Comma) {
+                parser.advance();
+            }
+        }
+        if (parser.atEnd()) {
+            return parser.error("Unterminated type parameter list.");
+        }
+        parser.advance(); // consume ']'
+    }
+
     if (parser.atEnd() || parser.current().type !== TokenType.LBrace) {
         return parser.error("Expected '{' after enum name.");
     }
@@ -671,7 +695,9 @@ function parseEnum(parser: Parser): AST.Expression {
     }
     parser.advance(); // consume '}'
 
-    return parser.tryCreateASTExpression(() => new AST.EnumDef(rootToken, name, variants));
+    return parser.tryCreateASTExpression(
+        () => new AST.EnumDef(rootToken, name, variants, typeParams)
+    );
 }
 
 function parseInt(parser: Parser): AST.Expression {
@@ -1882,6 +1908,31 @@ class Parser {
         this.advance(); // consume 'struct'
         const name = this.current().text;
         this.advance(); // consume struct name
+
+        // Parse optional type parameter list: struct Pair[T, U] { ... }
+        const typeParams: string[] = [];
+        if (!this.atEnd() && this.current().type === TokenType.LBracket) {
+            this.advance(); // consume '['
+            while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
+                if (this.current().type !== TokenType.Identifier) {
+                    return this.error("Expected type parameter name.");
+                }
+                const tpName = this.current().text;
+                if (typeParams.includes(tpName)) {
+                    return this.error(`Duplicate type parameter '${tpName}'.`);
+                }
+                typeParams.push(tpName);
+                this.advance();
+                if (this.current().type === TokenType.Comma) {
+                    this.advance();
+                }
+            }
+            if (this.atEnd()) {
+                return this.error("Unterminated type parameter list.");
+            }
+            this.advance(); // consume ']'
+        }
+
         if (this.atEnd() || this.current().type !== TokenType.LBrace) {
             return this.error("Expected '{' after struct name.");
         }
@@ -1923,7 +1974,9 @@ class Parser {
             return this.error("Unterminated struct definition.");
         }
         this.advance(); // consume '}'
-        return this.tryCreateASTExpression(() => new AST.StructDef(rootToken, name, fields));
+        return this.tryCreateASTExpression(
+            () => new AST.StructDef(rootToken, name, fields, typeParams)
+        );
     }
 
     expression(): AST.Expression | null {

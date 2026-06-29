@@ -48,6 +48,15 @@ export function typeEquals(a: unknown, b: unknown): boolean {
         for (let i = 0; i < a.traits.length; i++) {
             if (a.traits[i] !== b.traits[i]) return false;
         }
+        // Compare template args
+        if (a.templateArgs && b.templateArgs) {
+            if (a.templateArgs.length !== b.templateArgs.length) return false;
+            for (let i = 0; i < a.templateArgs.length; i++) {
+                if (!typeEquals(a.templateArgs[i], b.templateArgs[i])) return false;
+            }
+        } else if (a.templateArgs || b.templateArgs) {
+            return false;
+        }
         return true;
     }
 

@@ -1,5 +1,6 @@
 import type { Expression } from "./expression";
 import { FunctionDef } from "./nodes";
+import type { StructDef } from "./structs";
 import type { Scope } from "./scope";
 import {
     collectTraitsForTypeParam,
@@ -1850,19 +1851,48 @@ export function findCaller(
     }
 
     // No user-defined function matched — fall back to struct constructor if one exists.
-    let structDef:
-        | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
+    let structEntry:
+        | {
+              name: string;
+              fields: { name: string; type: Type; mutable: boolean }[];
+              isGeneric?: true;
+              def?: unknown;
+          }
         | undefined;
     if (callScope) {
         const lookup = callScope.lookup(name);
         if (lookup && lookup.attrs.class === "struct") {
-            structDef = { name: lookup.attrs.name, fields: lookup.attrs.fields };
+            structEntry = {
+                name: lookup.attrs.name,
+                fields: lookup.attrs.fields,
+                isGeneric: (lookup.attrs as { isGeneric?: true }).isGeneric,
+                def: (lookup.attrs as { def?: unknown }).def,
+            };
         }
     }
-    if (structDef) {
-        const fieldTypes = structDef.fields.map((f) => f.type);
+    if (structEntry) {
+        // If the struct is generic, monomorphize it using the constructor argument types
+        let monomorphizedResult: {
+            fields: { name: string; type: Type; mutable: boolean }[];
+            structType: CustomType;
+        } | null = null;
+        if (structEntry.isGeneric && structEntry.def) {
+            const structDefNode = structEntry.def as StructDef;
+            monomorphizedResult = structDefNode.monomorphize(argTypes);
+            if (!monomorphizedResult) {
+                const genericFieldTypes = structEntry.fields.map((f) => f.type);
+                return {
+                    error: `struct ${name} constructor expects arguments of types [${genericFieldTypes}], got [${argTypes}]`,
+                    result: null,
+                };
+            }
+        }
+        const fields = monomorphizedResult ? monomorphizedResult.fields : structEntry.fields;
+        const structType = monomorphizedResult
+            ? monomorphizedResult.structType
+            : new CustomType(name);
+        const fieldTypes = fields.map((f) => f.type);
         if (paramTypesMatchArgTypes(fieldTypes, argTypes)) {
-            const structType = new CustomType(name);
             return {
                 error: null,
                 result: {
