@@ -832,6 +832,47 @@ export class AnonymousFunction extends Expression {
     }
 }
 
+/**
+ * Recursively set sourceFile on every node in a cloned expression tree.
+ * Used after monomorphization so error messages show the correct source file.
+ */
+function tagClonedTree(node: Expression, sourceFile: string): void {
+    node.sourceFile = sourceFile;
+    const skipKeys = new Set(["parent", "type"]);
+    for (const key of Object.keys(node) as (keyof Expression)[]) {
+        if (skipKeys.has(key as string)) continue;
+        const val = (node as unknown as Record<string, unknown>)[key as string];
+        if (val instanceof Expression) {
+            tagClonedTree(val, sourceFile);
+        } else if (Array.isArray(val)) {
+            for (const item of val) {
+                if (item instanceof Expression) {
+                    tagClonedTree(item, sourceFile);
+                } else if (
+                    item &&
+                    typeof item === "object" &&
+                    "value" in (item as Record<string, unknown>)
+                ) {
+                    const kw = item as { value: Expression };
+                    if (kw.value instanceof Expression) {
+                        tagClonedTree(kw.value, sourceFile);
+                    }
+                } else if (
+                    item &&
+                    typeof item === "object" &&
+                    ("condition" in (item as Record<string, unknown>) ||
+                        "branch" in (item as Record<string, unknown>))
+                ) {
+                    const cb = item as { condition?: Expression; branch?: Expression };
+                    if (cb.condition instanceof Expression)
+                        tagClonedTree(cb.condition, sourceFile);
+                    if (cb.branch instanceof Expression) tagClonedTree(cb.branch, sourceFile);
+                }
+            }
+        }
+    }
+}
+
 export class FunctionDef extends Expression {
     isFunctionBoundary(): boolean {
         return true;
@@ -1123,7 +1164,12 @@ export class FunctionDef extends Expression {
     }
 
     monomorphize(
-        argTypes: Type[]
+        argTypes: Type[],
+        /** Optional parent to use for the monomorphized function's cascade instead
+         *  of this.parent. Used when monomorphizing a function from an imported
+         *  module — the call site's parent lets the cloned body's scope chain
+         *  reach the importing file's scope (for trait dispatch, function lookup). */
+        cascadeParent?: Expression | null
     ): { fullName: string; funcType: FuncType; returnType: Type } | null {
         if (!this.isGeneric) return null;
         if (this.params.length !== argTypes.length) return null;
@@ -1195,15 +1241,27 @@ export class FunctionDef extends Expression {
             true
         );
         monomorphized.isMonomorphizedClone = true;
+        // Propagate sourceFile to the cloned body BEFORE cascadeTypes, so
+        // errors thrown during cascade show the correct source file.
+        monomorphized.sourceFile = this.sourceFile;
+        if (this.sourceFile !== undefined) {
+            tagClonedTree(monomorphized.body, this.sourceFile);
+        }
 
         // Cascade the entire monomorphized function, setting parent pointers
         // as we walk so ancestor lookups (findEnclosing) reach the main AST.
-        monomorphized.cascadeTypes(this.parent, true);
+        // Use cascadeParent (the call site) if provided — this lets the cloned
+        // body's scope chain reach the calling file's scope (for trait dispatch).
+        monomorphized.cascadeTypes(cascadeParent ?? this.parent, true);
 
+        // Check if a type is concrete by looking it up in the scope chain.
+        // When cascadeParent is provided (cross-module monomorphization), use
+        // its scope so types defined in the calling file are found.
+        const scopeForConcreteCheck = cascadeParent ?? this;
         const isConcreteParam = (t: Type): boolean => {
             if (!(t instanceof CustomType)) return true;
             if (isBuiltinTypeName(t.name)) return true;
-            const ps = this.parent?.getScope();
+            const ps = scopeForConcreteCheck.getScope();
             if (ps) {
                 const pl = ps.lookup(t.name);
                 if (pl && pl.attrs.class === "struct") return true;
@@ -1211,7 +1269,6 @@ export class FunctionDef extends Expression {
             return false;
         };
         const allConcrete = clonedParams.every((p) => isConcreteParam(p.type));
-        monomorphized.sourceFile = this.sourceFile;
 
         const monomorphizedBodyType =
             monomorphized.body.type instanceof EscapeType

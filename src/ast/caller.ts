@@ -1567,7 +1567,7 @@ export function findCaller(
                         } else if (v.def) {
                             const genericFn = v.def as FunctionDef;
                             if (genericFn.params.length === argTypes.length) {
-                                const result = genericFn.monomorphize(argTypes);
+                                const result = genericFn.monomorphize(argTypes, root.parent);
                                 if (result !== null) {
                                     return {
                                         kind: "function" as const,
@@ -1609,7 +1609,7 @@ export function findCaller(
                         } else if (v.def) {
                             const genericFn = v.def as FunctionDef;
                             if (genericFn.params.length === argTypes.length) {
-                                const result = genericFn.monomorphize(argTypes);
+                                const result = genericFn.monomorphize(argTypes, root.parent);
                                 if (result !== null) {
                                     return {
                                         kind: "function" as const,
