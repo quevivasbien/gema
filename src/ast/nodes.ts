@@ -912,6 +912,8 @@ export class FunctionDef extends Expression {
                     addTraitToTypeParam(t.returnType);
                 } else if (t instanceof MaybeType) {
                     addTraitToTypeParam(t.innerType);
+                } else if (t instanceof CustomType && t.templateArgs) {
+                    t.templateArgs.forEach((ta) => addTraitToTypeParam(ta));
                 }
             };
             this.params.forEach((param) => addTraitToTypeParam(param.type));

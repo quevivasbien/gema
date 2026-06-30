@@ -111,11 +111,13 @@ function extractBindings(
         return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
     }
     if (paramType instanceof DictType && argType instanceof DictType) {
-        if (!extractBindings(paramType.keyType, argType.keyType, typeParams, bindings)) return false;
+        if (!extractBindings(paramType.keyType, argType.keyType, typeParams, bindings))
+            return false;
         return extractBindings(paramType.valueType, argType.valueType, typeParams, bindings);
     }
     if (paramType instanceof MutDictType && argType instanceof MutDictType) {
-        if (!extractBindings(paramType.keyType, argType.keyType, typeParams, bindings)) return false;
+        if (!extractBindings(paramType.keyType, argType.keyType, typeParams, bindings))
+            return false;
         return extractBindings(paramType.valueType, argType.valueType, typeParams, bindings);
     }
     if (paramType instanceof FuncType && argType instanceof FuncType) {

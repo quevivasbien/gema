@@ -1,10 +1,6 @@
 import { test } from "bun:test";
 
-import {
-    testCompile,
-    testParse,
-    testParseExpectError,
-} from "./helpers";
+import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 test("compile arrays", () => {
     testCompile(

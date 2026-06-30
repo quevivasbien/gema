@@ -263,6 +263,9 @@ export function collectTraitsForTypeParam(t: Type, typeParamName: string): strin
     if (t instanceof ArrayType) {
         return collectTraitsForTypeParam(t.innerType, typeParamName);
     }
+    if (t instanceof MutArrType) {
+        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    }
     if (t instanceof IterType) {
         return collectTraitsForTypeParam(t.innerType, typeParamName);
     }
@@ -295,6 +298,14 @@ export function collectTraitsForTypeParam(t: Type, typeParamName: string): strin
     }
     if (t instanceof EscapeType) {
         return collectTraitsForTypeParam(t.innerType, typeParamName);
+    }
+    // Recurse into CustomType templateArgs (e.g., T in MinHeap[T])
+    if (t instanceof CustomType && t.templateArgs) {
+        const result: string[] = [];
+        for (const ta of t.templateArgs) {
+            result.push(...collectTraitsForTypeParam(ta, typeParamName));
+        }
+        return result;
     }
     return [];
 }
