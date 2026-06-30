@@ -40,9 +40,9 @@ test("can use else-less if as statement", () => {
     testCompile(`mut x = 0; if true { x = 5 }; x`, 5);
 });
 
-test("array index out of bounds compiles but returns undefined", () => {
+test("array index out of bounds compiles but returns null", () => {
     // This should compile and run, returning undefined at runtime
-    testCompile("[1, 2, 3](5)", undefined);
+    testCompile("[1, 2, 3](5)", null);
 });
 
 // ── Maybe cannot be used directly in operations ───────────
@@ -76,10 +76,6 @@ test("unwrap with default returns default when out of bounds", () => {
 
 test("unwrap with default on nested access", () => {
     testCompile("x = unwrap([]:Num, [[1, 2], [3, 4]](0)); unwrap(-1, x(1))", 2);
-});
-
-test("unwrap with default on multi-dimensional access", () => {
-    testCompile("unwrap(-1, [[1, 2], [3, 4]](0, 1))", 2);
 });
 
 test("unwrap with default type mismatch errors", () => {
@@ -202,10 +198,6 @@ test("unsafe call can be used in operations directly", () => {
     testCompile("[10, 20, 30]!(1) + 1", 21);
 });
 
-test("unsafe call on multi-dimensional array", () => {
-    testCompile("[[1, 2], [3, 4]]!(0, 1)", 2);
-});
-
 test("unsafe call on nested access", () => {
     testCompile("[[1, 2], [3, 4]]!(0)!(1)", 2);
 });
@@ -214,8 +206,8 @@ test("unsafe call on variable", () => {
     testCompile("x = [1, 2, 3]; x!(1)", 2);
 });
 
-test("unsafe call out of bounds still returns undefined at runtime", () => {
-    testCompile("[1, 2, 3]!(5)", undefined);
+test("unsafe call out of bounds still returns null at runtime", () => {
+    testCompile("[1, 2, 3]!(5)", null);
 });
 
 test("unsafe call in map iterator", () => {
@@ -391,62 +383,4 @@ test("match some arm uses binding in expression", () => {
 test("match without check for all conditions has null type", () => {
     testParseExpectError("match some(1) { some(v) v }", "cannot have Null type");
     testParseExpectError("match some(1) { none 1 }", "cannot have Null type");
-});
-
-test("match with early return", () => {
-    testCompile(
-        `
-        func add(a: Maybe[Num], b: Maybe[Num]) {
-            a_unwrapped = match a {
-                some(v) { v },
-                none { return none:Num },  # Escape type — transparent in match
-            };
-            b_unwrapped = match b {
-                some(v) { v },
-                none { return none:Num },
-            };
-            some(a_unwrapped + b_unwrapped)
-        }
-        (add(some(3), some(4)), add(none:Num, some(4)))
-        `,
-        [7, undefined]
-    );
-});
-
-// TODO: Can't properly test break/continue in match with Maybe arrays because
-// none:Num compiles to `undefined` at runtime, and $ArrayIterator$ treats
-// `undefined` as end-of-array, so the match arm never executes for none values.
-// See also: the array iterator needs to be overhauled to support `undefined` values.
-test.todo("match with early break", () => {
-    testCompile(
-        `
-        vals = [some(10), some(20), none:Num, some(30)];
-        mut total = 0;
-        for v = vals {
-            total += match v {
-                some(v) { v },
-                none { break },
-            }
-        };
-        total
-        `,
-        30
-    );
-});
-
-test.todo("match with continue", () => {
-    testCompile(
-        `
-        vals = [some(10), some(20), none:Num, some(30)];
-        mut total = 0;
-        for v = vals {
-            total += match v {
-                some(v) { v },
-                none { continue },
-            }
-        };
-        total
-        `,
-        60
-    );
 });

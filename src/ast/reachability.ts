@@ -107,7 +107,9 @@ export function collectReferences(
             collectReferences(condition, referencedNames, referencedTypes);
             collectReferences(branch, referencedNames, referencedTypes);
         }
-        collectReferences(node.elseBranch, referencedNames, referencedTypes);
+        if (node.elseBranch !== null) {
+            collectReferences(node.elseBranch, referencedNames, referencedTypes);
+        }
     } else if (node instanceof ForLoop) {
         if (node.iter) collectReferences(node.iter, referencedNames, referencedTypes);
         collectReferences(node.body, referencedNames, referencedTypes);

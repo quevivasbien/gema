@@ -443,7 +443,7 @@ collect(zip([1, 2, 3], ["a", "b", "c"]))
 # Dict — created from array of key-value tuples
 d = Dict([("a", 1), ("b", 2)]);
 d("a")          # → 1 (returns Maybe[Int])
-d("x")          # → undefined (missing key)
+d("x")          # → null (missing key)
 
 # Mutable Dict
 md = trans(Dict([("a", 1), ("b", 2)]));
@@ -540,11 +540,11 @@ sum  # → 55 (sum of 1..10)
 # Array/iterator/string indexing returns Maybe[T]
 arr = [10, 20, 30];
 arr(0)          # → Maybe[Num] (wraps the value)
-arr(99)         # → Maybe[Num] (undefined — out of bounds)
+arr(99)         # → Maybe[Num] (none — out of bounds)
 
 # Maybe values must be explicitly handled before use
 unwrap(0, arr(0))     # → 10 — unwrap with default
-unwrap(arr(0))        # → 10 — unwrap without fallback (throws on undefined)
+unwrap(arr(0))        # → 10 — unwrap without fallback (throws if none)
 isnone(arr(99))       # → true
 
 # head/last return Maybe
@@ -577,26 +577,24 @@ replace("old", "new", "hello old world")  # → "hello new world"
 
 Gema uses `:` for type annotations:
 
-| Syntax                 | Meaning                          |
-| ---------------------- | -------------------------------- |
-| `Int`                  | BigInt                           |
-| `Num`                  | Number                           |
-| `Str`                  | String                           |
-| `Bool`                 | Boolean                          |
-| `Null`                 | null/undefined                   |
-| `Arr[Int]`             | Array of Int                     |
-| `Iter[Int]`            | Lazy iterator of Int             |
-| `MutArr[Int]`          | Mutable array of Int             |
-| `Func[Int: Str]`       | Function: Int → Str              |
-| `Func[Int, Str: Bool]` | Function: (Int, Str) → Bool      |
-| `Tup[Int, Str, Bool]`  | Tuple of (Int, Str, Bool)        |
-| `Dict[Str, Int]`       | Dict with Str keys, Int values   |
-| `MutDict[Str, Int]`    | Mutable dict                     |
-| `Set[Int]`             | Immutable set of Int             |
-| `MutSet[Int]`          | Mutable set of Int               |
-| `Maybe[Int]`           | Optional Int (undefined allowed) |
-| `Pair[Num]`            | Generic struct (user-defined)    |
-| `Option[Int]`          | Generic enum (user-defined)      |
+| Syntax                 | Meaning                        |
+| ---------------------- | ------------------------------ |
+| `Int`                  | BigInt                         |
+| `Num`                  | Number                         |
+| `Str`                  | String                         |
+| `Bool`                 | Boolean                        |
+| `Null`                 | No value                       |
+| `Arr[Num]`             | Array of Num                   |
+| `Iter[Num]`            | Lazy iterator of Num           |
+| `MutArr[Num]`          | Mutable array of Num           |
+| `Func[Num: Str]`       | Function: Num → Str            |
+| `Func[Num, Str: Bool]` | Function: (Num, Str) → Bool    |
+| `Tup[Num, Str, Bool]`  | Tuple of (Num, Str, Bool)      |
+| `Dict[Str, Num]`       | Dict with Str keys, Num values |
+| `MutDict[Str, Num]`    | Mutable dict                   |
+| `Set[Num]`             | Immutable set of Num           |
+| `MutSet[Num]`          | Mutable set of Num             |
+| `Maybe[Num]`           | Optional Num (null or number)  |
 
 ## Project Structure
 

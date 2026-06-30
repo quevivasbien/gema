@@ -13,6 +13,15 @@ export class Literal extends Expression {
         super(token.line, token.col);
         this.value = token.text;
         this.type = type;
+
+        if (
+            this.type !== "Int" &&
+            this.type !== "Num" &&
+            this.type !== "Bool" &&
+            this.type !== "Str"
+        ) {
+            throw this.error(`invalid literal type: ${this.type}`);
+        }
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -51,14 +60,11 @@ export class Literal extends Expression {
                 // The regex replace here is to remove extra leading zeros so we don't attempt to represent them as octal
                 compiler.write(this.value.replace(/^0+?(?=0\.|[^0.])/, ""));
                 break;
-            case "Str":
-                compiler.write(this.value);
-                break;
             case "Bool":
                 compiler.write(this.value);
                 break;
-            case "Null":
-                compiler.write("undefined");
+            case "Str":
+                compiler.write(this.value);
                 break;
             default:
                 throw this.error(`cannot use token ${this.value} as literal type`);

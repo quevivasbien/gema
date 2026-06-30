@@ -615,7 +615,7 @@ export const BUILTINS: Record<string, string> = {
         const value = iter.next();
         if (value === undefined) {
             iter.reset();
-            return undefined;
+            return null;
         }
         if (count === index) {
             iter.reset();
@@ -626,7 +626,7 @@ export const BUILTINS: Record<string, string> = {
 }`,
     // Last element (undefined if empty)
     $last$: `function $last$(iter) {
-    let lastValue;
+    let lastValue = null;
     while (true) {
         const value = iter.next();
         if (value === undefined) {
@@ -661,14 +661,14 @@ export const BUILTINS: Record<string, string> = {
         if (v === value) return true;
     }
 }`,
-    // find(iter, value) — find index of value in iterator (returns undefined if not found)
+    // find(iter, value) — find index of value in iterator (returns null if not found)
     $find$: `function $find$(value, iter) {
     let idx = 0;
     while (true) {
         const v = iter.next();
         if (v === undefined) {
             iter.reset();
-            return undefined;
+            return null;
         }
         if (v === value) return idx;
         idx++;
@@ -730,14 +730,14 @@ export const BUILTINS: Record<string, string> = {
     // ── Maybe / None handling ──
     // Unwrap a Maybe value; returns the value or fallback (throws if no fallback)
     $unwrapWithFallback$: `function $unwrapWithFallback$(fallback, value) {
-    if (value === undefined) {
+    if (value === null) {
         return fallback;
     }
     return value;
 }`,
     // Unwrap a Maybe value; returns the value or fallback (throws if no fallback)
     $unwrapNoFallback$: `function $unwrapNoFallback$(value) {
-    if (value === undefined) {
+    if (value === null) {
         throw new Error("Unwrapped on None without a fallback value");
     }
     return value;

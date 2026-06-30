@@ -289,6 +289,7 @@ export class Call extends Expression {
                     }
                 }
             }
+            // TODO: What is this doing here? Why is string indexed access not handled with array indexed access?
             // String indexing fallback: strVar(index)
             if (
                 allArgTypes.length === 1 &&
@@ -992,18 +993,14 @@ export class Call extends Expression {
                 case "last":
                     if (
                         this.args[0]?.type instanceof ArrayType ||
-                        this.args[0]?.type instanceof MutArrType
+                        this.args[0]?.type instanceof MutArrType ||
+                        this.args[0]?.type === "Str"
                     ) {
+                        writer.write("(");
                         this.args[0].toJS(writer);
                         writer.write("[");
                         this.args[0].toJS(writer);
-                        writer.write(".length - 1]");
-                        return;
-                    }
-                    if (this.args[0]?.type === "Str") {
-                        writer.write("((s) => s.length > 0 ? s[s.length - 1] : undefined)(");
-                        this.args[0].toJS(writer);
-                        writer.write(")");
+                        writer.write(".length - 1] ?? null)");
                         return;
                     }
                     writer.useBuiltin("$last$");
@@ -1036,8 +1033,9 @@ export class Call extends Expression {
                         this.args[0]?.type instanceof MutArrType ||
                         this.args[0]?.type === "Str"
                     ) {
+                        writer.write("(");
                         this.args[0].toJS(writer);
-                        writer.write("[0]");
+                        writer.write("[0] ?? null)");
                         return;
                     } else if (this.args[0]?.type instanceof IterType) {
                         writer.useBuiltin("$iterGet$");
@@ -1211,7 +1209,7 @@ export class Call extends Expression {
                     return;
                 case "isnone":
                     this.args[0]?.toJS(writer);
-                    writer.write(" === undefined");
+                    writer.write(" === null");
                     return;
                 case "some":
                     // `some` is a pure type-system construct; at runtime it's a no-op
@@ -1256,7 +1254,7 @@ export class Call extends Expression {
                         this.args[1]?.type instanceof MutArrType ||
                         this.args[1]?.type === "Str"
                     ) {
-                        writer.write("((i) => i === -1 ? undefined : i)(");
+                        writer.write("((i) => i === -1 ? null : i)(");
                         this.args[1]?.toJS(writer);
                         writer.write(".indexOf(");
                         this.args[0]?.toJS(writer);
@@ -1396,17 +1394,22 @@ export class Call extends Expression {
                 writer.write("]");
             });
         } else if (this.callerType instanceof DictType || this.callerType instanceof MutDictType) {
+            writer.write("(");
             writer.write(writer.safeName(this.referToByName));
             writer.write(".get(");
             this.args[0]?.toJS(writer);
-            writer.write(")");
+            writer.write(") ?? null)");
         } else if (this.callerType instanceof ArrayType || this.callerType instanceof MutArrType) {
-            writer.write(writer.safeName(this.referToByName));
-            if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
+            // TODO: Why is string indexed access not also handled here?
+            if (this.args.length !== 1) {
+                throw new Error("array indexed access does not have exactly 1 index");
+            }
+            if (this.args[0] instanceof RangeIter) {
                 // Array slicing with range: arr(a..b) → arr.slice(a, b+1)
+                writer.write(writer.safeName(this.referToByName));
                 const range = this.args[0];
                 const isIntRange = range.innerType === "Int";
-                if (range.start !== null && range.end !== null) {
+                if (range.end !== null) {
                     // a..b: arr.slice(Number(a), Number(b) + 1)
                     if (isIntRange) {
                         writer.write(".slice(Number(");
@@ -1421,7 +1424,7 @@ export class Call extends Expression {
                         range.end.toJS(writer);
                         writer.write(" + 1)");
                     }
-                } else if (range.start !== null && range.end === null) {
+                } else {
                     // a..: arr.slice(Number(a))
                     if (isIntRange) {
                         writer.write(".slice(Number(");
@@ -1432,26 +1435,13 @@ export class Call extends Expression {
                         range.start.toJS(writer);
                         writer.write(")");
                     }
-                } else if (range.start === null && range.end !== null) {
-                    // ..b: arr.slice(0, Number(b) + 1)
-                    if (isIntRange) {
-                        writer.write(".slice(0, Number(");
-                        range.end.toJS(writer);
-                        writer.write(") + 1)");
-                    } else {
-                        writer.write(".slice(0, ");
-                        range.end.toJS(writer);
-                        writer.write(" + 1)");
-                    }
-                } else {
-                    throw new Error("Both start and end of range iterator were null");
                 }
             } else {
-                this.args.forEach((arg) => {
-                    writer.write("[");
-                    arg.toJS(writer);
-                    writer.write("]");
-                });
+                writer.write("(");
+                writer.write(writer.safeName(this.referToByName));
+                writer.write("[");
+                this.args[0].toJS(writer);
+                writer.write("] ?? null)");
             }
         } else {
             throw new Error(`unknown caller type: ${this.callerType}`);
@@ -1518,37 +1508,26 @@ export class DirectCall extends Expression {
         }
         if (this.caller.type instanceof ArrayType || this.caller.type instanceof MutArrType) {
             // Array slicing with range: arr(a..b) returns an array, not an element
-            if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
-                this.args[0].cascadeTypes(this, true);
+            if (this.args.length !== 1) {
+                throw this.error("array access must have exactly 1 index");
+            }
+            this.args[0].cascadeTypes(this, true);
+            if (this.args[0].type === null) {
+                throw this.error("unable to resolve type of index in array access");
+            }
+            if (this.args[0] instanceof RangeIter) {
                 this.type = this.caller.type;
                 return;
             }
-            // Cascade args first so their types are resolved before checking compatibility
-            this.args.forEach((arg, i) => {
-                arg.cascadeTypes(this, true);
-                if (arg.type === null) {
-                    throw this.error(`unable to resolve type of argument ${i + 1} in array access`);
-                }
-            });
             const incompatible = this.caller.type.checkIndicesCompatible(
                 this.args.map((arg) => arg.type as Type)
             );
             if (incompatible !== null) {
                 throw this.error(incompatible);
             }
-            // Resolve the inner type through the number of provided indices
-            // (partial indexing returns a sub-array)
-            let resolvedType: Type = this.caller.type;
-            for (let d = 0; d < this.args.length; d++) {
-                if (resolvedType instanceof ArrayType) {
-                    resolvedType = resolvedType.innerType;
-                } else if (resolvedType instanceof MutArrType) {
-                    resolvedType = resolvedType.innerType;
-                } else {
-                    break;
-                }
-            }
-            this.type = this.isUnsafe ? resolvedType : new MaybeType(resolvedType);
+            this.type = this.isUnsafe
+                ? this.caller.type.innerType
+                : new MaybeType(this.caller.type.innerType);
             return;
         }
         if (this.caller.type instanceof IterType) {
@@ -1576,6 +1555,11 @@ export class DirectCall extends Expression {
                 this.type = "Str";
                 return;
             }
+            if (this.args.length !== 1) {
+                throw this.error(
+                    `string indexing requires exactly one argument (the index), got ${this.args.length}`
+                );
+            }
             this.args.forEach((arg, i) => {
                 arg.cascadeTypes(this, true);
                 if (arg.type === null) {
@@ -1584,11 +1568,6 @@ export class DirectCall extends Expression {
                     );
                 }
             });
-            if (this.args.length !== 1) {
-                throw this.error(
-                    `string indexing requires exactly one argument (the index), got ${this.args.length}`
-                );
-            }
             if (this.args[0].type !== "Int" && this.args[0].type !== "Num") {
                 throw this.error(`string index must be of type Int or Num`);
             }
@@ -1706,39 +1685,7 @@ export class DirectCall extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        if (this.caller.type === "Str") {
-            if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
-                // String slicing with a..b, a.., ..b, ..
-                const range = this.args[0] as RangeIter;
-                this.caller.toJS(writer);
-                writer.write(".slice(");
-                if (range.start !== null) {
-                    writer.write("Number(");
-                    range.start.toJS(writer);
-                    writer.write(")");
-                } else {
-                    writer.write("0");
-                }
-                if (range.end !== null) {
-                    writer.write(", Number(");
-                    range.end.toJS(writer);
-                    writer.write(") + 1");
-                }
-                writer.write(")");
-            } else if (this.isUnsafe) {
-                this.caller.toJS(writer);
-                writer.write("[");
-                this.args[0].toJS(writer);
-                writer.write("]");
-            } else {
-                // Maybe-wrapped string index: str[i] returns undefined if out of bounds
-                writer.write("((s, i) => i >= 0 && i < s.length ? s[i] : undefined)(");
-                this.caller.toJS(writer);
-                writer.write(", ");
-                this.args[0].toJS(writer);
-                writer.write(")");
-            }
-        } else if (this.caller.type instanceof CustomType) {
+        if (this.caller.type instanceof CustomType) {
             // Resolve struct from scope, falling back to global registry
             const structScope = this.getScope();
             let isStruct = false;
@@ -1770,7 +1717,7 @@ export class DirectCall extends Expression {
             this.caller.toJS(writer);
             writer.write(")");
         } else {
-            writer.write("(");
+            writer.write("((");
             this.caller.toJS(writer);
             writer.write(")");
             if (this.caller.type instanceof FuncType) {
@@ -1796,9 +1743,15 @@ export class DirectCall extends Expression {
                 writer.write(")");
             } else if (
                 this.caller.type instanceof ArrayType ||
-                this.caller.type instanceof MutArrType
+                this.caller.type instanceof MutArrType ||
+                this.caller.type === "Str"
             ) {
-                if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
+                if (this.args.length !== 1) {
+                    throw new Error(
+                        `indexed access of a value of type ${this.caller.type} does not have exactly 1 index`
+                    );
+                }
+                if (this.args[0] instanceof RangeIter) {
                     const range = this.args[0];
                     if (range.start !== null && range.end !== null) {
                         writer.write(".slice(Number(");
@@ -1818,11 +1771,9 @@ export class DirectCall extends Expression {
                         writer.write(".slice()");
                     }
                 } else {
-                    this.args.forEach((arg) => {
-                        writer.write("[");
-                        arg.toJS(writer);
-                        writer.write("]");
-                    });
+                    writer.write("[");
+                    this.args[0].toJS(writer);
+                    writer.write("] ?? null");
                 }
             } else if (this.caller.type instanceof TupleType) {
                 this.args.forEach((arg) => {
@@ -1836,10 +1787,11 @@ export class DirectCall extends Expression {
             ) {
                 writer.write(".get(");
                 this.args[0]?.toJS(writer);
-                writer.write(")");
+                writer.write(") ?? null");
             } else {
                 throw new Error(`unknown caller type: ${this.caller.type}`);
             }
+            writer.write(")");
         }
     }
 }

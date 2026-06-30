@@ -360,20 +360,10 @@ function parseIfStatement(parser: Parser): AST.Expression {
         parser.advance();
         elseBranch = parser.block();
     } else if (!hasElse) {
-        // Dummy else branch — will not be type-checked since hasElse=false
-        const nullToken = {
-            line: rootToken.line,
-            col: rootToken.col,
-            text: "null",
-            type: TokenType.Integer,
-        };
-        elseBranch = new AST.Block(
-            { line: rootToken.line, col: rootToken.col, text: "{", type: TokenType.LBrace },
-            [new AST.Literal(nullToken, "Null")]
-        );
+        elseBranch = null;
     }
     return parser.tryCreateASTExpression(
-        () => new AST.If(rootToken, conditionalBranches, elseBranch!, hasElse)
+        () => new AST.If(rootToken, conditionalBranches, elseBranch)
     );
 }
 
@@ -1100,13 +1090,7 @@ function parseReturn(parser: Parser): AST.Expression {
     const next = parser.atEnd() ? undefined : parser.current().type;
     // If next token is a statement terminator, return has no value
     if (next === undefined || next === TokenType.Semicolon || next === TokenType.RBrace) {
-        const nullToken: Token = {
-            line: startToken.line,
-            col: startToken.col,
-            text: "null",
-            type: TokenType.LParen,
-        };
-        return new AST.Return(startToken, new AST.Literal(nullToken, "Null"));
+        return parser.error("Expected expression after `return`");
     }
     // Use parseWithPrecedence instead of expression() so the value isn't
     // wrapped in a DropValue when followed by a semicolon (e.g., "return 99;").

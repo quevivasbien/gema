@@ -324,42 +324,6 @@ test("match on mixed enum returns default for plain variant", () => {
     );
 });
 
-test("escape: match enum with break in for loop", () => {
-    testCompile(
-        `
-        enum Action { add: Num, stop }
-        actions = [Action.add(10), Action.add(20), Action.stop, Action.add(30)];
-        mut total = 0;
-        for action = actions {
-            total += match action {
-                add(v) { v },
-                stop { break },
-            }
-        };
-        total
-        `,
-        30
-    );
-});
-
-test("escape: match enum with continue in for loop", () => {
-    testCompile(
-        `
-        enum Action { add: Num, skip }
-        actions = [Action.add(10), Action.skip, Action.add(20), Action.add(30)];
-        mut total = 0;
-        for action = actions {
-            total += match action {
-                add(v) { v },
-                skip { continue },
-            }
-        };
-        total
-        `,
-        60
-    );
-});
-
 // ============================================================
 // Partial match (no else) → type Null
 // ============================================================

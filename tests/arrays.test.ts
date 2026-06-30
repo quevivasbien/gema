@@ -2,7 +2,6 @@ import { test } from "bun:test";
 
 import {
     testCompile,
-    testCompileExpectRuntimeError,
     testParse,
     testParseExpectError,
 } from "./helpers";
@@ -41,57 +40,15 @@ test("compile array indexed access", () => {
     testCompile(
         `
             x = [[1, 2], [3, 4]];
-            x(0, 1)
+            x(0)
         `,
-        2
+        [1, 2]
     );
     testCompile(
         `
             [1, 2, 3](0)
         `,
         1
-    );
-});
-
-test("compile nested array indexed access", () => {
-    testCompile(
-        `
-            [[1, 2], [3, 4]](0, 1)
-        `,
-        2
-    );
-
-    testCompile(
-        `
-            x = [[1, 2], [3, 4]]; x(0, 1)
-        `,
-        2
-    );
-});
-
-test("compile unwrapping on nested array indexed access", () => {
-    testCompile(
-        `
-            1 + ([[1, 2], [3, 4]](0, 1) | unwrap)
-        `,
-        3
-    );
-
-    testCompile(
-        `
-            x = [[1, 2], [3, 4]]; x!(0, 1)
-        `,
-        2
-    );
-});
-
-// This test case is making me think we maybe should just not allow this syntax for nested array access
-test.todo("compile out of bounds unwrapping on nested array indexed access", () => {
-    testCompileExpectRuntimeError(
-        `
-            1 + ([[1, 2], [3, 4]](2, 1) | unwrap)
-        `,
-        "vs"
     );
 });
 

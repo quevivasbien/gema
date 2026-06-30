@@ -105,7 +105,7 @@ export class NoneLit extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        writer.write("undefined");
+        writer.write("null");
     }
 }
 
@@ -386,7 +386,7 @@ export class Match extends Expression {
             | undefined;
 
         if (someArm) {
-            writer.write(`if (${writer.safeName(scrutVar)} !== undefined) {`);
+            writer.write(`if (${writer.safeName(scrutVar)} !== null) {`);
             writer.indentIn();
             writer.newLine();
 
@@ -408,7 +408,7 @@ export class Match extends Expression {
         if (noneArm) {
             if (someArm) writer.write(" else ");
             else {
-                writer.write(`if (${writer.safeName(scrutVar)} === undefined) `);
+                writer.write(`if (${writer.safeName(scrutVar)} === null) `);
             }
             writer.write("{");
             writer.indentIn();

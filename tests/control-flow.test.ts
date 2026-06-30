@@ -804,8 +804,8 @@ test("optimization: no try/catch in loop without break/continue", () => {
 test("optimization: direct return when not inside IIFE", () => {
     testCompileAndCheck(
         `
-        func foo() { return };
-        foo(); 1
+        func foo() { return 1 };
+        foo()
         `,
         ["return"],
         ["throw new $Return$", "try {"]
@@ -978,7 +978,6 @@ test("continue: error when continue outside loop", () => {
 // ============================================================
 
 test("escape: match Maybe with return in none arm", () => {
-    // Maybe is a compile-time construct; `some(x)` returns `x` directly at runtime.
     testCompile(
         `
         func addMaybe(a: Maybe[Num], b: Maybe[Num]) {
@@ -992,27 +991,9 @@ test("escape: match Maybe with return in none arm", () => {
             };
             some(a_unwrapped + b_unwrapped)
         };
-        addMaybe(some(3), some(4))
+        (addMaybe(some(3), some(4)), addMaybe(none:Num, some(4)))
         `,
-        7
-    );
-    // Returns none (undefined) if either input is none
-    testCompile(
-        `
-        func addMaybe(a: Maybe[Num], b: Maybe[Num]) {
-            a_unwrapped = match a {
-                some(v) { v },
-                none { return none:Num },
-            };
-            b_unwrapped = match b {
-                some(v) { v },
-                none { return none:Num },
-            };
-            some(a_unwrapped + b_unwrapped)
-        };
-        addMaybe(none:Num, some(4))
-        `,
-        undefined
+        [7, null]
     );
 });
 
@@ -1060,6 +1041,76 @@ test("escape: all match arms return gives Null type", () => {
         }
         `,
         "cannot assign null or escape value"
+    );
+});
+
+test("match maybe with early break in for loop", () => {
+    testCompile(
+        `
+        vals = [some(10), some(20), none:Num, some(30)];
+        mut total = 0;
+        for v = vals {
+            total += match v {
+                some(v) { v },
+                none { break },
+            }
+        };
+        total
+        `,
+        30
+    );
+});
+
+test("match maybe with continue in for loop", () => {
+    testCompile(
+        `
+        vals = [some(10), some(20), none:Num, some(30)];
+        mut total = 0;
+        for v = vals {
+            total += match v {
+                some(v) { v },
+                none { continue },
+            }
+        };
+        total
+        `,
+        60
+    );
+});
+
+test("escape: match enum with break in for loop", () => {
+    testCompile(
+        `
+        enum Action { add: Num, stop }
+        actions = [Action.add(10), Action.add(20), Action.stop, Action.add(30)];
+        mut total = 0;
+        for action = actions {
+            total += match action {
+                add(v) { v },
+                stop { break },
+            }
+        };
+        total
+        `,
+        30
+    );
+});
+
+test("escape: match enum with continue in for loop", () => {
+    testCompile(
+        `
+        enum Action { add: Num, skip }
+        actions = [Action.add(10), Action.skip, Action.add(20), Action.add(30)];
+        mut total = 0;
+        for action = actions {
+            total += match action {
+                add(v) { v },
+                skip { continue },
+            }
+        };
+        total
+        `,
+        60
     );
 });
 

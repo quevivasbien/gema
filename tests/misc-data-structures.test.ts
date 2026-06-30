@@ -17,7 +17,7 @@ test("Dict: basic", () => {
 
 test("Dict: create empty Dict", () => {
     testParse(`Dict([]:Tup[Int, Int])`);
-    testCompile(`d = Dict([]:Tup[Int, Int]); d(1)`, undefined);
+    testCompile(`d = Dict([]:Tup[Int, Int]); d(1)`, null);
 });
 
 test("Dict: compile and access with numeric key", () => {
@@ -34,8 +34,8 @@ test("Dict: compile and access with non-numeric key", () => {
 });
 
 test("Dict: access missing key", () => {
-    testCompile(`m = Dict([("a", 1)]); m("x")`, undefined);
-    testCompile(`m = Dict([([1,2], 1),]); m([1,2])`, undefined); // This should be undefined, since [1,2] is not actually the same object as the array that was used in the map
+    testCompile(`m = Dict([("a", 1)]); m("x")`, null);
+    testCompile(`m = Dict([([1,2], 1),]); m([1,2])`, null); // This should be null, since [1,2] is not actually the same object as the array that was used in the map
 });
 
 test("Dict: contains", () => {
@@ -61,8 +61,8 @@ test("MutDict: add to a mutable dict", () => {
 });
 
 test("MutDict: remove from a mutable dict", () => {
-    testCompile(`m = trans(Dict([("a", 1),])); remove("a", m); m("a")`, undefined);
-    testCompile(`m = trans(Dict([("a", 1),])); remove("a", m)("a")`, undefined); // Remove should return the MutDict
+    testCompile(`m = trans(Dict([("a", 1),])); remove("a", m); m("a")`, null);
+    testCompile(`m = trans(Dict([("a", 1),])); remove("a", m)("a")`, null); // Remove should return the MutDict
 });
 
 test("MutDict: when using trans, mutating a mutable dict does not change the original", () => {
@@ -70,7 +70,7 @@ test("MutDict: when using trans, mutating a mutable dict does not change the ori
 });
 
 test("MutDict: when using unsafeTrans, mutating a mutable dict does change the original", () => {
-    testCompile(`d = Dict([("a", 1),]); m = unsafeTrans(d); remove("a", m); d("a")`, undefined);
+    testCompile(`d = Dict([("a", 1),]); m = unsafeTrans(d); remove("a", m); d("a")`, null);
 });
 
 test("MutDict: detrans gives an immutable Dict", () => {

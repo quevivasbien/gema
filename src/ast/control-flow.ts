@@ -18,28 +18,28 @@ import {
 export class If extends Expression {
     // TODO: Parser shuold reflect that any Expression type is permissible for the branches
     conditionalBranches: { condition: Expression; branch: Expression }[];
-    elseBranch: Expression; // TODO: Shouldn't this be optional?
-    hasElse: boolean;
+    elseBranch: Expression | null;
 
     constructor(
         rootToken: Token,
         conditionalBranches: { condition: Expression; branch: Expression }[],
-        elseBranch: Expression,
-        hasElse: boolean = true
+        elseBranch: Expression | null
     ) {
         super(rootToken.line, rootToken.col);
 
         this.conditionalBranches = conditionalBranches;
         this.elseBranch = elseBranch;
-        this.hasElse = hasElse;
     }
 
     getAllChildren(): Expression[] {
-        return [
+        const children = [
             ...this.conditionalBranches.map((b) => b.condition),
             ...this.conditionalBranches.map((b) => b.branch),
-            this.elseBranch,
         ];
+        if (this.elseBranch !== null) {
+            children.push(this.elseBranch);
+        }
+        return children;
     }
 
     /** Return the first non-Escape type from a list of branches, or "Null" if all are Escape. */
@@ -53,9 +53,11 @@ export class If extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
-        this.elseBranch.cascadeTypes(this, valueUsed);
+        if (this.elseBranch !== null) {
+            this.elseBranch.cascadeTypes(this, valueUsed);
+        }
 
-        const allBranches: Expression[] = [this.elseBranch];
+        const allBranches: Expression[] = this.elseBranch === null ? [] : [this.elseBranch];
 
         this.conditionalBranches.forEach(({ condition, branch }) => {
             condition.cascadeTypes(this, true);
@@ -64,7 +66,8 @@ export class If extends Expression {
             }
             branch.cascadeTypes(this, valueUsed);
             allBranches.push(branch);
-            if (this.hasElse) {
+            // All there is an else branch, all branches must have compatible types
+            if (this.elseBranch !== null) {
                 // Skip type comparison if either branch is Escape
                 const elseIsEscape = this.elseBranch.type instanceof EscapeType;
                 const branchIsEscape = branch.type instanceof EscapeType;
@@ -78,7 +81,7 @@ export class If extends Expression {
             }
         });
 
-        this.type = this.hasElse ? this.resolveBranchType(allBranches) : "Null";
+        this.type = this.elseBranch !== null ? this.resolveBranchType(allBranches) : "Null";
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -88,8 +91,7 @@ export class If extends Expression {
                 condition: condition.clone(bindings),
                 branch: branch.clone(bindings),
             })),
-            this.elseBranch.clone(bindings),
-            this.hasElse
+            this.elseBranch?.clone(bindings) ?? null
         );
         return cloned;
     }
@@ -120,7 +122,7 @@ export class If extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        const shouldWrapInIIFE = this.hasElse && this.isValueUsed;
+        const shouldWrapInIIFE = this.branchToJS !== null && this.isValueUsed;
         if (shouldWrapInIIFE) {
             writer.write("(() => {");
             writer.iifeDepth++;
@@ -134,7 +136,9 @@ export class If extends Expression {
             this.branchToJS(writer, branch);
             writer.write(" else ");
         });
-        this.branchToJS(writer, this.elseBranch);
+        if (this.elseBranch !== null) {
+            this.branchToJS(writer, this.elseBranch);
+        }
         if (shouldWrapInIIFE) {
             writer.indentOut();
             writer.newLine();
@@ -387,7 +391,7 @@ function inForLoopNeedsExceptionForControlFlow(startNode: Expression) {
                 return true;
             }
         }
-        if (node instanceof If && node.isValueUsed && node.hasElse) return true;
+        if (node instanceof If && node.isValueUsed && node.elseBranch !== null) return true;
         // A Match wraps its arms in an IIFE when its value is used, so break/continue
         // statements inside match arms need exception handling to propagate
         // past the IIFE back to the enclosing loop.
@@ -516,7 +520,7 @@ export class Return extends Expression {
                 )
                     return true;
             }
-            if (node instanceof If && node.isValueUsed && node.hasElse) return true;
+            if (node instanceof If && node.isValueUsed && node.elseBranch !== null) return true;
             // A Match wraps its arms in an IIFE when its value is used, so return
             // statements inside match arms need exception handling to propagate
             // past the IIFE back to the enclosing function.
