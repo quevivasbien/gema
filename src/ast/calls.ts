@@ -1182,6 +1182,12 @@ export class Call extends Expression {
                     this.args[2]?.toJS(writer);
                     writer.write(")");
                     return;
+                case "pop":
+                    writer.useBuiltin("$pop$");
+                    writer.write("$pop$(");
+                    this.args[0]?.toJS(writer);
+                    writer.write(")");
+                    return;
                 case "Dict":
                     writer.write("new Map(");
                     this.args[0]?.toJS(writer);

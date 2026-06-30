@@ -848,6 +848,24 @@ function findBuiltin(
             }
             return undefined;
         }
+        case "pop": {
+            if (argTypes.length !== 1) return undefined;
+            // MutArr pop: (mutarr) → MutArr (chainable)
+            if (argTypes[0] instanceof MutArrType) {
+                const [mutArrType] = argTypes;
+                return {
+                    error: null,
+                    result: {
+                        kind: "builtin",
+                        referToByName: "pop",
+                        callerType: new FuncType(argTypes, mutArrType),
+                        rootType: mutArrType,
+                        builtinKind: "pop",
+                    },
+                };
+            }
+            return undefined;
+        }
         case "remove": {
             if (argTypes.length !== 2) return undefined;
             if (argTypes[1] instanceof MutDictType) {

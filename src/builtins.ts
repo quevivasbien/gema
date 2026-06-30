@@ -675,6 +675,8 @@ export const BUILTINS: Record<string, string> = {
     }
 }`,
 
+    // TODO (tentative): Most of the remaining builtins here are very simple and could just be inlined as IIFEs
+
     // ── Mutable array operations ──
     // arr.push(val)
     $push$: `function $push$(val, mutarr) {
@@ -684,6 +686,10 @@ export const BUILTINS: Record<string, string> = {
     // arr[idx] = val
     $put$: `function $put$(val, idx, mutarr) {
     mutarr[idx] = val;
+    return mutarr;
+}`,
+    $pop$: `function $pop$(mutarr) {
+    mutarr.pop();
     return mutarr;
 }`,
 
