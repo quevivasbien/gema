@@ -94,12 +94,29 @@ function extractBindings(
     if (paramType instanceof ArrayType && argType instanceof ArrayType) {
         return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
     }
+    if (paramType instanceof MutArrType && argType instanceof MutArrType) {
+        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+    }
     if (paramType instanceof IterType && argType instanceof IterType) {
         return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
     }
     // Auto-convert: Arr[X] matches Iter[X]
     if (paramType instanceof IterType && argType instanceof ArrayType) {
         return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+    }
+    if (paramType instanceof SetType && argType instanceof SetType) {
+        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+    }
+    if (paramType instanceof MutSetType && argType instanceof MutSetType) {
+        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+    }
+    if (paramType instanceof DictType && argType instanceof DictType) {
+        if (!extractBindings(paramType.keyType, argType.keyType, typeParams, bindings)) return false;
+        return extractBindings(paramType.valueType, argType.valueType, typeParams, bindings);
+    }
+    if (paramType instanceof MutDictType && argType instanceof MutDictType) {
+        if (!extractBindings(paramType.keyType, argType.keyType, typeParams, bindings)) return false;
+        return extractBindings(paramType.valueType, argType.valueType, typeParams, bindings);
     }
     if (paramType instanceof FuncType && argType instanceof FuncType) {
         if (paramType.paramTypes.length !== argType.paramTypes.length) return false;

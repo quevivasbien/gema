@@ -182,4 +182,90 @@ describe("generic structs", () => {
             "constructor expects"
         );
     });
+
+    test("generic struct with MutArr field", () => {
+        testCompile(
+            `
+            struct MutContainer[T] { values: MutArr[T] }
+            MutContainer([1, 2] | trans)
+            `,
+            { values: [1, 2] }
+        );
+    });
+
+    test("generic struct with Dict field", () => {
+        testCompile(
+            `
+            struct DictBox[T, U] { dict: Dict[T, U] }
+            b = DictBox(Dict([("a", 1), ("b", 2)]));
+            b.dict("a")
+            `,
+            1
+        );
+    });
+
+    test("generic struct with MutDict field", () => {
+        testCompile(
+            `
+            struct MDictBox[T, U] { dict: MutDict[T, U] }
+            b = MDictBox(Dict([("a", 1), ("b", 2)]) | trans);
+            b.dict("b")
+            `,
+            2
+        );
+    });
+
+    test("generic struct with Set field", () => {
+        testCompile(
+            `
+            struct SetBox[T] { items: Set[T] }
+            b = SetBox(Set([1, 2, 3]));
+            contains(2, b.items)
+            `,
+            true
+        );
+    });
+
+    test("generic struct with MutSet field", () => {
+        testCompile(
+            `
+            struct MSetBox[T] { items: MutSet[T] }
+            b = MSetBox(Set([1, 2, 3]) | trans);
+            contains(3, b.items)
+            `,
+            true
+        );
+    });
+
+    test("doubly-nested generic struct", () => {
+        testCompile(
+            `
+            struct Pair[T] { a: T, b: T }
+            struct Nested[V] { inner: Pair[V] }
+            Nested(Pair("hi", "there"))
+            `,
+            { inner: { a: "hi", b: "there" } }
+        );
+    });
+
+    test("doubly-nested with MutArr", () => {
+        testCompile(
+            `
+            struct Inner[T] { items: MutArr[T] }
+            struct Outer[V] { inner: Inner[V] }
+            Outer(Inner([1, 2, 3] | trans))
+            `,
+            { inner: { items: [1, 2, 3] } }
+        );
+    });
+
+    test("generic struct with mixed MutArr and plain fields", () => {
+        testCompile(
+            `
+            struct Mixed[T, U] { mutArr: MutArr[T], plain: U }
+            Mixed([1, 2] | trans, "hello")
+            `,
+            { mutArr: [1, 2], plain: "hello" }
+        );
+    });
 });

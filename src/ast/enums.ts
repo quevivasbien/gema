@@ -251,7 +251,7 @@ export class Match extends Expression {
     private updateCommonType(commonType: Type | null, armType: Type): Type {
         // Escape-typed arms (break/continue/return) are transparent — skip them.
         // The real type from non-Escape arms wins.
-        if (armType instanceof EscapeType) return commonType ?? "Null";
+        if (armType instanceof EscapeType) return commonType ?? armType;
         if (commonType instanceof EscapeType) return armType;
         if (commonType === null) return armType;
         if (!typeEquals(commonType, armType)) {
