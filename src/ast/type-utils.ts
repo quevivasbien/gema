@@ -3,6 +3,7 @@ import {
     CustomType,
     DictType,
     EnumType,
+    EscapeType,
     FuncType,
     isBuiltinTypeName,
     IterType,
@@ -40,6 +41,14 @@ export function typeEquals(a: unknown, b: unknown): boolean {
 
     // If they're not objects at this point, use strict equality
     if (typeof a !== "object" || typeof b !== "object") return a === b;
+
+    // EscapeType
+    if (a instanceof EscapeType && b instanceof EscapeType) {
+        return typeEquals(a.innerType, b.innerType);
+    }
+    if (a instanceof EscapeType || b instanceof EscapeType) {
+        return false;
+    }
 
     // CustomType
     if (a instanceof CustomType && b instanceof CustomType) {
@@ -176,6 +185,9 @@ export function stripTraits(t: Type): Type {
             stripTraits(t.returnType)
         );
     }
+    if (t instanceof EscapeType) {
+        return new EscapeType(stripTraits(t.innerType));
+    }
     return t;
 }
 
@@ -199,6 +211,7 @@ export function isConcreteType(t: Type): boolean {
     if (t instanceof SetType) return isConcreteType(t.innerType);
     if (t instanceof MutSetType) return isConcreteType(t.innerType);
     if (t instanceof MaybeType) return isConcreteType(t.innerType);
+    if (t instanceof EscapeType) return isConcreteType(t.innerType);
     if (t instanceof FuncType)
         return t.paramTypes.every(isConcreteType) && isConcreteType(t.returnType);
     return true;
@@ -278,6 +291,9 @@ export function collectTraitsForTypeParam(t: Type, typeParamName: string): strin
         return collectTraitsForTypeParam(t.innerType, typeParamName);
     }
     if (t instanceof MaybeType) {
+        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    }
+    if (t instanceof EscapeType) {
         return collectTraitsForTypeParam(t.innerType, typeParamName);
     }
     return [];

@@ -3,7 +3,7 @@ import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import type { Scope } from "./scope";
 import { typeEquals } from "./type-utils";
-import { TupleType, type Type } from "./types";
+import { EscapeType, TupleType, type Type } from "./types";
 
 function addVariableToScope(
     enclosingScope: Scope,
@@ -82,8 +82,8 @@ export class Assignment extends Expression {
         this.value.cascadeTypes(this, true);
         this.type = this.isDropped ? "Null" : this.value.type;
 
-        if (this.value.type === "Null") {
-            throw this.error("cannot assign null value to variable");
+        if (this.value.type === "Null" || this.value.type instanceof EscapeType) {
+            throw this.error("cannot assign null or escape value to variable");
         }
 
         const enclosingScope = this.getScope();

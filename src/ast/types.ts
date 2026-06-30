@@ -55,6 +55,8 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
         for (const v of type.variants) {
             if (v.type) collectCustomTypeNames(v.type, names);
         }
+    } else if (type instanceof EscapeType) {
+        collectCustomTypeNames(type.innerType, names);
     }
 }
 
@@ -118,6 +120,9 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
                 type: v.type ? substituteTypeParams(v.type, bindings) : null,
             }))
         );
+    }
+    if (type instanceof EscapeType) {
+        return new EscapeType(substituteTypeParams(type.innerType, bindings));
     }
     return type;
 }
@@ -338,12 +343,21 @@ export class CustomType {
     }
 }
 
+export class EscapeType {
+    constructor(public innerType: Type) {}
+
+    toString(): string {
+        return `Escape[${this.innerType}]`;
+    }
+}
+
 export type Type =
     | "Int"
     | "Num"
     | "Str"
     | "Bool"
     | "Null"
+    | EscapeType
     | FuncType
     | ArrayType
     | IterType

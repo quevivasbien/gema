@@ -50,6 +50,10 @@ export class Unary extends Expression {
         this.operator = operatorToken.type;
     }
 
+    getAllChildren(): Expression[] {
+        return [this.child];
+    }
+
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
         this.child.cascadeTypes(this, valueUsed);
@@ -110,6 +114,10 @@ export class Binary extends Expression {
     ) {
         super(operatorToken.line, operatorToken.col);
         this.operator = operatorToken.type;
+    }
+
+    getAllChildren(): Expression[] {
+        return [this.left, this.right];
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {

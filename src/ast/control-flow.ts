@@ -1,9 +1,19 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Block, Expression, lastExprShouldReturn } from "./expression";
+import { Match } from "./enums";
 import { Scope } from "./scope";
 import { typeEquals } from "./type-utils";
-import { ArrayType, IterType, MutArrType, type Type } from "./types";
+import {
+    ArrayType,
+    CustomType,
+    EnumType,
+    EscapeType,
+    isBuiltinTypeName,
+    IterType,
+    MutArrType,
+    type Type,
+} from "./types";
 
 export class If extends Expression {
     // TODO: Parser shuold reflect that any Expression type is permissible for the branches
@@ -32,9 +42,20 @@ export class If extends Expression {
         ];
     }
 
+    /** Return the first non-Escape type from a list of branches, or "Null" if all are Escape. */
+    private resolveBranchType(branches: Expression[]): Type {
+        for (const b of branches) {
+            const bt = b.type instanceof EscapeType ? "Null" : (b.type ?? "Null");
+            if (bt !== "Null") return bt;
+        }
+        return "Null";
+    }
+
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
         this.elseBranch.cascadeTypes(this, valueUsed);
+
+        const allBranches: Expression[] = [this.elseBranch];
 
         this.conditionalBranches.forEach(({ condition, branch }) => {
             condition.cascadeTypes(this, true);
@@ -42,18 +63,22 @@ export class If extends Expression {
                 throw this.error(`condition must be boolean, but found ${condition.type}`);
             }
             branch.cascadeTypes(this, valueUsed);
+            allBranches.push(branch);
             if (this.hasElse) {
-                if (!typeEquals(this.elseBranch.type, branch.type)) {
-                    throw this.error(
-                        `all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`
-                    );
+                // Skip type comparison if either branch is Escape
+                const elseIsEscape = this.elseBranch.type instanceof EscapeType;
+                const branchIsEscape = branch.type instanceof EscapeType;
+                if (!elseIsEscape && !branchIsEscape) {
+                    if (!typeEquals(this.elseBranch.type, branch.type)) {
+                        throw this.error(
+                            `all branches of if expression must have the same type, but found branches of types ${branch.type} and ${this.elseBranch.type}`
+                        );
+                    }
                 }
             }
         });
 
-        // Determine the type from branches (control flow branches still carry their
-        // inner value's type via Return/Continue's transparent type propagation)
-        this.type = this.hasElse ? this.elseBranch.type : "Null";
+        this.type = this.hasElse ? this.resolveBranchType(allBranches) : "Null";
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -136,11 +161,32 @@ export class ForLoop extends Expression {
 
     getLoopVariableInnerType(): Type | null {
         if (this.iter === null || this.iter.type === null) return null;
-        if (this.iter.type instanceof ArrayType) return this.iter.type.innerType;
-        if (this.iter.type instanceof IterType) return this.iter.type.innerType;
-        if (this.iter.type instanceof MutArrType) return this.iter.type.innerType;
-        if (this.iter.type === "Str") return "Str";
-        return null;
+        let innerType: Type;
+        if (this.iter.type instanceof ArrayType) innerType = this.iter.type.innerType;
+        else if (this.iter.type instanceof IterType) innerType = this.iter.type.innerType;
+        else if (this.iter.type instanceof MutArrType) innerType = this.iter.type.innerType;
+        else if (this.iter.type === "Str") return "Str";
+        else return null;
+
+        // Resolve CustomType names to their actual enum/struct types from scope.
+        // For example, Arr[Action] stores Action as CustomType("Action"), but the
+        // loop variable needs the full EnumType for match expressions to work.
+        if (innerType instanceof CustomType && !isBuiltinTypeName(innerType.name)) {
+            const scopeLookup = this.scope.lookup(innerType.name);
+            if (scopeLookup) {
+                const attrs = scopeLookup.attrs;
+                if (attrs.class === "enum") {
+                    return new EnumType(
+                        attrs.name,
+                        attrs.variants.map((v: { name: string; type: Type | null }) => ({
+                            name: v.name,
+                            type: v.type,
+                        }))
+                    );
+                }
+            }
+        }
+        return innerType;
     }
 
     // TODO: Parser should reflect that any Expression type is permissible for the body
@@ -342,6 +388,10 @@ function inForLoopNeedsExceptionForControlFlow(startNode: Expression) {
             }
         }
         if (node instanceof If && node.isValueUsed && node.hasElse) return true;
+        // A Match wraps its arms in an IIFE when its value is used, so break/continue
+        // statements inside match arms need exception handling to propagate
+        // past the IIFE back to the enclosing loop.
+        if (node instanceof Match && node.isValueUsed) return true;
         node = node.parent;
     }
     return false;
@@ -350,7 +400,7 @@ function inForLoopNeedsExceptionForControlFlow(startNode: Expression) {
 export class Break extends Expression {
     constructor(startToken: Token) {
         super(startToken.line, startToken.col);
-        this.type = "Null";
+        this.type = new EscapeType("Null");
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -382,7 +432,7 @@ export class Break extends Expression {
 export class Continue extends Expression {
     constructor(startToken: Token) {
         super(startToken.line, startToken.col);
-        this.type = "Null";
+        this.type = new EscapeType("Null");
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -427,16 +477,18 @@ export class Return extends Expression {
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
         this.value.cascadeTypes(this, true);
-        this.type = "Null"; // Return statements have type null, even if their values do not
-        // Verify `return` is inside a function,
-        // and let that function knows it needs to check that the return type matches
+        this.type = new EscapeType(this.value.type ?? "Null");
+        // Verify `return` is inside a function boundary.
         // Walk up to find enclosing function boundary
         let fn: Expression | null = this.parent;
         while (fn) {
             if (fn.isFunctionBoundary()) break;
             fn = fn.parent;
         }
-        if (fn !== null && "returnStatementValues" in (fn as unknown as Record<string, unknown>)) {
+        if (fn === null) {
+            throw this.error("`return` is only allowed inside a function");
+        }
+        if ("returnStatementValues" in (fn as unknown as Record<string, unknown>)) {
             (fn as unknown as { returnStatementValues: Expression[] }).returnStatementValues.push(
                 this.value
             );
@@ -465,6 +517,10 @@ export class Return extends Expression {
                     return true;
             }
             if (node instanceof If && node.isValueUsed && node.hasElse) return true;
+            // A Match wraps its arms in an IIFE when its value is used, so return
+            // statements inside match arms need exception handling to propagate
+            // past the IIFE back to the enclosing function.
+            if (node instanceof Match && node.isValueUsed) return true;
             node = node.parent;
         }
         return false;

@@ -363,25 +363,26 @@ test("for: nested for loop with same iterator", () => {
 // Return statement
 // ============================================================
 
-test("return: cannot end function with return", () => {
-    // Control flow statements technically have null type.
-    // This means you cannot terminate a function with a return statement,
-    // since this would imply that the function both does and does not return a Null
-    testParseExpectError(
+test("return: function can end with return", () => {
+    // Functions whose last expression is a return correctly infer their
+    // return type from the return value's type (via EscapeType unwrapping).
+    testCompile(
         `
         func foo(): Num {
             return 42
         };
         foo()
-        `
+        `,
+        42
     );
-    testParseExpectError(
+    testCompile(
         `
         func add(a: Num, b: Num): Num {
             return a + b
         };
         add(3, 4)
-        `
+        `,
+        7
     );
 });
 
@@ -470,9 +471,10 @@ test("return: deeply nested conditional return where Null value is not allowed",
     );
 });
 
-test("return: if/elseif/else with mismatch in type", () => {
-    // This is NOT okay, because the if and elseif both have Null type, but the else block has Int type
-    testParseExpectError(
+test("return: if/elseif/else with escape branches resolves correctly", () => {
+    // With Escape type, return branches are transparent and the else branch's type
+    // determines the overall type. So the if/else if/else here has type Num.
+    testCompile(
         `
         func foo() {
             if false {
@@ -486,12 +488,13 @@ test("return: if/elseif/else with mismatch in type", () => {
             }
         };
         foo()
-        `
+        `,
+        2
     );
 });
 
-test("return: if/elseif/else with mismatch in type", () => {
-    // This IS okay, since the if/ifelse has type null, and the 3 is a separate expression
+test("return: if/elseif with escape + separate expression", () => {
+    // This IS okay, since the if/ifelse has type null (no else), and the 3 is a separate expression
     testCompile(
         `
         func foo() {
@@ -968,4 +971,136 @@ test("return: error when return outside function in block", () => {
 
 test("continue: error when continue outside loop", () => {
     testParseExpectError("continue");
+});
+
+// ============================================================
+// Escape type — match with return in some arms
+// ============================================================
+
+test("escape: match Maybe with return in none arm", () => {
+    // Maybe is a compile-time construct; `some(x)` returns `x` directly at runtime.
+    testCompile(
+        `
+        func addMaybe(a: Maybe[Num], b: Maybe[Num]) {
+            a_unwrapped = match a {
+                some(v) { v },
+                none { return none:Num },
+            };
+            b_unwrapped = match b {
+                some(v) { v },
+                none { return none:Num },
+            };
+            some(a_unwrapped + b_unwrapped)
+        };
+        addMaybe(some(3), some(4))
+        `,
+        7
+    );
+    // Returns none (undefined) if either input is none
+    testCompile(
+        `
+        func addMaybe(a: Maybe[Num], b: Maybe[Num]) {
+            a_unwrapped = match a {
+                some(v) { v },
+                none { return none:Num },
+            };
+            b_unwrapped = match b {
+                some(v) { v },
+                none { return none:Num },
+            };
+            some(a_unwrapped + b_unwrapped)
+        };
+        addMaybe(none:Num, some(4))
+        `,
+        undefined
+    );
+});
+
+test("escape: match enum with return in some variants", () => {
+    testCompile(
+        `
+        enum Res[T, E] { ok: T, err: E }
+        func unwrap(r: Res[Num, Str]): Num {
+            match r {
+                ok(v) { v },
+                err(m) { return 0 },
+            }
+        };
+        unwrap(Res[Num, Str].ok(42))
+        `,
+        42
+    );
+    testCompile(
+        `
+        enum Res[T, E] { ok: T, err: E }
+        func unwrap(r: Res[Num, Str]): Num {
+            match r {
+                ok(v) { v },
+                err(m) { return 0 },
+            }
+        };
+        unwrap(Res[Num, Str].err("oops"))
+        `,
+        0
+    );
+});
+
+test("escape: all match arms return gives Null type", () => {
+    // When every arm has Escape type, the match resolves to Null.
+    // Assigning Null to a variable is an error.
+    testParseExpectError(
+        `
+        enum Foo { a, b }
+        func foo(x: Foo): Num {
+            y = match x {
+                a { return 1 },
+                b { return 2 },
+            };
+            0
+        }
+        `,
+        "cannot assign null or escape value"
+    );
+});
+
+test("escape: function with only return statements", () => {
+    testCompile(
+        `
+        func always42(): Num {
+            return 42
+        };
+        always42()
+        `,
+        42
+    );
+});
+
+test("escape: function with only return statement (inferred return type)", () => {
+    testCompile(
+        `
+        func always42() {
+            return 42
+        };
+        always42()
+        `,
+        42
+    );
+});
+
+test("escape: cannot assign escape value directly", () => {
+    testParseExpectError("x = return 5");
+});
+
+test("escape: return inside nested block in function", () => {
+    testCompile(
+        `
+        func foo(): Num {
+            {
+                return 99
+            }
+        };
+        foo()
+        `,
+        99
+    );
 });

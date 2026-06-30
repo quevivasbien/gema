@@ -16,6 +16,7 @@ import {
     collectCustomTypeNames,
     CustomType,
     EnumType,
+    EscapeType,
     FuncType,
     isBuiltinTypeName,
     IterType,
@@ -680,7 +681,8 @@ export class AnonymousFunction extends Expression {
         // Body: last expression is the return value (always consumed).
         this.body.cascadeTypes(this, true);
         this.bodyCascaded = true;
-        const bodyReturnType = this.body.type;
+        const bodyReturnType =
+            this.body.type instanceof EscapeType ? this.body.type.innerType : this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
         }
@@ -741,7 +743,8 @@ export class AnonymousFunction extends Expression {
             this.body.cascadeTypes(this, true);
             this.bodyCascaded = true;
         }
-        const bodyReturnType = this.body.type;
+        const bodyReturnType =
+            this.body.type instanceof EscapeType ? this.body.type.innerType : this.body.type;
         if (bodyReturnType === null) {
             throw this.error(`unable to resolve return type of function.`);
         }
@@ -1075,11 +1078,16 @@ export class FunctionDef extends Expression {
         }
         this.body.cascadeTypes(this, true);
 
-        if (this.returnType === "Null" && this.body.type !== null && this.body.type !== "Null") {
-            this.returnType = this.body.type;
+        // Unwrap EscapeType from body type (functions ending in `return expr` have
+        // an Escape-typed body, but we compare the inner value type against the return type).
+        const bodyType =
+            this.body.type instanceof EscapeType ? this.body.type.innerType : this.body.type;
+
+        if (this.returnType === "Null" && bodyType !== null && bodyType !== "Null") {
+            this.returnType = bodyType;
         }
 
-        if (!typeEquals(this.body.type, this.returnType)) {
+        if (!typeEquals(bodyType, this.returnType)) {
             throw this.error(
                 `function body should return ${this.returnType}, but found ${this.body.type}`
             );
@@ -1203,17 +1211,21 @@ export class FunctionDef extends Expression {
         const allConcrete = clonedParams.every((p) => isConcreteParam(p.type));
         monomorphized.sourceFile = this.sourceFile;
 
+        const monomorphizedBodyType =
+            monomorphized.body.type instanceof EscapeType
+                ? monomorphized.body.type.innerType
+                : monomorphized.body.type;
         if (
             this.returnType === "Null" &&
-            monomorphized.body.type !== null &&
-            monomorphized.body.type !== "Null"
+            monomorphizedBodyType !== null &&
+            monomorphizedBodyType !== "Null"
         ) {
-            monomorphized.returnType = monomorphized.body.type;
+            monomorphized.returnType = monomorphizedBodyType;
         }
 
         const finalReturnType =
             this.returnType === "Null" ? monomorphized.returnType : concreteReturnType;
-        if (!typeEquals(monomorphized.body.type, finalReturnType)) {
+        if (!typeEquals(monomorphizedBodyType, finalReturnType)) {
             throw new ASTError(
                 this.line,
                 this.col,
@@ -1330,12 +1342,16 @@ export class FunctionDef extends Expression {
         monomorphized.cascadeTypes(this.parent, true);
         monomorphized.sourceFile = this.sourceFile;
 
+        const monomorphizedBodyType =
+            monomorphized.body.type instanceof EscapeType
+                ? monomorphized.body.type.innerType
+                : monomorphized.body.type;
         if (
             this.returnType === "Null" &&
-            monomorphized.body.type !== null &&
-            monomorphized.body.type !== "Null"
+            monomorphizedBodyType !== null &&
+            monomorphizedBodyType !== "Null"
         ) {
-            monomorphized.returnType = monomorphized.body.type;
+            monomorphized.returnType = monomorphizedBodyType;
         }
 
         const isConcreteParam = (t: Type): boolean => {

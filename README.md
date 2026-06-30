@@ -33,15 +33,15 @@ true            # Bool
 
 **Operators** follow standard precedence:
 
-| Category     | Operators                                                        |
-| ------------ | ---------------------------------------------------------------- |
-| Arithmetic   | `+`, `-`, `*`, `/`, `%` (modulo), `//` (floor div), `%%` (euclidean mod), `^` (exponentiation) |
-| Comparison   | `==`, `!=`, `<`, `<=`, `>`, `>=`                                 |
-| Logical      | `and`, `or`                                                      |
-| Unary        | `-` (negate), `!` (not)                                          |
-| Range        | `..` (inclusive range)                                           |
-| Pipe         | `\|` (forward pipe)                                              |
-| Compound     | `+=`, `-=`, `*=`, `/=`, `%=`, `//=`, `%%=`, `^=`                 |
+| Category   | Operators                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------- |
+| Arithmetic | `+`, `-`, `*`, `/`, `%` (modulo), `//` (floor div), `%%` (euclidean mod), `^` (exponentiation) |
+| Comparison | `==`, `!=`, `<`, `<=`, `>`, `>=`                                                               |
+| Logical    | `and`, `or`                                                                                    |
+| Unary      | `-` (negate), `!` (not)                                                                        |
+| Range      | `..` (inclusive range)                                                                         |
+| Pipe       | `\|` (forward pipe)                                                                            |
+| Compound   | `+=`, `-=`, `*=`, `/=`, `%=`, `//=`, `%%=`, `^=`                                               |
 
 ### 2. Variables
 
@@ -577,26 +577,26 @@ replace("old", "new", "hello old world")  # → "hello new world"
 
 Gema uses `:` for type annotations:
 
-| Syntax                  | Meaning                          |
-| ----------------------- | -------------------------------- |
-| `Int`                   | BigInt                           |
-| `Num`                   | Number                           |
-| `Str`                   | String                           |
-| `Bool`                  | Boolean                          |
-| `Null`                  | null/undefined                   |
-| `Arr[Int]`              | Array of Int                     |
-| `Iter[Int]`             | Lazy iterator of Int             |
-| `MutArr[Int]`           | Mutable array of Int             |
-| `Func[Int: Str]`        | Function: Int → Str              |
-| `Func[Int, Str: Bool]`  | Function: (Int, Str) → Bool      |
-| `Tup[Int, Str, Bool]`   | Tuple of (Int, Str, Bool)        |
-| `Dict[Str, Int]`        | Dict with Str keys, Int values   |
-| `MutDict[Str, Int]`     | Mutable dict                     |
-| `Set[Int]`              | Immutable set of Int             |
-| `MutSet[Int]`           | Mutable set of Int               |
-| `Maybe[Int]`            | Optional Int (undefined allowed) |
-| `Pair[Num]`             | Generic struct (user-defined)    |
-| `Option[Int]`           | Generic enum (user-defined)      |
+| Syntax                 | Meaning                          |
+| ---------------------- | -------------------------------- |
+| `Int`                  | BigInt                           |
+| `Num`                  | Number                           |
+| `Str`                  | String                           |
+| `Bool`                 | Boolean                          |
+| `Null`                 | null/undefined                   |
+| `Arr[Int]`             | Array of Int                     |
+| `Iter[Int]`            | Lazy iterator of Int             |
+| `MutArr[Int]`          | Mutable array of Int             |
+| `Func[Int: Str]`       | Function: Int → Str              |
+| `Func[Int, Str: Bool]` | Function: (Int, Str) → Bool      |
+| `Tup[Int, Str, Bool]`  | Tuple of (Int, Str, Bool)        |
+| `Dict[Str, Int]`       | Dict with Str keys, Int values   |
+| `MutDict[Str, Int]`    | Mutable dict                     |
+| `Set[Int]`             | Immutable set of Int             |
+| `MutSet[Int]`          | Mutable set of Int               |
+| `Maybe[Int]`           | Optional Int (undefined allowed) |
+| `Pair[Num]`            | Generic struct (user-defined)    |
+| `Option[Int]`          | Generic enum (user-defined)      |
 
 ## Project Structure
 

@@ -1,7 +1,7 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Scope } from "./scope";
-import { type Type, type TemplateTypes } from "./types";
+import { EscapeType, type Type, type TemplateTypes } from "./types";
 
 export class ASTError {
     constructor(
@@ -181,6 +181,9 @@ export function lastExprShouldReturn(lastExpr: Expression): boolean {
     if (lastExpr instanceof Block) {
         return lastExprShouldReturn(lastExpr.expressions[lastExpr.expressions.length - 1]);
     }
+    // Escape-typed expressions (break/continue/return) handle their own control flow
+    // and should not be prefixed with `return` in IIFE codegen.
+    if (lastExpr.type instanceof EscapeType) return false;
     return lastExpr.type !== "Null";
 }
 

@@ -154,7 +154,7 @@ Error in main.gema at line 5, column 1: incompatible argument types in function 
 
 - Fix weird error message when trying to compile an empty program: "Error in main.gema at line 1, column 1: can't access property "line", Z is undefined"
 
-- if/else exprs should not require {}
+- if/else exprs should not require {} -- or, places where {} is not currently required (like lambdas and matches) _should_ -- we just ought to be consistent
 
 - Make sure all the builtins follow the `f(<func>, <values>..., <container>)` idiom so they are easily chainable.
 

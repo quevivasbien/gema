@@ -4,7 +4,7 @@ import { ASTError, Expression } from "./expression";
 import { Scope } from "./scope";
 
 import { typeEquals } from "./type-utils";
-import { EnumType, MaybeType, substituteTypeParams, type Type } from "./types";
+import { EnumType, EscapeType, MaybeType, substituteTypeParams, type Type } from "./types";
 
 // ── Enum definition ───────────────────────────────────────
 
@@ -160,6 +160,14 @@ export class Match extends Expression {
         this.arms = arms;
     }
 
+    getAllChildren(): Expression[] {
+        const children: Expression[] = [this.scrutinee];
+        for (const arm of this.arms) {
+            children.push(arm.body);
+        }
+        return children;
+    }
+
     /**
      * Cascade an arm body within a per-arm scope that defines its binding variable.
      * Each arm gets its own scope so bindings don't leak across arms, but the scope
@@ -218,11 +226,11 @@ export class Match extends Expression {
             if (arm.kind === "variant" && arm.variantName === "some") {
                 arm.bindingType = innerType;
                 this.cascadeArm(arm, arm.binding ?? undefined, arm.bindingType, valueUsed);
-                commonType = arm.body.type;
+                commonType = this.updateCommonType(commonType, arm.body.type ?? "Null");
             } else if (arm.kind === "some") {
                 arm.bindingType = innerType;
                 this.cascadeArm(arm, arm.binding, arm.bindingType, valueUsed);
-                commonType = arm.body.type;
+                commonType = this.updateCommonType(commonType, arm.body.type ?? "Null");
             } else if (arm.kind === "none") {
                 this.cascadeArm(arm, undefined, undefined, valueUsed);
                 commonType = this.updateCommonType(commonType, arm.body.type ?? "Null");
@@ -236,10 +244,15 @@ export class Match extends Expression {
             (a) => a.kind === "some" || (a.kind === "variant" && a.variantName === "some")
         );
         const hasNone = this.arms.some((a) => a.kind === "none" || a.kind === "else");
-        this.type = hasSome && hasNone ? (commonType ?? "Null") : "Null";
+        const resolvedType = commonType instanceof EscapeType ? "Null" : (commonType ?? "Null");
+        this.type = hasSome && hasNone ? resolvedType : "Null";
     }
 
     private updateCommonType(commonType: Type | null, armType: Type): Type {
+        // Escape-typed arms (break/continue/return) are transparent — skip them.
+        // The real type from non-Escape arms wins.
+        if (armType instanceof EscapeType) return commonType ?? "Null";
+        if (commonType instanceof EscapeType) return armType;
         if (commonType === null) return armType;
         if (!typeEquals(commonType, armType)) {
             throw new ASTError(
@@ -286,9 +299,11 @@ export class Match extends Expression {
 
         // If all variants are covered or there's an else, the match has the common type.
         // Otherwise it's Null.
+        // If all arms are Escape (e.g. all return/break), fall back to Null.
         const allCovered = matchedVariants.size === enumType.variants.length;
         const hasElse = this.arms.some((a) => a.kind === "else");
-        this.type = allCovered || hasElse ? (commonType ?? "Null") : "Null";
+        const resolvedType = commonType instanceof EscapeType ? "Null" : (commonType ?? "Null");
+        this.type = allCovered || hasElse ? resolvedType : "Null";
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -380,7 +395,9 @@ export class Match extends Expression {
             writer.write(`const ${writer.safeName(bindingName)} = ${writer.safeName(scrutVar)};`);
             writer.newLine();
 
-            if (this.isValueUsed) writer.write("return ");
+            // Don't add `return` prefix if the arm body handles its own control flow (Escape type)
+            if (this.isValueUsed && !(someArm.body.type instanceof EscapeType))
+                writer.write("return ");
             someArm.body.toJS(writer);
             writer.write(";");
             writer.indentOut();
@@ -396,7 +413,9 @@ export class Match extends Expression {
             writer.write("{");
             writer.indentIn();
             writer.newLine();
-            if (this.isValueUsed) writer.write("return ");
+            // Don't add `return` prefix if the arm body handles its own control flow (Escape type)
+            if (this.isValueUsed && !(noneArm.body.type instanceof EscapeType))
+                writer.write("return ");
             noneArm.body.toJS(writer);
             writer.write(";");
             writer.indentOut();
@@ -458,7 +477,8 @@ export class Match extends Expression {
                 writer.newLine();
             }
 
-            if (this.isValueUsed) writer.write("return ");
+            // Don't add `return` prefix if the arm body handles its own control flow (Escape type)
+            if (this.isValueUsed && !(arm.body.type instanceof EscapeType)) writer.write("return ");
             arm.body.toJS(writer);
             writer.write(";");
             writer.newLine();
@@ -473,7 +493,9 @@ export class Match extends Expression {
             writer.indentIn();
             writer.newLine();
             const elseArm = this.arms.find((a) => a.kind === "else")!;
-            if (this.isValueUsed) writer.write("return ");
+            // Don't add `return` prefix if the arm body handles its own control flow (Escape type)
+            if (this.isValueUsed && !(elseArm.body.type instanceof EscapeType))
+                writer.write("return ");
             elseArm.body.toJS(writer);
             writer.write(";");
             writer.newLine();
