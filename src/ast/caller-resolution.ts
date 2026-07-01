@@ -189,7 +189,7 @@ export function findCaller(
                 const varType = fa.type;
                 if (fa.isConsumed) {
                     return {
-                        error: `cannot use variable '${name}' after it was detrans'd`,
+                        error: `cannot use variable '${name}' after it was consumed`,
                         result: null,
                     };
                 }

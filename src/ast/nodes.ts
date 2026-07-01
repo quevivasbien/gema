@@ -491,11 +491,11 @@ export class Variable extends Expression {
             if (result) {
                 const attrs = result.attrs;
                 if (attrs.class === "var") {
-                    // Check if this variable was consumed (e.g., by detrans).
-                    // Variables consumed via detrans cannot be used afterward.
+                    // Check if this variable was consumed
+                    // Variables consumed cannot be used afterward.
                     if (attrs.isConsumed) {
                         throw this.error(
-                            `cannot use variable '${this.name}' after it was detrans'd`
+                            `cannot use variable '${this.name}' after it was consumed`
                         );
                     }
                     this.type = attrs.type;
@@ -864,8 +864,7 @@ function tagClonedTree(node: Expression, sourceFile: string): void {
                         "branch" in (item as Record<string, unknown>))
                 ) {
                     const cb = item as { condition?: Expression; branch?: Expression };
-                    if (cb.condition instanceof Expression)
-                        tagClonedTree(cb.condition, sourceFile);
+                    if (cb.condition instanceof Expression) tagClonedTree(cb.condition, sourceFile);
                     if (cb.branch instanceof Expression) tagClonedTree(cb.branch, sourceFile);
                 }
             }

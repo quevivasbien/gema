@@ -9,8 +9,8 @@ export type VariableAttributes =
           isMutable: boolean;
           /**
            * Whether it is still legal to access this variable
-           * Always true when variables are first initialized, marked false after detransing a
-           * mutable container
+           * Always true when variables are first initialized, marked false after a consuming operation
+           * (in an earlier version of the language, this happened when converting a mutable container to a non-mutable container, but it is now not functional anywhere and is just left here in case we want to re-implement some sort of system around this later)
            */
           isConsumed: boolean;
       }

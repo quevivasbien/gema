@@ -220,4 +220,4 @@ export function wrapArrayToIter(writer: JSWriter, arg: Expression) {
     } else {
         arg.toJS(writer);
     }
-};
+}
