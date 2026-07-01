@@ -1,11 +1,6 @@
 import { test } from "bun:test";
 
-import {
-    requireIdenticalCompilation,
-    testCompile,
-    testParseExpectError,
-    testParse,
-} from "./helpers";
+import { testCompile, testParseExpectError, testParse } from "./helpers";
 
 test("compile struct construction and field access", () => {
     testCompile(
@@ -15,7 +10,7 @@ test("compile struct construction and field access", () => {
             y: Int
         };
         p = Point(1, 2i);
-        p("x") + toNum(p("y"))
+        p.x + toNum(p.y)
     `,
         3
     );
@@ -29,7 +24,7 @@ test("compile struct field access on param", () => {
             y: Int
         };
         func getX(p: Point): Num {
-            p("x")
+            p.x
         };
         getX(Point(5, 10i))
     `,
@@ -51,7 +46,7 @@ test("compile struct with generic identity function", () => {
         };
         p = Point(1, 2i);
         q = id(p);
-        q("x") + toNum(q("y"))
+        q.x + toNum(q.y)
     `,
         3
     );
@@ -62,8 +57,8 @@ test("compile functional operations with structs", () => {
         `
         struct P { p: Num }
 
-        filtered = filter(func (p: P) { p("p") > 0 }, [P(-1), P(2)]);
-        filtered!(0)("p")
+        filtered = filter(func (p: P) { p.p > 0 }, [P(-1), P(2)]);
+        filtered!(0).p
     `,
         2
     );
@@ -71,7 +66,7 @@ test("compile functional operations with structs", () => {
         `
         struct P { p: Num }
 
-        collect(map(func (p: P) { p("p") }, [P(1), P(2)]))
+        collect(map(func (p: P) { p.p }, [P(1), P(2)]))
     `,
         [1, 2]
     );
@@ -81,8 +76,8 @@ test("compile reduce with structs", () => {
     testCompile(
         `
         struct P { p: Num };
-        result = reduce(func(a: P, b: P): P { P(a("p") + b("p")) }, P(0), [P(1), P(2), P(3)]);
-        result("p")
+        result = reduce(func(a: P, b: P): P { P(a.p + b.p) }, P(0), [P(1), P(2), P(3)]);
+        result.p
     `,
         6
     );
@@ -93,41 +88,9 @@ test("compile function returning struct field access", () => {
         `
         struct P { p: Num };
         func getP(): P { P(7) };
-        getP()("p")
+        getP().p
     `,
         7
-    );
-});
-
-test("compile dot syntax for struct field access", () => {
-    testCompile(
-        `
-        struct Point { x: Num, y: Num };
-        p = Point(1, 2);
-        p.x + p.y
-    `,
-        3
-    );
-    testCompile(
-        `
-        struct Point { x: Num, y: Num };
-        func getPoint(): Point { Point(5, 10) };
-        getPoint().x
-    `,
-        5
-    );
-    testCompile(
-        `
-        struct Point { x: Num, y: Num };
-        p = Point(1, 2);
-        p("x") + p.x
-    `,
-        2
-    );
-
-    requireIdenticalCompilation(
-        `struct Foo { x: Num }; Foo(1)("x")`,
-        `struct Foo { x: Num }; Foo(1).x`
     );
 });
 
@@ -221,7 +184,7 @@ test("parse struct construction and field access", () => {
             y: Int
         };
         p = Point(1, 2i);
-        p("x")
+        p.x
     `);
 });
 
@@ -232,14 +195,14 @@ test("parse struct field access errors", () => {
             y: Int
         };
         p = Point(1, 2i);
-        p("z")
+        p.z
     `);
     testParseExpectError(`
         struct Point {
             x: Num,
             y: Int
         };
-        p("x")
+        p.x
     `);
 });
 
@@ -267,41 +230,9 @@ test("parse struct field access on param", () => {
             y: Int
         };
         func getX(p: Point): Num {
-            p("x")
+            p.x
         };
         getX(Point(5, 10i))
-    `);
-});
-
-test("parse dot syntax for struct field access", () => {
-    testParse(`
-        struct Point { x: Num, y: Num };
-        p = Point(1, 2);
-        p.x
-    `);
-    testParse(`
-        struct Point { x: Num, y: Num };
-        p = Point(1, 2);
-        p.x + p.y
-    `);
-    testParse(`
-        struct Point { x: Num, y: Num };
-        func getPoint(): Point { Point(3, 4) };
-        getPoint().x
-    `);
-    testParse(`
-        struct Point { x: Num, y: Num };
-        p = Point(1, 2);
-        p("x") + p.x
-    `);
-    testParseExpectError(`
-        struct Point { x: Num, y: Num };
-        p = Point(1, 2);
-        p.z
-    `);
-    testParseExpectError(`
-        p = 5;
-        p.x
     `);
 });
 
@@ -658,36 +589,6 @@ test("field: mutable struct fields from vars", () => {
         x
         `,
         [1]
-    );
-});
-
-test("field: mutable struct fields with keyword constructors", () => {
-    testCompile(
-        `
-        struct S { mut a: Num };
-        s = S(a=1);
-        s.a = 2
-        `,
-        2
-    );
-    testCompile(
-        `
-        struct S { mut a: Num, b: Num };
-        s = S(b=1, a=2);
-        s.a = 3;
-        s.a
-        `,
-        3
-    );
-    testCompile(
-        `
-        struct S { mut a: Num };
-        x = 1;
-        s = S(a=x);
-        s.a = s.a + 1;
-        s.a
-        `,
-        2
     );
 });
 

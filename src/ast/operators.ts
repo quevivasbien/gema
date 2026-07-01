@@ -257,7 +257,8 @@ export class Binary extends Expression {
             if (opName) {
                 const { error, result } = findCaller(this, this.parent, opName, [ltype, rtype]);
                 if (error === null) {
-                    this.type = result.rootType;
+                    this.type =
+                        result.kind === "variable" ? result.rootType : result.callerType.returnType;
                     this.overloadedAs = { name: result.referToByName };
                     return;
                 }

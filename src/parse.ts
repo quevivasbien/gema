@@ -803,35 +803,12 @@ function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     if (!parser.atEnd() && parser.current().type === TokenType.LParen) {
         parser.advance();
         const args: AST.Expression[] = [];
-        const keywordArgs: { name: string; value: AST.Expression }[] = [];
-        let seenKeyword = false;
         while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-            if (
-                parser.current().type === TokenType.Identifier &&
-                parser.peek()?.type === TokenType.Equal
-            ) {
-                if (seenKeyword) {
-                    return parser.error("Duplicate keyword argument.");
-                }
-                seenKeyword = true;
-                const kwName = parser.current().text;
-                parser.advance();
-                parser.advance(); // skip '='
-                const kwValue = parser.expression();
-                if (kwValue === null) {
-                    return parser.error("Expected value for keyword argument.");
-                }
-                keywordArgs.push({ name: kwName, value: kwValue });
-            } else {
-                if (seenKeyword) {
-                    return parser.error("Cannot mix positional and keyword arguments.");
-                }
-                const arg = parser.expression();
-                if (arg === null) {
-                    return parser.error("Expected expression.");
-                }
-                args.push(arg);
+            const arg = parser.expression();
+            if (arg === null) {
+                return parser.error("Expected expression.");
             }
+            args.push(arg);
             if (parser.atEnd()) {
                 return parser.error("Unterminated call.");
             }
@@ -846,9 +823,7 @@ function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
         // Append the piped value as the last argument
         args.push(leftExpr);
         return parser.tryCreateASTExpression(() => {
-            const call = new AST.Call(nameToken, args);
-            call.keywordArgs = keywordArgs;
-            return call;
+            return new AST.Call(nameToken, args);
         });
     }
     return parser.tryCreateASTExpression(() => new AST.Call(nameToken, [leftExpr]));
@@ -882,39 +857,12 @@ function parseCall(parser: Parser): AST.Expression {
     }
     parser.advance();
     const args: AST.Expression[] = [];
-    const keywordArgs: { name: string; value: AST.Expression }[] = [];
-    let seenKeyword = false;
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-        // Detect keyword argument: Identifier =
-        if (
-            parser.current().type === TokenType.Identifier &&
-            parser.peek()?.type === TokenType.Equal
-        ) {
-            if (args.length > 0) {
-                return parser.error("Cannot mix positional and keyword arguments.");
-            }
-            seenKeyword = true;
-            const name = parser.current().text;
-            parser.advance(2); // skip Identifier and =
-            const value = parser.expression();
-            if (value === null) {
-                return parser.error("Expected value for keyword argument.");
-            }
-            // Check for duplicate keywords
-            if (keywordArgs.some((k) => k.name === name)) {
-                return parser.error(`Duplicate keyword argument '${name}'.`);
-            }
-            keywordArgs.push({ name, value });
-        } else {
-            if (seenKeyword) {
-                return parser.error("Cannot mix positional and keyword arguments.");
-            }
-            const arg = parser.expression();
-            if (arg === null) {
-                return parser.error("Unterminated call.");
-            }
-            args.push(arg);
+        const arg = parser.expression();
+        if (arg === null) {
+            return parser.error("Unterminated call.");
         }
+        args.push(arg);
         if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
             parser.advance();
         }
@@ -925,43 +873,22 @@ function parseCall(parser: Parser): AST.Expression {
     parser.advance();
 
     return parser.tryCreateASTExpression(() => {
-        const call = new AST.Call(nameToken, args);
-        call.keywordArgs = keywordArgs;
-        return call;
+        return new AST.Call(nameToken, args);
     });
 }
 
-function parseDirectCall(parser: Parser, leftExpr: AST.Expression): AST.Expression {
+function parseDirectCall(
+    parser: Parser,
+    leftExpr: AST.Expression,
+    isUnsafe: boolean = false
+): AST.Expression {
     const args: AST.Expression[] = [];
-    const keywordArgs: { name: string; value: AST.Expression }[] = [];
-    let seenKeyword = false;
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-        // Detect keyword argument: Identifier =
-        if (
-            parser.current().type === TokenType.Identifier &&
-            parser.peek()?.type === TokenType.Equal
-        ) {
-            seenKeyword = true;
-            const name = parser.current().text;
-            parser.advance(2); // skip Identifier and =
-            const value = parser.expression();
-            if (value === null) {
-                return parser.error("Expected value for keyword argument.");
-            }
-            if (keywordArgs.some((k) => k.name === name)) {
-                return parser.error(`Duplicate keyword argument '${name}'.`);
-            }
-            keywordArgs.push({ name, value });
-        } else {
-            if (seenKeyword) {
-                return parser.error("Cannot mix positional and keyword arguments.");
-            }
-            const arg = parser.expression();
-            if (arg === null) {
-                return parser.error("Unterminated call.");
-            }
-            args.push(arg);
+        const arg = parser.expression();
+        if (arg === null) {
+            return parser.error("Unterminated call.");
         }
+        args.push(arg);
         if (parser.current().type === TokenType.Comma) {
             parser.advance();
         }
@@ -972,9 +899,7 @@ function parseDirectCall(parser: Parser, leftExpr: AST.Expression): AST.Expressi
     parser.advance();
 
     return parser.tryCreateASTExpression(() => {
-        const call = new AST.DirectCall(leftExpr, args);
-        call.keywordArgs = keywordArgs;
-        return call;
+        return new AST.DirectCall(leftExpr, args, isUnsafe);
     });
 }
 
@@ -985,27 +910,7 @@ function parseUnsafeCall(parser: Parser, leftExpr: AST.Expression): AST.Expressi
     }
     parser.advance(); // skip '('
 
-    const args: AST.Expression[] = [];
-    while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-        const arg = parser.expression();
-        if (arg === null) {
-            return parser.error("Unterminated unsafe call.");
-        }
-        args.push(arg);
-        if (parser.current().type === TokenType.Comma) {
-            parser.advance();
-        }
-    }
-    if (parser.atEnd()) {
-        return parser.error("Unterminated unsafe call.");
-    }
-    parser.advance(); // skip ')'
-
-    return parser.tryCreateASTExpression(() => {
-        const call = new AST.DirectCall(leftExpr, args);
-        call.isUnsafe = true;
-        return call;
-    });
+    return parseDirectCall(parser, leftExpr, true);
 }
 
 function parseArray(parser: Parser): AST.Expression {

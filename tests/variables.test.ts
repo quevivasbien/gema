@@ -313,7 +313,7 @@ test("mut: type must stay consistent across all branches", () => {
 
 // ── Edge: mut on declaration only, not on reassignment ──
 
-test("mut: mut keyword only valid on first declaration", () => {
+test("mut: mut keyword only valid on first declaration with same scope", () => {
     testParseExpectError("mut x = 1; mut x = 2");
     // Reassignment doesn't use 'mut' keyword
     testCompile("mut x = 1; x = 2; x", 2);

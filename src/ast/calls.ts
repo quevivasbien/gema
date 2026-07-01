@@ -23,37 +23,6 @@ import {
 
 // ── Helpers ──
 
-/** Walk up parent chain to find a variable of struct type by name. */
-function findStructTypedVariable(
-    startNode: Expression,
-    name: string
-): { varName: string; structType: Type } | null {
-    let node: Expression | null = startNode.parent;
-    while (node) {
-        if (node instanceof FunctionDef || node instanceof AnonymousFunction) {
-            for (const param of node.params) {
-                if (param.name === name && param.type instanceof CustomType) {
-                    // Assume any CustomType could be a struct (scope will confirm during cascadeTypes)
-                    return { varName: name, structType: param.type };
-                }
-            }
-        } else if (node instanceof Block) {
-            for (const expr of node.expressions) {
-                let e = expr;
-                while (e instanceof DropValue) e = e.child;
-                if (e instanceof Assignment && e.name === name) {
-                    const varType = e.value.type;
-                    if (varType instanceof CustomType) {
-                        return { varName: name, structType: varType };
-                    }
-                }
-            }
-        }
-        node = node.parent;
-    }
-    return null;
-}
-
 /** Walk up parent chain to find a variable of string type by name. */
 function findStringTypedVariable(startNode: Expression, name: string): string | null {
     let node: Expression | null = startNode.parent;
@@ -85,7 +54,6 @@ function findStringTypedVariable(startNode: Expression, name: string): string | 
 export class Call extends Expression {
     name: string;
     args: Expression[];
-    keywordArgs: { name: string; value: Expression }[] = [];
 
     callerType?: CallableType;
     referToByName?: string;
@@ -112,7 +80,7 @@ export class Call extends Expression {
         // Pre-fill unresolved anonymous function params so findBuiltin can match them
         this.prefillLambdaParams();
 
-        const positionalArgTypes = this.args.map((arg, i) => {
+        const argTypes = this.args.map((arg, i) => {
             arg.cascadeTypes(this, true);
             if (arg.type === null) {
                 throw this.error(`unable to resolve type of argument ${i + 1} in call`);
@@ -120,181 +88,11 @@ export class Call extends Expression {
             return arg.type;
         });
 
-        const keywordInfos = this.keywordArgs.map((k) => {
-            k.value.cascadeTypes(this, true);
-            if (k.value.type === null) {
-                throw this.error(`unable to resolve type of keyword argument '${k.name}'`);
-            }
-            return { name: k.name, type: k.value.type, value: k.value };
-        });
-
-        const callScope = this.getScope();
-
-        // If keyword args exist, resolve to positional order FIRST
-        if (this.keywordArgs.length > 0) {
-            const totalArgs = this.args.length + keywordInfos.length;
-
-            // Resolve struct from scope, falling back to global registry
-            let structDef:
-                | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
-                | undefined;
-            if (callScope) {
-                const lookup = callScope.lookup(this.name);
-                if (lookup && lookup.attrs.class === "struct") {
-                    structDef = { name: lookup.attrs.name, fields: lookup.attrs.fields };
-                }
-            }
-            if (!structDef) {
-                // struct not found in scope — not a struct constructor
-            }
-            if (structDef) {
-                const fieldNames = structDef.fields.map((f) => f.name);
-                if (totalArgs !== fieldNames.length) {
-                    throw this.error(
-                        `struct ${this.name} constructor expects ${fieldNames.length} arguments, got ${totalArgs}`
-                    );
-                }
-                const ordered: Expression[] = [];
-                ordered.length = totalArgs;
-                const usedPositions = new Set<number>();
-                for (let pi = 0; pi < this.args.length; pi++) {
-                    ordered[pi] = this.args[pi];
-                    usedPositions.add(pi);
-                }
-                for (const kw of keywordInfos) {
-                    const pos = fieldNames.indexOf(kw.name);
-                    if (pos === -1) {
-                        throw this.error(
-                            `unknown field '${kw.name}' — struct ${this.name} has fields [${fieldNames.join(", ")}]`
-                        );
-                    }
-                    if (usedPositions.has(pos)) {
-                        throw this.error(
-                            `argument for field '${kw.name}' was already provided positionally`
-                        );
-                    }
-                    ordered[pos] = kw.value;
-                    usedPositions.add(pos);
-                }
-                if (usedPositions.size !== totalArgs) {
-                    throw this.error(`some arguments were not provided for struct ${this.name}`);
-                }
-                this.args = ordered;
-                this.keywordArgs = [];
-            } else {
-                // Search enclosing Blocks via parent pointers for a Function definition
-                // that matches this call's name and can resolve keyword arguments.
-                let child: Expression | null = null;
-                let parent = this.parent;
-                outer: while (parent) {
-                    if (parent instanceof Block) {
-                        const idx = parent.expressions.indexOf(child ?? this);
-                        const olderSiblings = parent.expressions.slice(0, idx);
-                        for (let sj = olderSiblings.length - 1; sj >= 0; sj--) {
-                            let sib = olderSiblings[sj];
-                            while (sib instanceof DropValue) {
-                                sib = sib.child;
-                            }
-                            if (
-                                sib instanceof FunctionDef &&
-                                sib.name === this.name &&
-                                !sib.isGeneric &&
-                                sib.params.length === totalArgs
-                            ) {
-                                const paramNames = sib.params.map((p) => p.name);
-                                const allKeywordsMatch = keywordInfos.every((kw) =>
-                                    paramNames.includes(kw.name)
-                                );
-                                if (!allKeywordsMatch) {
-                                    continue;
-                                }
-                                const ordered: Expression[] = [];
-                                ordered.length = totalArgs;
-                                const usedPositions = new Set<number>();
-                                for (let pi = 0; pi < this.args.length; pi++) {
-                                    ordered[pi] = this.args[pi];
-                                    usedPositions.add(pi);
-                                }
-                                for (const kw of keywordInfos) {
-                                    const pos = paramNames.indexOf(kw.name);
-                                    if (usedPositions.has(pos)) {
-                                        throw this.error(
-                                            `argument '${kw.name}' was already provided by positional argument`
-                                        );
-                                    }
-                                    ordered[pos] = kw.value;
-                                    usedPositions.add(pos);
-                                }
-                                if (usedPositions.size !== totalArgs) {
-                                    continue;
-                                }
-                                this.args = ordered;
-                                this.keywordArgs = [];
-                                break outer;
-                            }
-                        }
-                    }
-                    child = parent;
-                    parent = parent.parent;
-                }
-            }
-        }
-
-        let allArgTypes: Type[];
-        if (this.keywordArgs.length === 0) {
-            allArgTypes = this.args.map((arg) => arg.type as Type);
-        } else {
-            allArgTypes = [...positionalArgTypes, ...keywordInfos.map((k) => k.type)];
-        }
-
-        const { error, result } = findCaller(this, this.parent, this.name, allArgTypes);
+        const { error, result } = findCaller(this, this.parent, this.name, argTypes);
         if (error !== null) {
-            // Struct field access fallback: varName("fieldName")
-            if (
-                allArgTypes.length === 1 &&
-                allArgTypes[0] === "Str" &&
-                this.args[0] instanceof Literal
-            ) {
-                const fieldName = this.args[0].value.slice(1, -1);
-                const structVar = findStructTypedVariable(this, this.name);
-                if (structVar !== null) {
-                    const structInfo =
-                        structVar.structType instanceof CustomType
-                            ? (() => {
-                                  if (callScope) {
-                                      const svLookup = callScope.lookup(structVar.structType.name);
-                                      if (svLookup && svLookup.attrs.class === "struct") {
-                                          return {
-                                              name: svLookup.attrs.name,
-                                              fields: svLookup.attrs.fields,
-                                          };
-                                      }
-                                  }
-                                  return undefined;
-                              })()
-                            : undefined;
-                    if (structInfo) {
-                        const field = structInfo.fields.find((f) => f.name === fieldName);
-                        if (field) {
-                            this.type = field.type;
-                            this.referToByName = structVar.varName;
-                            this.callerType = new FuncType(allArgTypes, field.type);
-                            this.isStructFieldAccess = true;
-                            this.structFieldName = fieldName;
-                            return;
-                        }
-                        throw this.error(
-                            `struct ${structInfo.name} has no field named "${fieldName}"`
-                        );
-                    }
-                }
-            }
             // TODO: What is this doing here? Why is string indexed access not handled with array indexed access?
             // String indexing fallback: strVar(index)
-            if (
-                allArgTypes.length === 1 &&
-                (allArgTypes[0] === "Int" || allArgTypes[0] === "Num")
-            ) {
+            if (argTypes.length === 1 && (argTypes[0] === "Int" || argTypes[0] === "Num")) {
                 const stringVarType = findStringTypedVariable(this, this.name);
                 if (stringVarType !== null) {
                     this.type = new MaybeType("Str");
@@ -305,13 +103,13 @@ export class Call extends Expression {
             }
             // String slicing fallback: strVar(a..b), strVar(..b), strVar(a..), strVar(..)
             if (
-                allArgTypes.length === 1 &&
-                allArgTypes[0] instanceof IterType &&
-                (allArgTypes[0].innerType === "Int" || allArgTypes[0].innerType === "Num") &&
+                argTypes.length === 1 &&
+                argTypes[0] instanceof IterType &&
+                (argTypes[0].innerType === "Int" || argTypes[0].innerType === "Num") &&
                 this.args[0] instanceof RangeIter &&
                 findStringTypedVariable(this, this.name) !== null
             ) {
-                this.callerType = new FuncType(allArgTypes, "Str");
+                this.callerType = new FuncType(argTypes, "Str");
                 this.type = "Str";
                 this.referToByName = this.name;
                 this.args[0].cascadeTypes(this, true);
@@ -354,85 +152,6 @@ export class Call extends Expression {
                     `tuple index ${idx} out of bounds (length ${this.callerType.types.length})`
                 );
             }
-        }
-
-        // Keyword arg resolution via trait param names
-        if (
-            this.keywordArgs.length > 0 &&
-            this.args.length < positionalArgTypes.length + keywordInfos.length &&
-            result.kind === "function" &&
-            result.paramNames
-        ) {
-            const totalArgs = positionalArgTypes.length + keywordInfos.length;
-            if (totalArgs !== result.paramNames.length) {
-                throw this.error(
-                    `trait function ${this.name} expects ${result.paramNames.length} arguments, got ${totalArgs}`
-                );
-            }
-            const ordered: Expression[] = [];
-            ordered.length = totalArgs;
-            const usedPositions = new Set<number>();
-            for (let pi = 0; pi < this.args.length; pi++) {
-                ordered[pi] = this.args[pi];
-                usedPositions.add(pi);
-            }
-            for (const kw of keywordInfos) {
-                const pos = result.paramNames.indexOf(kw.name);
-                if (pos === -1) {
-                    throw this.error(
-                        `unknown keyword argument '${kw.name}' — ${this.name} (via trait) expects parameters [${result.paramNames.join(", ")}]`
-                    );
-                }
-                if (usedPositions.has(pos)) {
-                    throw this.error(
-                        `argument '${kw.name}' was already provided by positional argument`
-                    );
-                }
-                ordered[pos] = kw.value;
-                usedPositions.add(pos);
-            }
-            if (usedPositions.size !== totalArgs) {
-                throw this.error(`not all arguments were provided for function ${this.name}`);
-            }
-            this.args = ordered;
-            this.keywordArgs = [];
-        } else if (
-            this.keywordArgs.length > 0 &&
-            this.args.length < positionalArgTypes.length + keywordInfos.length
-        ) {
-            // Use paramNames from the CallerResult if available (set by trait dispatch / direct match).
-            const paramNames = (result as { paramNames?: string[] }).paramNames;
-            if (paramNames && paramNames.length > 0) {
-                const totalArgs = positionalArgTypes.length + keywordInfos.length;
-                const ordered: Expression[] = [];
-                ordered.length = totalArgs;
-                const usedPositions = new Set<number>();
-                for (let pi = 0; pi < this.args.length; pi++) {
-                    ordered[pi] = this.args[pi];
-                    usedPositions.add(pi);
-                }
-                let allMatched = true;
-                for (const kw of keywordInfos) {
-                    const pos = paramNames.indexOf(kw.name);
-                    if (pos === -1) {
-                        allMatched = false;
-                        break;
-                    }
-                    if (usedPositions.has(pos)) {
-                        allMatched = false;
-                        break;
-                    }
-                    ordered[pos] = kw.value;
-                    usedPositions.add(pos);
-                }
-                if (allMatched && usedPositions.size === totalArgs) {
-                    this.args = ordered;
-                    this.keywordArgs = [];
-                }
-            }
-        } else {
-            // No paramNames available — keyword args can't be resolved without function info.
-            // This will be caught as a compile error by findCaller.
         }
     }
 
@@ -667,15 +386,10 @@ export class Call extends Expression {
     }
 
     clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new Call(
+        return new Call(
             { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
             this.args.map((a) => a.clone(bindings))
         );
-        cloned.keywordArgs = this.keywordArgs.map((k) => ({
-            name: k.name,
-            value: k.value.clone(bindings),
-        }));
-        return cloned;
     }
 
     toJS(writer: JSWriter): void {
@@ -841,19 +555,22 @@ export class Call extends Expression {
     }
 }
 
-// ── DirectCall (expression-based call, e.g., anon function call) ──
-
+/**
+ * A DirectCall is a call to a variable or expression that is callable without needing
+ * to search through enclosing scope to find potential matching function definitions
+ * and/or resolve possible matches based on the type of the arguments provided.
+ */
 export class DirectCall extends Expression {
     caller: Expression;
     args: Expression[];
-    keywordArgs: { name: string; value: Expression }[] = [];
     callerType?: CallableType;
-    isUnsafe: boolean = false;
+    isUnsafe: boolean;
 
-    constructor(caller: Expression, args: Expression[]) {
+    constructor(caller: Expression, args: Expression[], isUnsafe: boolean = false) {
         super(caller.line, caller.col);
         this.caller = caller;
         this.args = args;
+        this.isUnsafe = isUnsafe;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -1020,60 +737,16 @@ export class DirectCall extends Expression {
             return;
         }
 
-        // Struct field access: instance("fieldName")
-        if (this.caller.type instanceof CustomType) {
-            const structScope = this.getScope();
-            let structInfo:
-                | { name: string; fields: { name: string; type: Type; mutable: boolean }[] }
-                | undefined;
-            if (structScope) {
-                const lookup = structScope.lookup(this.caller.type.name);
-                if (lookup && lookup.attrs.class === "struct") {
-                    structInfo = { name: lookup.attrs.name, fields: lookup.attrs.fields };
-                }
-            }
-            if (structInfo) {
-                if (this.args.length !== 1) {
-                    throw this.error(
-                        `struct field access requires exactly one argument (the field name), got ${this.args.length}`
-                    );
-                }
-                this.args[0].cascadeTypes(this, true);
-                if (this.args[0].type === null) {
-                    throw this.error("unable to resolve type of field name argument");
-                }
-                if (this.args[0].type !== "Str" || !(this.args[0] instanceof Literal)) {
-                    throw this.error(`struct field access requires a string literal field name`);
-                }
-                const fieldName = this.args[0].value;
-                const cleanFieldName = fieldName.startsWith('"')
-                    ? fieldName.slice(1, -1)
-                    : fieldName;
-                const field = structInfo.fields.find((f) => f.name === cleanFieldName);
-                if (!field) {
-                    throw this.error(
-                        `struct ${this.caller.type.name} has no field named "${cleanFieldName}"`
-                    );
-                }
-                this.type = field.type;
-                return;
-            }
-        }
         throw this.error(
             `cannot call non-callable object (expression of type ${this.caller.type})`
         );
     }
 
     clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new DirectCall(
+        return new DirectCall(
             this.caller.clone(bindings),
             this.args.map((a) => a.clone(bindings))
         );
-        cloned.keywordArgs = this.keywordArgs.map((k) => ({
-            name: k.name,
-            value: k.value.clone(bindings),
-        }));
-        return cloned;
     }
 
     toJS(writer: JSWriter): void {

@@ -234,22 +234,6 @@ test("recursive function with tail call optimization", () => {
     );
 });
 
-test("recursive function with tail call optimization and keyword args", () => {
-    testCompile(
-        `
-        func sumUpto(n: Num) {
-            func f(n: Num, res: Num): Num {
-                if n <= 0 { return res };
-                f(res=res + n, n=n-1)
-            };
-            f(n, 0)
-        }
-        sumUpto(10)
-        `,
-        55
-    );
-});
-
 test("recursive function with tail call optimization and JS reserved keyword", () => {
     testCompile(
         `

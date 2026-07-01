@@ -1,51 +1,10 @@
 # Roadmap for `gema` development
 
-## Adjust type resolution for branching control flow where one branch has a break/continue/return
+## Calls cleanup
 
-Currently, `break`, `continue`, and `return` expressions all have `Null` type. This means that constructions like the following are not possible:
-
-```gema
-func add(a: Maybe[Num], b: Maybe[Num]) {
-  a_unwrapped = match a {
-    some(v) { v },
-    none { return none:Num },
-  };
-  b_unwrapped = match b {
-    some(v) { v },
-    none { return none:Num },
-  };
-  some(a_unwrapped + b_unwrapped)
-}
-```
-
-because the types of each of the match statement branches are not be the same (the `some` branch has type `Num`, and the `none` branch has type `Maybe[Num]`).
-
-Similarly, we can't do things like
-
-```gema
-mut total = 0;
-for i = 1..10 {
-  delta = if inbounds(i) {
-    break;
-  } else {
-    getdelta(i)
-  };
-  total += delta
-}
-```
-
-(though it's less important to be able to do this with if/else clauses, because they don't need to have branches for all of a fixed set of variants).
-
-I think a solution here is for continue/break/return statements to have a special "Short-circuited" type, instead of "Null" type, that behaves like "Null" (e.g. you can't set a variable equal to a value of "Null" type, and you can't do that with a short-circuited value, either), with the difference that if you have a branching expression like a match, then a branch with "Short-circuited" type can have be overriden by other branches when we are figuring out the time of the entire branching expression.
-
-To take part of the example above
-
-```gema
-a_unwrapped = match a {
-  some(v) { v },  # This branch has type `Num`
-  none { return none:Num },  # This branch has type `Escape` (or whatever we want to call the short-circuited type)
-};  # Match expression has type `Num` -- `Num` overrides `Escape`
-```
+- Every caller should return its own toJSHelper -- currently this is implemented for builtins
+- Remove support for keyword args, simplify trait definition syntax
+- Simplify generic function resolution?
 
 ## IO
 
@@ -179,6 +138,8 @@ Error in main.gema at line 5, column 1: incompatible argument types in function 
 - Check the `looseMatch` helper -- see if it could result in bugs and fix it if so.
 
 - `typeof` expression -- would just evaluate to a Str that shows the type of whatever it contains -- basically, useful for debugging purposes.
+
+- Fix layouts forced before content fully loaded in frontend
 
 ## Optimizations
 
