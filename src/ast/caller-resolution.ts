@@ -35,12 +35,6 @@ export type CallerResult =
           callerType: FuncType;
       }
     | {
-          kind: "type-conversion";
-          referToByName: string;
-          callerType: FuncType;
-          jsExpr: (arg: string) => string;
-      }
-    | {
           kind: "builtin";
           referToByName: string;
           callerType: FuncType;
@@ -57,7 +51,6 @@ export type CallerResult =
 
 export function findCaller(
     root: Expression,
-    parent: Expression | null,
     name: string,
     argTypes: Type[]
 ):
@@ -366,7 +359,7 @@ export function findCaller(
     }
 
     // Fallback: inside a generic function body, check for trait functions
-    let traitFn: Expression | null = parent;
+    let traitFn: Expression | null = root.parent;
     while (traitFn) {
         if (traitFn instanceof FunctionDef && traitFn.isGeneric) {
             for (const tp of traitFn.typeParams) {
@@ -473,6 +466,56 @@ export function findCaller(
             error: `struct ${name} constructor expects arguments of types [${fieldTypes}], got [${argTypes}]`,
             result: null,
         };
+    }
+
+    return {
+        error: `function ${name}[${argTypes.map((t) => t.toString()).join(", ")}: unknown] not found`,
+        result: null,
+    };
+}
+
+function findCallerV2(
+    caller: Expression,
+    name: string,
+    argTypes: Type[]
+):
+    | {
+          error: null;
+          result: CallerResult;
+      }
+    | { error: string; result: null } {
+    const scope = caller.getScope();
+    if (scope === null) {
+        return {
+            error: `missing scope when trying to resolve caller ${name}`,
+            result: null,
+        };
+    }
+    // See if the first match for `name` is a variable
+    const varMatch = scope.lookupVariable(name);
+    if (varMatch) {
+        // TODO: Check that arg types are compatible and return result if so
+    }
+
+    // See if we can find a function definition with a compatible type signature
+    const funcMatch = scope.lookupFunction(name, argTypes);
+    if (funcMatch) {
+        // TODO
+    }
+    // If we didn't find an exact function match, try again allowing implicit Arr -> Iter conversion
+    const looseFuncMatch = scope.lookupFunction(name, argTypes, true);
+    if (looseFuncMatch !== null) {
+        // TODO
+    }
+
+    // TODO: Check for matches dependent on whether arg types satisfy traits
+
+    // TODO: Check for struct constructor definitions
+
+    // Check for builtin functions
+    const builtinResult = findBuiltin(name, argTypes);
+    if (builtinResult) {
+        return { error: null, result: builtinResult };
     }
 
     return {

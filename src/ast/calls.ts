@@ -88,7 +88,7 @@ export class Call extends Expression {
             return arg.type;
         });
 
-        const { error, result } = findCaller(this, this.parent, this.name, argTypes);
+        const { error, result } = findCaller(this, this.name, argTypes);
         if (error !== null) {
             // TODO: What is this doing here? Why is string indexed access not handled with array indexed access?
             // String indexing fallback: strVar(index)

@@ -255,7 +255,7 @@ export class Binary extends Expression {
         ) {
             const opName = OPERATOR_TO_FUNCTION[this.operator];
             if (opName) {
-                const { error, result } = findCaller(this, this.parent, opName, [ltype, rtype]);
+                const { error, result } = findCaller(this, opName, [ltype, rtype]);
                 if (error === null) {
                     this.type =
                         result.kind === "variable" ? result.rootType : result.callerType.returnType;

@@ -1,74 +1,85 @@
+import { paramTypesMatchArgTypes } from "./type-utils";
 import { type EnumVariant, type FuncType, type TemplateTypes, type Type } from "./types";
 
-export type VariableAttributes =
-    | {
-          class: "var";
-          name: string;
-          type: Type;
-          /** True if a variable is declared with the `mut` keyword */
-          isMutable: boolean;
-          /**
-           * Whether it is still legal to access this variable
-           * Always true when variables are first initialized, marked false after a consuming operation
-           * (in an earlier version of the language, this happened when converting a mutable container to a non-mutable container, but it is now not functional anywhere and is just left here in case we want to re-implement some sort of system around this later)
-           */
-          isConsumed: boolean;
-      }
-    | {
-          class: "func";
-          name: string;
-          type: FuncType;
-          isGeneric: boolean;
-          fullName: string;
-          /** Reference to the FunctionDef AST node, needed for generic monomorphization. */
-          def?: unknown;
-          /** Parameter names, used for keyword argument resolution in scope-based function lookup. */
-          paramNames?: string[];
-      }
-    | {
-          class: "struct";
-          name: string;
-          fields: { name: string; type: Type; mutable: boolean }[];
-          isGeneric?: true;
-          typeParams?: string[];
-          def?: unknown;
-      }
-    | {
-          class: "enum";
-          name: string;
-          variants: EnumVariant[];
-          isGeneric?: true;
-          typeParams?: string[];
-          def?: unknown;
-      }
-    | {
-          class: "trait";
-          name: string;
-          requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[];
-      };
+type VarAttributes = {
+    class: "var";
+    name: string;
+    type: Type;
+    /** True if a variable is declared with the `mut` keyword */
+    isMutable: boolean;
+    /**
+     * Whether it is still legal to access this variable
+     * Always true when variables are first initialized, marked false after a consuming operation
+     * (in an earlier version of the language, this happened when converting a mutable container to a non-mutable container, but it is now not functional anywhere and is just left here in case we want to re-implement some sort of system around this later)
+     */
+    isConsumed: boolean;
+};
 
-interface VariableLookupResult {
+type FuncAttributes = {
+    class: "func";
+    name: string;
+    type: FuncType;
+    isGeneric: boolean;
+    fullName: string;
+    /** Reference to the FunctionDef AST node, needed for generic monomorphization. */
+    def?: unknown;
+    /** Parameter names, used for keyword argument resolution in scope-based function lookup. */
+    paramNames?: string[];
+};
+
+type StructAttributes = {
+    class: "struct";
+    name: string;
+    fields: { name: string; type: Type; mutable: boolean }[];
+    isGeneric?: true;
+    typeParams?: string[];
+    def?: unknown;
+};
+
+type EnumAttributes = {
+    class: "enum";
+    name: string;
+    variants: EnumVariant[];
+    isGeneric?: true;
+    typeParams?: string[];
+    def?: unknown;
+};
+
+type TraitAttributes = {
+    class: "trait";
+    name: string;
+    requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[];
+};
+
+export type DefinitionAttributes =
+    | VarAttributes
+    | FuncAttributes
+    | StructAttributes
+    | EnumAttributes
+    | TraitAttributes;
+
+interface DefinitionLookupResult {
     /** Whether the variable belongs directly to this scope or to higher scope */
     inCurrentScope: boolean;
-    attrs: VariableAttributes;
+    attrs: DefinitionAttributes;
 }
 
 export class Scope {
-    variables: VariableAttributes[];
+    variables: DefinitionAttributes[];
     parent: Scope | null;
 
-    constructor(variables: VariableAttributes[] = [], parent: Scope | null = null) {
+    constructor(variables: DefinitionAttributes[] = [], parent: Scope | null = null) {
         this.variables = variables;
         this.parent = parent;
     }
 
-    private getKey(varAttrs: VariableAttributes): string {
+    private getKey(varAttrs: DefinitionAttributes): string {
         // Functions use fullName (includes param types) as dedup key so overloads coexist
         if (varAttrs.class === "func") return varAttrs.fullName;
         return varAttrs.name;
     }
 
-    defineVariable(varAttrs: VariableAttributes, allowDuplicate: boolean = false) {
+    defineVariable(varAttrs: DefinitionAttributes, allowDuplicate: boolean = false) {
         const key = this.getKey(varAttrs);
         if (this.variables.some((v) => this.getKey(v) === key)) {
             if (!allowDuplicate) {
@@ -82,7 +93,7 @@ export class Scope {
     }
 
     /** Insert a variable before an existing one in the same scope (for monomorphized functions). */
-    defineVariableBefore(existingName: string, varAttrs: VariableAttributes) {
+    defineVariableBefore(existingName: string, varAttrs: DefinitionAttributes) {
         const existingIndex = this.variables.findIndex(
             (v) => v.name === existingName || (v.class === "func" && v.fullName === existingName)
         );
@@ -94,7 +105,7 @@ export class Scope {
         this.variables.splice(existingIndex, 0, varAttrs);
     }
 
-    lookup(name: string): VariableLookupResult | null {
+    lookup(name: string): DefinitionLookupResult | null {
         for (const v of this.variables) {
             if (v.name === name) {
                 return { inCurrentScope: true, attrs: v };
@@ -105,6 +116,53 @@ export class Scope {
         }
         const parentLookup = this.parent.lookup(name);
         return parentLookup === null ? null : { inCurrentScope: false, attrs: parentLookup.attrs };
+    }
+
+    /**
+     * Look for a variable definition with the given name.
+     * if there are multiple matches with the same name,
+     * this will give the first match.
+     * If the first match is not a variable definition,
+     * the result will be null.
+     */
+    lookupVariable(name: string): VarAttributes | null {
+        const result = this.lookup(name);
+        if (result === null) {
+            return null;
+        }
+        if (result.attrs.class !== "var") {
+            // This is something else (a function, struct, enum, or trait definition)
+            return null;
+        }
+        return result.attrs;
+    }
+
+    /**
+     * Look for a function definition with the given name
+     * and a compatible type signature.
+     * Matches will be ignored (and we'll keep looking for a match)
+     * if the type signature we find is not compatible.
+     */
+    lookupFunction(
+        name: string,
+        argTypes: Type[],
+        allowIterForArr: boolean = false
+    ): FuncAttributes | null {
+        for (const v of this.variables) {
+            if (v.name !== name) {
+                continue;
+            }
+            if (v.class !== "func") {
+                continue;
+            }
+            if (paramTypesMatchArgTypes(v.type.paramTypes, argTypes, allowIterForArr)) {
+                return v;
+            }
+        }
+        if (this.parent === null) {
+            return null;
+        }
+        return this.parent.lookupFunction(name, argTypes);
     }
 
     /**
