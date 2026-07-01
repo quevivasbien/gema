@@ -1,3 +1,5 @@
+import type { JSWriter } from "../write-js";
+import type { Expression } from "./expression";
 import { typeEquals, typesMatchWithConversion } from "./type-utils";
 import {
     ArrayType,
@@ -202,3 +204,20 @@ export function checkTraitSatisfied(
     }
     return true;
 }
+
+export function wrapArrayToIter(writer: JSWriter, arg: Expression) {
+    if (arg.type instanceof ArrayType || arg.type instanceof MutArrType) {
+        writer.useBuiltin("$ArrayIterator$");
+        writer.write("new $ArrayIterator$(");
+        arg.toJS(writer);
+        writer.write(")");
+    } else if (arg && arg.type === "Str") {
+        // Convert string to array iterator by splitting into characters
+        writer.useBuiltin("$ArrayIterator$");
+        writer.write("new $ArrayIterator$(");
+        arg.toJS(writer);
+        writer.write('.split(""))');
+    } else {
+        arg.toJS(writer);
+    }
+};

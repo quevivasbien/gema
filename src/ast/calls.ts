@@ -1,11 +1,11 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import { findCaller } from "./caller";
+import { findCaller } from "./caller-resolution";
 import { DropValue, Expression } from "./expression";
 import { Literal } from "./literals";
 import { Assignment } from "./assignment";
 import { Block } from "./expression";
-import { AnonymousFunction, FunctionDef, RangeIter, Variable } from "./nodes";
+import { AnonymousFunction, FunctionDef, RangeIter } from "./nodes";
 import { typeEquals, paramTypesMatchArgTypes } from "./type-utils";
 import {
     ArrayType,
@@ -16,8 +16,6 @@ import {
     MaybeType,
     MutArrType,
     MutDictType,
-    MutSetType,
-    SetType,
     TupleType,
     type CallableType,
     type Type,
@@ -91,12 +89,14 @@ export class Call extends Expression {
 
     callerType?: CallableType;
     referToByName?: string;
+    isBuiltin: boolean = false;
     isStructFieldAccess: boolean = false;
     structFieldName: string = "";
     isStructConstructor: boolean = false;
     isStringIndexing: boolean = false;
-    isBuiltin: boolean = false;
-    builtinKind: string = "";
+
+    // This will be filled in during cascadeTypes when we resolve the caller
+    toJSHelper: ((writer: JSWriter, args: Expression[]) => void) | null = null;
 
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
@@ -324,51 +324,18 @@ export class Call extends Expression {
         switch (result.kind) {
             case "builtin":
                 this.isBuiltin = true;
-                this.builtinKind = result.builtinKind;
-                // Track consumed variables for mutable operations
-                if (
-                    this.builtinKind === "detrans" ||
-                    this.builtinKind === "detransDict" ||
-                    this.builtinKind === "detransSet"
-                ) {
-                    const detransArg = this.args[0];
-                    if (detransArg instanceof Variable && detransArg.fullName) {
-                        if (callScope === null) {
-                            // This should be impossible
-                            throw new Error(
-                                `Tried to mark a variable as consumed in a place with no enclosing scope.`
-                            );
-                        }
-                        callScope.markVarConsumed(detransArg.fullName);
-                    }
-                }
-                if (
-                    this.builtinKind === "push" ||
-                    this.builtinKind === "put" ||
-                    this.builtinKind === "putDict" ||
-                    this.builtinKind === "removeDict" ||
-                    this.builtinKind === "pushSet" ||
-                    this.builtinKind === "removeSet"
-                ) {
-                    const mutArg = this.args[0];
-                    if (mutArg instanceof Variable && mutArg.fullName) {
-                        if (callScope?.isVarConsumed(mutArg.fullName)) {
-                            throw this.error(
-                                `cannot use variable '${mutArg.fullName}' after it was detrans'd`
-                            );
-                        }
-                    }
-                }
+                this.toJSHelper = result.toJS;
                 break;
         }
 
         this.referToByName = result.referToByName;
         this.callerType = result.callerType;
-        this.type = result.rootType;
+        this.type = result.kind === "variable" ? result.rootType : result.callerType.returnType;
         this.isStructConstructor = result.kind === "struct-constructor";
 
         // Fill unresolved anonymous function params using inferred types from context
-        if (this.callerType instanceof FuncType && this.isBuiltin) {
+        if (this.callerType instanceof FuncType) {
+            // TODO: This doesn't currently work except for builtins
             this.fillAnonFunctionParams();
         }
 
@@ -596,103 +563,107 @@ export class Call extends Expression {
         const anonFn = this.args[0];
         if (!(anonFn instanceof AnonymousFunction) || !anonFn.needsInference) return;
 
-        let expectedParamTypes: Type[] | null = null;
+        // TODO: I intentionally commented this out, because I want to rework how this process works so that we attempt to resolve param types for any function call, not just builtin types
 
-        // Determine expected param types from the builtin's semantics and other args
-        switch (this.builtinKind) {
-            case "map":
-            case "filter":
-            case "takeWhile":
-            case "dropWhile":
-            case "mapFromArray": {
-                // fn(param: innerType): ?
-                if (this.args.length >= 2 && this.args[1].type) {
-                    const iterType = this.args[1].type;
-                    const innerType =
-                        iterType instanceof ArrayType ||
-                        iterType instanceof IterType ||
-                        iterType instanceof MutArrType
-                            ? iterType.innerType
-                            : iterType;
-                    expectedParamTypes = [innerType];
-                }
-                break;
-            }
-            case "reduce": {
-                // fn(acc: initType, elem: innerType): ?
-                if (this.args.length >= 3 && this.args[2].type && this.args[1].type) {
-                    const iterType = this.args[2].type;
-                    const innerType =
-                        iterType instanceof ArrayType ||
-                        iterType instanceof IterType ||
-                        iterType instanceof MutArrType
-                            ? iterType.innerType
-                            : iterType;
-                    expectedParamTypes = [this.args[1].type, innerType];
-                }
-                break;
-            }
-            case "iterate": {
-                // fn(param: startType): startType
-                if (this.args.length >= 2 && this.args[1].type) {
-                    expectedParamTypes = [this.args[1].type];
-                }
-                break;
-            }
-        }
+        // A lot of this is also just to deal with use-after-detrans errors, but I am intending to also get rid of that, too
 
-        if (expectedParamTypes !== null) {
-            anonFn.fillParams(expectedParamTypes, this);
-            // Re-resolve the call with the now-resolved function type
-            const resolvedArgTypes = this.args.map((arg) => arg.type as Type);
-            const { error, result } = findCaller(this, this.parent, this.name, resolvedArgTypes);
-            if (error === null) {
-                this.callerType = result.callerType;
-                this.type = result.rootType;
-                this.referToByName = result.referToByName;
-                this.isStructConstructor = result.kind === "struct-constructor";
+        // let expectedParamTypes: Type[] | null = null;
 
-                if (result.kind === "builtin") {
-                    this.isBuiltin = true;
-                    this.builtinKind = result.builtinKind;
-                }
-                // Re-check consumed vars with resolved result
-                if (
-                    this.builtinKind === "detrans" ||
-                    this.builtinKind === "detransDict" ||
-                    this.builtinKind === "detransSet"
-                ) {
-                    const detransArg = this.args[0];
-                    if (detransArg instanceof Variable && detransArg.fullName) {
-                        const callScope = this.getScope();
-                        if (callScope === null) {
-                            // This should be impossible
-                            throw new Error(
-                                `Tried to mark a variable as consumed in a place with no enclosing scope.`
-                            );
-                        }
-                        callScope.markVarConsumed(detransArg.fullName);
-                    }
-                }
-                if (
-                    this.builtinKind === "push" ||
-                    this.builtinKind === "put" ||
-                    this.builtinKind === "putDict" ||
-                    this.builtinKind === "removeDict" ||
-                    this.builtinKind === "pushSet" ||
-                    this.builtinKind === "removeSet"
-                ) {
-                    const mutArg = this.args[0];
-                    if (mutArg instanceof Variable && mutArg.fullName) {
-                        if (this.getScope()?.isVarConsumed(mutArg.fullName)) {
-                            throw this.error(
-                                `cannot use variable '${mutArg.fullName}' after it was detrans'd`
-                            );
-                        }
-                    }
-                }
-            }
-        }
+        // // Determine expected param types from the builtin's semantics and other args
+        // switch (this.builtinKind) {
+        //     case "map":
+        //     case "filter":
+        //     case "takeWhile":
+        //     case "dropWhile":
+        //     case "mapFromArray": {
+        //         // fn(param: innerType): ?
+        //         if (this.args.length >= 2 && this.args[1].type) {
+        //             const iterType = this.args[1].type;
+        //             const innerType =
+        //                 iterType instanceof ArrayType ||
+        //                 iterType instanceof IterType ||
+        //                 iterType instanceof MutArrType
+        //                     ? iterType.innerType
+        //                     : iterType;
+        //             expectedParamTypes = [innerType];
+        //         }
+        //         break;
+        //     }
+        //     case "reduce": {
+        //         // fn(acc: initType, elem: innerType): ?
+        //         if (this.args.length >= 3 && this.args[2].type && this.args[1].type) {
+        //             const iterType = this.args[2].type;
+        //             const innerType =
+        //                 iterType instanceof ArrayType ||
+        //                 iterType instanceof IterType ||
+        //                 iterType instanceof MutArrType
+        //                     ? iterType.innerType
+        //                     : iterType;
+        //             expectedParamTypes = [this.args[1].type, innerType];
+        //         }
+        //         break;
+        //     }
+        //     case "iterate": {
+        //         // fn(param: startType): startType
+        //         if (this.args.length >= 2 && this.args[1].type) {
+        //             expectedParamTypes = [this.args[1].type];
+        //         }
+        //         break;
+        //     }
+        // }
+
+        // if (expectedParamTypes !== null) {
+        //     anonFn.fillParams(expectedParamTypes, this);
+        //     // Re-resolve the call with the now-resolved function type
+        //     const resolvedArgTypes = this.args.map((arg) => arg.type as Type);
+        //     const { error, result } = findCaller(this, this.parent, this.name, resolvedArgTypes);
+        //     if (error === null) {
+        //         this.callerType = result.callerType;
+        //         this.type = result.rootType;
+        //         this.referToByName = result.referToByName;
+        //         this.isStructConstructor = result.kind === "struct-constructor";
+
+        //         if (result.kind === "builtin") {
+        //             this.isBuiltin = true;
+        //             this.builtinKind = result.builtinKind;
+        //         }
+        //         // Re-check consumed vars with resolved result
+        //         if (
+        //             this.builtinKind === "detrans" ||
+        //             this.builtinKind === "detransDict" ||
+        //             this.builtinKind === "detransSet"
+        //         ) {
+        //             const detransArg = this.args[0];
+        //             if (detransArg instanceof Variable && detransArg.fullName) {
+        //                 const callScope = this.getScope();
+        //                 if (callScope === null) {
+        //                     // This should be impossible
+        //                     throw new Error(
+        //                         `Tried to mark a variable as consumed in a place with no enclosing scope.`
+        //                     );
+        //                 }
+        //                 callScope.markVarConsumed(detransArg.fullName);
+        //             }
+        //         }
+        //         if (
+        //             this.builtinKind === "push" ||
+        //             this.builtinKind === "put" ||
+        //             this.builtinKind === "putDict" ||
+        //             this.builtinKind === "removeDict" ||
+        //             this.builtinKind === "pushSet" ||
+        //             this.builtinKind === "removeSet"
+        //         ) {
+        //             const mutArg = this.args[0];
+        //             if (mutArg instanceof Variable && mutArg.fullName) {
+        //                 if (this.getScope()?.isVarConsumed(mutArg.fullName)) {
+        //                     throw this.error(
+        //                         `cannot use variable '${mutArg.fullName}' after it was detrans'd`
+        //                     );
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -744,593 +715,8 @@ export class Call extends Expression {
             return;
         }
         if (this.isBuiltin) {
-            // Helper to convert arrays to iterators if we use them where an iterator is expected
-            const wrapArrayToIter = (index: number): void => {
-                const arg = this.args[index];
-                if (arg && (arg.type instanceof ArrayType || arg.type instanceof MutArrType)) {
-                    writer.useBuiltin("$ArrayIterator$");
-                    writer.write("new $ArrayIterator$(");
-                    arg.toJS(writer);
-                    writer.write(")");
-                } else if (arg && arg.type === "Str") {
-                    // Convert string to array iterator by splitting into characters
-                    writer.useBuiltin("$ArrayIterator$");
-                    writer.write("new $ArrayIterator$(");
-                    arg.toJS(writer);
-                    writer.write('.split(""))');
-                } else {
-                    arg?.toJS(writer);
-                }
-            };
-            switch (this.builtinKind) {
-                case "collect":
-                    writer.useBuiltin("$collect$");
-                    writer.write("$collect$(");
-                    wrapArrayToIter(0);
-                    writer.write(")");
-                    return;
-                case "map":
-                    writer.useBuiltin("$MapIterator$");
-                    writer.write("new $MapIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "mapFromArray":
-                    writer.useBuiltin("$ArrayMapIterator$");
-                    writer.write("new $ArrayMapIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "filter":
-                    writer.useBuiltin("$FilterIterator$");
-                    writer.write("new $FilterIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "reduce":
-                    writer.useBuiltin("$reduce$");
-                    writer.write("$reduce$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(", ");
-                    wrapArrayToIter(2);
-                    writer.write(")");
-                    return;
-                case "range":
-                    if (this.args[0]?.type === "Num") {
-                        writer.useBuiltin("$RangeIterator$");
-                        writer.write("new $RangeIterator$(");
-                    } else if (this.args[0]?.type === "Int") {
-                        writer.useBuiltin("$IntRangeIterator$");
-                        writer.write("new $IntRangeIterator$(");
-                    } else {
-                        throw new Error(`Unexpected type ${this.args[0]?.type} in range iterator`);
-                    }
-                    this.args.forEach((arg, i) => {
-                        if (i > 0) writer.write(", ");
-                        arg.toJS(writer);
-                    });
-                    writer.write(")");
-                    return;
-                case "zip":
-                    writer.useBuiltin("$ZipIterator$");
-                    writer.write("new $ZipIterator$(");
-                    this.args.forEach((arg, i) => {
-                        if (i > 0) writer.write(", ");
-                        wrapArrayToIter(i);
-                    });
-                    writer.write(")");
-                    return;
-                case "repeat":
-                    writer.useBuiltin("$RepeatIterator$");
-                    if (this.args[0]?.type === "Num") {
-                        writer.write("new $RepeatIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(", ");
-                    } else if (this.args[0]?.type === "Int") {
-                        writer.write("new $RepeatIterator$(Number(");
-                        this.args[0]?.toJS(writer);
-                        writer.write("), ");
-                    } else {
-                        throw new Error(
-                            `Got unexpected type ${this.args[0]?.type} in repeat iterator`
-                        );
-                    }
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "repeatInner":
-                    writer.useBuiltin("$RepeatInnerIterator$");
-                    if (this.args[0]?.type === "Num") {
-                        writer.write("new $RepeatInnerIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(", ");
-                    } else if (this.args[0]?.type === "Int") {
-                        writer.write("new $RepeatInnerIterator$(Number(");
-                        this.args[0]?.toJS(writer);
-                        writer.write("), ");
-                    } else {
-                        throw new Error(
-                            `Got unexpected type ${this.args[0]?.type} in repeatInner iterator`
-                        );
-                    }
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "cartesian":
-                    writer.useBuiltin("$CartesianIterator$");
-                    writer.write("new $CartesianIterator$(");
-                    this.args.forEach((arg, i) => {
-                        if (i > 0) writer.write(", ");
-                        wrapArrayToIter(i);
-                    });
-                    writer.write(")");
-                    return;
-                case "permutations":
-                    writer.useBuiltin("$PermutationsIterator$");
-                    writer.write("new $PermutationsIterator$(");
-                    // $PermutationsIterator$ behaves differently if you give it an array or string
-                    this.args[0]?.toJS(writer);
-                    if (
-                        this.args[0]?.type instanceof ArrayType ||
-                        this.args[0]?.type instanceof MutArrType ||
-                        this.args[0]?.type == "Str"
-                    ) {
-                        writer.write(", true)"); // Second param in constructor is true if arg is Arr or Str
-                    } else {
-                        writer.write(")");
-                    }
-                    return;
-                case "combinations":
-                    writer.useBuiltin("$CombinationsIterator$");
-                    if (this.args[0]?.type === "Num") {
-                        writer.write("new $CombinationsIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(", ");
-                    } else if (this.args[0]?.type === "Int") {
-                        writer.write("new $CombinationsIterator$(Number(");
-                        this.args[0]?.toJS(writer);
-                        writer.write("), ");
-                    } else {
-                        throw new Error(
-                            `Got unexpected type ${this.args[0]?.type} in combinations iterator`
-                        );
-                    }
-                    this.args[1]?.toJS(writer);
-                    if (
-                        this.args[1]?.type instanceof ArrayType ||
-                        this.args[1]?.type instanceof MutArrType ||
-                        this.args[1]?.type == "Str"
-                    ) {
-                        writer.write(", true)"); // Third param in constructor is true if arg is Arr or Str
-                    } else {
-                        writer.write(")");
-                    }
-                    return;
-                case "toIter":
-                    if (
-                        this.args[0]?.type instanceof ArrayType ||
-                        this.args[0]?.type instanceof MutArrType
-                    ) {
-                        writer.useBuiltin("$ArrayIterator$");
-                        writer.write("new $ArrayIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(")");
-                    } else if (
-                        this.args[0]?.type instanceof DictType ||
-                        this.args[0]?.type instanceof MutDictType ||
-                        this.args[0]?.type instanceof SetType ||
-                        this.args[0]?.type instanceof MutSetType
-                    ) {
-                        writer.useBuiltin("$ArrayIterator$");
-                        writer.write("new $ArrayIterator$([...");
-                        this.args[0]?.toJS(writer);
-                        writer.write("])");
-                    } else if (this.args[0]?.type === "Str") {
-                        writer.useBuiltin("$ArrayIterator$");
-                        writer.write("new $ArrayIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write('.split("")');
-                        writer.write(")");
-                    }
-                    return;
-                case "toArr":
-                    if (
-                        this.args[0]?.type instanceof DictType ||
-                        this.args[0]?.type instanceof MutDictType
-                    ) {
-                        // JS Map is natively iterable via .entries()
-                        writer.write("[...");
-                        this.args[0]?.toJS(writer);
-                        writer.write("]");
-                    } else if (
-                        this.args[0]?.type instanceof SetType ||
-                        this.args[0]?.type instanceof MutSetType
-                    ) {
-                        // JS Set is natively iterable via .values()
-                        writer.write("[...");
-                        this.args[0]?.toJS(writer);
-                        writer.write("]");
-                    } else if (this.args[0]?.type === "Str") {
-                        this.args[0]?.toJS(writer);
-                        writer.write('.split("")');
-                    }
-                    return;
-                case "step":
-                    writer.useBuiltin("$StepIterator$");
-                    if (this.args[0]?.type === "Num") {
-                        writer.write("new $StepIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(", ");
-                    } else if (this.args[0]?.type === "Int") {
-                        writer.write("new $StepIterator$(Number(");
-                        this.args[0]?.toJS(writer);
-                        writer.write("), ");
-                    } else {
-                        throw new Error(
-                            `Got unexpected type ${this.args[0]?.type} in step iterator`
-                        );
-                    }
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "iterate":
-                    writer.useBuiltin("$IterateIterator$");
-                    writer.write("new $IterateIterator$(");
-                    this.args.forEach((arg, i) => {
-                        if (i > 0) writer.write(", ");
-                        arg.toJS(writer);
-                    });
-                    writer.write(")");
-                    return;
-                case "last":
-                    if (
-                        this.args[0]?.type instanceof ArrayType ||
-                        this.args[0]?.type instanceof MutArrType ||
-                        this.args[0]?.type === "Str"
-                    ) {
-                        writer.write("(");
-                        this.args[0].toJS(writer);
-                        writer.write("[");
-                        this.args[0].toJS(writer);
-                        writer.write(".length - 1] ?? null)");
-                        return;
-                    }
-                    writer.useBuiltin("$last$");
-                    writer.write("$last$(");
-                    wrapArrayToIter(0);
-                    writer.write(")");
-                    return;
-                case "length":
-                    if (
-                        this.args[0]?.type instanceof ArrayType ||
-                        this.args[0]?.type instanceof MutArrType
-                    ) {
-                        this.args[0].toJS(writer);
-                        writer.write(".length");
-                        return;
-                    }
-                    if (this.args[0]?.type === "Str") {
-                        this.args[0].toJS(writer);
-                        writer.write(".length");
-                        return;
-                    }
-                    writer.useBuiltin("$length$");
-                    writer.write("$length$(");
-                    wrapArrayToIter(0);
-                    writer.write(")");
-                    return;
-                case "head":
-                    if (
-                        this.args[0]?.type instanceof ArrayType ||
-                        this.args[0]?.type instanceof MutArrType ||
-                        this.args[0]?.type === "Str"
-                    ) {
-                        writer.write("(");
-                        this.args[0].toJS(writer);
-                        writer.write("[0] ?? null)");
-                        return;
-                    } else if (this.args[0]?.type instanceof IterType) {
-                        writer.useBuiltin("$iterGet$");
-                        writer.write("$iterGet$(0, ");
-                        this.args[0].toJS(writer);
-                        writer.write(")");
-                        return;
-                    }
-                    return;
-                case "take":
-                    writer.useBuiltin("$TakeIterator$");
-                    writer.write("new $TakeIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "drop":
-                    writer.useBuiltin("$DropIterator$");
-                    if (this.args[0]?.type === "Num") {
-                        writer.write("new $DropIterator$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(", ");
-                    } else if (this.args[0]?.type === "Int") {
-                        writer.write("new $DropIterator$(Number(");
-                        this.args[0]?.toJS(writer);
-                        writer.write("), ");
-                    } else {
-                        throw new Error(
-                            `Got unexpected type ${this.args[0]?.type} in drop iterator`
-                        );
-                    }
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "takeWhile":
-                    writer.useBuiltin("$TakeWhileIterator$");
-                    writer.write("new $TakeWhileIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "dropWhile":
-                    writer.useBuiltin("$DropWhileIterator$");
-                    writer.write("new $DropWhileIterator$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    wrapArrayToIter(1);
-                    writer.write(")");
-                    return;
-                case "trans":
-                    writer.write("[...");
-                    this.args[0]?.toJS(writer);
-                    writer.write("]");
-                    return;
-                case "unsafeTrans":
-                    this.args[0]?.toJS(writer);
-                    return;
-                case "detrans":
-                    this.args[0]?.toJS(writer);
-                    return;
-                case "transDict":
-                    // trans on Dict: copy entries into a new Map
-                    writer.write("new Map(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "unsafeTransDict":
-                    // unsafeTrans on Dict: reuse same Map reference
-                    this.args[0]?.toJS(writer);
-                    return;
-                case "detransDict":
-                    // detrans on MutDict: return the Map as-is (Map is already mutable)
-                    this.args[0]?.toJS(writer);
-                    return;
-                case "putDict":
-                    // put on MutDict: set key/value and return MutDict for chaining
-                    writer.useBuiltin("$putMutDict$");
-                    writer.write("$putMutDict$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[2]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "removeDict":
-                    // remove on MutDict: delete key and return MutDict for chaining
-                    writer.useBuiltin("$removeMutDict$");
-                    writer.write("$removeMutDict$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "transSet":
-                    // trans on Set: copy elements into a new Set
-                    writer.write("new Set(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "unsafeTransSet":
-                    // unsafeTrans on Set: reuse same Set reference
-                    this.args[0]?.toJS(writer);
-                    return;
-                case "detransSet":
-                    // detrans on MutSet: return the Set as-is (Set is already mutable)
-                    this.args[0]?.toJS(writer);
-                    return;
-                case "pushSet":
-                    // push on MutSet: add element and return MutSet for chaining
-                    writer.useBuiltin("$pushMutSet$");
-                    writer.write("$pushMutSet$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "removeSet":
-                    // remove on MutSet: delete element and return MutSet for chaining
-                    writer.useBuiltin("$removeMutSet$");
-                    writer.write("$removeMutSet$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "push":
-                    writer.useBuiltin("$push$");
-                    writer.write("$push$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "put":
-                    writer.useBuiltin("$put$");
-                    writer.write("$put$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[2]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "pop":
-                    writer.useBuiltin("$pop$");
-                    writer.write("$pop$(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "Dict":
-                    writer.write("new Map(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "Set":
-                    writer.write("new Set(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "unwrap":
-                    if (this.args.length === 1) {
-                        writer.useBuiltin("$unwrapNoFallback$");
-                        writer.write("$unwrapNoFallback$(");
-                        this.args[0].toJS(writer);
-                        writer.write(")");
-                    } else {
-                        writer.useBuiltin("$unwrapWithFallback$");
-                        writer.write("$unwrapWithFallback$(");
-                        this.args[0].toJS(writer);
-                        writer.write(", ");
-                        this.args[1].toJS(writer);
-                        writer.write(")");
-                    }
-                    return;
-                case "isnone":
-                    this.args[0]?.toJS(writer);
-                    writer.write(" === null");
-                    return;
-                case "some":
-                    // `some` is a pure type-system construct; at runtime it's a no-op
-                    this.args[0].toJS(writer);
-                    return;
-                case "contains":
-                    if (
-                        this.args[1].type instanceof ArrayType ||
-                        this.args[1].type instanceof MutArrType
-                    ) {
-                        this.args[1].toJS(writer);
-                        writer.write(".indexOf(");
-                        this.args[0].toJS(writer);
-                        writer.write(") !== -1");
-                    } else if (
-                        this.args[1].type instanceof SetType ||
-                        this.args[1].type instanceof MutSetType ||
-                        this.args[1].type instanceof DictType ||
-                        this.args[1].type instanceof MutDictType
-                    ) {
-                        this.args[1].toJS(writer);
-                        writer.write(".has(");
-                        this.args[0].toJS(writer);
-                        writer.write(")");
-                    } else if (this.args[1].type === "Str") {
-                        this.args[1].toJS(writer);
-                        writer.write(".includes(");
-                        this.args[0].toJS(writer);
-                        writer.write(")");
-                    } else if (this.args[1].type instanceof IterType) {
-                        writer.useBuiltin("$contains$");
-                        writer.write("$contains$(");
-                        this.args[0].toJS(writer);
-                        writer.write(", ");
-                        this.args[1].toJS(writer);
-                        writer.write(")");
-                    }
-                    return;
-                case "find":
-                    if (
-                        this.args[1]?.type instanceof ArrayType ||
-                        this.args[1]?.type instanceof MutArrType ||
-                        this.args[1]?.type === "Str"
-                    ) {
-                        writer.write("((i) => i === -1 ? null : i)(");
-                        this.args[1]?.toJS(writer);
-                        writer.write(".indexOf(");
-                        this.args[0]?.toJS(writer);
-                        writer.write("))");
-                    } else if (this.args[1]?.type instanceof IterType) {
-                        writer.useBuiltin("$find$");
-                        writer.write("$find$(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(", ");
-                        this.args[1].toJS(writer);
-                        writer.write(")");
-                    }
-                    return;
-                case "split":
-                    this.args[1]?.toJS(writer);
-                    writer.write(".split(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "replace":
-                    this.args[2]?.toJS(writer);
-                    writer.write(".replaceAll(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "union":
-                    writer.write("new Set([...");
-                    this.args[0]?.toJS(writer);
-                    writer.write(", ...");
-                    this.args[1]?.toJS(writer);
-                    writer.write("])");
-                    return;
-                case "intersect":
-                    writer.write("new Set([...");
-                    this.args[0]?.toJS(writer);
-                    writer.write("].filter(x => ");
-                    this.args[1]?.toJS(writer);
-                    writer.write(".has(x)))");
-                    return;
-                case "toStr":
-                    writer.write("String(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "toInt":
-                    if (this.args[0]?.type === "Num") {
-                        writer.write("BigInt(Math.trunc(");
-                        this.args[0]?.toJS(writer);
-                        writer.write("))");
-                    } else {
-                        writer.write("BigInt(");
-                        this.args[0]?.toJS(writer);
-                        writer.write(")");
-                    }
-                    return;
-                case "toNum":
-                    writer.write("Number(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                case "toBool":
-                    writer.write("Boolean(");
-                    this.args[0]?.toJS(writer);
-                    writer.write(")");
-                    return;
-                default:
-                    throw new Error(`unknown builtin: ${this.builtinKind}`);
-            }
+            this.toJSHelper?.(writer, this.args);
+            return;
         }
         if (this.callerType instanceof FuncType) {
             if (this.isStructConstructor) {

@@ -1,6 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import { findCaller } from "./caller";
+import { findCaller } from "./caller-resolution";
 import { Expression } from "./expression";
 import { typeEquals, typeEqualsWithStrippedTraits } from "./type-utils";
 import { ArrayType, CustomType, EnumType, IterType, type Type } from "./types";

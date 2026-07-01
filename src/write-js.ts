@@ -1,6 +1,6 @@
 import type * as AST from "./ast/index";
 import { Block } from "./ast/expression";
-import { BUILTINS } from "./builtins";
+import { BUILTINS } from "./ast/builtins/builtin-js";
 
 const INDENT = "    ";
 

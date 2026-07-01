@@ -47,7 +47,7 @@ export { ArrLit, FieldAccess, FieldAssignment, StructDef } from "./structs";
 export { Trait } from "./traits";
 
 // Caller resolution
-export { findCaller } from "./caller";
+export { findCaller } from "./caller-resolution";
 
 // Reachability (for tree shaking)
 export { computeReachable } from "./reachability";
