@@ -14,25 +14,20 @@ function addVariableToScope(
     // Module-level definitions always register in their own module's scope
     // (UseModule.cascadeTypes injects them into the importing scope later).
     const existingDefinition = enclosingScope.lookup(varAttrs.name);
-    if (existingDefinition !== null) {
+    // Variable already defined in the same scope
+    if (existingDefinition !== null && existingDefinition.inCurrentScope) {
         const existingAttrs = existingDefinition.attrs;
         if (varAttrs.isMutable) {
             return {
-                error: `cannot redeclare variable '${varAttrs.name}' with 'mut' — it was already defined`,
+                error: `cannot redeclare variable '${varAttrs.name}' with 'mut' — it was already defined in the same scope`,
             };
         }
 
         isReassignment = true;
 
-        if (existingAttrs.class === "func") {
-            return {
-                error: `cannot assign variable ${varAttrs.name} since a function with the same name is already defined`,
-            };
-        }
-
         if (existingAttrs.class !== "var") {
             return {
-                error: `cannot reassign '${varAttrs.name}' — it is not a variable`,
+                error: `cannot reassign '${varAttrs.name}' — another definition with the same name precedes it in the same scope`,
             };
         }
 
@@ -43,8 +38,28 @@ function addVariableToScope(
         const assignType = varAttrs.type;
         if (!typeEquals(existingAttrs.type, assignType)) {
             return {
-                error: `tried to reassign variable '${varAttrs.name}' with type ${assignType} but it was previously defined with type ${existingAttrs.type}`,
+                error: `tried to reassign variable '${varAttrs.name}' with type ${assignType} but it was defined earlier with type ${existingAttrs.type}`,
             };
+        }
+    }
+    // Variable already defined, in an outer scope
+    else if (existingDefinition !== null) {
+        // If the outer definition is not mutable, this is always considered a new declaration
+        // If the outer definition is a mutable var, the type must match, and the inner definition cannot be a new mut declaration
+        const existingAttrs = existingDefinition.attrs;
+        if (existingAttrs.class === "var" && existingAttrs.isMutable) {
+            if (!typeEquals(existingAttrs.type, varAttrs.type)) {
+                return {
+                    error: `tried to reassign variable '${varAttrs.name}' with type ${varAttrs.type} but it was defined as mutable in an enclosing scope with type ${existingAttrs.type} -- mutable variables cannot be set to a different type in a scope where the original definition is still active`,
+                };
+            }
+            if (varAttrs.isMutable) {
+                return {
+                    error: `cannot redeclare variable '${varAttrs.name}' with 'mut' — it was already defined in an enclosing scope`,
+                };
+            }
+            // Types match -- this is a reassignment
+            isReassignment = true;
         }
     }
     if (!isReassignment) {

@@ -120,7 +120,7 @@ test("mut: double declaration errors", () => {
 // ── Shadowing of mutable vars ──
 
 test("mut: shadowing in nested block", () => {
-    // Inner mut x attempts to shadow outer mut x
+    // Inner mut x attempts to redefine outer mut x
     testParseExpectError(
         `
         mut x = 1;
@@ -140,8 +140,8 @@ test("mut: shadowing in separate sibling blocks", () => {
 });
 
 // Shadowing from non-mut to mut is NOT allowed
-test("mut: cannot shadow with mut if outer is non-mut", () => {
-    testParseExpectError("x = 1; { mut x = 2 }");
+test("mut: shadow out non-mutable var with inner mutable var", () => {
+    testCompile("x = 1; { mut x = 2; } x", 1);
 });
 
 // ── Mutable var in function body ──
@@ -336,13 +336,17 @@ test("mut: inside deeply nested blocks", () => {
     );
 });
 
-test("mut: inner block cannot reassign non-mut outer var", () => {
-    testParseExpectError(`
+test("mut: redefinition of non-mutable var in inner block does not modify value of outer var", () => {
+    testCompile(
+        `
         x = 0;
         {
             x = 1
-        }
-    `);
+        };
+        x
+        `,
+        0
+    );
 });
 
 // ── Edge: function parameter names vs mut ──
