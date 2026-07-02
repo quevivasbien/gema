@@ -26,6 +26,7 @@ import { findBuiltin } from "./builtins/builtin-calls";
 import { Literal } from "./literals";
 
 // ── Discriminated union for findCaller results ──
+// TODO: Probably do not need to include the callerType in each of these -- can just save the return type
 
 type VariableResult = {
     kind: "variable";
@@ -42,8 +43,8 @@ type FuncDefResult = {
 
 type StructDefResult = {
     kind: "struct-constructor";
-    referToByName: string;
     callerType: FuncType;
+    toJS: (writer: JSWriter) => void;
 };
 
 type BuiltinResult = {
@@ -740,6 +741,7 @@ export function findCaller(
         }
         argTypes.push(arg.type);
     }
+
     // See if the first match for `name` is a variable
     const varMatch = scope.lookupVariable(name);
     if (varMatch) {
@@ -747,6 +749,7 @@ export function findCaller(
     }
 
     // See if we can find a function definition with a compatible type signature
+    // TODO: This doesn't yet work with generic functions!
     const funcMatch = scope.lookupFunction(name, argTypes);
     if (funcMatch) {
         return {
@@ -804,7 +807,33 @@ export function findCaller(
 
     // TODO: Check for matches dependent on whether arg types satisfy traits
 
-    // TODO: Check for struct constructor definitions
+    // Check for struct constructor definitions
+    // TODO: This doesn't yet work with generic structs!
+    const structMatch = scope.lookupStruct(name, argTypes);
+    if (structMatch) {
+        return {
+            error: null,
+            result: {
+                kind: "struct-constructor",
+                callerType: new FuncType(
+                    structMatch.fields.map((f) => f.type),
+                    new CustomType(name)
+                ),
+                toJS(writer) {
+                    const safeNames = structMatch.fields.map((f) => writer.safeName(f.name));
+                    writer.write("{");
+                    args.forEach((arg, i) => {
+                        if (i > 0) {
+                            writer.write(", ");
+                        }
+                        writer.write(`${safeNames[i]}: `);
+                        arg.toJS(writer);
+                    });
+                    writer.write("}");
+                },
+            },
+        };
+    }
 
     // Check for builtin functions
     const builtinResult = findBuiltin(name, args, argTypes);

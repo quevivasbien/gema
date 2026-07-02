@@ -11,6 +11,7 @@ export type VarAttributes = {
      * Whether it is still legal to access this variable
      * Always true when variables are first initialized, marked false after a consuming operation
      * (in an earlier version of the language, this happened when converting a mutable container to a non-mutable container, but it is now not functional anywhere and is just left here in case we want to re-implement some sort of system around this later)
+     * TODO: This field is deprecated and should be removed
      */
     isConsumed: boolean;
 };
@@ -162,7 +163,37 @@ export class Scope {
         if (this.parent === null) {
             return null;
         }
-        return this.parent.lookupFunction(name, argTypes);
+        return this.parent.lookupFunction(name, argTypes, allowIterForArr);
+    }
+
+    /**
+     * Look for a struct definition with the given name and compatible types
+     * Matches will be ignored (and we'll keep looking for a match)
+     * if the type signature we find is not compatible.
+     */
+    lookupStruct(name: string, argTypes: Type[]): StructAttributes | null {
+        for (const v of this.variables) {
+            if (v.name !== name) {
+                continue;
+            }
+            if (v.class !== "struct") {
+                continue;
+            }
+            // TODO: Should we allow implicit Arr -> Iter conversion when constructing structs?
+            if (
+                paramTypesMatchArgTypes(
+                    v.fields.map((f) => f.type),
+                    argTypes,
+                    false
+                )
+            ) {
+                return v;
+            }
+        }
+        if (this.parent === null) {
+            return null;
+        }
+        return this.parent.lookupStruct(name, argTypes);
     }
 
     /**
@@ -182,6 +213,7 @@ export class Scope {
         }
     }
 
+    // TODO: This and markVarConsumed are deprecated -- we are no longer using this in the language
     /**
      * Find a definition for a variable name and return whether or not the variable has been
      * consumed.

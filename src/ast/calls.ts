@@ -56,12 +56,6 @@ export class Call extends Expression {
     args: Expression[];
 
     callerType?: CallableType;
-    referToByName?: string;
-    isBuiltin: boolean = false;
-    isStructFieldAccess: boolean = false;
-    structFieldName: string = "";
-    isStructConstructor: boolean = false;
-    isStringIndexing: boolean = false;
 
     // This will be filled in during cascadeTypes when we resolve the caller
     toJSHelper: ((writer: JSWriter) => void) | null = null;
@@ -92,26 +86,9 @@ export class Call extends Expression {
             throw this.error(error);
         }
 
-        // Handle the discriminated union result kind
-        switch (result.kind) {
-            case "builtin":
-                this.isBuiltin = true;
-                this.toJSHelper = result.toJS;
-                break;
-            case "function":
-                this.toJSHelper = result.toJS;
-                break;
-            case "variable":
-                this.toJSHelper = result.toJS;
-                break;
-            default:
-                // TODO: The plan is to eventually get rid of this field entirely
-                this.referToByName = result.referToByName;
-        }
-
+        this.toJSHelper = result.toJS;
         this.callerType = result.callerType;
         this.type = result.kind === "variable" ? result.returnType : result.callerType.returnType;
-        this.isStructConstructor = result.kind === "struct-constructor";
 
         // Fill unresolved anonymous function params using inferred types from context
         if (this.callerType instanceof FuncType) {
@@ -360,14 +337,16 @@ export class Call extends Expression {
     toJS(writer: JSWriter): void {
         // TODO: The goal here is to get rid of the "referToByName" system and have all the callers provide a "toJS" callback during the resolution in cascadeTypes.
         // Then this method can just call that callback.
-        if (this.toJSHelper) {
-            this.toJSHelper(writer);
-            return;
+        if (!this.toJSHelper) {
+            throw new Error(
+                `missing compilation helper for call to ${this.name} -- this should have been resolved during type checking`
+            );
         }
+        this.toJSHelper(writer);
 
-        if (this.referToByName === undefined) {
-            throw new Error("caller name not resolved");
-        }
+        // TODO: Everything below this point should be removed
+        return;
+
         if (this.isStructFieldAccess) {
             writer.write(writer.safeName(this.referToByName!));
             writer.write(`.${this.structFieldName}`);
@@ -559,6 +538,16 @@ export class DirectCall extends Expression {
     }
 
     toJS(writer: JSWriter): void {
+        if (!this.toJSHelper) {
+            throw new Error(
+                "missing compilation helper -- this should have been resolved during type checking"
+            );
+        }
+        this.toJSHelper(writer);
+
+        // TODO: Everything below this point should be removed
+        return;
+
         if (this.caller.type instanceof CustomType) {
             // Resolve struct from scope, falling back to global registry
             const structScope = this.getScope();
