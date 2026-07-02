@@ -189,7 +189,8 @@ export function compile(
         }
 
         // Tree-shaking — remove unreachable definitions
-        const filteredBlock = treeShake(entryAst);
+        // const filteredBlock = treeShake(entryAst); // TODO: Re-enable this
+        const filteredBlock = entryAst;
 
         // Codegen
         const js = writeJS(filteredBlock, mode);

@@ -98,6 +98,9 @@ export class Call extends Expression {
                 this.isBuiltin = true;
                 this.toJSHelper = result.toJS;
                 break;
+            case "function":
+                this.toJSHelper = result.toJS;
+                break;
             case "variable":
                 this.toJSHelper = result.toJS;
                 break;
@@ -112,25 +115,8 @@ export class Call extends Expression {
 
         // Fill unresolved anonymous function params using inferred types from context
         if (this.callerType instanceof FuncType) {
-            // TODO: This doesn't currently work except for builtins
-            this.fillAnonFunctionParams();
-        }
-
-        // Tuple literal index resolution: tup(0) → exact element type at index 0
-        if (
-            this.callerType instanceof TupleType &&
-            this.args.length === 1 &&
-            this.args[0] instanceof Literal &&
-            (this.args[0].type === "Int" || this.args[0].type === "Num")
-        ) {
-            const idx = parseInt(this.args[0].value, 10);
-            if (idx >= 0 && idx < this.callerType.types.length) {
-                this.type = this.callerType.types[idx];
-            } else {
-                throw this.error(
-                    `tuple index ${idx} out of bounds (length ${this.callerType.types.length})`
-                );
-            }
+            // TODO: This doesn't currently work except for builtins, and it needs to happen during the findCaller resolution, not here
+            this.fillLambdaFunctionParams();
         }
     }
 
@@ -257,7 +243,7 @@ export class Call extends Expression {
      * Fill unresolved anonymous function (lambda) params from the call context.
      * Derives expected param types based on the builtin kind and non-function args.
      */
-    private fillAnonFunctionParams(): void {
+    private fillLambdaFunctionParams(): void {
         const anonFn = this.args[0];
         if (!(anonFn instanceof AnonymousFunction) || !anonFn.needsInference) return;
 
@@ -530,17 +516,17 @@ export class DirectCall extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
+
+        const argTypes = this.args.map((arg, i) => {
+            arg.cascadeTypes(this, true);
+            if (arg.type === null) {
+                throw this.error(`unable to resolve type of argument ${i + 1} in function call`);
+            }
+            return arg.type;
+        });
+
         // If the caller is an unresolved anonymous function, infer params from call args first
         if (this.caller instanceof AnonymousFunction && this.caller.needsInference) {
-            const argTypes = this.args.map((arg, i) => {
-                arg.cascadeTypes(this, true);
-                if (arg.type === null) {
-                    throw this.error(
-                        `unable to resolve type of argument ${i + 1} in function call`
-                    );
-                }
-                return arg.type;
-            });
             // Set anon function params from call arg types, then cascade the body
             this.caller.fillParams(argTypes, this);
             this.type = this.caller.type instanceof FuncType ? this.caller.type.returnType : "Null";
@@ -555,7 +541,7 @@ export class DirectCall extends Expression {
             this.caller,
             this.args,
             this.caller.type,
-            this.args.map((a) => a.type!)
+            argTypes
         );
         if (error) {
             throw this.error(error);

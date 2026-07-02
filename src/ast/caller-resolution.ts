@@ -1,7 +1,7 @@
 import type { Expression } from "./expression";
 import { FunctionDef, RangeIter } from "./nodes";
 import type { StructDef } from "./structs";
-import type { Scope, VarAttributes } from "./scope";
+import type { Scope } from "./scope";
 import {
     collectTraitsForTypeParam,
     compatibleIndicesForArrayType,
@@ -21,9 +21,8 @@ import {
     type CallableType,
     type Type,
 } from "./types";
-import type { JSWriter } from "../write-js";
+import { safeJSName, type JSWriter } from "../write-js";
 import { findBuiltin } from "./builtins/builtin-calls";
-import { resolve } from "dns";
 import { Literal } from "./literals";
 
 // ── Discriminated union for findCaller results ──
@@ -37,9 +36,8 @@ type VariableResult = {
 
 type FuncDefResult = {
     kind: "function";
-    referToByName: string;
     callerType: FuncType;
-    paramNames?: string[];
+    toJS: (writer: JSWriter) => void;
 };
 
 type StructDefResult = {
@@ -751,12 +749,57 @@ export function findCaller(
     // See if we can find a function definition with a compatible type signature
     const funcMatch = scope.lookupFunction(name, argTypes);
     if (funcMatch) {
-        // TODO
+        return {
+            error: null,
+            result: {
+                kind: "function",
+                callerType: funcMatch.type,
+                toJS(writer) {
+                    writer.write(safeJSName(funcMatch.fullName));
+                    writer.write("(");
+                    args.forEach((arg, i) => {
+                        if (i > 0) {
+                            writer.write(", ");
+                        }
+                        arg.toJS(writer);
+                    });
+                    writer.write(")");
+                },
+            },
+        };
     }
     // If we didn't find an exact function match, try again allowing implicit Arr -> Iter conversion
     const looseFuncMatch = scope.lookupFunction(name, argTypes, true);
     if (looseFuncMatch !== null) {
-        // TODO
+        return {
+            error: null,
+            result: {
+                kind: "function",
+                callerType: looseFuncMatch.type,
+                toJS(writer) {
+                    writer.write(safeJSName(looseFuncMatch.fullName));
+                    writer.write("(");
+                    args.forEach((arg, i) => {
+                        if (i > 0) {
+                            writer.write(", ");
+                        }
+                        // Auto-convert Arg to Iter when the function expects Iter but gets Arg
+                        if (
+                            looseFuncMatch.type.paramTypes[i] instanceof IterType &&
+                            arg.type instanceof ArrayType
+                        ) {
+                            writer.useBuiltin("$ArrayIterator$");
+                            writer.write("new $ArrayIterator$(");
+                            arg.toJS(writer);
+                            writer.write(")");
+                        } else {
+                            arg.toJS(writer);
+                        }
+                    });
+                    writer.write(")");
+                },
+            },
+        };
     }
 
     // TODO: Check for matches dependent on whether arg types satisfy traits
