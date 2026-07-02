@@ -141,6 +141,8 @@ Error in main.gema at line 5, column 1: incompatible argument types in function 
 
 - Fix layouts forced before content fully loaded in frontend
 
+- Only allow integer literals for accessing tuples.
+
 ## Optimizations
 
 When transing an expression that is not a variable, there is no need for a copy (it can be a no-op, behaving exactly like unsafeTrans); (revisiting this later, it might actually be quite complicated to ensure that something is safe not to copy--variables aren't the only case that could cause problems--so maybe this should be kept until later -- this is not actually a super important optimization, since it usually won't matter, and users can use `unsafeTrans` in cases where it does)

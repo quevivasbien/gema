@@ -144,26 +144,6 @@ export class ArrayType {
     toString(): string {
         return `Arr[${this.innerType}]`;
     }
-
-    nDims(): number {
-        if (!(this.innerType instanceof ArrayType)) {
-            return 1;
-        }
-        return 1 + this.innerType.nDims();
-    }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length < 1) {
-            return "array access requires at least one index";
-        }
-        if (indexTypes.length > this.nDims()) {
-            return `incompatible number of array indices: expected at most ${this.nDims()}, got ${indexTypes.length}`;
-        }
-        if (indexTypes.some((type) => type !== "Int" && type !== "Num")) {
-            return `array indices are not of type Int or Num`;
-        }
-        return null;
-    }
 }
 
 export class IterType {
@@ -172,16 +152,6 @@ export class IterType {
     toString(): string {
         return `Iter[${this.innerType}]`;
     }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== 1) {
-            return `iter type requires exactly one index, got ${indexTypes.length}`;
-        }
-        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
-            return `iter index must be of type Int or Num`;
-        }
-        return null;
-    }
 }
 
 export class MutArrType {
@@ -189,16 +159,6 @@ export class MutArrType {
 
     toString(): string {
         return `MutArr[${this.innerType}]`;
-    }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== 1) {
-            return `mutable array requires exactly one index, got ${indexTypes.length}`;
-        }
-        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
-            return `mutable array index must be of type Int or Num`;
-        }
-        return null;
     }
 }
 
@@ -211,16 +171,6 @@ export class TupleType {
 
     get length(): number {
         return this.types.length;
-    }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== 1) {
-            return `tuple type requires exactly one index, got ${indexTypes.length}`;
-        }
-        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
-            return `tuple index must be of type Int or Num`;
-        }
-        return null;
     }
 }
 
@@ -239,6 +189,7 @@ export class DictType {
             return `dict requires exactly one key, got ${indexTypes.length}`;
         }
         // Any type is allowed as a key
+        // TODO: This is not right! The type has to match!
         return null;
     }
 }
@@ -374,13 +325,13 @@ export type Type =
 
 export type CallableType =
     | FuncType
-    | ArrayType
     | IterType
+    | ArrayType
     | MutArrType
     | TupleType
     | DictType
     | MutDictType
-    | MutSetType;
+    | "Str";
 
 export class TemplateTypes {
     constructor(

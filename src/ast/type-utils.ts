@@ -309,3 +309,13 @@ export function collectTraitsForTypeParam(t: Type, typeParamName: string): strin
     }
     return [];
 }
+
+export function compatibleIndicesForArrayType(indexTypes: Type[]): string | null {
+    if (indexTypes.length !== 1) {
+        return `indexed access requires exactly one index, got ${indexTypes.length}`;
+    }
+    if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
+        return `indexed access index must be of type Int or Num`;
+    }
+    return null;
+}

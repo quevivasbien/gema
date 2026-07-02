@@ -1,7 +1,7 @@
 import { paramTypesMatchArgTypes } from "./type-utils";
 import { type EnumVariant, type FuncType, type TemplateTypes, type Type } from "./types";
 
-type VarAttributes = {
+export type VarAttributes = {
     class: "var";
     name: string;
     type: Type;
@@ -15,7 +15,7 @@ type VarAttributes = {
     isConsumed: boolean;
 };
 
-type FuncAttributes = {
+export type FuncAttributes = {
     class: "func";
     name: string;
     type: FuncType;
@@ -27,7 +27,7 @@ type FuncAttributes = {
     paramNames?: string[];
 };
 
-type StructAttributes = {
+export type StructAttributes = {
     class: "struct";
     name: string;
     fields: { name: string; type: Type; mutable: boolean }[];
@@ -36,7 +36,7 @@ type StructAttributes = {
     def?: unknown;
 };
 
-type EnumAttributes = {
+export type EnumAttributes = {
     class: "enum";
     name: string;
     variants: EnumVariant[];
@@ -45,7 +45,7 @@ type EnumAttributes = {
     def?: unknown;
 };
 
-type TraitAttributes = {
+export type TraitAttributes = {
     class: "trait";
     name: string;
     requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[];

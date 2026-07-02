@@ -255,10 +255,12 @@ export class Binary extends Expression {
         ) {
             const opName = OPERATOR_TO_FUNCTION[this.operator];
             if (opName) {
-                const { error, result } = findCaller(this, opName, [ltype, rtype]);
+                const { error, result } = findCaller(this, opName, [this.left, this.right]);
                 if (error === null) {
                     this.type =
-                        result.kind === "variable" ? result.rootType : result.callerType.returnType;
+                        result.kind === "variable"
+                            ? result.returnType
+                            : result.callerType.returnType;
                     this.overloadedAs = { name: result.referToByName };
                     return;
                 }

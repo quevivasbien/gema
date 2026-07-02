@@ -18,18 +18,19 @@ import {
 
 type BuiltinResult = {
     kind: "builtin";
-    // What should we call this function (for builtins, this is whatever name is used to invoke the function in the written code)
-    referToByName: string;
     // What is the function signatue of the builtin?
     callerType: FuncType;
-    toJS: (writer: JSWriter, args: Expression[]) => void;
+    toJS: (writer: JSWriter) => void;
 };
 
-const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | null> = {
-    collect: (argTypes) => {
+const BUILTIN_RESOLVERS: Record<
+    string,
+    (args: Expression[], argTypes: Type[]) => BuiltinResult | null
+> = {
+    collect: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$collect$");
             writer.write("$collect$(");
             wrapArrayToIter(writer, args[0]);
@@ -40,7 +41,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (inner instanceof IterType) {
             return {
                 kind: "builtin",
-                referToByName: "collect",
                 callerType: new FuncType([inner], new ArrayType(inner.innerType)),
                 toJS,
             };
@@ -48,7 +48,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (inner instanceof ArrayType || inner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                referToByName: "collect",
                 callerType: new FuncType([inner], inner),
                 toJS,
             };
@@ -56,14 +55,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (inner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "collect",
                 callerType: new FuncType([inner], new ArrayType("Str")),
                 toJS,
             };
         }
         return null;
     },
-    map: (argTypes) => {
+    map: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [mapFirst, mapSecond] = argTypes;
 
@@ -82,9 +80,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (secondInner !== "Int" && secondInner !== "Num") return null;
             return {
                 kind: "builtin",
-                referToByName: "map",
                 callerType: new FuncType([mapFirst, mapSecond], new IterType(mapFirst.innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$ArrayMapIterator$");
                     writer.write("new $ArrayMapIterator$(");
                     args[0].toJS(writer);
@@ -96,7 +93,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
 
         // map(func, iter)
-        const mapFuncIterableToJS = (writer: JSWriter, args: Expression[]) => {
+        const mapFuncIterableToJS = (writer: JSWriter) => {
             writer.useBuiltin("$MapIterator$");
             writer.write("new $MapIterator$(");
             args[0]?.toJS(writer);
@@ -113,7 +110,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(mapFirst.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
-                referToByName: "map",
                 callerType: new FuncType([mapFirst, mapSecond], new IterType(mapFirst.returnType)),
                 toJS: mapFuncIterableToJS,
             };
@@ -130,7 +126,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             const mapOutputType = mapFirst.returnType;
             return {
                 kind: "builtin",
-                referToByName: "map",
                 callerType: new FuncType([mapFirst, mapSecond], new IterType(mapOutputType)),
                 toJS: mapFuncIterableToJS,
             };
@@ -138,13 +133,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
 
         return null;
     },
-    filter: (argTypes) => {
+    filter: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [fFnType, fIterType] = argTypes;
         if (!(fFnType instanceof FuncType) || fFnType.paramTypes.length !== 1) return null;
         if (fFnType.returnType !== "Bool") return null;
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$FilterIterator$");
             writer.write("new $FilterIterator$(");
             args[0]?.toJS(writer);
@@ -157,7 +152,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(fFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
-                referToByName: "filter",
                 callerType: new FuncType([fFnType, fIterType], new IterType("Str")),
                 toJS,
             };
@@ -173,17 +167,16 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (!looseMatch(fFnType.paramTypes[0], fIterInner)) return null;
         return {
             kind: "builtin",
-            referToByName: "filter",
             callerType: new FuncType([fFnType, fIterType], new IterType(fIterInner)),
             toJS,
         };
     },
-    reduce: (argTypes) => {
+    reduce: (args, argTypes) => {
         if (argTypes.length !== 3) return null;
         const [rFnType, rInitType, rIterType] = argTypes;
         if (!(rFnType instanceof FuncType) || rFnType.paramTypes.length !== 2) return null;
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$reduce$");
             writer.write("$reduce$(");
             args[0]?.toJS(writer);
@@ -199,7 +192,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(rFnType.paramTypes[1], "Str")) return null;
             return {
                 kind: "builtin",
-                referToByName: "reduce",
                 callerType: new FuncType([rFnType, rInitType, rIterType], rInitType),
                 toJS,
             };
@@ -217,19 +209,18 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (!looseMatch(rFnType.returnType, rInitType)) return null;
         return {
             kind: "builtin",
-            referToByName: "reduce",
             callerType: new FuncType([rFnType, rInitType, rIterType], rInitType),
             toJS,
         };
     },
-    range: (argTypes) => {
+    range: (args, argTypes) => {
         if (argTypes.length !== 2 && argTypes.length !== 3) return null;
         const allInt = argTypes.every((t) => t === "Int");
         const allNum = argTypes.every((t) => t === "Num");
         if (!allInt && !allNum) return null;
         const innerType = allInt ? "Int" : "Num";
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             if (args[0]?.type === "Num") {
                 writer.useBuiltin("$RangeIterator$");
                 writer.write("new $RangeIterator$(");
@@ -248,19 +239,18 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
 
         return {
             kind: "builtin",
-            referToByName: "range",
             callerType: new FuncType(argTypes, new IterType(innerType)),
             toJS,
         };
     },
-    iterate: (argTypes) => {
+    iterate: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [iFnType, iStartType] = argTypes;
         if (!(iFnType instanceof FuncType) || iFnType.paramTypes.length !== 1) return null;
         if (!looseMatch(iFnType.paramTypes[0], iStartType)) return null;
         if (!looseMatch(iFnType.returnType, iStartType)) return null;
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$IterateIterator$");
             writer.write("new $IterateIterator$(");
             args.forEach((arg, i) => {
@@ -272,17 +262,16 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
 
         return {
             kind: "builtin",
-            referToByName: "iterate",
             callerType: new FuncType([iFnType, iStartType], new IterType(iStartType)),
             toJS,
         };
     },
-    step: (argTypes) => {
+    step: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [sStep, sIter] = argTypes;
         if (sStep !== "Int" && sStep !== "Num") return null;
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$StepIterator$");
             if (args[0]?.type === "Num") {
                 writer.write("new $StepIterator$(");
@@ -306,7 +295,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         ) {
             return {
                 kind: "builtin",
-                referToByName: "step",
                 callerType: new FuncType([sStep, sIter], new IterType(sIter.innerType)),
                 toJS,
             };
@@ -314,25 +302,24 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (sIter === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "step",
                 callerType: new FuncType([sStep, sIter], new IterType("Str")),
                 toJS,
             };
         }
         return null;
     },
-    last: (argTypes) => {
+    last: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         const lInner = argTypes[0];
 
-        const iterToJS = (writer: JSWriter, args: Expression[]) => {
+        const iterToJS = (writer: JSWriter) => {
             writer.useBuiltin("$last$");
             writer.write("$last$(");
             wrapArrayToIter(writer, args[0]);
             writer.write(")");
         };
 
-        const arrOrStrToJS = (writer: JSWriter, args: Expression[]) => {
+        const arrOrStrToJS = (writer: JSWriter) => {
             writer.write("(");
             args[0].toJS(writer);
             writer.write("[");
@@ -343,7 +330,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (lInner instanceof IterType) {
             return {
                 kind: "builtin",
-                referToByName: "last",
                 callerType: new FuncType([lInner], new MaybeType(lInner.innerType)),
                 toJS: iterToJS,
             };
@@ -351,7 +337,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (lInner instanceof ArrayType || lInner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                referToByName: "last",
                 callerType: new FuncType([lInner], new MaybeType(lInner.innerType)),
                 toJS: arrOrStrToJS,
             };
@@ -359,23 +344,22 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (lInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "last",
                 callerType: new FuncType([lInner], new MaybeType("Str")),
                 toJS: arrOrStrToJS,
             };
         }
         return null;
     },
-    length: (argTypes) => {
+    length: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         const lenInner = argTypes[0];
 
-        const arrOrStrToJS = (writer: JSWriter, args: Expression[]) => {
+        const arrOrStrToJS = (writer: JSWriter) => {
             args[0].toJS(writer);
             writer.write(".length");
         };
 
-        const iterToJS = (writer: JSWriter, args: Expression[]) => {
+        const iterToJS = (writer: JSWriter) => {
             writer.useBuiltin("$length$");
             writer.write("$length$(");
             wrapArrayToIter(writer, args[0]);
@@ -385,7 +369,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (lenInner instanceof IterType) {
             return {
                 kind: "builtin",
-                referToByName: "length",
                 callerType: new FuncType([lenInner], "Num"),
                 toJS: iterToJS,
             };
@@ -393,7 +376,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (lenInner instanceof ArrayType || lenInner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                referToByName: "length",
                 callerType: new FuncType([lenInner], "Num"),
                 toJS: arrOrStrToJS,
             };
@@ -401,24 +383,23 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (lenInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "length",
                 callerType: new FuncType([lenInner], "Num"),
                 toJS: arrOrStrToJS,
             };
         }
         return null;
     },
-    head: (argTypes) => {
+    head: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         const hInner = argTypes[0];
 
-        const arrOrStrToJS = (writer: JSWriter, args: Expression[]) => {
+        const arrOrStrToJS = (writer: JSWriter) => {
             writer.write("(");
             args[0].toJS(writer);
             writer.write("[0] ?? null)");
         };
 
-        const iterToJS = (writer: JSWriter, args: Expression[]) => {
+        const iterToJS = (writer: JSWriter) => {
             writer.useBuiltin("$iterGet$");
             writer.write("$iterGet$(0, ");
             args[0].toJS(writer);
@@ -428,7 +409,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (hInner instanceof IterType) {
             return {
                 kind: "builtin",
-                referToByName: "head",
                 callerType: new FuncType([hInner], new MaybeType(hInner.innerType)),
                 toJS: iterToJS,
             };
@@ -436,7 +416,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (hInner instanceof ArrayType || hInner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                referToByName: "head",
                 callerType: new FuncType([hInner], new MaybeType(hInner.innerType)),
                 toJS: arrOrStrToJS,
             };
@@ -444,19 +423,18 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (hInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "head",
                 callerType: new FuncType([hInner], new MaybeType("Str")),
                 toJS: arrOrStrToJS,
             };
         }
         return null;
     },
-    take: (argTypes) => {
+    take: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         if (argTypes[0] !== "Int" && argTypes[0] !== "Num") return null;
         const tInner = argTypes[1];
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$TakeIterator$");
             args[0]?.toJS(writer);
             writer.write(", ");
@@ -471,7 +449,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         ) {
             return {
                 kind: "builtin",
-                referToByName: "take",
                 callerType: new FuncType([argTypes[0], tInner], new IterType(tInner.innerType)),
                 toJS,
             };
@@ -479,19 +456,18 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (tInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "take",
                 callerType: new FuncType([argTypes[0], tInner], new IterType("Str")),
                 toJS,
             };
         }
         return null;
     },
-    drop: (argTypes) => {
+    drop: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         if (argTypes[0] !== "Int" && argTypes[0] !== "Num") return null;
         const dInner = argTypes[1];
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$DropIterator$");
             if (args[0]?.type === "Num") {
                 writer.write("new $DropIterator$(");
@@ -515,7 +491,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         ) {
             return {
                 kind: "builtin",
-                referToByName: "drop",
                 callerType: new FuncType([argTypes[0], dInner], new IterType(dInner.innerType)),
                 toJS,
             };
@@ -523,20 +498,19 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (dInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "drop",
                 callerType: new FuncType([argTypes[0], dInner], new IterType("Str")),
                 toJS,
             };
         }
         return null;
     },
-    takeWhile: (argTypes) => {
+    takeWhile: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [twFnType, twIterType] = argTypes;
         if (!(twFnType instanceof FuncType) || twFnType.paramTypes.length !== 1) return null;
         if (twFnType.returnType !== "Bool") return null;
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$TakeWhileIterator$");
             writer.write("new $TakeWhileIterator$(");
             args[0]?.toJS(writer);
@@ -549,7 +523,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(twFnType.paramTypes[0], twIterType.innerType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "takeWhile",
                 callerType: new FuncType(
                     [twFnType, twIterType],
                     new IterType(twIterType.innerType)
@@ -561,7 +534,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(twFnType.paramTypes[0], twIterType.innerType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "takeWhile",
                 callerType: new FuncType(
                     [twFnType, twIterType],
                     new IterType(twIterType.innerType)
@@ -573,20 +545,19 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(twFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
-                referToByName: "takeWhile",
                 callerType: new FuncType([twFnType, twIterType], new IterType("Str")),
                 toJS,
             };
         }
         return null;
     },
-    dropWhile: (argTypes) => {
+    dropWhile: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [dwFnType, dwIterType] = argTypes;
         if (!(dwFnType instanceof FuncType) || dwFnType.paramTypes.length !== 1) return null;
         if (dwFnType.returnType !== "Bool") return null;
 
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$DropWhileIterator$");
             writer.write("new $DropWhileIterator$(");
             args[0]?.toJS(writer);
@@ -599,7 +570,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(dwFnType.paramTypes[0], dwIterType.innerType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "dropWhile",
                 callerType: new FuncType(
                     [dwFnType, dwIterType],
                     new IterType(dwIterType.innerType)
@@ -611,7 +581,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(dwFnType.paramTypes[0], dwIterType.innerType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "dropWhile",
                 callerType: new FuncType(
                     [dwFnType, dwIterType],
                     new IterType(dwIterType.innerType)
@@ -623,21 +592,19 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(dwFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
-                referToByName: "dropWhile",
                 callerType: new FuncType([dwFnType, dwIterType], new IterType("Str")),
                 toJS,
             };
         }
         return null;
     },
-    trans: (argTypes) => {
+    trans: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (argTypes[0] instanceof ArrayType) {
             return {
                 kind: "builtin",
-                referToByName: "trans",
                 callerType: new FuncType(argTypes, new MutArrType(argTypes[0].innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("[...");
                     args[0]?.toJS(writer);
                     writer.write("]");
@@ -647,12 +614,11 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (argTypes[0] instanceof DictType) {
             return {
                 kind: "builtin",
-                referToByName: "trans",
                 callerType: new FuncType(
                     argTypes,
                     new MutDictType(argTypes[0].keyType, argTypes[0].valueType)
                 ),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("new Map(");
                     args[0]?.toJS(writer);
                     writer.write(")");
@@ -662,9 +628,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (argTypes[0] instanceof SetType) {
             return {
                 kind: "builtin",
-                referToByName: "trans",
                 callerType: new FuncType(argTypes, new MutSetType(argTypes[0].innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("new Set(");
                     args[0]?.toJS(writer);
                     writer.write(")");
@@ -673,14 +638,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    unsafeTrans: (argTypes) => {
+    unsafeTrans: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (argTypes[0] instanceof ArrayType) {
             return {
                 kind: "builtin",
-                referToByName: "unsafeTrans",
                 callerType: new FuncType(argTypes, new MutArrType(argTypes[0].innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
             };
@@ -688,12 +652,11 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (argTypes[0] instanceof DictType) {
             return {
                 kind: "builtin",
-                referToByName: "unsafeTrans",
                 callerType: new FuncType(
                     argTypes,
                     new MutDictType(argTypes[0].keyType, argTypes[0].valueType)
                 ),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
             };
@@ -701,23 +664,21 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (argTypes[0] instanceof SetType) {
             return {
                 kind: "builtin",
-                referToByName: "unsafeTrans",
                 callerType: new FuncType(argTypes, new MutSetType(argTypes[0].innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
             };
         }
         return null;
     },
-    detrans: (argTypes) => {
+    detrans: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (argTypes[0] instanceof MutArrType) {
             return {
                 kind: "builtin",
-                referToByName: "detrans",
                 callerType: new FuncType(argTypes, new ArrayType(argTypes[0].innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
             };
@@ -725,12 +686,11 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (argTypes[0] instanceof MutDictType) {
             return {
                 kind: "builtin",
-                referToByName: "detrans",
                 callerType: new FuncType(
                     argTypes,
                     new DictType(argTypes[0].keyType, argTypes[0].valueType)
                 ),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
             };
@@ -738,25 +698,23 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (argTypes[0] instanceof MutSetType) {
             return {
                 kind: "builtin",
-                referToByName: "detrans",
                 callerType: new FuncType(argTypes, new SetType(argTypes[0].innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
             };
         }
         return null;
     },
-    push: (argTypes) => {
+    push: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         if (argTypes[1] instanceof MutArrType) {
             const [valueType, mutArrType] = argTypes;
             if (!looseMatch(mutArrType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "push",
                 callerType: new FuncType(argTypes, mutArrType),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$push$");
                     writer.write("$push$(");
                     args[0]?.toJS(writer);
@@ -771,9 +729,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(mutSetType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "push",
                 callerType: new FuncType(argTypes, mutSetType),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$pushMutSet$");
                     writer.write("$pushMutSet$(");
                     args[0]?.toJS(writer);
@@ -785,7 +742,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    put: (argTypes) => {
+    put: (args, argTypes) => {
         if (argTypes.length !== 3) return null;
         if (argTypes[2] instanceof MutArrType) {
             const [valueType, indexType, mutArrType] = argTypes;
@@ -793,9 +750,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(mutArrType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "put",
                 callerType: new FuncType(argTypes, mutArrType),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$put$");
                     writer.write("$put$(");
                     args[0]?.toJS(writer);
@@ -813,9 +769,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(mutDictType.valueType, valueType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "put",
                 callerType: new FuncType(argTypes, mutDictType),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$putMutDict$");
                     writer.write("$putMutDict$(");
                     args[0]?.toJS(writer);
@@ -829,14 +784,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    pop: (argTypes) => {
+    pop: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (argTypes[0] instanceof MutArrType) {
             return {
                 kind: "builtin",
-                referToByName: "pop",
                 callerType: new FuncType(argTypes, argTypes[0]),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$pop$");
                     writer.write("$pop$(");
                     args[0]?.toJS(writer);
@@ -846,16 +800,15 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    remove: (argTypes) => {
+    remove: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         if (argTypes[1] instanceof MutDictType) {
             const [keyType, mutDictType] = argTypes;
             if (!looseMatch(mutDictType.keyType, keyType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "remove",
                 callerType: new FuncType(argTypes, mutDictType),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$removeMutDict$");
                     writer.write("$removeMutDict$(");
                     args[0]?.toJS(writer);
@@ -870,9 +823,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!looseMatch(mutSetType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
-                referToByName: "remove",
                 callerType: new FuncType(argTypes, mutSetType),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$removeMutSet$");
                     writer.write("$removeMutSet$(");
                     args[0]?.toJS(writer);
@@ -884,7 +836,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    Dict: (argTypes) => {
+    Dict: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         const hmArg = argTypes[0];
         if (!(hmArg instanceof ArrayType)) return null;
@@ -893,35 +845,33 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         const [keyType, valueType] = hmArg.innerType.types;
         return {
             kind: "builtin",
-            referToByName: "Dict",
             callerType: new FuncType(argTypes, new DictType(keyType, valueType)),
-            toJS: (writer, args) => {
+            toJS: (writer) => {
                 writer.write("new Map(");
                 args[0]?.toJS(writer);
                 writer.write(")");
             },
         };
     },
-    Set: (argTypes) => {
+    Set: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         const hsArg = argTypes[0];
         if (!(hsArg instanceof ArrayType)) return null;
         return {
             kind: "builtin",
-            referToByName: "Set",
             callerType: new FuncType(argTypes, new SetType(hsArg.innerType)),
-            toJS: (writer, args) => {
+            toJS: (writer) => {
                 writer.write("new Set(");
                 args[0]?.toJS(writer);
                 writer.write(")");
             },
         };
     },
-    contains: (argTypes) => {
+    contains: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [cValue, cContainer] = argTypes;
 
-        const iterToJS = (writer: JSWriter, args: Expression[]) => {
+        const iterToJS = (writer: JSWriter) => {
             writer.useBuiltin("$contains$");
             writer.write("$contains$(");
             args[0].toJS(writer);
@@ -929,19 +879,19 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             args[1].toJS(writer);
             writer.write(")");
         };
-        const arrToJS = (writer: JSWriter, args: Expression[]) => {
+        const arrToJS = (writer: JSWriter) => {
             args[1].toJS(writer);
             writer.write(".indexOf(");
             args[0].toJS(writer);
             writer.write(") !== -1");
         };
-        const setOrMapToJS = (writer: JSWriter, args: Expression[]) => {
+        const setOrMapToJS = (writer: JSWriter) => {
             args[1].toJS(writer);
             writer.write(".has(");
             args[0].toJS(writer);
             writer.write(")");
         };
-        const strToJS = (writer: JSWriter, args: Expression[]) => {
+        const strToJS = (writer: JSWriter) => {
             args[1].toJS(writer);
             writer.write(".includes(");
             args[0].toJS(writer);
@@ -952,7 +902,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (cValue !== cContainer.innerType) return null;
             return {
                 kind: "builtin",
-                referToByName: "contains",
                 callerType: new FuncType(argTypes, "Bool"),
                 toJS: setOrMapToJS,
             };
@@ -961,7 +910,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (cValue !== cContainer.innerType) return null;
             return {
                 kind: "builtin",
-                referToByName: "contains",
                 callerType: new FuncType(argTypes, "Bool"),
                 toJS: arrToJS,
             };
@@ -970,7 +918,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (cValue !== cContainer.innerType) return null;
             return {
                 kind: "builtin",
-                referToByName: "contains",
                 callerType: new FuncType(argTypes, "Bool"),
                 toJS: iterToJS,
             };
@@ -979,7 +926,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (cValue !== cContainer.keyType) return null;
             return {
                 kind: "builtin",
-                referToByName: "contains",
                 callerType: new FuncType(argTypes, "Bool"),
                 toJS: setOrMapToJS,
             };
@@ -988,25 +934,24 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (cValue !== "Str") return null;
             return {
                 kind: "builtin",
-                referToByName: "contains",
                 callerType: new FuncType(argTypes, "Bool"),
                 toJS: strToJS,
             };
         }
         return null;
     },
-    find: (argTypes) => {
+    find: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [fValue, fContainer] = argTypes;
 
-        const arrOrStrToJS = (writer: JSWriter, args: Expression[]) => {
+        const arrOrStrToJS = (writer: JSWriter) => {
             writer.write("((i) => i === -1 ? null : i)(");
             args[1]?.toJS(writer);
             writer.write(".indexOf(");
             args[0]?.toJS(writer);
             writer.write("))");
         };
-        const iterToJS = (writer: JSWriter, args: Expression[]) => {
+        const iterToJS = (writer: JSWriter) => {
             writer.useBuiltin("$find$");
             writer.write("$find$(");
             args[0]?.toJS(writer);
@@ -1019,7 +964,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!typeEquals(fContainer.innerType, fValue)) return null;
             return {
                 kind: "builtin",
-                referToByName: "find",
                 callerType: new FuncType(argTypes, new MaybeType("Num")),
                 toJS: arrOrStrToJS,
             };
@@ -1028,7 +972,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!typeEquals(fContainer.innerType, fValue)) return null;
             return {
                 kind: "builtin",
-                referToByName: "find",
                 callerType: new FuncType(argTypes, new MaybeType("Num")),
                 toJS: iterToJS,
             };
@@ -1036,21 +979,19 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (fContainer === "Str" && fValue === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "find",
                 callerType: new FuncType(argTypes, new MaybeType("Num")),
                 toJS: arrOrStrToJS,
             };
         }
         return null;
     },
-    split: (argTypes) => {
+    split: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         if (argTypes[0] === "Str" && argTypes[1] === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "split",
                 callerType: new FuncType(argTypes, new ArrayType("Str")),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[1]?.toJS(writer);
                     writer.write(".split(");
                     args[0]?.toJS(writer);
@@ -1060,14 +1001,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    replace: (argTypes) => {
+    replace: (args, argTypes) => {
         if (argTypes.length !== 3) return null;
         if (argTypes[0] === "Str" && argTypes[1] === "Str" && argTypes[2] === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "replace",
                 callerType: new FuncType(argTypes, "Str"),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[2]?.toJS(writer);
                     writer.write(".replaceAll(");
                     args[0]?.toJS(writer);
@@ -1079,7 +1019,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    union: (argTypes) => {
+    union: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         if (
             argTypes[0] instanceof SetType &&
@@ -1088,9 +1028,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         ) {
             return {
                 kind: "builtin",
-                referToByName: "union",
                 callerType: new FuncType(argTypes, argTypes[0]),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("new Set([...");
                     args[0]?.toJS(writer);
                     writer.write(", ...");
@@ -1101,7 +1040,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    intersect: (argTypes) => {
+    intersect: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         if (
             argTypes[0] instanceof SetType &&
@@ -1110,9 +1049,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         ) {
             return {
                 kind: "builtin",
-                referToByName: "intersect",
                 callerType: new FuncType(argTypes, argTypes[0]),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("new Set([...");
                     args[0]?.toJS(writer);
                     writer.write("].filter(x => ");
@@ -1123,7 +1061,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    zip: (argTypes) => {
+    zip: (args, argTypes) => {
         if (argTypes.length < 2) return null;
         for (const t of argTypes) {
             if (
@@ -1140,7 +1078,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (t instanceof MutArrType) return t.innerType;
             return "Str";
         });
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$ZipIterator$");
             writer.write("new $ZipIterator$(");
             args.forEach((arg, i) => {
@@ -1151,16 +1089,15 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         };
         return {
             kind: "builtin",
-            referToByName: "zip",
             callerType: new FuncType(argTypes, new IterType(new TupleType(innerTypes))),
             toJS,
         };
     },
-    repeat: (argTypes) => {
+    repeat: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [repeatCount, repeatInner] = argTypes;
         if (repeatCount !== "Int" && repeatCount !== "Num") return null;
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$RepeatIterator$");
             if (args[0]?.type === "Num") {
                 writer.write("new $RepeatIterator$(");
@@ -1183,7 +1120,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         ) {
             return {
                 kind: "builtin",
-                referToByName: "repeat",
                 callerType: new FuncType(
                     [repeatCount, repeatInner],
                     new IterType(repeatInner.innerType)
@@ -1194,18 +1130,17 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (repeatInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "repeat",
                 callerType: new FuncType([repeatCount, repeatInner], new IterType("Str")),
                 toJS,
             };
         }
         return null;
     },
-    repeatInner: (argTypes) => {
+    repeatInner: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [riCount, riInner] = argTypes;
         if (riCount !== "Int" && riCount !== "Num") return null;
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$RepeatInnerIterator$");
             if (args[0]?.type === "Num") {
                 writer.write("new $RepeatInnerIterator$(");
@@ -1228,7 +1163,6 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         ) {
             return {
                 kind: "builtin",
-                referToByName: "repeatInner",
                 callerType: new FuncType([riCount, riInner], new IterType(riInner.innerType)),
                 toJS,
             };
@@ -1236,14 +1170,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (riInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "repeatInner",
                 callerType: new FuncType([riCount, riInner], new IterType("Str")),
                 toJS,
             };
         }
         return null;
     },
-    cartesian: (argTypes) => {
+    cartesian: (args, argTypes) => {
         if (argTypes.length < 2) return null;
         const innerTypes: Type[] = [];
         for (const t of argTypes) {
@@ -1257,7 +1190,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             }
             return null;
         }
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$CartesianIterator$");
             writer.write("new $CartesianIterator$(");
             args.forEach((arg, i) => {
@@ -1268,15 +1201,14 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         };
         return {
             kind: "builtin",
-            referToByName: "cartesian",
             callerType: new FuncType(argTypes, new IterType(new TupleType(innerTypes))),
             toJS,
         };
     },
-    permutations: (argTypes) => {
+    permutations: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         const permInner = argTypes[0];
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$PermutationsIterator$");
             writer.write("new $PermutationsIterator$(");
             args[0]?.toJS(writer);
@@ -1299,18 +1231,17 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
                 permInner instanceof IterType ? permInner.innerType : permInner.innerType;
             return {
                 kind: "builtin",
-                referToByName: "permutations",
                 callerType: new FuncType([permInner], new IterType(new ArrayType(pInner))),
                 toJS,
             };
         }
         return null;
     },
-    combinations: (argTypes) => {
+    combinations: (args, argTypes) => {
         if (argTypes.length !== 2) return null;
         const [combN, combIter] = argTypes;
         if (combN !== "Num" && combN !== "Int") return null;
-        const toJS = (writer: JSWriter, args: Expression[]) => {
+        const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$CombinationsIterator$");
             if (args[0]?.type === "Num") {
                 writer.write("new $CombinationsIterator$(");
@@ -1342,22 +1273,20 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             const cInner = combIter instanceof IterType ? combIter.innerType : combIter.innerType;
             return {
                 kind: "builtin",
-                referToByName: "combinations",
                 callerType: new FuncType([combN, combIter], new IterType(new ArrayType(cInner))),
                 toJS,
             };
         }
         return null;
     },
-    toIter: (argTypes) => {
+    toIter: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         const tiInner = argTypes[0];
         if (tiInner instanceof ArrayType || tiInner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                referToByName: "toIter",
                 callerType: new FuncType([tiInner], new IterType(tiInner.innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$ArrayIterator$");
                     writer.write("new $ArrayIterator$(");
                     args[0]?.toJS(writer);
@@ -1368,12 +1297,11 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (tiInner instanceof DictType || tiInner instanceof MutDictType) {
             return {
                 kind: "builtin",
-                referToByName: "toIter",
                 callerType: new FuncType(
                     [tiInner],
                     new IterType(new TupleType([tiInner.keyType, tiInner.valueType]))
                 ),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$ArrayIterator$");
                     writer.write("new $ArrayIterator$([...");
                     args[0]?.toJS(writer);
@@ -1384,9 +1312,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (tiInner instanceof SetType || tiInner instanceof MutSetType) {
             return {
                 kind: "builtin",
-                referToByName: "toIter",
                 callerType: new FuncType([tiInner], new IterType(tiInner.innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$ArrayIterator$");
                     writer.write("new $ArrayIterator$([...");
                     args[0]?.toJS(writer);
@@ -1397,9 +1324,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (tiInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "toIter",
                 callerType: new FuncType([tiInner], new IterType("Str")),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$ArrayIterator$");
                     writer.write("new $ArrayIterator$(");
                     args[0]?.toJS(writer);
@@ -1410,18 +1336,17 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    toArr: (argTypes) => {
+    toArr: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         const taInner = argTypes[0];
         if (taInner instanceof DictType || taInner instanceof MutDictType) {
             return {
                 kind: "builtin",
-                referToByName: "toArr",
                 callerType: new FuncType(
                     [taInner],
                     new ArrayType(new TupleType([taInner.keyType, taInner.valueType]))
                 ),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("[...");
                     args[0]?.toJS(writer);
                     writer.write("]");
@@ -1431,9 +1356,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (taInner instanceof SetType || taInner instanceof MutSetType) {
             return {
                 kind: "builtin",
-                referToByName: "toArr",
                 callerType: new FuncType([taInner], new ArrayType(taInner.innerType)),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("[...");
                     args[0]?.toJS(writer);
                     writer.write("]");
@@ -1443,9 +1367,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (taInner === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "toArr",
                 callerType: new FuncType([taInner], new ArrayType("Str")),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     args[0]?.toJS(writer);
                     writer.write('.split("")');
                 },
@@ -1453,7 +1376,7 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    unwrap: (argTypes) => {
+    unwrap: (args, argTypes) => {
         if (argTypes.length < 1 || argTypes.length > 2) return null;
         if (argTypes.length === 2) {
             if (!(argTypes[1] instanceof MaybeType)) return null;
@@ -1461,9 +1384,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             if (!typeEquals(innerType, argTypes[0])) return null;
             return {
                 kind: "builtin",
-                referToByName: "unwrap",
                 callerType: new FuncType(argTypes, innerType),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.useBuiltin("$unwrapWithFallback$");
                     writer.write("$unwrapWithFallback$(");
                     args[0].toJS(writer);
@@ -1476,9 +1398,8 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         if (!(argTypes[0] instanceof MaybeType)) return null;
         return {
             kind: "builtin",
-            referToByName: "unwrap",
             callerType: new FuncType(argTypes, argTypes[0].innerType),
-            toJS: (writer, args) => {
+            toJS: (writer) => {
                 writer.useBuiltin("$unwrapNoFallback$");
                 writer.write("$unwrapNoFallback$(");
                 args[0].toJS(writer);
@@ -1486,38 +1407,35 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
             },
         };
     },
-    isnone: (argTypes) => {
+    isnone: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (!(argTypes[0] instanceof MaybeType)) return null;
         return {
             kind: "builtin",
-            referToByName: "isnone",
             callerType: new FuncType(argTypes, "Bool"),
-            toJS: (writer, args) => {
+            toJS: (writer) => {
                 args[0]?.toJS(writer);
                 writer.write(" === null");
             },
         };
     },
-    some: (argTypes) => {
+    some: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         return {
             kind: "builtin",
-            referToByName: "some",
             callerType: new FuncType(argTypes, new MaybeType(argTypes[0])),
-            toJS: (writer, args) => {
+            toJS: (writer) => {
                 args[0].toJS(writer);
             },
         };
     },
-    toStr: (argTypes) => {
+    toStr: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (argTypes[0] === "Int" || argTypes[0] === "Num" || argTypes[0] === "Bool") {
             return {
                 kind: "builtin",
-                referToByName: "toStr",
                 callerType: new FuncType(argTypes, "Str"),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("String(");
                     args[0]?.toJS(writer);
                     writer.write(")");
@@ -1526,14 +1444,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    toInt: (argTypes) => {
+    toInt: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (argTypes[0] === "Num" || argTypes[0] === "Bool") {
             return {
                 kind: "builtin",
-                referToByName: "toInt",
                 callerType: new FuncType(argTypes, "Int"),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     if (args[0]?.type === "Num") {
                         writer.write("BigInt(Math.trunc(");
                         args[0]?.toJS(writer);
@@ -1548,14 +1465,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    toNum: (argTypes) => {
+    toNum: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (argTypes[0] === "Int") {
             return {
                 kind: "builtin",
-                referToByName: "toNum",
                 callerType: new FuncType(argTypes, "Num"),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("Number(");
                     args[0]?.toJS(writer);
                     writer.write(")");
@@ -1564,14 +1480,13 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
         }
         return null;
     },
-    toBool: (argTypes) => {
+    toBool: (args, argTypes) => {
         if (argTypes.length !== 1) return null;
         if (argTypes[0] === "Int" || argTypes[0] === "Num" || argTypes[0] === "Str") {
             return {
                 kind: "builtin",
-                referToByName: "toBool",
                 callerType: new FuncType(argTypes, "Bool"),
-                toJS: (writer, args) => {
+                toJS: (writer) => {
                     writer.write("Boolean(");
                     args[0]?.toJS(writer);
                     writer.write(")");
@@ -1582,10 +1497,17 @@ const BUILTIN_RESOLVERS: Record<string, (argTypes: Type[]) => BuiltinResult | nu
     },
 };
 
-export function findBuiltin(name: string, argTypes: Type[]): BuiltinResult | null {
+export function findBuiltin(
+    name: string,
+    args: Expression[],
+    argTypes: Type[]
+): BuiltinResult | null {
+    if (args.length !== argTypes.length) {
+        throw new Error("Args need to match argTypes, but they have different lengths");
+    }
     const resolver = BUILTIN_RESOLVERS[name];
     if (!resolver) {
         return null;
     }
-    return resolver(argTypes);
+    return resolver(args, argTypes);
 }

@@ -1,6 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import { findCaller } from "./caller-resolution";
+import { findCaller, resolveDirectCaller } from "./caller-resolution";
 import { DropValue, Expression } from "./expression";
 import { Literal } from "./literals";
 import { Assignment } from "./assignment";
@@ -64,7 +64,7 @@ export class Call extends Expression {
     isStringIndexing: boolean = false;
 
     // This will be filled in during cascadeTypes when we resolve the caller
-    toJSHelper: ((writer: JSWriter, args: Expression[]) => void) | null = null;
+    toJSHelper: ((writer: JSWriter) => void) | null = null;
 
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
@@ -80,41 +80,15 @@ export class Call extends Expression {
         // Pre-fill unresolved anonymous function params so findBuiltin can match them
         this.prefillLambdaParams();
 
-        const argTypes = this.args.map((arg, i) => {
+        for (const arg of this.args) {
             arg.cascadeTypes(this, true);
             if (arg.type === null) {
                 throw this.error(`unable to resolve type of argument ${i + 1} in call`);
             }
-            return arg.type;
-        });
+        }
 
-        const { error, result } = findCaller(this, this.name, argTypes);
+        const { error, result } = findCaller(this, this.name, this.args);
         if (error !== null) {
-            // TODO: What is this doing here? Why is string indexed access not handled with array indexed access?
-            // String indexing fallback: strVar(index)
-            if (argTypes.length === 1 && (argTypes[0] === "Int" || argTypes[0] === "Num")) {
-                const stringVarType = findStringTypedVariable(this, this.name);
-                if (stringVarType !== null) {
-                    this.type = new MaybeType("Str");
-                    this.referToByName = this.name;
-                    this.isStringIndexing = true;
-                    return;
-                }
-            }
-            // String slicing fallback: strVar(a..b), strVar(..b), strVar(a..), strVar(..)
-            if (
-                argTypes.length === 1 &&
-                argTypes[0] instanceof IterType &&
-                (argTypes[0].innerType === "Int" || argTypes[0].innerType === "Num") &&
-                this.args[0] instanceof RangeIter &&
-                findStringTypedVariable(this, this.name) !== null
-            ) {
-                this.callerType = new FuncType(argTypes, "Str");
-                this.type = "Str";
-                this.referToByName = this.name;
-                this.args[0].cascadeTypes(this, true);
-                return;
-            }
             throw this.error(error);
         }
 
@@ -124,11 +98,16 @@ export class Call extends Expression {
                 this.isBuiltin = true;
                 this.toJSHelper = result.toJS;
                 break;
+            case "variable":
+                this.toJSHelper = result.toJS;
+                break;
+            default:
+                // TODO: The plan is to eventually get rid of this field entirely
+                this.referToByName = result.referToByName;
         }
 
-        this.referToByName = result.referToByName;
         this.callerType = result.callerType;
-        this.type = result.kind === "variable" ? result.rootType : result.callerType.returnType;
+        this.type = result.kind === "variable" ? result.returnType : result.callerType.returnType;
         this.isStructConstructor = result.kind === "struct-constructor";
 
         // Fill unresolved anonymous function params using inferred types from context
@@ -393,43 +372,19 @@ export class Call extends Expression {
     }
 
     toJS(writer: JSWriter): void {
+        // TODO: The goal here is to get rid of the "referToByName" system and have all the callers provide a "toJS" callback during the resolution in cascadeTypes.
+        // Then this method can just call that callback.
+        if (this.toJSHelper) {
+            this.toJSHelper(writer);
+            return;
+        }
+
         if (this.referToByName === undefined) {
             throw new Error("caller name not resolved");
         }
         if (this.isStructFieldAccess) {
             writer.write(writer.safeName(this.referToByName!));
             writer.write(`.${this.structFieldName}`);
-            return;
-        }
-        if (this.isStringIndexing) {
-            writer.write(writer.safeName(this.referToByName!));
-            writer.write("[");
-            this.args[0].toJS(writer);
-            writer.write("]");
-            return;
-        }
-        // String slicing via variable: strVar(a..b)
-        if (this.type === "Str" && this.args[0] instanceof RangeIter) {
-            const range = this.args[0];
-            writer.write(writer.safeName(this.referToByName!));
-            writer.write(".slice(");
-            if (range.start !== null) {
-                writer.write("Number(");
-                range.start.toJS(writer);
-                writer.write(")");
-            } else {
-                writer.write("0");
-            }
-            if (range.end !== null) {
-                writer.write(", Number(");
-                range.end.toJS(writer);
-                writer.write(") + 1");
-            }
-            writer.write(")");
-            return;
-        }
-        if (this.isBuiltin) {
-            this.toJSHelper?.(writer, this.args);
             return;
         }
         if (this.callerType instanceof FuncType) {
@@ -563,8 +518,8 @@ export class Call extends Expression {
 export class DirectCall extends Expression {
     caller: Expression;
     args: Expression[];
-    callerType?: CallableType;
     isUnsafe: boolean;
+    toJSHelper: ((writer: JSWriter) => void) | null = null;
 
     constructor(caller: Expression, args: Expression[], isUnsafe: boolean = false) {
         super(caller.line, caller.col);
@@ -588,8 +543,7 @@ export class DirectCall extends Expression {
             });
             // Set anon function params from call arg types, then cascade the body
             this.caller.fillParams(argTypes, this);
-            this.callerType = this.caller.type as CallableType;
-            this.type = this.callerType instanceof FuncType ? this.callerType.returnType : "Null";
+            this.type = this.caller.type instanceof FuncType ? this.caller.type.returnType : "Null";
             return;
         }
 
@@ -597,149 +551,18 @@ export class DirectCall extends Expression {
         if (this.caller.type === null) {
             throw this.error("unable to resolve type of call");
         }
-        if (this.caller.type instanceof FuncType) {
-            const argTypes = this.args.map((arg, i) => {
-                arg.cascadeTypes(this, true);
-                if (arg.type === null) {
-                    throw this.error(
-                        `unable to resolve type of argument ${i + 1} in function call`
-                    );
-                }
-                return arg.type;
-            });
-            if (!paramTypesMatchArgTypes(this.caller.type.paramTypes, argTypes)) {
-                throw this.error(
-                    `incompatible argument types in function call: expected ${this.caller.type.paramTypes}, got ${argTypes}`
-                );
-            }
-            this.type = this.caller.type.returnType;
-            return;
-        }
-        if (this.caller.type instanceof ArrayType || this.caller.type instanceof MutArrType) {
-            // Array slicing with range: arr(a..b) returns an array, not an element
-            if (this.args.length !== 1) {
-                throw this.error("array access must have exactly 1 index");
-            }
-            this.args[0].cascadeTypes(this, true);
-            if (this.args[0].type === null) {
-                throw this.error("unable to resolve type of index in array access");
-            }
-            if (this.args[0] instanceof RangeIter) {
-                this.type = this.caller.type;
-                return;
-            }
-            const incompatible = this.caller.type.checkIndicesCompatible(
-                this.args.map((arg) => arg.type as Type)
-            );
-            if (incompatible !== null) {
-                throw this.error(incompatible);
-            }
-            this.type = this.isUnsafe
-                ? this.caller.type.innerType
-                : new MaybeType(this.caller.type.innerType);
-            return;
-        }
-        if (this.caller.type instanceof IterType) {
-            this.args.forEach((arg, i) => {
-                arg.cascadeTypes(this, true);
-                if (arg.type === null) {
-                    throw this.error(`unable to resolve type of argument ${i + 1} in iter access`);
-                }
-            });
-            const incompatible = this.caller.type.checkIndicesCompatible(
-                this.args.map((arg) => arg.type as Type)
-            );
-            if (incompatible !== null) {
-                throw this.error(incompatible);
-            }
-            this.type = this.isUnsafe
-                ? this.caller.type.innerType
-                : new MaybeType(this.caller.type.innerType);
-            return;
-        }
-        if (this.caller.type === "Str") {
-            // String slicing with range: str(a..b) returns a substring
-            if (this.args.length === 1 && this.args[0] instanceof RangeIter) {
-                this.args[0].cascadeTypes(this, true);
-                this.type = "Str";
-                return;
-            }
-            if (this.args.length !== 1) {
-                throw this.error(
-                    `string indexing requires exactly one argument (the index), got ${this.args.length}`
-                );
-            }
-            this.args.forEach((arg, i) => {
-                arg.cascadeTypes(this, true);
-                if (arg.type === null) {
-                    throw this.error(
-                        `unable to resolve type of argument ${i + 1} in string index access`
-                    );
-                }
-            });
-            if (this.args[0].type !== "Int" && this.args[0].type !== "Num") {
-                throw this.error(`string index must be of type Int or Num`);
-            }
-            this.type = this.isUnsafe ? "Str" : new MaybeType("Str");
-            return;
-        }
-
-        if (this.caller.type instanceof TupleType) {
-            this.args.forEach((arg, i) => {
-                arg.cascadeTypes(this, true);
-                if (arg.type === null) {
-                    throw this.error(
-                        `unable to resolve type of argument ${i + 1} in tuple index access`
-                    );
-                }
-            });
-            const incompatible = this.caller.type.checkIndicesCompatible(
-                this.args.map((arg) => arg.type as Type)
-            );
-            if (incompatible !== null) {
-                throw this.error(incompatible);
-            }
-            // Resolve the exact element type for literal indices
-            if (
-                this.args.length === 1 &&
-                (this.args[0].type === "Int" || this.args[0].type === "Num") &&
-                this.args[0] instanceof Literal
-            ) {
-                const idx = Number(this.args[0].value);
-                if (idx < 0 || idx >= this.caller.type.types.length) {
-                    throw this.error(
-                        `tuple index ${idx} out of bounds (tuple has ${this.caller.type.types.length} elements)`
-                    );
-                }
-                this.type = this.caller.type.types[idx];
-            } else {
-                this.type = this.caller.type.types[0] ?? "Null";
-            }
-            return;
-        }
-
-        if (this.caller.type instanceof DictType || this.caller.type instanceof MutDictType) {
-            this.args.forEach((arg, i) => {
-                arg.cascadeTypes(this, true);
-                if (arg.type === null) {
-                    throw this.error(`unable to resolve type of argument ${i + 1} in dict access`);
-                }
-            });
-            const incompatible = this.caller.type.checkIndicesCompatible(
-                this.args.map((arg) => arg.type as Type)
-            );
-            if (incompatible !== null) {
-                throw this.error(incompatible);
-            }
-            this.type = this.isUnsafe
-                ? this.caller.type.valueType
-                : new MaybeType(this.caller.type.valueType);
-            return;
-        }
-
-        throw this.error(
-            `cannot call non-callable object (expression of type ${this.caller.type})`
+        const { error, result } = resolveDirectCaller(
+            this.caller,
+            this.args,
+            this.caller.type,
+            this.args.map((a) => a.type!)
         );
+        if (error) {
+            throw this.error(error);
+        }
+        if (result) {
+            this.toJSHelper = result.toJS;
+        }
     }
 
     clone(bindings?: Map<string, Type>): Expression {
