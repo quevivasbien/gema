@@ -1,6 +1,46 @@
-import { test } from "bun:test";
+import { describe, test } from "bun:test";
 
 import { testCompile, testParse, testParseExpectError } from "./helpers";
+
+describe("parse function", () => {
+
+    test("parse function without explicit return type", () => {
+        testParse(`func foo() { 1 } foo[]`);
+        testParse(`func add(a: Num, b: Num) { a + b }; add[Num, Num]`);
+    });
+
+    test("parse function with explicit return type", () => {
+        testParse(`
+            func myFunc(a: Func[Num: Func[Num: Num]], b: Func[:Num]): Func[Num: Func[Num: Num]] {
+                a
+            }
+            myFunc[Func[Num: Func[Num: Num]], Func[:Num]]
+        `);
+        testParse(`func myFunc(a: Int): Int { a }; myFunc(1i)`);
+    })
+
+    test("parse call to function without matching type signature", () => {
+        testParseExpectError(`func myFunc(a: Num): Num { a }; myFunc(1i)`);
+        testParseExpectError(`func myFunc(a: Num): Num { a }; myFunc[Str]`);
+    })
+
+    test("parse function with generics", () => {
+        // Functions without return types are allowed (inferred from body)
+        testParse(`func [T] foo(x: T) { 1 } foo[Num]`);
+        testParse(`func [T, U] foo(x: T, y: U) { 1 } foo[Num, Int]`);
+    });
+    
+    test("parse function with generics -- generics must appear as assoc. type or as param type", () => {
+        testParseExpectError("func [T] foo(x: Num) { x } foo[Num]");
+        testParseExpectError("func [T] foo(x: Num): T { x } foo[Num]");
+    });
+
+    test("parse function with generics & trait requirements", () => {
+        testParse(`trait Foo {} trait Bar {} func [T: Foo, U: Bar] foo(x: T, y: U) { 1 } foo[Num, Int]`);
+        testParse(`trait Foo {} trait Bar {} func [T: Foo + Bar] foo(x: T) { 1 } foo[Num]`);
+        testParse(`trait Foo {} trait Bar {} func [T: Foo, T: Bar] foo(x: T) { 1 } foo[Num]`);
+    });
+})
 
 test("compile functions", () => {
     testCompile(`func myFunc(a: Num, b: Num): Num { a + b }; myFunc(1, 2)`, 3);
@@ -82,8 +122,7 @@ test("allow calling non-variable objects", () => {
 test("compile generic function without return type annotation", () => {
     testCompile(
         `
-        trait Any {}
-        func id(x: T) where T is Any { x }
+        func [T] id(x: T) { x }
         id(42)
     `,
         42
@@ -91,7 +130,7 @@ test("compile generic function without return type annotation", () => {
     testCompile(
         `
         trait Any {}
-        func id(x: T) where T is Any { x }
+        func [T: Any] id(x: T) { x }
         id("hello")
     `,
         "hello"
@@ -99,9 +138,8 @@ test("compile generic function without return type annotation", () => {
     // Generic function calling another generic function inside a generic body
     testCompile(
         `
-        trait Any {}
-        func id(x: T) where T is Any { x }
-        func wrap(x: T): T where T is Any { id(x) }
+        func [T] id(x: T) { x }
+        func [T] wrap(x: T): T { id(x) }
         wrap(10)
     `,
         10
@@ -113,8 +151,8 @@ test("compile generic function without return type annotation", () => {
             foo[(x: Self): Self]
         }
         func foo(x: Num) { x }
-        func id(x: T) where T is Foo { foo(x) }
-        func wrap(x: T): T where T is Foo { id(x) }
+        func [T: Foo] id(x: T) { foo(x) }
+        func [T: Foo] wrap(x: T): T { id(x) }
         id(10)
     `,
         10
@@ -125,26 +163,12 @@ test("compile generic function without return type annotation", () => {
             foo[(x: Self): Self]
         }
         func foo(x: Num) { x }
-        func id(x: T) where T is Foo { foo(x) }
-        func wrap(x: T): T where T is Foo { id(x) }
+        func [T: Foo] id(x: T) { foo(x) }
+        func [T: Foo] wrap(x: T): T { id(x) }
         wrap(10)
     `,
         10
     );
-});
-
-test("parse function", () => {
-    // Functions without return types are allowed (inferred from body)
-    testParse(`func foo() { 1 } foo[]`);
-    testParse(`func add(a: Num, b: Num): Num { a + b }; add[Num, Num]`);
-    testParse(`
-        func myFunc(a: Func[Num: Func[Num: Num]], b: Func[:Num]): Func[Num: Func[Num: Num]] {
-            a
-        }
-        myFunc[Func[Num: Func[Num: Num]], Func[:Num]]
-    `);
-    testParse(`func myFunc(a: Int): Int { a }; myFunc(1i)`);
-    testParseExpectError(`func myFunc(a: Num): Num { a }; myFunc(1i)`);
 });
 
 test("non-anonymous functions do not have values unless annotated with param types", () => {

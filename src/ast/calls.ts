@@ -5,7 +5,8 @@ import { DropValue, Expression } from "./expression";
 import { Literal } from "./literals";
 import { Assignment } from "./assignment";
 import { Block } from "./expression";
-import { AnonymousFunction, FunctionDef, RangeIter } from "./nodes";
+import { FunctionDef, AnonymousFunction } from "./function-defs";
+import { RangeIter } from "./nodes";
 import { typeEquals, paramTypesMatchArgTypes } from "./type-utils";
 import {
     ArrayType,

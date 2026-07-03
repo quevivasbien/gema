@@ -10,10 +10,8 @@ export { Literal } from "./literals";
 // Operators
 export { Binary, Unary } from "./operators";
 
-// Nodes (variables, functions, tuples)
+// Nodes (variables, tuples)
 export {
-    AnonymousFunction,
-    FunctionDef,
     RangeIter,
     TupleLit,
     UseModule,
@@ -21,6 +19,12 @@ export {
     type JSImportSymbol,
     Variable,
 } from "./nodes";
+
+// Functions
+export {
+    FunctionDef,
+    AnonymousFunction,
+} from "./function-defs";
 
 // Calls
 export { Call, DirectCall } from "./calls";

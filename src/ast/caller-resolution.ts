@@ -1,5 +1,6 @@
 import type { Expression } from "./expression";
-import { FunctionDef, RangeIter } from "./nodes";
+import { FunctionDef } from "./function-defs";
+import { RangeIter } from "./nodes";
 import type { StructDef } from "./structs";
 import type { Scope } from "./scope";
 import {

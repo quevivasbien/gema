@@ -138,6 +138,13 @@ export class Scope {
         return result.attrs;
     }
 
+    genericParamTypesMatchArgTypes(paramTypes: Type[], argTypes: Type[], allowIterForArr: boolean = false) {
+        // How this needs to work:
+        // 1. Look up all trait definitions for generic params (maybe these should be stored as part of the source FuncAttributes so we don't need to search again every time the generic is referenced? Maybe we should have a separate GenericFuncAttributes?) This search starts from the scope where the generic function is defined. If a trait definition is not found, this is an ERROR (should have been caught when generic was defined)
+        // 2. For each trait + associated argType, search for the functions needed to satisfy the trait. This search starts from the scope where the function is _called_ (this means we need to know both the original call scope AND the scope that the generic function definition lives in). If not satisfied, return no match.
+        // 3. If a match, monomorphize the generic function using the argtypes and matched trait functions -- alternative is we can just return saying "this is a match -- here is the generic definition and the needed trait functions" and let the monomorphization happen downstream
+    }
+
     /**
      * Look for a function definition with the given name
      * and a compatible type signature.
@@ -156,7 +163,10 @@ export class Scope {
             if (v.class !== "func") {
                 continue;
             }
-            if (paramTypesMatchArgTypes(v.type.paramTypes, argTypes, allowIterForArr)) {
+            if (v.isGeneric && this.genericParamTypesMatchArgTypes(v.type.paramTypes, argTypes, allowIterForArr)) {
+                // TODO: Monomorphize the matched generic function, and return the match
+            }
+            if (!v.isGeneric && paramTypesMatchArgTypes(v.type.paramTypes, argTypes, allowIterForArr)) {
                 return v;
             }
         }

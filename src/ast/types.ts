@@ -69,7 +69,6 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
     if (type instanceof CustomType && type.templateArgs) {
         return new CustomType(
             type.name,
-            type.traits,
             type.templateArgs.map((t) => substituteTypeParams(t, bindings))
         );
     }
@@ -271,21 +270,34 @@ export class EnumType {
 
 export class CustomType {
     name: string;
-    traits: string[];
     /** Template arguments for generic types (e.g., Pair[Int] → templateArgs=[Int]).
      *  Used by generic structs and enums to carry concrete type args. */
-    templateArgs?: Type[];
+    templateArgs: Type[] | null;
 
-    constructor(name: string, traits: string[] = [], templateArgs?: Type[]) {
+    constructor(name: string, templateArgs: Type[] | null = null) {
         this.name = name;
-        this.traits = traits;
-        this.templateArgs = templateArgs && templateArgs.length > 0 ? templateArgs : undefined;
+        this.templateArgs = templateArgs;
     }
 
     toString(): string {
-        if (this.traits.length === 0) {
+        if (!this.templateArgs) {
             return this.name;
+        } else {
+            return `${this.name}[${this.templateArgs.map(ta => ta.toString()).join(", ")}]`
         }
+    }
+}
+
+export class GenericType {
+    name: string;
+    traits: string[];
+
+    constructor(name: string, traits: string[]) {
+        this.name = name;
+        this.traits = traits;
+    }
+
+    toString(): string {
         return `${this.name}[[${this.traits.join(", ")}]]`;
     }
 
@@ -321,6 +333,7 @@ export type Type =
     | MaybeType
     | EnumType
     | CustomType
+    | GenericType
     | "Self";
 
 export type CallableType =
@@ -352,7 +365,15 @@ export class TemplateTypes {
     }
 }
 
-export function getType(typeName: string, templateTypes: TemplateTypes): Type {
+export function getType(typeName: string, templateTypes: TemplateTypes, generics: Record<string, { traits: string[], used: boolean }>| null = null): Type {
+    if (generics !== null && typeName in generics) {
+        if (!templateTypes.empty()) {
+            throw new Error(`Generic type ${typeName} cannot have template types`);
+        }
+        // Mark this generic as used so the parser can easily figure out if we try to declare a function with a generic that is not used as part of the function definition
+        generics[typeName].used = true;
+        return new GenericType(typeName, generics[typeName].traits);
+    }
     if (["Int", "Num", "Str", "Bool", "Null", "Self"].includes(typeName)) {
         if (!templateTypes.empty()) {
             throw new Error(`${typeName} cannot have template types`);
@@ -453,7 +474,6 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
 
     return new CustomType(
         typeName,
-        [],
         templateTypes.types.length > 0 ? templateTypes.types : undefined
     );
 }
