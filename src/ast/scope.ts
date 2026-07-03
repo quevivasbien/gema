@@ -106,6 +106,19 @@ export class Scope {
         this.variables.splice(existingIndex, 0, varAttrs);
     }
 
+    /** Insert a variable before an existing one in the same scope (for monomorphized functions). */
+    defineVariableAfter(existingName: string, varAttrs: DefinitionAttributes) {
+        const existingIndex = this.variables.findIndex(
+            (v) => v.name === existingName || (v.class === "func" && v.fullName === existingName)
+        );
+        if (existingIndex === -1) {
+            throw new Error(
+                `Cannot insert after '${existingName}': it was not found in this scope.`
+            );
+        }
+        this.variables.splice(existingIndex, 0, varAttrs);
+    }
+
     lookup(name: string): DefinitionLookupResult | null {
         for (const v of this.variables) {
             if (v.name === name) {
@@ -207,6 +220,26 @@ export class Scope {
     }
 
     /**
+     * Look for a trait definition with the given name and compatible types.
+     * Ignores anything that is not a trait definition.
+     */
+    lookupTrait(name: string): TraitAttributes | null {
+        for (const v of this.variables) {
+            if (v.name !== name) {
+                continue;
+            }
+            if (v.class !== "trait") {
+                continue;
+            }
+            return v;
+        }
+        if (this.parent === null) {
+            return null;
+        }
+        return this.parent.lookupTrait(name);
+    }
+
+    /**
      * Update the FuncType of an existing function entry identified by fullName.
      * Used after body cascade to store the inferred return type.
      */
@@ -221,6 +254,14 @@ export class Scope {
         if (this.parent) {
             this.parent.updateFuncType(fullName, newType);
         }
+    }
+
+    /**
+     * Check that the required functions to satisfy a trait exist for the given candidate type
+     */
+    checkCandidateTypeSatisfiesTrait(candidateType: Type, traitAttrs: TraitAttributes): boolean {
+        // TODO!
+        return false;
     }
 
     // TODO: This and markVarConsumed are deprecated -- we are no longer using this in the language

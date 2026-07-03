@@ -1,5 +1,5 @@
 import * as AST from "./ast/index";
-import { type Type, TemplateTypes, getType } from "./ast/types";
+import { type Type, GenericType, TemplateTypes, getType } from "./ast/types";
 import { TokenType, KEYWORDS, type Token } from "./tokens";
 
 interface ParseError {
@@ -1660,7 +1660,7 @@ class Parser {
         }
         this.advance();
 
-        let returnType: Type = "Null";
+        let returnType: Type | null = null;
         if (this.current().type === TokenType.Colon) {
             this.advance();
             const explicitReturnType = this.getTypeName(generics);
@@ -1669,7 +1669,7 @@ class Parser {
             }
             returnType = explicitReturnType;
         }
-        // If no return type is specified, it defaults to "Null" and will be inferred
+        // If no return type is specified, it is set to null for now and will be inferred
         // from the body during cascadeTypes
 
         if (this.atEnd()) {
@@ -1693,8 +1693,7 @@ class Parser {
                     params,
                     returnType,
                     this.block(),
-                    generics !== null,
-                    false,
+                    generics === null ? null : Object.keys(generics).map(k => new GenericType(k, generics[k].traits)),
                 )
         );
     }

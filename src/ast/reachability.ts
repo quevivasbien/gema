@@ -2,7 +2,7 @@ import { Call, DirectCall } from "./calls";
 import { DropValue, Expression, Block } from "./expression";
 import { Assignment, TupleUnpack } from "./assignment";
 import { ForLoop, If } from "./control-flow";
-import { FunctionDef } from "./function-defs";
+import { FunctionDef } from "./functions";
 import { UseModule, Variable } from "./nodes";
 import { Binary } from "./operators";
 import { FieldAccess, StructDef } from "./structs";

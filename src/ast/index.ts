@@ -24,7 +24,7 @@ export {
 export {
     FunctionDef,
     AnonymousFunction,
-} from "./function-defs";
+} from "./functions";
 
 // Calls
 export { Call, DirectCall } from "./calls";

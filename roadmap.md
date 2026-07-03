@@ -6,6 +6,31 @@
 - Remove support for keyword args, simplify trait definition syntax
 - Simplify generic function resolution?
 
+### How should monomorphization work?
+
+```gema
+trait Foo {
+  foo[Self: Self]
+}
+
+func [T: Foo] bar(x: T) {
+  x
+}
+
+struct S { x: Num }
+
+# Implement Foo for S
+func foo(s: S) {
+  S(s.x + 1)
+}
+
+# When bar is monomorphized here, what scope should the monomorphized function live in ?  
+# It needs to be aware of everything that is in scope for the generic definition, but it also
+# needs to be aware of what's in scope for the at the point we monomorphize
+# (i.e., it needs to know the definition of S and the definition of foo[S])
+bar(S(1))
+```
+
 ## IO
 
 We should have some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
@@ -142,6 +167,8 @@ Error in main.gema at line 5, column 1: incompatible argument types in function 
 - Fix layouts forced before content fully loaded in frontend
 
 - Only allow integer literals for accessing tuples.
+
+- Generic functions defined in a different module won't correctly capture variables if monomorphized from another module. The easiest way to avoid this would probably just be to prohibit generics from capturing variables, but that would be a bit awkward... Maybe there's a way to give the original definition a unique name that won't clash with anything else, make sure it's not removed by tree-shaking, and reference the original definition in the monomorphized version.
 
 ## Optimizations
 

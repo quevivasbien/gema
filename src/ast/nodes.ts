@@ -6,7 +6,7 @@ import {
 import { Assignment } from "./assignment";
 import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
 import type { EnumDef } from "./enums";
-import type { FunctionDef } from "./function-defs";
+import type { FunctionDef } from "./functions";
 import type { StructDef } from "./structs";
 
 import {

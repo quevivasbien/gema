@@ -5,8 +5,8 @@ import {
     ArrayType,
     CustomType,
     DictType,
-    EnumType,
     FuncType,
+    GenericType,
     IterType,
     MaybeType,
     MutArrType,
@@ -20,8 +20,7 @@ import {
 /** Produce a stable, readable name fragment for a type. */
 export function typeToName(t: Type): string {
     if (typeof t === "string") return t;
-    if (t instanceof CustomType) return t.name;
-    if (t instanceof EnumType) return t.name;
+    if (t instanceof CustomType || (t instanceof GenericType)) return t.name;
     if (t instanceof ArrayType) return `Arr_${typeToName(t.innerType)}`;
     if (t instanceof IterType) return `Iter_${typeToName(t.innerType)}`;
     if (t instanceof MutArrType) return `MutArr_${typeToName(t.innerType)}`;
@@ -42,30 +41,15 @@ export function functionNameWithParamTypes(name: string | null, paramTypes: Type
 }
 
 /**
- * Recursively extract type param bindings from param types against arg types.
+ * Recursively extract generic type bindings from function parameters
+ * Mutates `bindings` in place
  */
-export function extractBindingsFromParams(
-    params: { name: string; type: Type }[],
-    argTypes: Type[],
-    typeParams: string[],
-    bindings: Map<string, Type>
-): boolean {
-    if (params.length !== argTypes.length) return false;
-    for (let i = 0; i < params.length; i++) {
-        if (!extractBindings(params[i].type, argTypes[i], typeParams, bindings)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-function extractBindings(
+export function extractGenericBindings(
     paramType: Type,
     argType: Type,
-    typeParams: string[],
     bindings: Map<string, Type>
 ): boolean {
-    if (paramType instanceof CustomType && typeParams.includes(paramType.name)) {
+    if (paramType instanceof GenericType) {
         const existing = bindings.get(paramType.name);
         if (existing && !typeEquals(existing, argType)) return false;
         bindings.set(paramType.name, argType);
@@ -82,10 +66,9 @@ function extractBindings(
     ) {
         for (let i = 0; i < paramType.templateArgs.length; i++) {
             if (
-                !extractBindings(
+                !extractGenericBindings(
                     paramType.templateArgs[i],
                     argType.templateArgs[i],
-                    typeParams,
                     bindings
                 )
             )
@@ -94,52 +77,52 @@ function extractBindings(
         return true;
     }
     if (paramType instanceof ArrayType && argType instanceof ArrayType) {
-        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+        return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
     if (paramType instanceof MutArrType && argType instanceof MutArrType) {
-        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+        return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
     if (paramType instanceof IterType && argType instanceof IterType) {
-        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+        return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
     // Auto-convert: Arr[X] matches Iter[X]
     if (paramType instanceof IterType && argType instanceof ArrayType) {
-        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+        return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
     if (paramType instanceof SetType && argType instanceof SetType) {
-        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+        return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
     if (paramType instanceof MutSetType && argType instanceof MutSetType) {
-        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+        return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
     if (paramType instanceof DictType && argType instanceof DictType) {
-        if (!extractBindings(paramType.keyType, argType.keyType, typeParams, bindings))
+        if (!extractGenericBindings(paramType.keyType, argType.keyType, bindings))
             return false;
-        return extractBindings(paramType.valueType, argType.valueType, typeParams, bindings);
+        return extractGenericBindings(paramType.valueType, argType.valueType, bindings);
     }
     if (paramType instanceof MutDictType && argType instanceof MutDictType) {
-        if (!extractBindings(paramType.keyType, argType.keyType, typeParams, bindings))
+        if (!extractGenericBindings(paramType.keyType, argType.keyType, bindings))
             return false;
-        return extractBindings(paramType.valueType, argType.valueType, typeParams, bindings);
+        return extractGenericBindings(paramType.valueType, argType.valueType, bindings);
     }
     if (paramType instanceof FuncType && argType instanceof FuncType) {
         if (paramType.paramTypes.length !== argType.paramTypes.length) return false;
         for (let i = 0; i < paramType.paramTypes.length; i++) {
             if (
-                !extractBindings(
+                !extractGenericBindings(
                     paramType.paramTypes[i],
                     argType.paramTypes[i],
-                    typeParams,
                     bindings
                 )
             )
                 return false;
         }
-        return extractBindings(paramType.returnType, argType.returnType, typeParams, bindings);
+        return extractGenericBindings(paramType.returnType, argType.returnType, bindings);
     }
     if (paramType instanceof MaybeType && argType instanceof MaybeType) {
-        return extractBindings(paramType.innerType, argType.innerType, typeParams, bindings);
+        return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
+    // TODO: Should we allow automatic type resolution for generics?
     if (!typesMatchWithConversion(paramType, argType, true)) return false;
     return true;
 }

@@ -2,7 +2,7 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import { resolveGenericTaf } from "./taf-resolver";
-import { extractBindingsFromParams } from "./caller-utils";
+import { extractGenericBindingsFromParams } from "./caller-utils";
 import type { Scope } from "./scope";
 import { typeEquals } from "./type-utils";
 import {
@@ -151,7 +151,7 @@ export class StructDef extends Expression {
         const bindings = new Map<string, Type>();
         // Match field types against arg types to infer type param bindings
         if (
-            !extractBindingsFromParams(
+            !extractGenericBindingsFromParams(
                 this.fields.map((f) => ({ name: f.name, type: f.type })),
                 argTypes,
                 this.typeParams,
