@@ -87,15 +87,6 @@ export class UseModule extends Expression {
             writer.newLine();
         }
     }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new UseModule(
-            { line: this.line, col: this.col, text: "use", type: TokenType.Use },
-            this.path,
-            this.moduleBlock.clone(bindings) as Block,
-            this.symbols ? [...this.symbols] : undefined
-        );
-    }
 }
 
 // ── JS Import Symbol ──
@@ -182,17 +173,6 @@ export class UseJSModule extends Expression {
         // JS imports are emitted at the top level by the JSWriter.
         // This node produces no inline code.
     }
-
-    clone(_bindings?: Map<string, Type>): Expression {
-        return new UseJSModule(
-            { line: this.line, col: this.col, text: "use", type: TokenType.Use },
-            this.path,
-            this.imports.map((i) => ({
-                name: i.name,
-                typeAnnotation: i.typeAnnotation,
-            }))
-        );
-    }
 }
 
 /**
@@ -249,15 +229,6 @@ export class RangeIter extends Expression {
         this.type = new IterType(this.innerType);
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        return new RangeIter(
-            { line: this.line, col: this.col, text: "..", type: TokenType.DotDot },
-            this.start.clone(bindings),
-            this.end ? this.end.clone(bindings) : null,
-            this.step ? this.step.clone(bindings) : null
-        );
-    }
-
     toJS(writer: JSWriter): void {
         if (this.innerType === "Int") {
             writer.useBuiltin("$IntRangeIterator$");
@@ -303,13 +274,6 @@ export class TupleLit extends Expression {
             types.push(this.elements[i].type!);
         }
         this.type = new TupleType(types);
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new TupleLit(
-            { line: this.line, col: this.col, text: "(", type: TokenType.LParen },
-            this.elements.map((e) => e.clone(bindings))
-        );
     }
 
     toJS(writer: JSWriter): void {
@@ -549,38 +513,6 @@ export class Variable extends Expression {
         }
 
         throw this.error(`unable to resolve type of variable ${this}`);
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        let newTemplateTypes = this.templateTypes;
-        if (bindings && !this.templateTypes.empty()) {
-            newTemplateTypes = new TemplateTypes(
-                this.templateTypes.types.map((t) => substituteTypeParams(t, bindings)),
-                this.templateTypes.returnType !== null
-                    ? substituteTypeParams(this.templateTypes.returnType, bindings)
-                    : null
-            );
-        }
-        // If bindings map this variable's name (a type param) to a concrete type,
-        // create a variable referencing the concrete type name so it can be
-        // resolved in the monomorphized body.
-        let clonedName = this.name;
-        if (bindings && !this.templateTypes.empty() && bindings.has(this.name)) {
-            const boundType = bindings.get(this.name)!;
-            if (boundType instanceof CustomType) {
-                clonedName = boundType.name;
-            }
-        } else if (bindings && this.templateTypes.empty() && bindings.has(this.name)) {
-            const boundType = bindings.get(this.name)!;
-            if (boundType instanceof CustomType) {
-                clonedName = boundType.name;
-            }
-        }
-        const cloned = new Variable(
-            { line: this.line, col: this.col, text: clonedName, type: TokenType.Identifier },
-            newTemplateTypes
-        );
-        return cloned;
     }
 
     toJS(writer: JSWriter): void {

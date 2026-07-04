@@ -329,13 +329,6 @@ export class Call extends Expression {
         // }
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        return new Call(
-            { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
-            this.args.map((a) => a.clone(bindings))
-        );
-    }
-
     toJS(writer: JSWriter): void {
         // TODO: The goal here is to get rid of the "referToByName" system and have all the callers provide a "toJS" callback during the resolution in cascadeTypes.
         // Then this method can just call that callback.
@@ -401,13 +394,6 @@ export class DirectCall extends Expression {
         if (result) {
             this.toJSHelper = result.toJS;
         }
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new DirectCall(
-            this.caller.clone(bindings),
-            this.args.map((a) => a.clone(bindings))
-        );
     }
 
     toJS(writer: JSWriter): void {

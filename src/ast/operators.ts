@@ -83,19 +83,6 @@ export class Unary extends Expression {
         );
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new Unary(
-            {
-                line: this.line,
-                col: this.col,
-                text: this.operator,
-                type: this.operator as TokenType,
-            },
-            this.child.clone(bindings)
-        );
-        return cloned;
-    }
-
     toJS(writer: JSWriter): void {
         writer.write(`(${this.operator}(`);
         this.child.toJS(writer);
@@ -271,20 +258,6 @@ export class Binary extends Expression {
         throw this.error(
             `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
         );
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new Binary(
-            {
-                line: this.line,
-                col: this.col,
-                text: this.operator,
-                type: this.operator as TokenType,
-            },
-            this.left.clone(bindings),
-            this.right.clone(bindings)
-        );
-        return cloned;
     }
 
     toJS(writer: JSWriter): void {

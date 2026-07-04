@@ -71,18 +71,6 @@ export class ArrLit extends Expression {
         this.type = new ArrayType(this.innerType);
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        const newInnerType =
-            this.innerType !== undefined && bindings
-                ? substituteTypeParams(this.innerType, bindings)
-                : this.innerType;
-        return new ArrLit(
-            { line: this.line, col: this.col, text: "[", type: TokenType.LBracket },
-            this.expressions.map((e) => e.clone(bindings)),
-            newInnerType
-        );
-    }
-
     toJS(writer: JSWriter): void {
         writer.write("[");
         this.expressions.forEach((expr, i) => {
@@ -175,10 +163,6 @@ export class StructDef extends Expression {
         );
         const structType = new CustomType(this.name, [], concreteTypeArgs);
         return { fields: concreteFields, structType };
-    }
-
-    clone(_bindings?: Map<string, Type>): Expression {
-        return this; // Struct definitions are immutable, safe to share
     }
 
     toJS(_writer: JSWriter): void {
@@ -400,10 +384,6 @@ export class FieldAccess extends Expression {
         }
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        return new FieldAccess(this.obj.clone(bindings), this.fieldName);
-    }
-
     toJS(writer: JSWriter): void {
         if (this.obj.type instanceof EnumType) {
             const enumType = this.obj.type as EnumType;
@@ -493,15 +473,6 @@ export class FieldAssignment extends Expression {
             );
         }
         this.type = this.isDropped ? "Null" : assignType;
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new FieldAssignment(
-            this.obj.clone(bindings),
-            this.fieldName,
-            this.value.clone(bindings),
-            this.isDropped
-        );
     }
 
     toJS(writer: JSWriter): void {

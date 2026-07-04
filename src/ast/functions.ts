@@ -268,32 +268,6 @@ export class FunctionDef extends Expression {
         return genericMappingInfos;
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        const clonedAssociatedType =
-            this.associatedType && bindings
-                ? substituteTypeParams(this.associatedType, bindings)
-                : this.associatedType;
-        const clonedParams = this.params.map((p) => ({
-            name: p.name,
-            type: bindings ? substituteTypeParams(p.type, bindings) : p.type,
-        }));
-        const clonedReturnType = bindings
-            ? substituteTypeParams(this.returnType ?? "Unknown", bindings)
-            : this.returnType;
-        const cloned = new FunctionDef(
-            { line: this.line, col: this.col, text: this.name, type: TokenType.Func },
-            this.name,
-            clonedAssociatedType,
-            clonedParams,
-            clonedReturnType,
-            this.body.clone(bindings),
-            this.genericTypes
-        );
-        cloned.fullName = this.fullName;
-        cloned.sourceFile = this.sourceFile;
-        return cloned;
-    }
-
     /** Walk the body subtree to check if any Return needs exception handling. */
     private needsTryCatch(): boolean {
         const check = (expr: Expression): boolean => {
@@ -560,21 +534,6 @@ export class AnonymousFunction extends Expression {
             this.params.map((p) => p.type),
             this.returnType ?? bodyReturnType
         );
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new AnonymousFunction(
-            { line: this.line, col: this.col, text: "func", type: TokenType.Func },
-            this.params.map((p) => ({
-                name: p.name,
-                type: bindings && p.type !== null ? substituteTypeParams(p.type, bindings) : p.type,
-            })),
-            this.body.clone(bindings),
-            this.returnType && bindings
-                ? (substituteTypeParams(this.returnType, bindings) as Type)
-                : null
-        );
-        return cloned;
     }
 
     /** Walk the body subtree to check if any Return needs exception handling. */

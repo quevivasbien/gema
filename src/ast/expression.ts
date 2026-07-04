@@ -130,9 +130,6 @@ export abstract class Expression {
     toJS(_writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`);
     }
-
-    // Deep-clone this expression tree, optionally substituting type parameters
-    abstract clone(bindings?: Map<string, Type>): Expression;
 }
 
 export class ErrorExpression extends Expression {
@@ -141,10 +138,6 @@ export class ErrorExpression extends Expression {
         public message: string
     ) {
         super(token.line, token.col);
-    }
-
-    clone(_bindings?: Map<string, Type>): Expression {
-        return this; // Error expressions don't need deep cloning
     }
 }
 
@@ -166,10 +159,6 @@ export class DropValue extends Expression {
 
     toJS(writer: JSWriter): void {
         this.child.toJS(writer);
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new DropValue(this.child.clone(bindings));
     }
 }
 
@@ -247,14 +236,6 @@ export class Block extends Expression {
             this.expressions[i].cascadeTypes(this, childValueUsed);
         }
         this.type = this.expressions[this.expressions.length - 1].type;
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new Block(
-            { line: this.line, col: this.col, text: "", type: TokenType.LBrace },
-            this.expressions.map((e) => e.clone(bindings)),
-            new Map(this.jsImports)
-        );
     }
 
     toJS(writer: JSWriter): void {

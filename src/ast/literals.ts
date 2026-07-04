@@ -46,10 +46,6 @@ export class Literal extends Expression {
         }
     }
 
-    clone(_bindings?: Map<string, Type>): Expression {
-        return this; // Literals are immutable, safe to share
-    }
-
     toJS(compiler: JSWriter): void {
         switch (this.type) {
             case "Int":

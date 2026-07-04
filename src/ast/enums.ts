@@ -73,10 +73,6 @@ export class EnumDef extends Expression {
         };
     }
 
-    clone(_bindings?: Map<string, Type>): Expression {
-        return this; // Enum definitions are immutable, safe to share
-    }
-
     toJS(_writer: JSWriter): void {
         // Enum definitions are for type-checking only; not emitted to JS
     }
@@ -95,13 +91,6 @@ export class NoneLit extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new NoneLit(
-            { line: this.line, col: this.col, text: "none", type: TokenType.None },
-            substituteTypeParams(this.annotatedType, bindings ?? new Map())
-        );
     }
 
     toJS(writer: JSWriter): void {
@@ -304,42 +293,6 @@ export class Match extends Expression {
         const hasElse = this.arms.some((a) => a.kind === "else");
         const resolvedType = commonType instanceof EscapeType ? "Null" : (commonType ?? "Null");
         this.type = allCovered || hasElse ? resolvedType : "Null";
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new Match(
-            { line: this.line, col: this.col, text: "match", type: TokenType.Match },
-            this.scrutinee.clone(bindings),
-            this.arms.map((arm) => {
-                if (arm.kind === "some") {
-                    return {
-                        kind: "some" as const,
-                        binding: arm.binding,
-                        bindingType: null as unknown as Type,
-                        body: arm.body.clone(bindings),
-                    };
-                } else if (arm.kind === "none") {
-                    return {
-                        kind: "none" as const,
-                        body: arm.body.clone(bindings),
-                    };
-                } else if (arm.kind === "variant") {
-                    return {
-                        kind: "variant" as const,
-                        variantName: arm.variantName,
-                        binding: arm.binding,
-                        bindingType: null as unknown as Type,
-                        body: arm.body.clone(bindings),
-                    };
-                } else {
-                    // else arm
-                    return {
-                        kind: "else" as const,
-                        body: arm.body.clone(bindings),
-                    };
-                }
-            })
-        );
     }
 
     toJS(writer: JSWriter): void {

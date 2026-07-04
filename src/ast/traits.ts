@@ -75,10 +75,6 @@ export class Trait extends Expression {
         }
     }
 
-    clone(_bindings?: Map<string, Type>): Expression {
-        return this; // Traits are immutable, safe to share
-    }
-
     toJS(_writer: never): void {
         // Traits are solely for type checking and aren't converted to JS.
     }

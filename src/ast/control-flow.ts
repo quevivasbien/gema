@@ -83,18 +83,6 @@ export class If extends Expression {
         this.type = this.elseBranch !== null ? this.resolveBranchType(allBranches) : "Null";
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new If(
-            { line: this.line, col: this.col, text: "if", type: TokenType.If },
-            this.conditionalBranches.map(({ condition, branch }) => ({
-                condition: condition.clone(bindings),
-                branch: branch.clone(bindings),
-            })),
-            this.elseBranch?.clone(bindings) ?? null
-        );
-        return cloned;
-    }
-
     private branchToJS(writer: JSWriter, branch: Expression) {
         writer.beginScope();
         if (branch instanceof Block) {
@@ -128,12 +116,11 @@ export class If extends Expression {
             writer.indentIn();
             writer.newLine();
         }
-        this.conditionalBranches.forEach(({ condition, branch }) => {
-            writer.write("if (");
+        this.conditionalBranches.forEach(({ condition, branch }, i) => {
+            writer.write(i > 0 ? " else if (" : "if (");
             condition.toJS(writer);
             writer.write(") ");
             this.branchToJS(writer, branch);
-            writer.write(" else ");
         });
         if (this.elseBranch !== null) {
             this.branchToJS(writer, this.elseBranch);
@@ -243,15 +230,6 @@ export class ForLoop extends Expression {
         // For loop will always have "Null" type, but we still need to cascade the types
         // for the body to make sure it's valid.
         this.body.cascadeTypes(this, false);
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new ForLoop(
-            { line: this.line, col: this.col, text: "for", type: TokenType.For },
-            this.varName,
-            this.iter !== null ? this.iter.clone(bindings) : null,
-            this.body.clone(bindings)
-        );
     }
 
     /** Walk the body subtree to check if any Break/Continue needs exception handling. */
@@ -401,10 +379,6 @@ export class Break extends Expression {
         }
     }
 
-    clone(_bindings?: Map<string, Type>): Expression {
-        return new Break({ line: this.line, col: this.col, text: "break", type: TokenType.Break });
-    }
-
     needsExceptionForControlFlow(): boolean {
         return inForLoopNeedsExceptionForControlFlow(this);
     }
@@ -431,15 +405,6 @@ export class Continue extends Expression {
         if (!this.findEnclosing(ForLoop)) {
             throw this.error("`continue` is only allowed inside a for loop");
         }
-    }
-
-    clone(_bindings?: Map<string, Type>): Expression {
-        return new Continue({
-            line: this.line,
-            col: this.col,
-            text: "continue",
-            type: TokenType.Continue,
-        });
     }
 
     needsExceptionForControlFlow(): boolean {
@@ -483,13 +448,6 @@ export class Return extends Expression {
                 this.value
             );
         }
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new Return(
-            { line: this.line, col: this.col, text: "return", type: TokenType.Return },
-            this.value.clone(bindings)
-        );
     }
 
     /** True if this return is inside an IIFE (computed lazily via parent pointers) */
