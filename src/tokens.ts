@@ -44,8 +44,6 @@ export enum TokenType {
     Struct = "struct",
     Trait = "trait",
     Enum = "enum",
-    Where = "where",
-    Is = "is",
     If = "if",
     Else = "else",
     Mut = "mut",

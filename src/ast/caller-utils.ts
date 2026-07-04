@@ -115,7 +115,6 @@ export function extractGenericBindings(
     if (paramType instanceof MaybeType && argType instanceof MaybeType) {
         return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
-    // TODO: Should we allow automatic type resolution for generics?
     if (!typesMatchWithConversion(paramType, argType, true)) return false;
     return true;
 }

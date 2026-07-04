@@ -3,7 +3,7 @@ import { findBuiltin } from "./builtins/builtin-calls";
 import type { Expression } from "./expression";
 import { Literal } from "./literals";
 import { RangeIter } from "./nodes";
-import type { Scope } from "./scope";
+import type { GenericMappingInfo, Scope } from "./scope";
 import {
     compatibleIndicesForArrayType,
     paramTypesMatchArgTypes,
@@ -354,6 +354,22 @@ function resolveTraitFunctionCall(
     return null;
 }
 
+function writeTraitImplDictionaries(writer: JSWriter, genericMapping: GenericMappingInfo[]) {
+    for (const genericInfo of genericMapping) {
+        for (const trait of Object.keys(genericInfo.traitImpls)) {
+            const traitImpl = genericInfo.traitImpls[trait];
+            writer.write(", {");
+            let first = true;
+            for (const fnName of Object.keys(traitImpl)) {
+                if (!first) writer.write(", ");
+                first = false;
+                writer.write(`${fnName}: ${safeJSName(traitImpl[fnName])}`);
+            }
+            writer.write("}");
+        }
+    }
+}
+
 export function findCaller(
     callExpr: Expression,
     name: string,
@@ -443,16 +459,7 @@ export function findCaller(
                             arg.toJS(writer);
                         });
                         // Pass trait implementation dictionaries
-                        for (const implInfo of funcMatch.traitImpls) {
-                            writer.write(", {");
-                            let first = true;
-                            for (const [fnName, fnFullName] of Object.entries(implInfo.fnImpls)) {
-                                if (!first) writer.write(", ");
-                                first = false;
-                                writer.write(`${fnName}: ${safeJSName(fnFullName)}`);
-                            }
-                            writer.write("}");
-                        }
+                        writeTraitImplDictionaries(writer, funcMatch.genericMapping);
                         writer.write(")");
                     },
                 },
@@ -521,16 +528,7 @@ export function findCaller(
                             arg.toJS(writer);
                         }
                     });
-                    for (const implInfo of looseFuncMatch.traitImpls) {
-                        writer.write(", {");
-                        let first = true;
-                        for (const [fnName, fnFullName] of Object.entries(implInfo.fnImpls)) {
-                            if (!first) writer.write(", ");
-                            first = false;
-                            writer.write(`${fnName}: ${safeJSName(fnFullName)}`);
-                        }
-                        writer.write("}");
-                    }
+                    writeTraitImplDictionaries(writer, looseFuncMatch.genericMapping);
                     writer.write(")");
                 },
             },

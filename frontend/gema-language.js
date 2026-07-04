@@ -7,8 +7,6 @@ const KEYWORDS = new Set([
     "struct",
     "enum",
     "trait",
-    "where",
-    "is",
     "match",
     "if",
     "else",

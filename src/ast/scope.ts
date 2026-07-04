@@ -23,11 +23,14 @@ export type FuncAttributes = {
     fullName: string;
 };
 
-export type TraitImplInfo = {
+export type GenericMappingInfo = {
+    // Name of the generic type
     generic: string;
-    trait: string;
+    // Type bound to generic type
     boundType: Type;
-    fnImpls: Record<string, string>;
+    // Required trait implementations for generic type
+    // Trait impls is { traitName: { traitFnName: implementedFnName }}
+    traitImpls: Record<string, Record<string, string>>;
 };
 
 export type GenericFuncAttributes = {
@@ -39,7 +42,7 @@ export type GenericFuncAttributes = {
         callerScope: Scope,
         argTypes: Type[],
         associatedType: Type | null
-    ) => TraitImplInfo[] | null;
+    ) => GenericMappingInfo[] | null;
 };
 
 export type ResolvedGenericFuncAttributes = {
@@ -47,7 +50,7 @@ export type ResolvedGenericFuncAttributes = {
     name: string;
     type: FuncType;
     fullName: string;
-    traitImpls: TraitImplInfo[];
+    genericMapping: GenericMappingInfo[];
 };
 
 export type StructAttributes = {
@@ -175,11 +178,15 @@ export class Scope {
                 }
             } else if (v.class === "generic") {
                 // For generic functions, call the traitImplGetter to verify that argTypes are compatible
-                const traitImpls = v.traitImplGetter(rootScope ?? this, argTypes, associatedType);
-                if (traitImpls !== null) {
+                const genericMapping = v.traitImplGetter(
+                    rootScope ?? this,
+                    argTypes,
+                    associatedType
+                );
+                if (genericMapping !== null) {
                     // Create bindings to remap generic types to bound types in function signature
                     const bindings = new Map<string, Type>();
-                    for (const { generic, boundType } of traitImpls) {
+                    for (const { generic, boundType } of genericMapping) {
                         bindings.set(generic, boundType);
                     }
                     console.log("Using bindings:", bindings);
@@ -194,7 +201,7 @@ export class Scope {
                         name: v.name,
                         type: substituteTypeParams(v.type, bindings) as FuncType,
                         fullName: v.fullName,
-                        traitImpls,
+                        genericMapping,
                     };
                 }
             }

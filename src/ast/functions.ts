@@ -4,7 +4,7 @@ import { extractGenericBindings, functionNameWithParamTypes } from "./caller-uti
 import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
 
 import { Call } from "./calls";
-import { Scope, type TraitAttributes, type TraitImplInfo } from "./scope";
+import { Scope, type TraitAttributes, type GenericMappingInfo } from "./scope";
 import { substituteTypeParams, typeEquals } from "./type-utils";
 import { CustomType, EscapeType, FuncType, GenericType, type Type } from "./types";
 
@@ -209,7 +209,7 @@ export class FunctionDef extends Expression {
         callerScope: Scope,
         argTypes: Type[],
         associatedType: Type | null
-    ): TraitImplInfo[] | null {
+    ): GenericMappingInfo[] | null {
         if (!this.isGeneric()) {
             throw this.error(`tried to monomorphize non-generic function ${this.fullName}`);
         }
@@ -226,23 +226,22 @@ export class FunctionDef extends Expression {
         const bindings = new Map<string, Type>();
         for (let i = 0; i < this.params.length; i++) {
             if (!extractGenericBindings(this.params[i].type, argTypes[i], bindings)) {
-                throw this.error(
-                    `encountered error while attempting to extract generic binding for parameter ${this.params[i].name}`
-                );
+                // Not a match -- trying to substitute incompatible types
+                return null;
             }
         }
         if (this.associatedType !== null && associatedType !== null) {
             if (!extractGenericBindings(this.associatedType, associatedType, bindings)) {
-                throw this.error(
-                    `encountered error while attempting to extract generic binding for associated type of function ${this.fullName}`
-                );
+                // Not a match
+                return null;
             }
         }
 
         // Check in the caller scope to make sure that the bound types satisfy the required traits
-        const traitFnNames: TraitImplInfo[] = [];
+        const genericMappingInfos: GenericMappingInfo[] = [];
         for (const generic of this.genericTypes!) {
             const candidateType = bindings.get(generic.name)!;
+            const traitImpls: Record<string, Record<string, string>> = {};
             for (const traitName of generic.traits) {
                 const traitAttrs = this.traitDefs?.find((td) => td.name === traitName);
                 if (!traitAttrs) {
@@ -257,16 +256,16 @@ export class FunctionDef extends Expression {
                     // Not a match -- candidate type doesn't implement trait
                     return null;
                 }
-                traitFnNames.push({
-                    generic: generic.name,
-                    trait: traitName,
-                    boundType: candidateType,
-                    fnImpls,
-                });
+                traitImpls[traitName] = fnImpls;
             }
+            genericMappingInfos.push({
+                generic: generic.name,
+                boundType: candidateType,
+                traitImpls,
+            });
         }
 
-        return traitFnNames;
+        return genericMappingInfos;
     }
 
     clone(bindings?: Map<string, Type>): Expression {
@@ -316,7 +315,9 @@ export class FunctionDef extends Expression {
             return null;
         }
         // Check if the lastExpr is a call to _this_ function
-        if (!typeEquals(lastExpr.callerType, this.getFuncType())) {
+        // Must match both name and type — type alone isn't enough because trait-routed
+        // calls inside generic bodies can have the same type signature as the enclosing function.
+        if (lastExpr.name !== this.name || !typeEquals(lastExpr.callerType, this.getFuncType())) {
             return null;
         }
         return lastExpr;
