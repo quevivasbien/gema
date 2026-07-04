@@ -260,8 +260,7 @@ test("anon: pipe with func syntax", () => {
 test("anon: backslash inside generic function body", () => {
     testCompile(
         `
-        trait Any {}
-        func length(arr: Iter[T]): Num where T is Any {
+        func [T] length(arr: Iter[T]): Num {
             reduce(\\(acc, x) { acc + 1 }, 0, arr)
         };
         length([10, 20, 30])

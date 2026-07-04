@@ -236,9 +236,7 @@ test("compile fallback on functions with Iter params when calling with Arr", () 
 test("compile function with nested generic type", () => {
     testCompile(
         `
-        trait Any {}
-
-        func getLength(arr: Arr[T]): Num where T is Any {
+        func [T] getLength(arr: Arr[T]): Num {
             reduce(func(acc: Num, x: T) { acc + 1 }, 0, arr)
         }
 
@@ -252,7 +250,7 @@ test("compile function with nested generic type", () => {
             sum[(a: Self, b: Self): Self],
         }
 
-        func computeSum(arr: Arr[T]): T where T is Summable {
+        func [T: Summable] computeSum(arr: Arr[T]): T {
             reduce(func(acc: T, x: T) { sum(acc, x) }, 0, arr)
         }
 
@@ -273,7 +271,7 @@ test("compile function with nested generic type", () => {
             sum[(a: Self, b: Self): Self],
         }
 
-        func sum(iter: Iter[T], start: T): T where T is Summable {
+        func [T: Summable] sum(iter: Iter[T], start: T): T {
             reduce(func(acc: T, x: T) { sum(acc, x) }, start, iter)
         }
 
@@ -291,7 +289,7 @@ test("compile function with nested generic type", () => {
             concat[(a: Self, b: Self): Self],
         }
 
-        func join(iter: Iter[T], start: T): T where T is Concat {
+        func [T: Concat] join(iter: Iter[T], start: T): T {
             reduce(func(acc: T, x: T) { concat(acc, x) }, start, iter)
         }
 

@@ -207,7 +207,7 @@ trait Concatenatable {
 }
 
 # Generic: works with any Concatenatable type
-func tacnoc(a: T, b: T): T where T is Concatenatable {
+func [T: Concatenatable] tacnoc(a: T, b: T): T {
   concat(b, a)
 }
 

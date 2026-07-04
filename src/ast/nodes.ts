@@ -480,30 +480,30 @@ export class Variable extends Expression {
         }
 
         // type param from enclosing generic function (e.g., T in T.zero())
-        // TODO: I don't think we need this any more
-        if (!isBuiltinTypeName(this.name)) {
-            let fn: Expression | null = this.parent;
-            // TODO: we could get rid of the instanceof check here and just
-            // have a class method called something like getGenericTypeParams
-            while (fn) {
-                // if (
-                //     fn instanceof FunctionDef &&
-                //     fn.isGeneric &&
-                //     fn.typeParams.includes(this.name)
-                // ) {
-                //     const traits: string[] = [];
-                //     for (const param of fn.params) {
-                //         traits.push(...collectTraitsForTypeParam(param.type, this.name));
-                //     }
-                //     const ct = new CustomType(this.name);
-                //     for (const t of traits) ct.addTrait(t);
-                //     this.type = ct;
-                //     this.fullName = this.name;
-                //     return;
-                // }
-                // fn = fn.parent;
-            }
-        }
+        // TODO: We need to handle this case differently now that we have have reworked our scope system
+        // if (!isBuiltinTypeName(this.name)) {
+        // let fn: Expression | null = this.parent;
+        // TODO: we could get rid of the instanceof check here and just
+        // have a class method called something like getGenericTypeParams
+        // while (fn) {
+        // if (
+        //     fn instanceof FunctionDef &&
+        //     fn.isGeneric &&
+        //     fn.typeParams.includes(this.name)
+        // ) {
+        //     const traits: string[] = [];
+        //     for (const param of fn.params) {
+        //         traits.push(...collectTraitsForTypeParam(param.type, this.name));
+        //     }
+        //     const ct = new CustomType(this.name);
+        //     for (const t of traits) ct.addTrait(t);
+        //     this.type = ct;
+        //     this.fullName = this.name;
+        //     return;
+        // }
+        // fn = fn.parent;
+        // }
+        // }
 
         // builtin type name used as a type reference (e.g., Int in Int.zero())
         if (isBuiltinTypeName(this.name)) {

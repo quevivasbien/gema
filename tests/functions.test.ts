@@ -130,8 +130,7 @@ test("compile generic function without return type annotation", () => {
     );
     testCompile(
         `
-        trait Any {}
-        func [T: Any] id(x: T) { x }
+        func [T] id(x: T) { x }
         id("hello")
     `,
         "hello"
@@ -231,8 +230,7 @@ test("functions: a function that returns a function on an iterable", () => {
 test("functions: generic type must appear in at least one param", () => {
     testParseExpectError(
         `
-        trait Any {}
-        func makeGetter(i: Num): Func[Iter[T]: Maybe[T]] where T is Any {
+        func [T] makeGetter(i: Num): Func[Iter[T]: Maybe[T]] {
             func(t: Iter[T]) {
                 t(i)
             }
@@ -350,13 +348,12 @@ test("TAF template: multiple template args", () => {
     );
 });
 
-// ── Generic TAFs: func Arr[T].empty() where T is Any ────
+// ─ [T]─ Generic TAFs: func Arr[T].empty() ────
 
 test("TAF generic: Arr[T].empty() monomorphized to Int", () => {
     testCompile(
         `
-        trait Any {}
-        func Arr[T].empty() where T is Any { []:T }
+        func [T] Arr[T].empty() { []:T }
         Arr[Num].empty()
         `,
         []
@@ -366,8 +363,7 @@ test("TAF generic: Arr[T].empty() monomorphized to Int", () => {
 test("TAF generic: Arr[T].empty() monomorphized to Str", () => {
     testCompile(
         `
-        trait Any {}
-        func Arr[T].empty() where T is Any { []:T }
+        func [T] Arr[T].empty() { []:T }
         Arr[Str].empty()
         `,
         []
@@ -377,8 +373,7 @@ test("TAF generic: Arr[T].empty() monomorphized to Str", () => {
 test("TAF generic: Arr[T].empty with type-param body", () => {
     testCompile(
         `
-        trait Any {}
-        func Arr[T].fill(v: T, n: Num): Arr[T] where T is Any {
+        func [T] Arr[T].fill(v: T, n: Num): Arr[T] {
             map(\\_ v, 1..n) | collect
         }
         Arr[Num].fill(42, 3)
@@ -392,8 +387,7 @@ test("TAF generic: Arr[T].empty with type-param body", () => {
 test("TAF type-param: T.emptyArray() monomorphized to Int", () => {
     testCompile(
         `
-        trait Any {}
-        func T.emptyArray() where T is Any { []:T }
+        func [T] T.emptyArray() { []:T }
         Int.emptyArray()
         `,
         []
@@ -403,8 +397,7 @@ test("TAF type-param: T.emptyArray() monomorphized to Int", () => {
 test("TAF type-param: T.emptyArray() monomorphized to Str", () => {
     testCompile(
         `
-        trait Any {}
-        func T.emptyArray() where T is Any { []:T }
+        func [T] T.emptyArray() { []:T }
         Str.emptyArray()
         `,
         []
@@ -433,7 +426,7 @@ test("TAF trait: struct implementing Self.zero", () => {
         struct S { s: Num }
         func add(a: S, b: S) { S(a.s + b.s) }
         func S.zero() { S(0) }
-        func sum(iter: Iter[T]) where T is Summable {
+        func [T: Summable] sum(iter: Iter[T]) {
             reduce(\\(acc, x) { acc + x }, T.zero(), iter)
         }
         sum([S(1), S(2), S(3)]).s

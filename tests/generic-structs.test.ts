@@ -59,9 +59,8 @@ describe("generic structs", () => {
     test("generic struct in function return type", () => {
         testCompile(
             `
-            trait Any {}
             struct Pair[T] { a: T, b: T }
-            func makePair[T](x: T): Pair[T] where T is Any { Pair(x, x) }
+            func [T] makePair[T](x: T): Pair[T] { Pair(x, x) }
             makePair(5)
             `,
             { a: 5, b: 5 }

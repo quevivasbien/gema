@@ -177,8 +177,7 @@ test("function with Maybe parameter", () => {
 test("function with generic Maybe parameter", () => {
     testCompile(
         `
-        trait Any {}
-        func issome(x: Maybe[T]): Bool where T is Any {
+        func [T] issome(x: Maybe[T]): Bool {
             !isnone(x)
         }
         x = [1,2](0);

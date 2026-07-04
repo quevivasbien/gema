@@ -214,12 +214,13 @@ test("module: generic function with trait bound", () => {
     // A simpler generic test: trait in module, implementation in entry
     testCompileMulti(
         {
-            "traits.gema": `trait Any {}
+            "traits.gema": `trait Foo { foo[(a: Num): Num] }
 
-func getLength(arr: Arr[T]): Num where T is Any {
+func [T: Foo] getLength(arr: Arr[T]): Num {
     length(arr)
 }`,
             "main.gema": `use "traits.gema"
+func foo(a: Num) { 1 }
 getLength([10, 20, 30])`,
         },
         "main.gema",

@@ -338,8 +338,7 @@ test("for: nested for loop with same iterator", () => {
     // Iterators need to be cloned if used in a nested fashion
     testCompile(
         `
-        trait Any {}
-        func square(iter: Iter[T]) where T is Any {
+        func [T] square(iter: Iter[T]) {
             result = []: Tup[T, T] | trans;
             for a = iter {
                 for b = iter {

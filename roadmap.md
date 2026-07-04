@@ -6,53 +6,18 @@
 - Remove support for keyword args, simplify trait definition syntax
 - Simplify generic function resolution?
 
-### How should generic dispatch work?
-
-Previously, we monomorphized functions, but this led to complicated problems with scope, especially across modules. Instead, let's use a "dictionary passing" system that works something like this:
+### Outstanding bugs with reworked caller dispatch:
 
 ```gema
-trait Foo { foo[(a: Self): Self] }
-
-func [T: Foo] bar(x: T) {
-  foo(x)
+func [T] foo(x: T) {
+    func bar(y: T) {
+        y
+    }
+    bar(x)
 }
 
-
-func foo(x: Num) {
-  x
-}
-
-bar(1)
-```
-
-compiles to something like
-
-```js
-function bar$$T$(x, $$implFoo_T) {
-    $$implFoo_T.foo(x);
-}
-
-function foo$Num(x) {
-    x;
-}
-
-bar(1, { foo: foo$Num });
-```
-
-Example of failing case:
-
-```gema
-trait Foo {
-    foo[(a: Self, b: Num): Num],
-}
-
-func [T: Foo] foo(x: T) {x}
-
-func foo(a: Num, b: Num) {
-    a + b
-}
-
-foo(1)  # It tries to call foo$Num$Num instead of the intended foo$Num
+foo(1)
+# fails with error `function bar[T[[]]: unknown] not found`
 ```
 
 ## IO

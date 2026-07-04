@@ -35,13 +35,11 @@ test("compile struct field access on param", () => {
 test("compile struct with generic identity function", () => {
     testCompile(
         `
-        trait Any {}
-
         struct Point {
             x: Num,
             y: Int
         };
-        func id(a: T): T where T is Any {
+        func [T] id(a: T): T {
             a
         };
         p = Point(1, 2i);
