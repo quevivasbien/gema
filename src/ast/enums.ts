@@ -3,8 +3,8 @@ import type { JSWriter } from "../write-js";
 import { ASTError, Expression } from "./expression";
 import { Scope } from "./scope";
 
-import { typeEquals } from "./type-utils";
-import { EscapeType, MaybeType, substituteTypeParams, type Type } from "./types";
+import { substituteTypeParams, typeEquals } from "./type-utils";
+import { EscapeType, MaybeType, type Type } from "./types";
 
 // ── Enum definition ───────────────────────────────────────
 

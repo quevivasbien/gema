@@ -259,3 +259,64 @@ export function compatibleIndicesForArrayType(indexTypes: Type[]): string | null
     }
     return null;
 }
+
+// Substitute type parameters in a type tree using a binding map
+export function substituteTypeParams(type: Type, bindings: Map<string, Type>): Type {
+    if (type === "Self" && bindings.has("Self")) {
+        const substituted = bindings.get("Self")!;
+        return substituted;
+    }
+    if ((type instanceof CustomType || type instanceof GenericType) && bindings.has(type.name)) {
+        const substituted = bindings.get(type.name)!;
+        return substituted;
+    }
+    if (type instanceof CustomType && type.templateArgs) {
+        return new CustomType(
+            type.name,
+            type.templateArgs.map((t) => substituteTypeParams(t, bindings))
+        );
+    }
+    if (type instanceof FuncType) {
+        return new FuncType(
+            type.paramTypes.map((pt) => substituteTypeParams(pt, bindings)),
+            substituteTypeParams(type.returnType, bindings)
+        );
+    }
+    if (type instanceof ArrayType) {
+        return new ArrayType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof IterType) {
+        return new IterType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof MutArrType) {
+        return new MutArrType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof TupleType) {
+        return new TupleType(type.types.map((t) => substituteTypeParams(t, bindings)));
+    }
+    if (type instanceof DictType) {
+        return new DictType(
+            substituteTypeParams(type.keyType, bindings),
+            substituteTypeParams(type.valueType, bindings)
+        );
+    }
+    if (type instanceof MutDictType) {
+        return new MutDictType(
+            substituteTypeParams(type.keyType, bindings),
+            substituteTypeParams(type.valueType, bindings)
+        );
+    }
+    if (type instanceof SetType) {
+        return new SetType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof MutSetType) {
+        return new MutSetType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof MaybeType) {
+        return new MaybeType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof EscapeType) {
+        return new EscapeType(substituteTypeParams(type.innerType, bindings));
+    }
+    return type;
+}

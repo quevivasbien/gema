@@ -1,5 +1,5 @@
-import { paramTypesMatchArgTypes } from "./type-utils";
-import { FuncType, type TemplateTypes, substituteTypeParams, type Type } from "./types";
+import { paramTypesMatchArgTypes, substituteTypeParams } from "./type-utils";
+import { FuncType, GenericType, type TemplateTypes, type Type } from "./types";
 
 export type VarAttributes = {
     class: "var";
@@ -23,7 +23,12 @@ export type FuncAttributes = {
     fullName: string;
 };
 
-export type TraitImplInfo = { generic: string; trait: string; fnImpls: Record<string, string> };
+export type TraitImplInfo = {
+    generic: string;
+    trait: string;
+    boundType: Type;
+    fnImpls: Record<string, string>;
+};
 
 export type GenericFuncAttributes = {
     class: "generic";
@@ -172,10 +177,22 @@ export class Scope {
                 // For generic functions, call the traitImplGetter to verify that argTypes are compatible
                 const traitImpls = v.traitImplGetter(rootScope ?? this, argTypes, associatedType);
                 if (traitImpls !== null) {
+                    // Create bindings to remap generic types to bound types in function signature
+                    const bindings = new Map<string, Type>();
+                    for (const { generic, boundType } of traitImpls) {
+                        bindings.set(generic, boundType);
+                    }
+                    console.log("Using bindings:", bindings);
+                    console.log(
+                        "Mapped from",
+                        v.type,
+                        " to ",
+                        substituteTypeParams(v.type, bindings)
+                    );
                     return {
                         class: v.class,
                         name: v.name,
-                        type: v.type,
+                        type: substituteTypeParams(v.type, bindings) as FuncType,
                         fullName: v.fullName,
                         traitImpls,
                     };
@@ -248,8 +265,8 @@ export class Scope {
     updateFuncType(fullName: string, newType: FuncType): void {
         for (let i = this.variables.length - 1; i >= 0; i--) {
             const v = this.variables[i];
-            if (v.class === "func" && v.fullName === fullName) {
-                (v as { type: FuncType }).type = newType;
+            if ((v.class === "func" || v.class === "generic") && v.fullName === fullName) {
+                v.type = newType;
                 return;
             }
         }

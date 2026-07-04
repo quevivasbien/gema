@@ -1,9 +1,14 @@
+import { safeJSName, type JSWriter } from "../write-js";
+import { findBuiltin } from "./builtins/builtin-calls";
 import type { Expression } from "./expression";
-import { FunctionDef } from "./functions";
+import { Literal } from "./literals";
 import { RangeIter } from "./nodes";
-import type { StructDef } from "./structs";
 import type { Scope } from "./scope";
-import { compatibleIndicesForArrayType, paramTypesMatchArgTypes } from "./type-utils";
+import {
+    compatibleIndicesForArrayType,
+    paramTypesMatchArgTypes,
+    substituteTypeParams,
+} from "./type-utils";
 import {
     ArrayType,
     CustomType,
@@ -18,9 +23,6 @@ import {
     type CallableType,
     type Type,
 } from "./types";
-import { safeJSName, type JSWriter } from "../write-js";
-import { findBuiltin } from "./builtins/builtin-calls";
-import { Literal } from "./literals";
 
 // ── Discriminated union for findCaller results ──
 // TODO: Probably do not need to include the callerType in each of these -- can just save the return type
@@ -316,12 +318,24 @@ function resolveTraitFunctionCall(
         if (traitDef) {
             const matchingFn = traitDef.requiredFunctions.find((rf) => rf.name === name);
             if (matchingFn) {
+                // Build bindings: substitute Self in the trait's param types with
+                // the actual arg types at the corresponding positions.
+                // TODO: Doesn't yet work with associated types
+                const bindings = new Map<string, Type>();
+                for (let i = 0; i < matchingFn.types.types.length && i < argTypes.length; i++) {
+                    if (matchingFn.types.types[i] === "Self") {
+                        bindings.set("Self", argTypes[i]);
+                    }
+                }
+                const substitutedParamTypes = matchingFn.types.types.map((t) =>
+                    substituteTypeParams(t, bindings)
+                );
+                const substitutedReturnType = matchingFn.types.returnType
+                    ? substituteTypeParams(matchingFn.types.returnType, bindings)
+                    : "Unknown";
                 return {
                     kind: "function",
-                    callerType: new FuncType(
-                        matchingFn.types.types,
-                        matchingFn.types.returnType ?? "Null"
-                    ),
+                    callerType: new FuncType(substitutedParamTypes, substitutedReturnType),
                     toJS(writer) {
                         writer.write(`$$impl${traitName}_${genericName}.${name}(`);
                         args.forEach((arg, i) => {
@@ -413,6 +427,7 @@ export function findCaller(
             // Generic function definition
             // TODO: Determine the concrete return type by substituting generic type params
             // with the actual argument types — for now, use the generic return type as-is
+            console.log("Matched with", funcMatch);
             return {
                 error: null,
                 result: {

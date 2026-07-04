@@ -1,18 +1,18 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import { functionNameWithParamTypes } from "./caller-utils";
 import { Assignment } from "./assignment";
-import { Block, Expression } from "./expression";
+import { functionNameWithParamTypes } from "./caller-utils";
 import type { EnumDef } from "./enums";
+import { Block, Expression } from "./expression";
 import type { FunctionDef } from "./functions";
 import type { StructDef } from "./structs";
 
+import { substituteTypeParams } from "./type-utils";
 import {
     CustomType,
     FuncType,
     isBuiltinTypeName,
     IterType,
-    substituteTypeParams,
     TemplateTypes,
     TupleType,
     type Type,

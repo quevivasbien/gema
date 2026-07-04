@@ -20,19 +20,20 @@ import {
 /** Produce a stable, readable name fragment for a type. */
 export function typeToName(t: Type): string {
     if (typeof t === "string") return t;
-    if (t instanceof CustomType || t instanceof GenericType) return t.name;
-    if (t instanceof ArrayType) return `Arr_${typeToName(t.innerType)}`;
-    if (t instanceof IterType) return `Iter_${typeToName(t.innerType)}`;
-    if (t instanceof MutArrType) return `MutArr_${typeToName(t.innerType)}`;
-    if (t instanceof TupleType) return `Tup_${t.types.map(typeToName).join("_")}`;
-    if (t instanceof DictType) return `Dict_${typeToName(t.keyType)}_${typeToName(t.valueType)}`;
+    if (t instanceof CustomType) return t.name;
+    if (t instanceof GenericType) return `$Generic_${t.name}`;
+    if (t instanceof ArrayType) return `$Arr_${typeToName(t.innerType)}`;
+    if (t instanceof IterType) return `$Iter_${typeToName(t.innerType)}`;
+    if (t instanceof MutArrType) return `$MutArr_${typeToName(t.innerType)}`;
+    if (t instanceof TupleType) return `$Tup_${t.types.map(typeToName).join("_")}`;
+    if (t instanceof DictType) return `$Dict_${typeToName(t.keyType)}_${typeToName(t.valueType)}`;
     if (t instanceof MutDictType)
-        return `MutDict_${typeToName(t.keyType)}_${typeToName(t.valueType)}`;
-    if (t instanceof SetType) return `Set_${typeToName(t.innerType)}`;
-    if (t instanceof MutSetType) return `MutSet_${typeToName(t.innerType)}`;
+        return `$MutDict_${typeToName(t.keyType)}_${typeToName(t.valueType)}`;
+    if (t instanceof SetType) return `$Set_${typeToName(t.innerType)}`;
+    if (t instanceof MutSetType) return `$MutSet_${typeToName(t.innerType)}`;
     if (t instanceof FuncType)
-        return `Func_${t.paramTypes.map(typeToName).join("_")}_${typeToName(t.returnType)}`;
-    if (t instanceof MaybeType) return `Maybe_${typeToName(t.innerType)}`;
+        return `$Func_${t.paramTypes.map(typeToName).join("_")}_${typeToName(t.returnType)}`;
+    if (t instanceof MaybeType) return `$Maybe_${typeToName(t.innerType)}`;
     return "Null";
 }
 

@@ -55,7 +55,6 @@ func foo(a: Num, b: Num) {
 foo(1)  # It tries to call foo$Num$Num instead of the intended foo$Num
 ```
 
-
 ## IO
 
 We should have some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
@@ -194,6 +193,8 @@ Error in main.gema at line 5, column 1: incompatible argument types in function 
 - Only allow integer literals for accessing tuples.
 
 - Generic functions defined in a different module won't correctly capture variables if monomorphized from another module. The easiest way to avoid this would probably just be to prohibit generics from capturing variables, but that would be a bit awkward... Maybe there's a way to give the original definition a unique name that won't clash with anything else, make sure it's not removed by tree-shaking, and reference the original definition in the monomorphized version.
+
+- Allow traits to have Self in a nested position, like `trait Foo { foo[(a: Arr[Self]): Maybe[Self]] }`
 
 ## Optimizations
 

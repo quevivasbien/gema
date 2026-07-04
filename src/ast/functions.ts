@@ -3,58 +3,10 @@ import type { JSWriter } from "../write-js";
 import { extractGenericBindings, functionNameWithParamTypes } from "./caller-utils";
 import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
 
-import { typeEquals } from "./type-utils";
-import {
-    CustomType,
-    EscapeType,
-    FuncType,
-    GenericType,
-    substituteTypeParams,
-    type Type,
-} from "./types";
 import { Call } from "./calls";
 import { Scope, type TraitAttributes, type TraitImplInfo } from "./scope";
-
-/**
- * Recursively set sourceFile on every node in a cloned expression tree.
- * Used after monomorphization so error messages show the correct source file.
- * TODO: This should be a method on the Expression class
- */
-function tagClonedTree(node: Expression, sourceFile: string): void {
-    node.sourceFile = sourceFile;
-    const skipKeys = new Set(["parent", "type"]);
-    for (const key of Object.keys(node) as (keyof Expression)[]) {
-        if (skipKeys.has(key as string)) continue;
-        const val = (node as unknown as Record<string, unknown>)[key as string];
-        if (val instanceof Expression) {
-            tagClonedTree(val, sourceFile);
-        } else if (Array.isArray(val)) {
-            for (const item of val) {
-                if (item instanceof Expression) {
-                    tagClonedTree(item, sourceFile);
-                } else if (
-                    item &&
-                    typeof item === "object" &&
-                    "value" in (item as Record<string, unknown>)
-                ) {
-                    const kw = item as { value: Expression };
-                    if (kw.value instanceof Expression) {
-                        tagClonedTree(kw.value, sourceFile);
-                    }
-                } else if (
-                    item &&
-                    typeof item === "object" &&
-                    ("condition" in (item as Record<string, unknown>) ||
-                        "branch" in (item as Record<string, unknown>))
-                ) {
-                    const cb = item as { condition?: Expression; branch?: Expression };
-                    if (cb.condition instanceof Expression) tagClonedTree(cb.condition, sourceFile);
-                    if (cb.branch instanceof Expression) tagClonedTree(cb.branch, sourceFile);
-                }
-            }
-        }
-    }
-}
+import { substituteTypeParams, typeEquals } from "./type-utils";
+import { CustomType, EscapeType, FuncType, GenericType, type Type } from "./types";
 
 /**
  * A non-anonymous function definition block
@@ -233,6 +185,9 @@ export class FunctionDef extends Expression {
         // If we didn't already add the return type to the function definition to the
         // enclosing scope, we need to do so now
         if (mustResolveReturnTypeLater) {
+            console.log(
+                `Resolving previous unknown return type for ${this.fullName} as ${this.returnType}`
+            );
             enclosingScope.updateFuncType(
                 this.fullName,
                 new FuncType(
@@ -302,7 +257,12 @@ export class FunctionDef extends Expression {
                     // Not a match -- candidate type doesn't implement trait
                     return null;
                 }
-                traitFnNames.push({ generic: generic.name, trait: traitName, fnImpls });
+                traitFnNames.push({
+                    generic: generic.name,
+                    trait: traitName,
+                    boundType: candidateType,
+                    fnImpls,
+                });
             }
         }
 

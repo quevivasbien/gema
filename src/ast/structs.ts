@@ -1,15 +1,14 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
-import { resolveGenericTaf } from "./taf-resolver";
 import type { Scope } from "./scope";
-import { typeEquals } from "./type-utils";
+import { resolveGenericTaf } from "./taf-resolver";
+import { substituteTypeParams, typeEquals } from "./type-utils";
 import {
     ArrayType,
     CustomType,
     FuncType,
     isBuiltinTypeName,
-    substituteTypeParams,
     type TemplateTypes,
     type Type,
 } from "./types";
