@@ -7,7 +7,6 @@ import { typeEquals } from "./type-utils";
 import {
     ArrayType,
     CustomType,
-    EnumType,
     EscapeType,
     isBuiltinTypeName,
     IterType,
@@ -149,7 +148,25 @@ export class If extends Expression {
 }
 
 export class ForLoop extends Expression {
-    scope: Scope = new Scope();
+    // TODO: Parser should reflect that any Expression type is permissible for the body
+    varName: string | null;
+    iter: Expression | null;
+    body: Expression;
+    scope: Scope;
+
+    constructor(
+        startToken: Token,
+        varName: string | null,
+        iter: Expression | null,
+        body: Expression
+    ) {
+        super(startToken.line, startToken.col);
+        this.varName = varName;
+        this.iter = iter;
+        this.body = body;
+        this.scope = new Scope();
+        this.type = "Null";
+    }
 
     getScope(): Scope | null {
         return this.scope;
@@ -166,49 +183,18 @@ export class ForLoop extends Expression {
     getLoopVariableInnerType(): Type | null {
         if (this.iter === null || this.iter.type === null) return null;
         let innerType: Type;
-        if (this.iter.type instanceof ArrayType) innerType = this.iter.type.innerType;
-        else if (this.iter.type instanceof IterType) innerType = this.iter.type.innerType;
-        else if (this.iter.type instanceof MutArrType) innerType = this.iter.type.innerType;
-        else if (this.iter.type === "Str") return "Str";
-        else return null;
-
-        // Resolve CustomType names to their actual enum/struct types from scope.
-        // For example, Arr[Action] stores Action as CustomType("Action"), but the
-        // loop variable needs the full EnumType for match expressions to work.
-        if (innerType instanceof CustomType && !isBuiltinTypeName(innerType.name)) {
-            const scopeLookup = this.scope.lookup(innerType.name);
-            if (scopeLookup) {
-                const attrs = scopeLookup.attrs;
-                if (attrs.class === "enum") {
-                    return new EnumType(
-                        attrs.name,
-                        attrs.variants.map((v: { name: string; type: Type | null }) => ({
-                            name: v.name,
-                            type: v.type,
-                        }))
-                    );
-                }
-            }
+        if (this.iter.type instanceof ArrayType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type instanceof IterType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type instanceof MutArrType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type === "Str") {
+            return "Str";
+        } else {
+            return null;
         }
         return innerType;
-    }
-
-    // TODO: Parser should reflect that any Expression type is permissible for the body
-    varName: string | null;
-    iter: Expression | null;
-    body: Expression;
-
-    constructor(
-        startToken: Token,
-        varName: string | null,
-        iter: Expression | null,
-        body: Expression
-    ) {
-        super(startToken.line, startToken.col);
-        this.varName = varName;
-        this.iter = iter;
-        this.body = body;
-        this.type = "Null";
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {

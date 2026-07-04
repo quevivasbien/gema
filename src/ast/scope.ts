@@ -1,5 +1,5 @@
 import { paramTypesMatchArgTypes } from "./type-utils";
-import { type EnumVariant, type FuncType, type TemplateTypes, type Type } from "./types";
+import { FuncType, type TemplateTypes, substituteTypeParams, type Type } from "./types";
 
 export type VarAttributes = {
     class: "var";
@@ -20,12 +20,29 @@ export type FuncAttributes = {
     class: "func";
     name: string;
     type: FuncType;
-    isGeneric: boolean;
     fullName: string;
-    /** Reference to the FunctionDef AST node, needed for generic monomorphization. */
-    def?: unknown;
-    /** Parameter names, used for keyword argument resolution in scope-based function lookup. */
-    paramNames?: string[];
+};
+
+export type TraitImplInfo = { generic: string; trait: string; fnImpls: Record<string, string> };
+
+export type GenericFuncAttributes = {
+    class: "generic";
+    name: string;
+    type: FuncType;
+    fullName: string;
+    traitImplGetter: (
+        callerScope: Scope,
+        argTypes: Type[],
+        associatedType: Type | null
+    ) => TraitImplInfo[] | null;
+};
+
+export type ResolvedGenericFuncAttributes = {
+    class: "generic";
+    name: string;
+    type: FuncType;
+    fullName: string;
+    traitImpls: TraitImplInfo[];
 };
 
 export type StructAttributes = {
@@ -40,7 +57,7 @@ export type StructAttributes = {
 export type EnumAttributes = {
     class: "enum";
     name: string;
-    variants: EnumVariant[];
+    variants: { name: string; type: Type | null }[];
     isGeneric?: true;
     typeParams?: string[];
     def?: unknown;
@@ -55,6 +72,7 @@ export type TraitAttributes = {
 export type DefinitionAttributes =
     | VarAttributes
     | FuncAttributes
+    | GenericFuncAttributes
     | StructAttributes
     | EnumAttributes
     | TraitAttributes;
@@ -66,7 +84,9 @@ interface DefinitionLookupResult {
 }
 
 export class Scope {
+    /** The variables that are defined in this scope */
     variables: DefinitionAttributes[];
+    /** The encapsulating scope for this scope (if this is a nested scope) */
     parent: Scope | null;
 
     constructor(variables: DefinitionAttributes[] = [], parent: Scope | null = null) {
@@ -93,34 +113,9 @@ export class Scope {
         this.variables.push(varAttrs);
     }
 
-    /** Insert a variable before an existing one in the same scope (for monomorphized functions). */
-    defineVariableBefore(existingName: string, varAttrs: DefinitionAttributes) {
-        const existingIndex = this.variables.findIndex(
-            (v) => v.name === existingName || (v.class === "func" && v.fullName === existingName)
-        );
-        if (existingIndex === -1) {
-            throw new Error(
-                `Cannot insert before '${existingName}': it was not found in this scope.`
-            );
-        }
-        this.variables.splice(existingIndex, 0, varAttrs);
-    }
-
-    /** Insert a variable before an existing one in the same scope (for monomorphized functions). */
-    defineVariableAfter(existingName: string, varAttrs: DefinitionAttributes) {
-        const existingIndex = this.variables.findIndex(
-            (v) => v.name === existingName || (v.class === "func" && v.fullName === existingName)
-        );
-        if (existingIndex === -1) {
-            throw new Error(
-                `Cannot insert after '${existingName}': it was not found in this scope.`
-            );
-        }
-        this.variables.splice(existingIndex, 0, varAttrs);
-    }
-
     lookup(name: string): DefinitionLookupResult | null {
-        for (const v of this.variables) {
+        for (let i = this.variables.length - 1; i >= 0; i--) {
+            const v = this.variables[i];
             if (v.name === name) {
                 return { inCurrentScope: true, attrs: v };
             }
@@ -151,51 +146,57 @@ export class Scope {
         return result.attrs;
     }
 
-    genericParamTypesMatchArgTypes(paramTypes: Type[], argTypes: Type[], allowIterForArr: boolean = false) {
-        // How this needs to work:
-        // 1. Look up all trait definitions for generic params (maybe these should be stored as part of the source FuncAttributes so we don't need to search again every time the generic is referenced? Maybe we should have a separate GenericFuncAttributes?) This search starts from the scope where the generic function is defined. If a trait definition is not found, this is an ERROR (should have been caught when generic was defined)
-        // 2. For each trait + associated argType, search for the functions needed to satisfy the trait. This search starts from the scope where the function is _called_ (this means we need to know both the original call scope AND the scope that the generic function definition lives in). If not satisfied, return no match.
-        // 3. If a match, monomorphize the generic function using the argtypes and matched trait functions -- alternative is we can just return saying "this is a match -- here is the generic definition and the needed trait functions" and let the monomorphization happen downstream
-    }
-
     /**
-     * Look for a function definition with the given name
+     * Look for a function definition (including generic definitions) with the given name
      * and a compatible type signature.
-     * Matches will be ignored (and we'll keep looking for a match)
-     * if the type signature we find is not compatible.
+     * Matches with incompatible param types are skipped (we keep looking for a match).
      */
     lookupFunction(
         name: string,
         argTypes: Type[],
-        allowIterForArr: boolean = false
-    ): FuncAttributes | null {
-        for (const v of this.variables) {
+        associatedType: Type | null,
+        allowIterForArr: boolean = false,
+        rootScope: Scope | null = null
+    ): FuncAttributes | ResolvedGenericFuncAttributes | null {
+        for (let i = this.variables.length - 1; i >= 0; i--) {
+            const v = this.variables[i];
             if (v.name !== name) {
                 continue;
             }
-            if (v.class !== "func") {
-                continue;
-            }
-            if (v.isGeneric && this.genericParamTypesMatchArgTypes(v.type.paramTypes, argTypes, allowIterForArr)) {
-                // TODO: Monomorphize the matched generic function, and return the match
-            }
-            if (!v.isGeneric && paramTypesMatchArgTypes(v.type.paramTypes, argTypes, allowIterForArr)) {
-                return v;
+            if (v.class === "func") {
+                // For concrete functions, check that param types match
+                if (paramTypesMatchArgTypes(v.type.paramTypes, argTypes, allowIterForArr)) {
+                    return v;
+                }
+            } else if (v.class === "generic") {
+                // For generic functions, call the traitImplGetter to verify that argTypes are compatible
+                const traitImpls = v.traitImplGetter(rootScope ?? this, argTypes, associatedType);
+                if (traitImpls !== null) {
+                    return {
+                        class: v.class,
+                        name: v.name,
+                        type: v.type,
+                        fullName: v.fullName,
+                        traitImpls,
+                    };
+                }
             }
         }
         if (this.parent === null) {
             return null;
         }
-        return this.parent.lookupFunction(name, argTypes, allowIterForArr);
+        return this.parent.lookupFunction(name, argTypes, associatedType, allowIterForArr, this);
     }
 
     /**
      * Look for a struct definition with the given name and compatible types
      * Matches will be ignored (and we'll keep looking for a match)
      * if the type signature we find is not compatible.
+     * TODO: This should probably be combined with lookupFunction -- we shouldn't be searching for them separately
      */
     lookupStruct(name: string, argTypes: Type[]): StructAttributes | null {
-        for (const v of this.variables) {
+        for (let i = this.variables.length - 1; i >= 0; i--) {
+            const v = this.variables[i];
             if (v.name !== name) {
                 continue;
             }
@@ -224,7 +225,8 @@ export class Scope {
      * Ignores anything that is not a trait definition.
      */
     lookupTrait(name: string): TraitAttributes | null {
-        for (const v of this.variables) {
+        for (let i = this.variables.length - 1; i >= 0; i--) {
+            const v = this.variables[i];
             if (v.name !== name) {
                 continue;
             }
@@ -244,7 +246,8 @@ export class Scope {
      * Used after body cascade to store the inferred return type.
      */
     updateFuncType(fullName: string, newType: FuncType): void {
-        for (const v of this.variables) {
+        for (let i = this.variables.length - 1; i >= 0; i--) {
+            const v = this.variables[i];
             if (v.class === "func" && v.fullName === fullName) {
                 (v as { type: FuncType }).type = newType;
                 return;
@@ -257,11 +260,52 @@ export class Scope {
     }
 
     /**
-     * Check that the required functions to satisfy a trait exist for the given candidate type
+     * Check that the required functions to satisfy a trait exist for the given candidate type.
+     * Searches the entire scope chain for matching function definitions.
+     * Returns a mapping from each required trait function name to the matching function fullName,
+     * or null if the candidate type is missing one or more required function definitions.
      */
-    checkCandidateTypeSatisfiesTrait(candidateType: Type, traitAttrs: TraitAttributes): boolean {
-        // TODO!
-        return false;
+    checkCandidateTypeSatisfiesTrait(
+        candidateType: Type,
+        traitAttrs: TraitAttributes
+    ): Record<string, string> | null {
+        const fnImpls: Record<string, string> = {};
+
+        for (const reqFn of traitAttrs.requiredFunctions) {
+            // Build the expected param types by substituting Self → candidateType
+            const bindings = new Map<string, Type>();
+            bindings.set("Self", candidateType);
+            const expectedParamTypes = reqFn.types.types.map((t) =>
+                substituteTypeParams(t, bindings)
+            );
+
+            // Search the scope chain for a function definition with this name
+            // whose param types match the expected ones
+            let found: { fullName: string } | null = null;
+            let searchScope: Scope | null = this;
+            while (searchScope !== null) {
+                for (const v of searchScope.variables) {
+                    if (v.class !== "func" && v.class !== "generic") continue;
+                    if (v.name !== reqFn.name) continue;
+                    if (
+                        v.type instanceof FuncType &&
+                        paramTypesMatchArgTypes(v.type.paramTypes, expectedParamTypes, false)
+                    ) {
+                        found = { fullName: v.fullName };
+                        break;
+                    }
+                }
+                if (found) break;
+                searchScope = searchScope.parent;
+            }
+
+            if (found === null) {
+                return null;
+            }
+            fnImpls[reqFn.name] = found.fullName;
+        }
+
+        return fnImpls;
     }
 
     // TODO: This and markVarConsumed are deprecated -- we are no longer using this in the language

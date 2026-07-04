@@ -20,7 +20,7 @@ import {
 /** Produce a stable, readable name fragment for a type. */
 export function typeToName(t: Type): string {
     if (typeof t === "string") return t;
-    if (t instanceof CustomType || (t instanceof GenericType)) return t.name;
+    if (t instanceof CustomType || t instanceof GenericType) return t.name;
     if (t instanceof ArrayType) return `Arr_${typeToName(t.innerType)}`;
     if (t instanceof IterType) return `Iter_${typeToName(t.innerType)}`;
     if (t instanceof MutArrType) return `MutArr_${typeToName(t.innerType)}`;
@@ -96,25 +96,17 @@ export function extractGenericBindings(
         return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
     if (paramType instanceof DictType && argType instanceof DictType) {
-        if (!extractGenericBindings(paramType.keyType, argType.keyType, bindings))
-            return false;
+        if (!extractGenericBindings(paramType.keyType, argType.keyType, bindings)) return false;
         return extractGenericBindings(paramType.valueType, argType.valueType, bindings);
     }
     if (paramType instanceof MutDictType && argType instanceof MutDictType) {
-        if (!extractGenericBindings(paramType.keyType, argType.keyType, bindings))
-            return false;
+        if (!extractGenericBindings(paramType.keyType, argType.keyType, bindings)) return false;
         return extractGenericBindings(paramType.valueType, argType.valueType, bindings);
     }
     if (paramType instanceof FuncType && argType instanceof FuncType) {
         if (paramType.paramTypes.length !== argType.paramTypes.length) return false;
         for (let i = 0; i < paramType.paramTypes.length; i++) {
-            if (
-                !extractGenericBindings(
-                    paramType.paramTypes[i],
-                    argType.paramTypes[i],
-                    bindings
-                )
-            )
+            if (!extractGenericBindings(paramType.paramTypes[i], argType.paramTypes[i], bindings))
                 return false;
         }
         return extractGenericBindings(paramType.returnType, argType.returnType, bindings);

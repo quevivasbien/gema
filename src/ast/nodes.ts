@@ -1,18 +1,14 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import {
-    functionNameWithParamTypes,
-} from "./caller-utils";
+import { functionNameWithParamTypes } from "./caller-utils";
 import { Assignment } from "./assignment";
-import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
+import { Block, Expression } from "./expression";
 import type { EnumDef } from "./enums";
 import type { FunctionDef } from "./functions";
 import type { StructDef } from "./structs";
 
 import {
     CustomType,
-    EnumType,
-    EscapeType,
     FuncType,
     isBuiltinTypeName,
     IterType,
@@ -520,6 +516,7 @@ export class Variable extends Expression {
         }
 
         // type param from enclosing generic function (e.g., T in T.zero())
+        // TODO: I don't think we need this any more
         if (!isBuiltinTypeName(this.name)) {
             let fn: Expression | null = this.parent;
             // TODO: we could get rid of the instanceof check here and just

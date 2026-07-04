@@ -4,7 +4,7 @@ import { ASTError, Expression } from "./expression";
 import { Scope } from "./scope";
 
 import { typeEquals } from "./type-utils";
-import { EnumType, EscapeType, MaybeType, substituteTypeParams, type Type } from "./types";
+import { EscapeType, MaybeType, substituteTypeParams, type Type } from "./types";
 
 // ── Enum definition ───────────────────────────────────────
 

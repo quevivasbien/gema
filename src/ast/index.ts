@@ -21,10 +21,7 @@ export {
 } from "./nodes";
 
 // Functions
-export {
-    FunctionDef,
-    AnonymousFunction,
-} from "./functions";
+export { FunctionDef, AnonymousFunction } from "./functions";
 
 // Calls
 export { Call, DirectCall } from "./calls";

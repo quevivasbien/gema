@@ -194,10 +194,11 @@ export function lastExprShouldReturn(lastExpr: Expression): boolean {
  */
 export class Block extends Expression {
     expressions: Expression[];
-    scope: Scope = new Scope();
+    scope: Scope;
     /** JS module imports collected from UseJSModule nodes during cascadeTypes.
      *  Maps module path → array of imported symbol names.
-     *  Only meaningful on the top-level Block. */
+     *  Only meaningful on the top-level Block.
+     * */
     jsImports: Map<string, string[]>;
 
     constructor(
@@ -210,6 +211,7 @@ export class Block extends Expression {
             throw new Error("block expression must not be empty.");
         }
         this.expressions = expressions;
+        this.scope = new Scope();
         this.jsImports = jsImports;
     }
 

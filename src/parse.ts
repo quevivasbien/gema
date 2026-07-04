@@ -1158,12 +1158,6 @@ class Parser {
         this.previousIndex = this.index - 1;
     }
 
-    jump(index: number) {
-        if (index < 0 || index >= this.tokens.length) {
-            throw new Error(`Tried to jump to out-of bounds index ${index} with a token length of ${this.tokens.length}`);
-        }
-    }
-
     error(message: string, tokenOffset: number = -1): AST.ErrorExpression {
         const token = this.peek(tokenOffset);
         const errorExpr = new AST.ErrorExpression(token, message);
@@ -1193,7 +1187,9 @@ class Parser {
         }
     }
 
-    getTemplateTypes(generics: Record<string, { traits: string[], used: boolean }> | null = null): TemplateTypes {
+    getTemplateTypes(
+        generics: Record<string, { traits: string[]; used: boolean }> | null = null
+    ): TemplateTypes {
         if (this.atEnd() || this.current().type !== TokenType.LBracket) {
             return new TemplateTypes();
         }
@@ -1230,52 +1226,9 @@ class Parser {
         return templateTypes;
     }
 
-    getTypeTraits(): { type: Type; trait: Type }[] {
-        if (this.atEnd() || this.current().type !== TokenType.Where) {
-            return [];
-        }
-        this.advance();
-        const typeTraits: { type: Type; trait: Type }[] = [];
-        while (!this.atEnd() && this.current().type !== TokenType.LBrace) {
-            if (this.current().type !== TokenType.Identifier) {
-                throw new Error("expected type alias after 'where'");
-            }
-            let typeName: Type;
-            try {
-                typeName = getType(this.current().text, new TemplateTypes());
-            } catch (e) {
-                if (e instanceof Error) {
-                    throw new Error(e.message, { cause: e });
-                }
-                throw e;
-            }
-            this.advance();
-            if (this.atEnd() || this.current().type !== TokenType.Is) {
-                throw new Error("expected 'is' after type alias");
-            }
-            this.advance();
-            if (this.atEnd() || this.current().type !== TokenType.Identifier) {
-                throw new Error("expected trait name after 'is'");
-            }
-            let traitName: Type;
-            try {
-                traitName = getType(this.current().text, new TemplateTypes());
-            } catch (e) {
-                if (e instanceof Error) {
-                    throw new Error(e.message, { cause: e });
-                }
-                throw e;
-            }
-            this.advance();
-            if (!this.atEnd() && this.current().type === TokenType.Comma) {
-                this.advance();
-            }
-            typeTraits.push({ type: typeName, trait: traitName });
-        }
-        return typeTraits;
-    }
-
-    getTypeName(generics: Record<string, { traits: string[], used: boolean }> | null = null): Type | null {
+    getTypeName(
+        generics: Record<string, { traits: string[]; used: boolean }> | null = null
+    ): Type | null {
         if (this.current().type !== TokenType.Identifier) {
             return null;
         }
@@ -1536,15 +1489,18 @@ class Parser {
      * [T, U: Trait1 + Trait 2, V: Trait3] or [T, U: Trait1, U: Trait2, V: Trait3]
      * Returns null if the following sequence of tokens does not match this pattern
      */
-    getGenerics(): { error: string | null, result: Record<string, { traits: string[], used: false }> | null } {
+    getGenerics(): {
+        error: string | null;
+        result: Record<string, { traits: string[]; used: false }> | null;
+    } {
         if (this.current()?.type !== TokenType.LBracket) {
             return { error: null, result: null };
         }
-        this.advance();  // Consume "["
+        this.advance(); // Consume "["
         if (this.current().type === TokenType.RBracket) {
             return { error: "Cannot have empty generic type list", result: null };
         }
-        const generics: Record<string, { traits: string[], used: false }> = {};
+        const generics: Record<string, { traits: string[]; used: false }> = {};
         while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
             if (this.current().type !== TokenType.Identifier) {
                 return { error: "Expected generic type name", result: null };
@@ -1584,13 +1540,16 @@ class Parser {
             }
         }
         if (!this.atEnd()) {
-            this.advance();  // Consume "]"
+            this.advance(); // Consume "]"
         }
         return { error: null, result: generics };
     }
 
     functionDef(): AST.Expression | null {
-        if (this.current().type !== TokenType.Func || (this.peek().type !== TokenType.Identifier && this.peek().type !== TokenType.LBracket)) {
+        if (
+            this.current().type !== TokenType.Func ||
+            (this.peek().type !== TokenType.Identifier && this.peek().type !== TokenType.LBracket)
+        ) {
             return null;
         }
         const rootToken = this.current();
@@ -1602,7 +1561,7 @@ class Parser {
             return this.error(genericsResult.error);
         }
         const generics = genericsResult.result;
-        
+
         let name: string;
         let associatedType: Type | null = null;
         if (this.peek()?.type !== TokenType.LParen) {
@@ -1611,10 +1570,13 @@ class Parser {
             if (associatedType === null) {
                 return this.error("Expected function name or associated type name");
             }
-            if (this.current()?.type !== TokenType.Dot || this.peek()?.type !== TokenType.Identifier) {
+            if (
+                this.current()?.type !== TokenType.Dot ||
+                this.peek()?.type !== TokenType.Identifier
+            ) {
                 return this.error("Expected function name after associated type name");
             }
-            this.advance();  // consume "."
+            this.advance(); // consume "."
         }
         name = this.current().text;
         this.advance();
@@ -1622,7 +1584,7 @@ class Parser {
         if (this.current().type !== TokenType.LParen) {
             return this.error("Expected '(' after function name.");
         }
-        this.advance(); 
+        this.advance();
 
         const params: { name: string; type: Type }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RParen) {
@@ -1650,7 +1612,9 @@ class Parser {
         if (generics !== null) {
             for (const genericName of Object.keys(generics)) {
                 if (!generics[genericName].used) {
-                    return this.error(`Generic type ${genericName} is not used as either an associated type or as a parameter type`);
+                    return this.error(
+                        `Generic type ${genericName} is not used as either an associated type or as a parameter type`
+                    );
                 }
             }
         }
@@ -1693,7 +1657,9 @@ class Parser {
                     params,
                     returnType,
                     this.block(),
-                    generics === null ? null : Object.keys(generics).map(k => new GenericType(k, generics[k].traits)),
+                    generics === null
+                        ? null
+                        : Object.keys(generics).map((k) => new GenericType(k, generics[k].traits))
                 )
         );
     }

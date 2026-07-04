@@ -67,14 +67,14 @@ export function safeJSName(name: string): string {
     return `${sanitizedBase}${suffix}`;
 }
 
-class Scope {
-    parent: Scope | null;
+class WriterScope {
+    parent: WriterScope | null;
     variableNames: Set<string> = new Set();
 
     lines: string[] = [];
 
     constructor(
-        parent: Scope | null = null,
+        parent: WriterScope | null = null,
         public baseIndentLevel = 0
     ) {
         this.parent = parent;
@@ -91,7 +91,7 @@ export class JSWriter {
     ast: AST.Expression;
     currentLine: string = "";
     indentLevel: number = 0;
-    scope: Scope = new Scope();
+    scope: WriterScope = new WriterScope();
     builtins: Set<string> = new Set();
     nextUniqueId: number = 0;
     /** Depth of IIFE nesting — incremented when entering an IIFE-wrapping Block or If */
@@ -143,7 +143,7 @@ export class JSWriter {
         this.write("{");
         this.indentIn();
         this.newLine();
-        this.scope = new Scope(this.scope, this.indentLevel);
+        this.scope = new WriterScope(this.scope, this.indentLevel);
     }
 
     endScope() {

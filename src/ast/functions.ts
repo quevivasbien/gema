@@ -1,10 +1,6 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import {
-    checkTraitSatisfied,
-    extractGenericBindings,
-    functionNameWithParamTypes,
-} from "./caller-utils";
+import { extractGenericBindings, functionNameWithParamTypes } from "./caller-utils";
 import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
 
 import { typeEquals } from "./type-utils";
@@ -13,13 +9,11 @@ import {
     EscapeType,
     FuncType,
     GenericType,
-    isBuiltinTypeName,
     substituteTypeParams,
     type Type,
 } from "./types";
 import { Call } from "./calls";
-import { Scope, type FuncAttributes, type TraitAttributes } from "./scope";
-
+import { Scope, type TraitAttributes, type TraitImplInfo } from "./scope";
 
 /**
  * Recursively set sourceFile on every node in a cloned expression tree.
@@ -74,16 +68,12 @@ export class FunctionDef extends Expression {
     genericTypes: GenericType[] | null;
 
     fullName: string;
-    scope: Scope = new Scope();
+    scope: Scope;
 
     /** If generic, will store references to any needed trait definitions here,
      * set during cascadeTypes */
     traitDefs: TraitAttributes[] | null = null;
-    
-    /** If generic, will store any monomorphized versions here */
-    monomorphizedVersions: FunctionDef[] = [];
-    /** Set to true for FunctionDef clones created during monomorphization. */
-    isMonomorphizedClone: boolean = false;
+
     /** Need to maintain a list of any return statements this function has,
      * so we can check that they return a value whose type matches
      * the return type of this function */
@@ -96,7 +86,7 @@ export class FunctionDef extends Expression {
         params: { name: string; type: Type }[],
         returnType: Type | null,
         body: Expression,
-        genericTypes: GenericType[] | null,
+        genericTypes: GenericType[] | null
     ) {
         if (!(body instanceof Block)) {
             throw new Error("function body must be a Block expression");
@@ -108,12 +98,14 @@ export class FunctionDef extends Expression {
         this.returnType = returnType;
         this.body = body;
         this.genericTypes = genericTypes;
-        
+
         const baseName = associatedType ? `${associatedType.toString()}.${name}` : name;
         this.fullName = functionNameWithParamTypes(
             baseName,
             params.map((p) => p.type)
         );
+
+        this.scope = new Scope();
 
         // Function declarations always have "Null" type
         this.type = "Null";
@@ -145,7 +137,19 @@ export class FunctionDef extends Expression {
         // If we don't yet know the return type of the function, we will need to update this
         // scope entry later.
         let mustResolveReturnTypeLater = this.returnType === null;
-        if (!this.isMonomorphizedClone) {
+        if (this.isGeneric()) {
+            enclosingScope.defineVariable({
+                class: "generic",
+                name: this.name,
+                type: new FuncType(
+                    this.params.map((p) => p.type),
+                    this.returnType ?? "Unknown"
+                ),
+                fullName: this.fullName,
+                traitImplGetter: (callerScope, argTypes, associatedType) =>
+                    this.getTraitFns(callerScope, argTypes, associatedType),
+            });
+        } else {
             enclosingScope.defineVariable({
                 class: "func",
                 name: this.name,
@@ -153,10 +157,7 @@ export class FunctionDef extends Expression {
                     this.params.map((p) => p.type),
                     this.returnType ?? "Unknown"
                 ),
-                isGeneric: this.isGeneric(),
                 fullName: this.fullName,
-                def: this.isGeneric() ? this : undefined,
-                paramNames: this.params.map(p => p.name)
             });
         }
 
@@ -189,19 +190,17 @@ export class FunctionDef extends Expression {
             for (const generic of this.genericTypes!) {
                 for (const traitName of generic.traits) {
                     if (traitNamesEncountered.includes(traitName)) {
-                        continue;  // No need to check this again
+                        continue; // No need to check this again
                     }
                     const traitDef = enclosingScope.lookupTrait(traitName);
                     if (traitDef === null) {
-                        throw this.error(`could not find definition for required trait ${traitName}`);
+                        throw this.error(
+                            `could not find definition for required trait ${traitName}`
+                        );
                     }
                     this.traitDefs.push(traitDef);
                 }
             }
-
-            // Can stop here if dealing with a generic function
-            // TODO: Is this actually necessary?
-            return;
         }
 
         // Unwrap EscapeType from body type (functions ending in `return expr` have
@@ -234,178 +233,93 @@ export class FunctionDef extends Expression {
         // If we didn't already add the return type to the function definition to the
         // enclosing scope, we need to do so now
         if (mustResolveReturnTypeLater) {
-            enclosingScope.updateFuncType(this.fullName, new FuncType(this.params.map(p => p.type), this.returnType));
+            enclosingScope.updateFuncType(
+                this.fullName,
+                new FuncType(
+                    this.params.map((p) => p.type),
+                    this.returnType
+                )
+            );
         }
     }
 
-    monomorphize(
-        argTypes: Type[],
-        associatedType: Type | null,
+    getFuncType(): FuncType {
+        return new FuncType(
+            this.params.map((p) => p.type),
+            this.returnType ?? "Unknown"
+        );
+    }
+
+    getTraitFns(
         callerScope: Scope,
-    ): { fullName: string; funcType: FuncType; returnType: Type } | null {
-        if (!this.isGeneric) {
+        argTypes: Type[],
+        associatedType: Type | null
+    ): TraitImplInfo[] | null {
+        if (!this.isGeneric()) {
             throw this.error(`tried to monomorphize non-generic function ${this.fullName}`);
         }
         if (this.params.length !== argTypes.length) {
-            throw this.error(`tried to monomorphize function ${this.fullName} with incompatible number of arguments`);
+            // Not a match
+            return null;
         }
         if ((this.associatedType === null) !== (associatedType === null)) {
-            throw this.error(`tried to monorphize function ${this.fullName} with incompatible associated type`);
+            // Not a match
+            return null;
         }
 
         // Figure out what types are being substituted for the generic types
         const bindings = new Map<string, Type>();
-         for (let i = 0; i < this.params.length; i++) {
+        for (let i = 0; i < this.params.length; i++) {
             if (!extractGenericBindings(this.params[i].type, argTypes[i], bindings)) {
-                throw this.error(`encountered error while attempting to extract generic binding for parameter ${this.params[i].name}`);
+                throw this.error(
+                    `encountered error while attempting to extract generic binding for parameter ${this.params[i].name}`
+                );
             }
         }
         if (this.associatedType !== null && associatedType !== null) {
             if (!extractGenericBindings(this.associatedType, associatedType, bindings)) {
-                throw this.error(`encountered error while attempting to extract generic binding for associated type of function ${this.fullName}`);
+                throw this.error(
+                    `encountered error while attempting to extract generic binding for associated type of function ${this.fullName}`
+                );
             }
         }
 
         // Check in the caller scope to make sure that the bound types satisfy the required traits
+        const traitFnNames: TraitImplInfo[] = [];
         for (const generic of this.genericTypes!) {
             const candidateType = bindings.get(generic.name)!;
             for (const traitName of generic.traits) {
-                const traitAttrs = this.traitDefs?.find(td => td.name === traitName);
+                const traitAttrs = this.traitDefs?.find((td) => td.name === traitName);
                 if (!traitAttrs) {
                     throw this.error(`missing trait attributes for trait ${traitName}`);
                 }
                 // Look up each required definition in the caller scope
-                if (!callerScope.checkCandidateTypeSatisfiesTrait(candidateType, traitAttrs)) {
-                    throw this.error(`type ${candidateType.toString()} does not satisfy trait ${traitName}`);
+                const fnImpls = callerScope.checkCandidateTypeSatisfiesTrait(
+                    candidateType,
+                    traitAttrs
+                );
+                if (fnImpls === null) {
+                    // Not a match -- candidate type doesn't implement trait
+                    return null;
                 }
+                traitFnNames.push({ generic: generic.name, trait: traitName, fnImpls });
             }
         }
 
-        // To complete!
-    }
-
-    /**
-     * Monomorphize a generic TAF using pre-computed type bindings.
-     * Unlike monomorphize(), this doesn't require the type params to appear
-     * in function parameters — the bindings come from template matching.
-     * TODO: This is deprecated. We should use only the main monomorphize function
-     */
-    tafMonomorphize(
-        typeParams: string[],
-        bindings: Map<string, Type>
-    ): { fullName: string; funcType: FuncType; returnType: Type } | null {
-        if (!this.isGeneric) return null;
-
-        // Verify all type params have bindings
-        for (const tp of typeParams) {
-            if (!bindings.has(tp)) return null;
-        }
-
-        const concreteParamTypes = this.params.map((p) => substituteTypeParams(p.type, bindings));
-        const concreteReturnType = substituteTypeParams(this.returnType, bindings);
-        const monomorphizedFullName = functionNameWithParamTypes(this.name!, concreteParamTypes);
-
-        // Verify trait satisfaction
-        for (const param of this.params) {
-            if (param.type instanceof CustomType && param.type.traits.length > 0) {
-                const concreteType = substituteTypeParams(param.type, bindings);
-                const isConcrete =
-                    !(concreteType instanceof CustomType) || isBuiltinTypeName(concreteType.name);
-                if (isConcrete) {
-                    for (const traitName of param.type.traits) {
-                        const traitScope = this.parent?.getScope() ?? null;
-                        const traitLookupWrapper =
-                            traitScope !== null
-                                ? ({
-                                      lookup: (n: string) => traitScope.lookup(n),
-                                      allVariables: () => {
-                                          const variables: {
-                                              class: string;
-                                              name: string;
-                                              fullName?: string;
-                                          }[] = [];
-                                          let cur: typeof traitScope | null = traitScope;
-                                          while (cur) {
-                                              for (const variable of cur.variables) {
-                                                  variables.push(variable);
-                                              }
-                                              cur = cur.parent;
-                                          }
-                                          return variables;
-                                      },
-                                  } as const)
-                                : undefined;
-                        if (!checkTraitSatisfied(concreteType, traitName, traitLookupWrapper)) {
-                            return null;
-                        }
-                    }
-                }
-            }
-        }
-
-        const clonedBody = this.body.clone(bindings) as Block;
-        const clonedParams = this.params.map((p) => ({
-            name: p.name,
-            type: substituteTypeParams(p.type, bindings),
-        }));
-
-        const monomorphized = new FunctionDef(
-            { line: this.line, col: this.col, text: this.name!, type: TokenType.Func },
-            this.name!,
-            clonedParams,
-            concreteReturnType as Type,
-            [],
-            clonedBody,
-            true
-        );
-        monomorphized.isMonomorphizedClone = true;
-
-        monomorphized.cascadeTypes(this.parent, true);
-        monomorphized.sourceFile = this.sourceFile;
-
-        const monomorphizedBodyType =
-            monomorphized.body.type instanceof EscapeType
-                ? monomorphized.body.type.innerType
-                : monomorphized.body.type;
-        if (
-            this.returnType === "Null" &&
-            monomorphizedBodyType !== null &&
-            monomorphizedBodyType !== "Null"
-        ) {
-            monomorphized.returnType = monomorphizedBodyType;
-        }
-
-        const isConcreteParam = (t: Type): boolean => {
-            if (!(t instanceof CustomType)) return true;
-            if (isBuiltinTypeName(t.name)) return true;
-            const ps = this.parent?.getScope();
-            if (ps) {
-                const pl = ps.lookup(t.name);
-                if (pl && pl.attrs.class === "struct") return true;
-            }
-            return false;
-        };
-        const allConcrete = clonedParams.every((p) => isConcreteParam(p.type));
-
-        if (allConcrete) {
-            this.monomorphizedVersions.push(monomorphized);
-        }
-
-        return {
-            fullName: monomorphizedFullName,
-            funcType: monomorphized.getFuncType(),
-            returnType: monomorphized.returnType,
-        };
+        return traitFnNames;
     }
 
     clone(bindings?: Map<string, Type>): Expression {
-        const clonedAssociatedType = (this.associatedType && bindings) ? substituteTypeParams(this.associatedType, bindings) : this.associatedType;
+        const clonedAssociatedType =
+            this.associatedType && bindings
+                ? substituteTypeParams(this.associatedType, bindings)
+                : this.associatedType;
         const clonedParams = this.params.map((p) => ({
             name: p.name,
             type: bindings ? substituteTypeParams(p.type, bindings) : p.type,
         }));
         const clonedReturnType = bindings
-            ? substituteTypeParams(this.returnType, bindings)
+            ? substituteTypeParams(this.returnType ?? "Unknown", bindings)
             : this.returnType;
         const cloned = new FunctionDef(
             { line: this.line, col: this.col, text: this.name, type: TokenType.Func },
@@ -414,7 +328,7 @@ export class FunctionDef extends Expression {
             clonedParams,
             clonedReturnType,
             this.body.clone(bindings),
-            this.isGeneric,
+            this.genericTypes
         );
         cloned.fullName = this.fullName;
         cloned.sourceFile = this.sourceFile;
@@ -436,33 +350,33 @@ export class FunctionDef extends Expression {
      * Returns the last expression as a Call, or null if not a tail call
      */
     private getTailCall(): Call | null {
-        if (this.isGeneric) {
-            // Don't bother figuring this out unless we're dealing with a concrete function def
-            return null;
-        }
         const lastExpr = this.body.expressions[this.body.expressions.length - 1];
         if (!(lastExpr instanceof Call)) {
             // TODO: We might also want to look for DirectCalls, but not needed for an MVP
             return null;
         }
         // Check if the lastExpr is a call to _this_ function
-        if (lastExpr.referToByName !== this.fullName) {
+        if (!typeEquals(lastExpr.callerType, this.getFuncType())) {
             return null;
         }
         return lastExpr;
     }
 
     toJS(writer: JSWriter): void {
-        if (this.isGeneric) {
-            for (const v of this.monomorphizedVersions) {
-                v.toJS(writer);
-                writer.write(";");
-                writer.newLine();
-            }
-            return;
-        }
         writer.write(`function ${writer.safeName(this.fullName)}(`);
         writer.write(this.params.map((p) => writer.safeName(p.name)).join(", "));
+
+        if (this.isGeneric()) {
+            // Generic functions also taking mappings for each of their generic function trait implementations
+            for (const generic of this.genericTypes!) {
+                for (const traitName of generic.traits) {
+                    writer.write(`, $$impl${traitName}_${generic.name}`);
+                }
+            }
+        }
+        // TODO: We also need to figure out, within the function body itself, when we are calling a type-defined function, so we can pass it to the Trait dictionary instead of calling it directly.
+        // Probably that should be sorted out in the findCaller log in caller-resolution.ts, combined with the scope search in scope.ts -- i.e., when we search for a function that takes a generic param, we need to match it with the function from the trait definition instead of some other function
+
         writer.write(") ");
         writer.beginFunction();
         const needsTry = this.needsTryCatch();
@@ -536,21 +450,11 @@ export class FunctionDef extends Expression {
     }
 }
 
-
 export class AnonymousFunction extends Expression {
-    scope: Scope = new Scope();
-
-    getScope(): Scope | null {
-        return this.scope;
-    }
-
-    isFunctionBoundary(): boolean {
-        return true;
-    }
-
     params: { name: string; type: Type }[];
     body: Block;
     returnType: Type | null;
+    scope: Scope;
     /** Whether this function has unresolved (null) param types that need inference. */
     needsInference: boolean = false;
     /** Need to maintain a list of any return statements this function has,
@@ -576,6 +480,7 @@ export class AnonymousFunction extends Expression {
         this.params = params;
         this.body = body;
         this.returnType = returnType;
+        this.scope = new Scope();
         this.needsInference = params.some((p) => p.type === null);
     }
 

@@ -2,9 +2,9 @@ import {
     ArrayType,
     CustomType,
     DictType,
-    EnumType,
     EscapeType,
     FuncType,
+    GenericType,
     isBuiltinTypeName,
     IterType,
     MaybeType,
@@ -53,10 +53,6 @@ export function typeEquals(a: unknown, b: unknown): boolean {
     // CustomType
     if (a instanceof CustomType && b instanceof CustomType) {
         if (a.name !== b.name) return false;
-        if (a.traits.length !== b.traits.length) return false;
-        for (let i = 0; i < a.traits.length; i++) {
-            if (a.traits[i] !== b.traits[i]) return false;
-        }
         // Compare template args
         if (a.templateArgs && b.templateArgs) {
             if (a.templateArgs.length !== b.templateArgs.length) return false;
@@ -65,6 +61,16 @@ export function typeEquals(a: unknown, b: unknown): boolean {
             }
         } else if (a.templateArgs || b.templateArgs) {
             return false;
+        }
+        return true;
+    }
+
+    // GenericType
+    if (a instanceof GenericType && b instanceof GenericType) {
+        if (a.name !== b.name) return false;
+        if (a.traits.length !== b.traits.length) return false;
+        for (let i = 0; i < a.traits.length; i++) {
+            if (a.traits[i] !== b.traits[i]) return false;
         }
         return true;
     }
@@ -120,17 +126,6 @@ export function typeEquals(a: unknown, b: unknown): boolean {
     // MaybeType
     if (a instanceof MaybeType && b instanceof MaybeType) {
         return typeEquals(a.innerType, b.innerType);
-    }
-
-    // EnumType
-    if (a instanceof EnumType && b instanceof EnumType) {
-        if (a.name !== b.name) return false;
-        if (a.variants.length !== b.variants.length) return false;
-        for (let i = 0; i < a.variants.length; i++) {
-            if (a.variants[i].name !== b.variants[i].name) return false;
-            if (!typeEquals(a.variants[i].type, b.variants[i].type)) return false;
-        }
-        return true;
     }
 
     // FuncType
@@ -253,61 +248,6 @@ export function looseMatch(a: Type, b: Type): boolean {
     // TODO: This probably is not quite correct and could lead to bugs!
     if (!isConcreteType(a) || !isConcreteType(b)) return true;
     return typeEquals(a, b);
-}
-
-/** Collect trait names associated with a type param name inside a type tree. */
-export function collectTraitsForTypeParam(t: Type, typeParamName: string): string[] {
-    if (t instanceof CustomType && t.name === typeParamName) {
-        return [...t.traits];
-    }
-    if (t instanceof ArrayType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
-    }
-    if (t instanceof MutArrType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
-    }
-    if (t instanceof IterType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
-    }
-    if (t instanceof FuncType) {
-        const result: string[] = [];
-        t.paramTypes.forEach((pt) => result.push(...collectTraitsForTypeParam(pt, typeParamName)));
-        result.push(...collectTraitsForTypeParam(t.returnType, typeParamName));
-        return result;
-    }
-    if (t instanceof DictType) {
-        return [
-            ...collectTraitsForTypeParam(t.keyType, typeParamName),
-            ...collectTraitsForTypeParam(t.valueType, typeParamName),
-        ];
-    }
-    if (t instanceof MutDictType) {
-        return [
-            ...collectTraitsForTypeParam(t.keyType, typeParamName),
-            ...collectTraitsForTypeParam(t.valueType, typeParamName),
-        ];
-    }
-    if (t instanceof SetType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
-    }
-    if (t instanceof MutSetType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
-    }
-    if (t instanceof MaybeType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
-    }
-    if (t instanceof EscapeType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
-    }
-    // Recurse into CustomType templateArgs (e.g., T in MinHeap[T])
-    if (t instanceof CustomType && t.templateArgs) {
-        const result: string[] = [];
-        for (const ta of t.templateArgs) {
-            result.push(...collectTraitsForTypeParam(ta, typeParamName));
-        }
-        return result;
-    }
-    return [];
 }
 
 export function compatibleIndicesForArrayType(indexTypes: Type[]): string | null {

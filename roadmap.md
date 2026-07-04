@@ -6,30 +6,55 @@
 - Remove support for keyword args, simplify trait definition syntax
 - Simplify generic function resolution?
 
-### How should monomorphization work?
+### How should generic dispatch work?
+
+Previously, we monomorphized functions, but this led to complicated problems with scope, especially across modules. Instead, let's use a "dictionary passing" system that works something like this:
 
 ```gema
-trait Foo {
-  foo[Self: Self]
-}
+trait Foo { foo[(a: Self): Self] }
 
 func [T: Foo] bar(x: T) {
+  foo(x)
+}
+
+
+func foo(x: Num) {
   x
 }
 
-struct S { x: Num }
+bar(1)
+```
 
-# Implement Foo for S
-func foo(s: S) {
-  S(s.x + 1)
+compiles to something like
+
+```js
+function bar$$T$(x, $$implFoo_T) {
+    $$implFoo_T.foo(x);
 }
 
-# When bar is monomorphized here, what scope should the monomorphized function live in ?  
-# It needs to be aware of everything that is in scope for the generic definition, but it also
-# needs to be aware of what's in scope for the at the point we monomorphize
-# (i.e., it needs to know the definition of S and the definition of foo[S])
-bar(S(1))
+function foo$Num(x) {
+    x;
+}
+
+bar(1, { foo: foo$Num });
 ```
+
+Example of failing case:
+
+```gema
+trait Foo {
+    foo[(a: Self, b: Num): Num],
+}
+
+func [T: Foo] foo(x: T) {x}
+
+func foo(a: Num, b: Num) {
+    a + b
+}
+
+foo(1)  # It tries to call foo$Num$Num instead of the intended foo$Num
+```
+
 
 ## IO
 

@@ -3,7 +3,7 @@ import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller-resolution";
 import { Expression } from "./expression";
 import { typeEquals, typeEqualsWithStrippedTraits } from "./type-utils";
-import { ArrayType, CustomType, EnumType, IterType, type Type } from "./types";
+import { ArrayType, CustomType, IterType, type Type } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
 const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {
@@ -235,37 +235,39 @@ export class Binary extends Expression {
         }
 
         // Enum types support == and != (they compare by value at runtime)
-        if (
-            ltype instanceof EnumType &&
-            rtype instanceof EnumType &&
-            ltype.name === rtype.name &&
-            (this.operator === TokenType.EqualEqual || this.operator === TokenType.BangEqual)
-        ) {
-            this.type = "Bool";
-            return;
-        }
+        // TODO: Maybe we should not support this anymore
+        // if (
+        //     ltype instanceof EnumType &&
+        //     rtype instanceof EnumType &&
+        //     ltype.name === rtype.name &&
+        //     (this.operator === TokenType.EqualEqual || this.operator === TokenType.BangEqual)
+        // ) {
+        //     this.type = "Bool";
+        //     return;
+        // }
 
         // Try operator overloading for user-defined types
-        if (
-            (ltype instanceof CustomType || rtype instanceof CustomType) &&
-            !(ltype instanceof ArrayType) &&
-            !(rtype instanceof ArrayType) &&
-            !(ltype instanceof IterType) &&
-            !(rtype instanceof IterType)
-        ) {
-            const opName = OPERATOR_TO_FUNCTION[this.operator];
-            if (opName) {
-                const { error, result } = findCaller(this, opName, [this.left, this.right]);
-                if (error === null) {
-                    this.type =
-                        result.kind === "variable"
-                            ? result.returnType
-                            : result.callerType.returnType;
-                    this.overloadedAs = { name: result.referToByName };
-                    return;
-                }
-            }
-        }
+        // TODO: This should work via a system of built-in traits instead
+        // if (
+        //     (ltype instanceof CustomType || rtype instanceof CustomType) &&
+        //     !(ltype instanceof ArrayType) &&
+        //     !(rtype instanceof ArrayType) &&
+        //     !(ltype instanceof IterType) &&
+        //     !(rtype instanceof IterType)
+        // ) {
+        //     const opName = OPERATOR_TO_FUNCTION[this.operator];
+        //     if (opName) {
+        //         const { error, result } = findCaller(this, opName, [this.left, this.right]);
+        //         if (error === null) {
+        //             this.type =
+        //                 result.kind === "variable"
+        //                     ? result.returnType
+        //                     : result.callerType.returnType;
+        //             this.overloadedAs = { name: result.referToByName };
+        //             return;
+        //         }
+        //     }
+        // }
         throw this.error(
             `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
         );

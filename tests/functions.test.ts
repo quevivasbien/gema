@@ -3,7 +3,6 @@ import { describe, test } from "bun:test";
 import { testCompile, testParse, testParseExpectError } from "./helpers";
 
 describe("parse function", () => {
-
     test("parse function without explicit return type", () => {
         testParse(`func foo() { 1 } foo[]`);
         testParse(`func add(a: Num, b: Num) { a + b }; add[Num, Num]`);
@@ -17,30 +16,32 @@ describe("parse function", () => {
             myFunc[Func[Num: Func[Num: Num]], Func[:Num]]
         `);
         testParse(`func myFunc(a: Int): Int { a }; myFunc(1i)`);
-    })
+    });
 
     test("parse call to function without matching type signature", () => {
         testParseExpectError(`func myFunc(a: Num): Num { a }; myFunc(1i)`);
         testParseExpectError(`func myFunc(a: Num): Num { a }; myFunc[Str]`);
-    })
+    });
 
     test("parse function with generics", () => {
         // Functions without return types are allowed (inferred from body)
         testParse(`func [T] foo(x: T) { 1 } foo[Num]`);
         testParse(`func [T, U] foo(x: T, y: U) { 1 } foo[Num, Int]`);
     });
-    
+
     test("parse function with generics -- generics must appear as assoc. type or as param type", () => {
         testParseExpectError("func [T] foo(x: Num) { x } foo[Num]");
         testParseExpectError("func [T] foo(x: Num): T { x } foo[Num]");
     });
 
     test("parse function with generics & trait requirements", () => {
-        testParse(`trait Foo {} trait Bar {} func [T: Foo, U: Bar] foo(x: T, y: U) { 1 } foo[Num, Int]`);
+        testParse(
+            `trait Foo {} trait Bar {} func [T: Foo, U: Bar] foo(x: T, y: U) { 1 } foo[Num, Int]`
+        );
         testParse(`trait Foo {} trait Bar {} func [T: Foo + Bar] foo(x: T) { 1 } foo[Num]`);
         testParse(`trait Foo {} trait Bar {} func [T: Foo, T: Bar] foo(x: T) { 1 } foo[Num]`);
     });
-})
+});
 
 test("compile functions", () => {
     testCompile(`func myFunc(a: Num, b: Num): Num { a + b }; myFunc(1, 2)`, 3);

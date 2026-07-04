@@ -75,7 +75,8 @@ export class Call extends Expression {
         // Pre-fill unresolved anonymous function params so findBuiltin can match them
         this.prefillLambdaParams();
 
-        for (const arg of this.args) {
+        for (let i = 0; i < this.args.length; i++) {
+            const arg = this.args[i];
             arg.cascadeTypes(this, true);
             if (arg.type === null) {
                 throw this.error(`unable to resolve type of argument ${i + 1} in call`);
@@ -170,52 +171,52 @@ export class Call extends Expression {
 
         // Fallback: try to find a user-defined function by name in ancestor chain
         // and extract the expected function param type from its first parameter.
-        const fnDef = this.findUserFunctionDef(this.args.slice(1).map((a) => a.type as Type));
-        if (fnDef && fnDef.params.length > 0) {
-            const firstParamType = fnDef.params[0].type;
-            if (firstParamType instanceof FuncType && firstParamType.paramTypes.length > 0) {
-                anonFn.fillParams(firstParamType.paramTypes, this);
-            }
-        }
+        // const fnDef = this.findUserFunctionDef(this.args.slice(1).map((a) => a.type as Type));
+        // if (fnDef && fnDef.params.length > 0) {
+        //     const firstParamType = fnDef.params[0].type;
+        //     if (firstParamType instanceof FuncType && firstParamType.paramTypes.length > 0) {
+        //         anonFn.fillParams(firstParamType.paramTypes, this);
+        //     }
+        // }
     }
 
-    /**
-     * Search ancestor chain for a Function definition matching this call's name,
-     * matching non-function args to narrow down overloads.
-     */
-    private findUserFunctionDef(
-        otherArgTypes: Type[]
-    ): { params: { name: string; type: Type }[]; returnType: Type } | null {
-        let child: Expression | null = null;
-        let parent = this.parent;
-        while (parent) {
-            if (parent instanceof Block) {
-                const idx = parent.expressions.indexOf(child ?? this);
-                const olderSiblings = parent.expressions.slice(0, idx);
-                for (let j = olderSiblings.length - 1; j >= 0; j--) {
-                    let sib = olderSiblings[j];
-                    while (sib instanceof DropValue) sib = sib.child;
-                    if (sib instanceof FunctionDef && sib.name === this.name && !sib.isGeneric) {
-                        // Check that other arg types match (skip the function arg)
-                        const fnParams = sib.params;
-                        if (fnParams.length - 1 === otherArgTypes.length) {
-                            let match = true;
-                            for (let k = 0; k < otherArgTypes.length; k++) {
-                                if (!typeEquals(otherArgTypes[k], fnParams[k + 1].type)) {
-                                    match = false;
-                                    break;
-                                }
-                            }
-                            if (match) return { params: fnParams, returnType: sib.returnType };
-                        }
-                    }
-                }
-            }
-            child = parent;
-            parent = parent.parent;
-        }
-        return null;
-    }
+    // /**
+    //  * Search ancestor chain for a Function definition matching this call's name,
+    //  * matching non-function args to narrow down overloads.
+    //  */
+    // private findUserFunctionDef(
+    //     otherArgTypes: Type[]
+    // ): { params: { name: string; type: Type }[]; returnType: Type } | null {
+    //     let child: Expression | null = null;
+    //     let parent = this.parent;
+    //     while (parent) {
+    //         if (parent instanceof Block) {
+    //             const idx = parent.expressions.indexOf(child ?? this);
+    //             const olderSiblings = parent.expressions.slice(0, idx);
+    //             for (let j = olderSiblings.length - 1; j >= 0; j--) {
+    //                 let sib = olderSiblings[j];
+    //                 while (sib instanceof DropValue) sib = sib.child;
+    //                 if (sib instanceof FunctionDef && sib.name === this.name && !sib.isGeneric) {
+    //                     // Check that other arg types match (skip the function arg)
+    //                     const fnParams = sib.params;
+    //                     if (fnParams.length - 1 === otherArgTypes.length) {
+    //                         let match = true;
+    //                         for (let k = 0; k < otherArgTypes.length; k++) {
+    //                             if (!typeEquals(otherArgTypes[k], fnParams[k + 1].type)) {
+    //                                 match = false;
+    //                                 break;
+    //                             }
+    //                         }
+    //                         if (match) return { params: fnParams, returnType: sib.returnType };
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //         child = parent;
+    //         parent = parent.parent;
+    //     }
+    //     return null;
+    // }
 
     /**
      * Fill unresolved anonymous function (lambda) params from the call context.
@@ -344,135 +345,6 @@ export class Call extends Expression {
             );
         }
         this.toJSHelper(writer);
-
-        // TODO: Everything below this point should be removed
-        return;
-
-        if (this.isStructFieldAccess) {
-            writer.write(writer.safeName(this.referToByName!));
-            writer.write(`.${this.structFieldName}`);
-            return;
-        }
-        if (this.callerType instanceof FuncType) {
-            if (this.isStructConstructor) {
-                // Resolve struct fields from scope
-                let structFields: { name: string; type: Type; mutable: boolean }[] = [];
-                const callScope = this.getScope();
-                if (callScope) {
-                    const lookup = callScope.lookup(this.name);
-                    if (lookup && lookup.attrs.class === "struct") {
-                        structFields = lookup.attrs.fields;
-                    }
-                }
-                const safeNames = structFields.map((f) => writer.safeName(f.name));
-                writer.write("{");
-                this.args.forEach((arg, i) => {
-                    if (i > 0) {
-                        writer.write(", ");
-                    }
-                    writer.write(`${safeNames[i]}: `);
-                    arg.toJS(writer);
-                });
-                writer.write("}");
-            } else {
-                writer.write(writer.safeName(this.referToByName));
-                writer.write("(");
-                this.args.forEach((arg, i) => {
-                    if (i > 0) {
-                        writer.write(", ");
-                    }
-                    // Auto-convert Arg to Iter when the function expects Iter but gets Arg
-                    if (
-                        this.callerType instanceof FuncType &&
-                        this.callerType.paramTypes[i] instanceof IterType &&
-                        arg.type instanceof ArrayType
-                    ) {
-                        writer.useBuiltin("$ArrayIterator$");
-                        writer.write("new $ArrayIterator$(");
-                        arg.toJS(writer);
-                        writer.write(")");
-                    } else {
-                        arg.toJS(writer);
-                    }
-                });
-                writer.write(")");
-            }
-        } else if (this.callerType instanceof IterType) {
-            writer.useBuiltin("$iterGet$");
-            writer.write("$iterGet$(");
-            if (this.args.length !== 1) {
-                throw new Error("iterator indexed access does not have exactly 1 index");
-            }
-            if (this.args[0].type === "Num") {
-                this.args[0].toJS(writer);
-                writer.write(", ");
-            } else if (this.args[0].type === "Int") {
-                writer.write("Number(");
-                this.args[0].toJS(writer);
-                writer.write("), ");
-            }
-            writer.write(writer.safeName(this.referToByName));
-            writer.write(")");
-        } else if (this.callerType instanceof TupleType) {
-            writer.write(writer.safeName(this.referToByName));
-            this.args.forEach((arg) => {
-                writer.write("[");
-                arg.toJS(writer);
-                writer.write("]");
-            });
-        } else if (this.callerType instanceof DictType || this.callerType instanceof MutDictType) {
-            writer.write("(");
-            writer.write(writer.safeName(this.referToByName));
-            writer.write(".get(");
-            this.args[0]?.toJS(writer);
-            writer.write(") ?? null)");
-        } else if (this.callerType instanceof ArrayType || this.callerType instanceof MutArrType) {
-            // TODO: Why is string indexed access not also handled here?
-            if (this.args.length !== 1) {
-                throw new Error("array indexed access does not have exactly 1 index");
-            }
-            if (this.args[0] instanceof RangeIter) {
-                // Array slicing with range: arr(a..b) → arr.slice(a, b+1)
-                writer.write(writer.safeName(this.referToByName));
-                const range = this.args[0];
-                const isIntRange = range.innerType === "Int";
-                if (range.end !== null) {
-                    // a..b: arr.slice(Number(a), Number(b) + 1)
-                    if (isIntRange) {
-                        writer.write(".slice(Number(");
-                        range.start.toJS(writer);
-                        writer.write("), Number(");
-                        range.end.toJS(writer);
-                        writer.write(") + 1)");
-                    } else {
-                        writer.write(".slice(");
-                        range.start.toJS(writer);
-                        writer.write(", ");
-                        range.end.toJS(writer);
-                        writer.write(" + 1)");
-                    }
-                } else {
-                    // a..: arr.slice(Number(a))
-                    if (isIntRange) {
-                        writer.write(".slice(Number(");
-                        range.start.toJS(writer);
-                        writer.write("))");
-                    } else {
-                        writer.write(".slice(");
-                        range.start.toJS(writer);
-                        writer.write(")");
-                    }
-                }
-            } else {
-                writer.write("(");
-                writer.write(writer.safeName(this.referToByName));
-                writer.write("[");
-                this.args[0].toJS(writer);
-                writer.write("] ?? null)");
-            }
-        } else {
-            throw new Error(`unknown caller type: ${this.callerType}`);
-        }
     }
 }
 
@@ -545,117 +417,5 @@ export class DirectCall extends Expression {
             );
         }
         this.toJSHelper(writer);
-
-        // TODO: Everything below this point should be removed
-        return;
-
-        if (this.caller.type instanceof CustomType) {
-            // Resolve struct from scope, falling back to global registry
-            const structScope = this.getScope();
-            let isStruct = false;
-            if (structScope) {
-                const lookup = structScope.lookup(this.caller.type.name);
-                if (lookup && lookup.attrs.class === "struct") isStruct = true;
-            }
-            if (isStruct) {
-                const fieldName =
-                    this.args[0] instanceof Literal ? this.args[0].value.slice(1, -1) : "";
-                writer.write("(");
-                this.caller.toJS(writer);
-                writer.write(`).${fieldName}`);
-            }
-        } else if (this.caller.type instanceof IterType) {
-            writer.useBuiltin("$iterGet$");
-            writer.write("$iterGet$(");
-            if (this.args.length !== 1) {
-                throw new Error("iterator indexed access does not have exactly 1 index");
-            }
-            if (this.args[0].type === "Num") {
-                this.args[0].toJS(writer);
-                writer.write(", ");
-            } else if (this.args[0].type === "Int") {
-                writer.write("Number(");
-                this.args[0].toJS(writer);
-                writer.write("), ");
-            }
-            this.caller.toJS(writer);
-            writer.write(")");
-        } else {
-            writer.write("((");
-            this.caller.toJS(writer);
-            writer.write(")");
-            if (this.caller.type instanceof FuncType) {
-                writer.write("(");
-                this.args.forEach((arg, i) => {
-                    if (i > 0) {
-                        writer.write(", ");
-                    }
-                    // Auto-convert Arr to Iter when function expects Iter
-                    if (
-                        this.caller.type instanceof FuncType &&
-                        this.caller.type.paramTypes[i] instanceof IterType &&
-                        arg.type instanceof ArrayType
-                    ) {
-                        writer.useBuiltin("$ArrayIterator$");
-                        writer.write("new $ArrayIterator$(");
-                        arg.toJS(writer);
-                        writer.write(")");
-                    } else {
-                        arg.toJS(writer);
-                    }
-                });
-                writer.write(")");
-            } else if (
-                this.caller.type instanceof ArrayType ||
-                this.caller.type instanceof MutArrType ||
-                this.caller.type === "Str"
-            ) {
-                if (this.args.length !== 1) {
-                    throw new Error(
-                        `indexed access of a value of type ${this.caller.type} does not have exactly 1 index`
-                    );
-                }
-                if (this.args[0] instanceof RangeIter) {
-                    const range = this.args[0];
-                    if (range.start !== null && range.end !== null) {
-                        writer.write(".slice(Number(");
-                        range.start.toJS(writer);
-                        writer.write("), Number(");
-                        range.end.toJS(writer);
-                        writer.write(") + 1)");
-                    } else if (range.start !== null && range.end === null) {
-                        writer.write(".slice(Number(");
-                        range.start.toJS(writer);
-                        writer.write("))");
-                    } else if (range.start === null && range.end !== null) {
-                        writer.write(".slice(0, Number(");
-                        range.end.toJS(writer);
-                        writer.write(") + 1)");
-                    } else {
-                        writer.write(".slice()");
-                    }
-                } else {
-                    writer.write("[");
-                    this.args[0].toJS(writer);
-                    writer.write("] ?? null");
-                }
-            } else if (this.caller.type instanceof TupleType) {
-                this.args.forEach((arg) => {
-                    writer.write("[");
-                    arg.toJS(writer);
-                    writer.write("]");
-                });
-            } else if (
-                this.caller.type instanceof DictType ||
-                this.caller.type instanceof MutDictType
-            ) {
-                writer.write(".get(");
-                this.args[0]?.toJS(writer);
-                writer.write(") ?? null");
-            } else {
-                throw new Error(`unknown caller type: ${this.caller.type}`);
-            }
-            writer.write(")");
-        }
     }
 }

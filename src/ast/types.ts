@@ -58,6 +58,10 @@ export function collectCustomTypeNames(type: Type, names: Set<string>): void {
 
 // Substitute type parameters in a type tree using a binding map
 export function substituteTypeParams(type: Type, bindings: Map<string, Type>): Type {
+    if (type === "Self" && bindings.has("Self")) {
+        const substituted = bindings.get("Self")!;
+        return substituted;
+    }
     if (type instanceof CustomType && bindings.has(type.name)) {
         const substituted = bindings.get(type.name)!;
         return substituted;
@@ -116,7 +120,7 @@ export function substituteTypeParams(type: Type, bindings: Map<string, Type>): T
 export class FuncType {
     constructor(
         public paramTypes: Type[],
-        public returnType: Type,
+        public returnType: Type
     ) {}
 
     toString(): string {
@@ -238,7 +242,7 @@ export class CustomType {
         if (!this.templateArgs) {
             return this.name;
         } else {
-            return `${this.name}[${this.templateArgs.map(ta => ta.toString()).join(", ")}]`
+            return `${this.name}[${this.templateArgs.map((ta) => ta.toString()).join(", ")}]`;
         }
     }
 }
@@ -320,7 +324,11 @@ export class TemplateTypes {
     }
 }
 
-export function getType(typeName: string, templateTypes: TemplateTypes, generics: Record<string, { traits: string[], used: boolean }>| null = null): Type {
+export function getType(
+    typeName: string,
+    templateTypes: TemplateTypes,
+    generics: Record<string, { traits: string[]; used: boolean }> | null = null
+): Type {
     if (generics !== null && typeName in generics) {
         if (!templateTypes.empty()) {
             throw new Error(`Generic type ${typeName} cannot have template types`);

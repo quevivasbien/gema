@@ -2,13 +2,11 @@ import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import { resolveGenericTaf } from "./taf-resolver";
-import { extractGenericBindingsFromParams } from "./caller-utils";
 import type { Scope } from "./scope";
 import { typeEquals } from "./type-utils";
 import {
     ArrayType,
     CustomType,
-    EnumType,
     FuncType,
     isBuiltinTypeName,
     substituteTypeParams,
