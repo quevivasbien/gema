@@ -148,7 +148,7 @@ test("compile generic function without return type annotation", () => {
     testCompile(
         `
         trait Foo {
-            foo[(x: Self): Self]
+            foo[Self: Self]
         }
         func foo(x: Num) { x }
         func [T: Foo] id(x: T) { foo(x) }
@@ -160,7 +160,7 @@ test("compile generic function without return type annotation", () => {
     testCompile(
         `
         trait Foo {
-            foo[(x: Self): Self]
+            foo[Self: Self]
         }
         func foo(x: Num) { x }
         func [T: Foo] id(x: T) { foo(x) }
@@ -409,8 +409,8 @@ test("TAF type-param: T.emptyArray() monomorphized to Str", () => {
 test("TAF trait: Self.zero in trait definition", () => {
     testParse(`
         trait Summable {
-            add[(a: Self, b: Self): Self],
-            Self.zero[():Self]
+            add[Self, Self: Self],
+            Self.zero[:Self]
         }
         1
     `);
@@ -420,8 +420,8 @@ test("TAF trait: struct implementing Self.zero", () => {
     testCompile(
         `
         trait Summable {
-            add[(a: Self, b: Self): Self],
-            Self.zero[():Self]
+            add[Self, Self: Self],
+            Self.zero[:Self]
         }
         struct S { s: Num }
         func add(a: S, b: S) { S(a.s + b.s) }

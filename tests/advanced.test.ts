@@ -6,7 +6,7 @@ test("compile struct with trait generic (add two points)", () => {
     testCompile(
         `
         trait Adder {
-            add[(a: Self, b: Self): Self],
+            add[Self, Self: Self],
         };
 
         struct Point {
@@ -33,7 +33,7 @@ test("compile struct with trait generic (chained add)", () => {
     testCompile(
         `
         trait Adder {
-            add[(a: Self, b: Self): Self],
+            add[Self, Self: Self],
         };
 
         struct Point {
@@ -79,10 +79,10 @@ test("compile trait-defined functions", () => {
     testCompile(
         `
         trait Adder {
-            add[(a: Self, b: Self): Self],
+            add[Self, Self: Self],
         };
 
-        func add(a: Num, b: Num): Num {
+        func addNum, Num: Num {
             a + b
         }
 
@@ -97,19 +97,19 @@ test("compile trait-defined functions", () => {
     testCompile(
         `
         trait Comparable {
-            eq[(a: Self, b: Self): Bool],
-            lt[(a: Self, b: Self): Bool]
+            eq[Self, Self: Bool],
+            lt[Self, Self: Bool]
         };
 
         func [T: Comparable] lte(a: T, b: T): Bool {
             lt(a, b) or eq(a, b)
         }
 
-        func eq(a: Num, b: Num): Bool {
+        func eqNum, Num: Bool {
             a == b
         }
 
-        func lt(a: Num, b: Num): Bool {
+        func ltNum, Num: Bool {
             a < b
         }
         
@@ -145,24 +145,24 @@ test("parse functions with generics", () => {
 
 test("parse traits", () => {
     testParse("trait Foo {} 1");
-    testParse("trait Foo { foo[(self: Self): Self] } 1");
-    testParse("trait Foo { foo[(self: Self): Self], bar[(self: Self): Num] } 1");
-    testParse("trait Foo { foo[(a: Self, b: Self): Self] } 1");
-    testParse("trait Foo { foo[(a: Self, b: Num): Self] }; 1");
-    testParse("trait Foo { foo[(a: Num, b: Self): Num] }; 1");
+    testParse("trait Foo { foo[Self: Self] } 1");
+    testParse("trait Foo { foo[Self: Self], bar[Self: Num] } 1");
+    testParse("trait Foo { foo[Self, Self: Self] } 1");
+    testParse("trait Foo { foo[Self, Num: Self] }; 1");
+    testParse("trait Foo { foo[Num Self: Num] }; 1");
 
     // Self needs to be at least one of the arguments of all required functions
-    testParseExpectError("trait Foo { foo[(a: Num, b: Num): Num] }; 1");
-    testParseExpectError("trait Foo { foo[(self: Self): Self], bar[(a: Num): Self] } 1");
+    testParseExpectError("trait Foo { foo[Num, Num: Num] }; 1");
+    testParseExpectError("trait Foo { foo[Self: Self], bar[Num: Self] } 1");
 });
 
 test("parse trait-defined functions", () => {
     testParse(`
         trait Adder {
-            add[(a: Self, b: Self): Self],
+            add[Self, Self: Self],
         };
 
-        func add(a: Num, b: Num): Num {
+        func addNum, Num: Num {
             a + b
         }
 
@@ -174,19 +174,19 @@ test("parse trait-defined functions", () => {
         `);
     testParse(`
         trait Comparable {
-            eq[(a: Self, b: Self): Bool],
-            lt[(a: Self, b: Self): Bool]
+            eq[Self, Self: Bool],
+            lt[Self, Self: Bool]
         };
 
         func [T: Comparable] lte(a: T, b: T): Bool {
             lt(a, b) or eq(a, b)
         }
 
-        func eq(a: Num, b: Num): Bool {
+        func eqNum, Num: Bool {
             a == b
         }
 
-        func lt(a: Num, b: Num): Bool {
+        func ltNum, Num: Bool {
             a < b
         }
         
@@ -203,8 +203,8 @@ test("generic functions with unsatisifed traits", () => {
     // Should fail because 2 is not Comparable
     testParseExpectError(`
         trait Comparable {
-            eq[(a: Self, b: Self): Bool],
-            lt[(a: Self, b: Self): Bool]
+            eq[Self, Self: Bool],
+            lt[Self, Self: Bool]
         };
 
         func [T: Comparable] lte(a: T, b: T): Bool {
@@ -217,7 +217,7 @@ test("generic functions with unsatisifed traits", () => {
     testParseExpectError(`
         trait Foo {}
         trait Bar {
-            bar[(a: Self, b: Self): Self],
+            bar[Self, Self: Self],
         }
 
         func [T: Foo + Bar] foo(x: T): T {x}
@@ -238,7 +238,7 @@ test("parse generic identity function", () => {
 test("parse generic error when trait not satisfied", () => {
     testParseExpectError(`
         trait Adder {
-            add[(a: Self, b: Self): Self],
+            add[Self, Self: Self],
         };
 
         struct Point {
@@ -268,19 +268,19 @@ test("parse positional args still work in generic functions with traits", () => 
     // Existing positional-arg-only behavior should still work
     testParse(`
         trait Adder {
-            add[(a: Self, b: Self): Self],
+            add[Self, Self: Self],
         };
-        func add(a: Num, b: Num): Num { a + b };
+        func addNum, Num: Num { a + b };
         func [T: Adder] foo(a: T, b: T): T { add(a, b) };
         foo(1, 2)
     `);
     testParse(`
         trait Comparable {
-            eq[(x: Self, y: Self): Bool],
-            lt[(x: Self, y: Self): Bool]
+            eq[Self, Self: Bool],
+            lt[Self, Self: Bool]
         };
-        func eq(a: Num, b: Num): Bool { a == b };
-        func lt(a: Num, b: Num): Bool { a < b };
+        func eqNum, Num: Bool { a == b };
+        func ltNum, Num: Bool { a < b };
         func [T: Comparable] lte(a: T, b: T): Bool { lt(a, b) or eq(a, b) };
         lte(2, 3)
     `);

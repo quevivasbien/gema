@@ -185,9 +185,6 @@ export class FunctionDef extends Expression {
         // If we didn't already add the return type to the function definition to the
         // enclosing scope, we need to do so now
         if (mustResolveReturnTypeLater) {
-            console.log(
-                `Resolving previous unknown return type for ${this.fullName} as ${this.returnType}`
-            );
             enclosingScope.updateFuncType(
                 this.fullName,
                 new FuncType(

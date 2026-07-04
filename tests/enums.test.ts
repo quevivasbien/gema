@@ -425,7 +425,7 @@ test("enums with traits", () => {
         }
 
         trait Bim {
-            bim[(x: Self): Self]
+            bim[Self: Self]
         }
 
         func [T: Bim] neeb(x: T): Arr[T] {
@@ -451,7 +451,7 @@ test("enums with traits -- trait is not implemented", () => {
         }
 
         trait Bim {
-            bim[(x: Self): Self]
+            bim[Self: Self]
         }
 
         func [T: Bim] neeb(x: T): Arr[T] {
@@ -477,7 +477,7 @@ test("enums with traits -- trait implemented for one enum type but not another",
         }
 
         trait Bim {
-            bim[(x: Self): Self]
+            bim[Self: Self]
         }
 
         func [T: Bim] neeb(x: T): Arr[T] {
@@ -508,7 +508,7 @@ test("enums with traits -- trait implemented for both enum types", () => {
         }
 
         trait Bim {
-            bim[(x: Self): Self]
+            bim[Self: Self]
         }
 
         func [T: Bim] neeb(x: T): Arr[T] {

@@ -6,6 +6,7 @@
         "dev": "bun build:frontend && bun run server.ts",
         "deploy": "bun build:frontend && bun gh-pages -d frontend",
         "compile": "bun run compile.ts",
+        "check": "bun prettier . --write && bun tsc && bun eslint",
         "bench": "bun compile:benchmarks && bun run benchmarks/compile.bench.ts && bun run benchmarks/runtime.bench.ts"
     },
     "devDependencies": {

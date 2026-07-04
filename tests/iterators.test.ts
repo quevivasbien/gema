@@ -247,7 +247,7 @@ test("compile function with nested generic type", () => {
     testCompile(
         `
         trait Summable {
-            sum[(a: Self, b: Self): Self],
+            sum[Self, Self: Self],
         }
 
         func [T: Summable] computeSum(arr: Arr[T]): T {
@@ -268,7 +268,7 @@ test("compile function with nested generic type", () => {
     testCompile(
         `
         trait Summable {
-            sum[(a: Self, b: Self): Self],
+            sum[Self, Self: Self],
         }
 
         func [T: Summable] sum(iter: Iter[T], start: T): T {
@@ -286,7 +286,7 @@ test("compile function with nested generic type", () => {
     testCompile(
         `
         trait Concat {
-            concat[(a: Self, b: Self): Self],
+            concat[Self, Self: Self],
         }
 
         func [T: Concat] join(iter: Iter[T], start: T): T {

@@ -74,7 +74,7 @@ export type EnumAttributes = {
 export type TraitAttributes = {
     class: "trait";
     name: string;
-    requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[];
+    requiredFunctions: { name: string; signature: FuncType }[];
 };
 
 export type DefinitionAttributes =
@@ -189,13 +189,6 @@ export class Scope {
                     for (const { generic, boundType } of genericMapping) {
                         bindings.set(generic, boundType);
                     }
-                    console.log("Using bindings:", bindings);
-                    console.log(
-                        "Mapped from",
-                        v.type,
-                        " to ",
-                        substituteTypeParams(v.type, bindings)
-                    );
                     return {
                         class: v.class,
                         name: v.name,
@@ -299,7 +292,7 @@ export class Scope {
             // Build the expected param types by substituting Self → candidateType
             const bindings = new Map<string, Type>();
             bindings.set("Self", candidateType);
-            const expectedParamTypes = reqFn.types.types.map((t) =>
+            const expectedParamTypes = reqFn.signature.paramTypes.map((t) =>
                 substituteTypeParams(t, bindings)
             );
 

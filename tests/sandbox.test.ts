@@ -203,7 +203,7 @@ test("sandbox: Generic functions", () => {
         `# Generic functions with trait bounds
 
 trait Concatenatable {
-  concat[(a: Self, b: Self): Self],
+  concat[Self, Self: Self],
 }
 
 # Generic: works with any Concatenatable type

@@ -106,7 +106,7 @@ func makePair(v: Num) { Pair(v, v * 2) }`,
 test("trait from module", () => {
     testCompileMulti(
         {
-            "traits.gema": `trait Doublable { double[(self: Self): Num], }
+            "traits.gema": `trait Doublable { double[Self: Num], }
 struct S { v: Num }
 func double(s: S): Num { s.v * 2 }`,
             "main.gema": `use "traits.gema"\ndouble(S(3))`,
@@ -214,7 +214,7 @@ test("module: generic function with trait bound", () => {
     // A simpler generic test: trait in module, implementation in entry
     testCompileMulti(
         {
-            "traits.gema": `trait Foo { foo[(a: Num): Num] }
+            "traits.gema": `trait Foo { foo[Num: Num] }
 
 func [T: Foo] getLength(arr: Arr[T]): Num {
     length(arr)
@@ -231,7 +231,7 @@ getLength([10, 20, 30])`,
 test("module: trait used across module boundary", () => {
     testCompileMulti(
         {
-            "traits.gema": `trait Doublable { double[(self: Self): Num], }`,
+            "traits.gema": `trait Doublable { double[Self: Num], }`,
             "impl.gema": `use "traits.gema"
 struct S { v: Num }
 func double(s: S): Num { s.v * 2 }`,

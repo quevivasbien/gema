@@ -322,16 +322,20 @@ function resolveTraitFunctionCall(
                 // the actual arg types at the corresponding positions.
                 // TODO: Doesn't yet work with associated types
                 const bindings = new Map<string, Type>();
-                for (let i = 0; i < matchingFn.types.types.length && i < argTypes.length; i++) {
-                    if (matchingFn.types.types[i] === "Self") {
+                for (
+                    let i = 0;
+                    i < matchingFn.signature.paramTypes.length && i < argTypes.length;
+                    i++
+                ) {
+                    if (matchingFn.signature.paramTypes[i] === "Self") {
                         bindings.set("Self", argTypes[i]);
                     }
                 }
-                const substitutedParamTypes = matchingFn.types.types.map((t) =>
+                const substitutedParamTypes = matchingFn.signature.paramTypes.map((t) =>
                     substituteTypeParams(t, bindings)
                 );
-                const substitutedReturnType = matchingFn.types.returnType
-                    ? substituteTypeParams(matchingFn.types.returnType, bindings)
+                const substitutedReturnType = matchingFn.signature.returnType
+                    ? substituteTypeParams(matchingFn.signature.returnType, bindings)
                     : "Unknown";
                 return {
                     kind: "function",
@@ -441,9 +445,6 @@ export function findCaller(
             };
         } else {
             // Generic function definition
-            // TODO: Determine the concrete return type by substituting generic type params
-            // with the actual argument types — for now, use the generic return type as-is
-            console.log("Matched with", funcMatch);
             return {
                 error: null,
                 result: {

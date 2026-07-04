@@ -1,5 +1,5 @@
 import * as AST from "./ast/index";
-import { type Type, GenericType, TemplateTypes, getType } from "./ast/types";
+import { type Type, FuncType, GenericType, TemplateTypes, getType } from "./ast/types";
 import { TokenType, KEYWORDS, type Token } from "./tokens";
 
 interface ParseError {
@@ -499,11 +499,11 @@ function parseTrait(parser: Parser): AST.Expression {
         return parser.error("Expected '{' after trait name.");
     }
     parser.advance();
-    const requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[] = [];
+    const requiredFunctions: { name: string; signature: FuncType }[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
         // Expect inputs of form:
-        //   FuncName[(name: Type, ...): ReturnType]
-        //   Self.funcName[(name: Type, ...): ReturnType]  (type-associated function)
+        //   funcName[Type, ...: ReturnType]
+        //   Self.funcName[Type, ...: ReturnType]  (type-associated function)
         if (parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected function name.");
         }
@@ -527,33 +527,17 @@ function parseTrait(parser: Parser): AST.Expression {
         }
         parser.advance();
 
-        // Expect '(' for parameter list
-        if (parser.atEnd() || parser.current().type !== TokenType.LParen) {
-            return parser.error("Expected '(' for parameter list in trait function signature.");
-        }
-        parser.advance();
-
-        // Parse parameter list: name: Type, name: Type, ...
-        const paramNames: string[] = [];
+        // Parse parameter list: Type1, Type2, ...
         const paramTypes: Type[] = [];
-        while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-            if (parser.current().type !== TokenType.Identifier) {
-                return parser.error("Expected parameter name.");
-            }
-            const paramName = parser.current().text;
-            parser.advance();
-
-            if (parser.atEnd() || parser.current().type !== TokenType.Colon) {
-                return parser.error("Expected ':' after parameter name.");
-            }
-            parser.advance();
-
+        while (
+            !parser.atEnd() &&
+            parser.current().type !== TokenType.Colon &&
+            parser.current().type !== TokenType.RBracket
+        ) {
             const paramType = parser.getTypeName();
             if (!paramType) {
                 return parser.error("Invalid type for parameter.");
             }
-
-            paramNames.push(paramName);
             paramTypes.push(paramType);
 
             if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
@@ -563,7 +547,6 @@ function parseTrait(parser: Parser): AST.Expression {
         if (parser.atEnd()) {
             return parser.error("Unterminated parameter list in trait function signature.");
         }
-        parser.advance(); // consume ')'
 
         // Expect ':'
         if (parser.atEnd() || parser.current().type !== TokenType.Colon) {
@@ -575,10 +558,10 @@ function parseTrait(parser: Parser): AST.Expression {
         if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected return type.");
         }
-        const returnTypeName = parser.current().text;
-        parser.advance();
-        const nestedTemplateTypes = parser.getTemplateTypes();
-        const returnType = getType(returnTypeName, nestedTemplateTypes);
+        const returnType = parser.getTypeName();
+        if (!returnType) {
+            return parser.error("Invalid type for parameter.");
+        }
 
         // Expect ']'
         if (parser.atEnd() || parser.current().type !== TokenType.RBracket) {
@@ -588,8 +571,7 @@ function parseTrait(parser: Parser): AST.Expression {
 
         requiredFunctions.push({
             name: funcName,
-            paramNames,
-            types: new TemplateTypes(paramTypes, returnType),
+            signature: new FuncType(paramTypes, returnType),
         });
 
         if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
