@@ -856,7 +856,11 @@ function parseVariable(parser: Parser): AST.Expression {
         if (parser.atEnd() || parser.current().type !== TokenType.ColonColon) {
             return parser.error("Expected '::' after template types");
         }
-        // Assume this is something like Foo::bar or Foo::baz(bim)
+        // This is something like Foo[T]::bar or Foo[T]::baz(bim)
+        parser.advance(); // consume '::'
+        return parseTypeAssociatedVariable(parser, variableToken, templateTypes);
+    } else if (!parser.atEnd() && parser.current().type === TokenType.ColonColon) {
+        // This is something like Foo::bar or Foo::baz(bim)
         parser.advance(); // consume '::'
         return parseTypeAssociatedVariable(parser, variableToken, templateTypes);
     }

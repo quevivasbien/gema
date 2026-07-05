@@ -46,6 +46,7 @@ export class EnumDef extends Expression {
                 name: this.name,
                 variants: this.variants,
                 genericTypes: this.genericTypes,
+                isTaggedUnion: this.variants.some((v) => v.type !== null),
             });
         }
     }

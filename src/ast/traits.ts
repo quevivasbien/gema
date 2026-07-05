@@ -1,8 +1,7 @@
 import type { Token } from "../tokens";
 import { Expression } from "./expression";
 
-import { paramTypesMatchArgTypes } from "./type-utils";
-import { CustomType, FuncType, type Type } from "./types";
+import { FuncType } from "./types";
 
 export class Trait extends Expression {
     name: string;
@@ -37,28 +36,6 @@ export class Trait extends Expression {
 
         // Trait definitions always have Null type
         this.type = "Null";
-    }
-
-    getMatchingFunction(
-        selfType: Type,
-        argTypes: Type[]
-    ): { name: string; returnType: Type } | null {
-        for (const { name, signature: types } of this.requiredFunctions) {
-            if (types.returnType === null) {
-                continue;
-            }
-            const paramTypesReplaced = types.paramTypes.map((t) => {
-                if (t instanceof CustomType && t.name === "Self") {
-                    return selfType;
-                } else {
-                    return t;
-                }
-            });
-            if (paramTypesMatchArgTypes(paramTypesReplaced, argTypes)) {
-                return { name, returnType: types.returnType };
-            }
-        }
-        return null;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {

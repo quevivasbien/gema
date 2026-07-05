@@ -214,17 +214,17 @@ export function isConcreteType(t: Type): boolean {
 
 /** Check if two types match, allowing optional Arr[X] ↔ Iter[X] auto-conversion
  *  and ignoring trait differences on CustomTypes. */
-export function typesMatchWithConversion(a: Type, b: Type, allowIterForArr: boolean): boolean {
+export function typesMatchWithConversion(a: Type, b: Type, allowArrForIter: boolean): boolean {
     if (typeEquals(a, b)) return true;
     // Try comparison with traits stripped (traits are metadata, not semantic type identity)
     if (typeEquals(stripTraits(a), stripTraits(b))) return true;
-    if (allowIterForArr) {
+    if (allowArrForIter) {
         // Arr[X] can be treated as Iter[X]
         if (a instanceof IterType && b instanceof ArrayType) {
-            return typesMatchWithConversion(a.innerType, b.innerType, allowIterForArr);
+            return typesMatchWithConversion(a.innerType, b.innerType, allowArrForIter);
         }
         if (a instanceof ArrayType && b instanceof IterType) {
-            return typesMatchWithConversion(a.innerType, b.innerType, allowIterForArr);
+            return typesMatchWithConversion(a.innerType, b.innerType, allowArrForIter);
         }
     }
     return false;
@@ -233,11 +233,11 @@ export function typesMatchWithConversion(a: Type, b: Type, allowIterForArr: bool
 export function paramTypesMatchArgTypes(
     funcParamTypes: Type[],
     argTypes: Type[],
-    allowIterForArr: boolean = true
+    allowArrForIter: boolean = false
 ): boolean {
     if (funcParamTypes.length !== argTypes.length) return false;
     return funcParamTypes.every((t, i) =>
-        typesMatchWithConversion(t, argTypes[i], allowIterForArr)
+        typesMatchWithConversion(t, argTypes[i], allowArrForIter)
     );
 }
 

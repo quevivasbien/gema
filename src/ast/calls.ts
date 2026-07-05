@@ -1,34 +1,15 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { findCaller, resolveDirectCaller } from "./caller-resolution";
-import { DropValue, Expression } from "./expression";
-import { Literal } from "./literals";
-import { Assignment } from "./assignment";
-import { Block } from "./expression";
-import { FunctionDef, AnonymousFunction } from "./functions";
-import { RangeIter } from "./nodes";
-import { typeEquals, paramTypesMatchArgTypes } from "./type-utils";
-import {
-    ArrayType,
-    CustomType,
-    DictType,
-    FuncType,
-    IterType,
-    MaybeType,
-    MutArrType,
-    MutDictType,
-    TupleType,
-    type CallableType,
-    type Type,
-} from "./types";
+import { Expression } from "./expression";
+import { AnonymousFunction } from "./functions";
+import { ArrayType, FuncType, IterType, MutArrType, type Type } from "./types";
 
 // ── Call (named function call) ──
 
 export class Call extends Expression {
     name: string;
     args: Expression[];
-
-    callerType?: CallableType;
 
     // This will be filled in during cascadeTypes when we resolve the caller
     toJSHelper: ((writer: JSWriter) => void) | null = null;
@@ -61,14 +42,11 @@ export class Call extends Expression {
         }
 
         this.toJSHelper = result.toJS;
-        this.callerType = result.callerType;
-        this.type = result.kind === "variable" ? result.returnType : result.callerType.returnType;
+        this.type = result.returnType;
 
         // Fill unresolved anonymous function params using inferred types from context
-        if (this.callerType instanceof FuncType) {
-            // TODO: This doesn't currently work except for builtins, and it needs to happen during the findCaller resolution, not here
-            this.fillLambdaFunctionParams();
-        }
+        // TODO: This doesn't currently work except for builtins, and it needs to happen during the findCaller resolution, not here
+        this.fillLambdaFunctionParams();
     }
 
     /**

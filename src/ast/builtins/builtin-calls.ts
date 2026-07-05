@@ -18,8 +18,7 @@ import {
 
 type BuiltinResult = {
     kind: "builtin";
-    // What is the function signatue of the builtin?
-    callerType: FuncType;
+    returnType: Type;
     toJS: (writer: JSWriter) => void;
 };
 
@@ -41,21 +40,21 @@ const BUILTIN_RESOLVERS: Record<
         if (inner instanceof IterType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([inner], new ArrayType(inner.innerType)),
+                returnType: new ArrayType(inner.innerType),
                 toJS,
             };
         }
         if (inner instanceof ArrayType || inner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([inner], inner),
+                returnType: inner,
                 toJS,
             };
         }
         if (inner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([inner], new ArrayType("Str")),
+                returnType: new ArrayType("Str"),
                 toJS,
             };
         }
@@ -80,7 +79,7 @@ const BUILTIN_RESOLVERS: Record<
             if (secondInner !== "Int" && secondInner !== "Num") return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType([mapFirst, mapSecond], new IterType(mapFirst.innerType)),
+                returnType: new IterType(mapFirst.innerType),
                 toJS: (writer) => {
                     writer.useBuiltin("$ArrayMapIterator$");
                     writer.write("new $ArrayMapIterator$(");
@@ -110,7 +109,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(mapFirst.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType([mapFirst, mapSecond], new IterType(mapFirst.returnType)),
+                returnType: new IterType(mapFirst.returnType),
                 toJS: mapFuncIterableToJS,
             };
         }
@@ -126,7 +125,7 @@ const BUILTIN_RESOLVERS: Record<
             const mapOutputType = mapFirst.returnType;
             return {
                 kind: "builtin",
-                callerType: new FuncType([mapFirst, mapSecond], new IterType(mapOutputType)),
+                returnType: new IterType(mapOutputType),
                 toJS: mapFuncIterableToJS,
             };
         }
@@ -152,7 +151,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(fFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType([fFnType, fIterType], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS,
             };
         }
@@ -167,7 +166,7 @@ const BUILTIN_RESOLVERS: Record<
         if (!looseMatch(fFnType.paramTypes[0], fIterInner)) return null;
         return {
             kind: "builtin",
-            callerType: new FuncType([fFnType, fIterType], new IterType(fIterInner)),
+            returnType: new IterType(fIterInner),
             toJS,
         };
     },
@@ -192,7 +191,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(rFnType.paramTypes[1], "Str")) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType([rFnType, rInitType, rIterType], rInitType),
+                returnType: rInitType,
                 toJS,
             };
         }
@@ -209,7 +208,7 @@ const BUILTIN_RESOLVERS: Record<
         if (!looseMatch(rFnType.returnType, rInitType)) return null;
         return {
             kind: "builtin",
-            callerType: new FuncType([rFnType, rInitType, rIterType], rInitType),
+            returnType: rInitType,
             toJS,
         };
     },
@@ -239,7 +238,7 @@ const BUILTIN_RESOLVERS: Record<
 
         return {
             kind: "builtin",
-            callerType: new FuncType(argTypes, new IterType(innerType)),
+            returnType: new IterType(innerType),
             toJS,
         };
     },
@@ -262,7 +261,7 @@ const BUILTIN_RESOLVERS: Record<
 
         return {
             kind: "builtin",
-            callerType: new FuncType([iFnType, iStartType], new IterType(iStartType)),
+            returnType: new IterType(iStartType),
             toJS,
         };
     },
@@ -295,14 +294,14 @@ const BUILTIN_RESOLVERS: Record<
         ) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([sStep, sIter], new IterType(sIter.innerType)),
+                returnType: new IterType(sIter.innerType),
                 toJS,
             };
         }
         if (sIter === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([sStep, sIter], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS,
             };
         }
@@ -330,21 +329,21 @@ const BUILTIN_RESOLVERS: Record<
         if (lInner instanceof IterType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([lInner], new MaybeType(lInner.innerType)),
+                returnType: new MaybeType(lInner.innerType),
                 toJS: iterToJS,
             };
         }
         if (lInner instanceof ArrayType || lInner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([lInner], new MaybeType(lInner.innerType)),
+                returnType: new MaybeType(lInner.innerType),
                 toJS: arrOrStrToJS,
             };
         }
         if (lInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([lInner], new MaybeType("Str")),
+                returnType: new MaybeType("Str"),
                 toJS: arrOrStrToJS,
             };
         }
@@ -369,21 +368,21 @@ const BUILTIN_RESOLVERS: Record<
         if (lenInner instanceof IterType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([lenInner], "Num"),
+                returnType: "Num",
                 toJS: iterToJS,
             };
         }
         if (lenInner instanceof ArrayType || lenInner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([lenInner], "Num"),
+                returnType: "Num",
                 toJS: arrOrStrToJS,
             };
         }
         if (lenInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([lenInner], "Num"),
+                returnType: "Num",
                 toJS: arrOrStrToJS,
             };
         }
@@ -409,21 +408,21 @@ const BUILTIN_RESOLVERS: Record<
         if (hInner instanceof IterType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([hInner], new MaybeType(hInner.innerType)),
+                returnType: new MaybeType(hInner.innerType),
                 toJS: iterToJS,
             };
         }
         if (hInner instanceof ArrayType || hInner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([hInner], new MaybeType(hInner.innerType)),
+                returnType: new MaybeType(hInner.innerType),
                 toJS: arrOrStrToJS,
             };
         }
         if (hInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([hInner], new MaybeType("Str")),
+                returnType: new MaybeType("Str"),
                 toJS: arrOrStrToJS,
             };
         }
@@ -449,14 +448,14 @@ const BUILTIN_RESOLVERS: Record<
         ) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([argTypes[0], tInner], new IterType(tInner.innerType)),
+                returnType: new IterType(tInner.innerType),
                 toJS,
             };
         }
         if (tInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([argTypes[0], tInner], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS,
             };
         }
@@ -491,14 +490,14 @@ const BUILTIN_RESOLVERS: Record<
         ) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([argTypes[0], dInner], new IterType(dInner.innerType)),
+                returnType: new IterType(dInner.innerType),
                 toJS,
             };
         }
         if (dInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([argTypes[0], dInner], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS,
             };
         }
@@ -523,10 +522,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(twFnType.paramTypes[0], twIterType.innerType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    [twFnType, twIterType],
-                    new IterType(twIterType.innerType)
-                ),
+                returnType: new IterType(twIterType.innerType),
                 toJS,
             };
         }
@@ -534,10 +530,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(twFnType.paramTypes[0], twIterType.innerType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    [twFnType, twIterType],
-                    new IterType(twIterType.innerType)
-                ),
+                returnType: new IterType(twIterType.innerType),
                 toJS,
             };
         }
@@ -545,7 +538,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(twFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType([twFnType, twIterType], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS,
             };
         }
@@ -570,10 +563,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(dwFnType.paramTypes[0], dwIterType.innerType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    [dwFnType, dwIterType],
-                    new IterType(dwIterType.innerType)
-                ),
+                returnType: new IterType(dwIterType.innerType),
                 toJS,
             };
         }
@@ -581,10 +571,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(dwFnType.paramTypes[0], dwIterType.innerType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    [dwFnType, dwIterType],
-                    new IterType(dwIterType.innerType)
-                ),
+                returnType: new IterType(dwIterType.innerType),
                 toJS,
             };
         }
@@ -592,7 +579,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(dwFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType([dwFnType, dwIterType], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS,
             };
         }
@@ -603,7 +590,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof ArrayType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new MutArrType(argTypes[0].innerType)),
+                returnType: new MutArrType(argTypes[0].innerType),
                 toJS: (writer) => {
                     writer.write("[...");
                     args[0]?.toJS(writer);
@@ -614,10 +601,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof DictType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    argTypes,
-                    new MutDictType(argTypes[0].keyType, argTypes[0].valueType)
-                ),
+                returnType: new MutDictType(argTypes[0].keyType, argTypes[0].valueType),
                 toJS: (writer) => {
                     writer.write("new Map(");
                     args[0]?.toJS(writer);
@@ -628,7 +612,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof SetType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new MutSetType(argTypes[0].innerType)),
+                returnType: new MutSetType(argTypes[0].innerType),
                 toJS: (writer) => {
                     writer.write("new Set(");
                     args[0]?.toJS(writer);
@@ -643,7 +627,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof ArrayType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new MutArrType(argTypes[0].innerType)),
+                returnType: new MutArrType(argTypes[0].innerType),
                 toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
@@ -652,10 +636,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof DictType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    argTypes,
-                    new MutDictType(argTypes[0].keyType, argTypes[0].valueType)
-                ),
+                returnType: new MutDictType(argTypes[0].keyType, argTypes[0].valueType),
                 toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
@@ -664,7 +645,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof SetType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new MutSetType(argTypes[0].innerType)),
+                returnType: new MutSetType(argTypes[0].innerType),
                 toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
@@ -677,7 +658,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof MutArrType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new ArrayType(argTypes[0].innerType)),
+                returnType: new ArrayType(argTypes[0].innerType),
                 toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
@@ -686,10 +667,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof MutDictType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    argTypes,
-                    new DictType(argTypes[0].keyType, argTypes[0].valueType)
-                ),
+                returnType: new DictType(argTypes[0].keyType, argTypes[0].valueType),
                 toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
@@ -698,7 +676,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof MutSetType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new SetType(argTypes[0].innerType)),
+                returnType: new SetType(argTypes[0].innerType),
                 toJS: (writer) => {
                     args[0]?.toJS(writer);
                 },
@@ -713,7 +691,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(mutArrType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, mutArrType),
+                returnType: mutArrType,
                 toJS: (writer) => {
                     writer.useBuiltin("$push$");
                     writer.write("$push$(");
@@ -729,7 +707,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(mutSetType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, mutSetType),
+                returnType: mutSetType,
                 toJS: (writer) => {
                     writer.useBuiltin("$pushMutSet$");
                     writer.write("$pushMutSet$(");
@@ -750,7 +728,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(mutArrType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, mutArrType),
+                returnType: mutArrType,
                 toJS: (writer) => {
                     writer.useBuiltin("$put$");
                     writer.write("$put$(");
@@ -769,7 +747,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(mutDictType.valueType, valueType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, mutDictType),
+                returnType: mutDictType,
                 toJS: (writer) => {
                     writer.useBuiltin("$putMutDict$");
                     writer.write("$putMutDict$(");
@@ -789,7 +767,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] instanceof MutArrType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, argTypes[0]),
+                returnType: argTypes[0],
                 toJS: (writer) => {
                     writer.useBuiltin("$pop$");
                     writer.write("$pop$(");
@@ -807,7 +785,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(mutDictType.keyType, keyType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, mutDictType),
+                returnType: mutDictType,
                 toJS: (writer) => {
                     writer.useBuiltin("$removeMutDict$");
                     writer.write("$removeMutDict$(");
@@ -823,7 +801,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!looseMatch(mutSetType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, mutSetType),
+                returnType: mutSetType,
                 toJS: (writer) => {
                     writer.useBuiltin("$removeMutSet$");
                     writer.write("$removeMutSet$(");
@@ -845,7 +823,7 @@ const BUILTIN_RESOLVERS: Record<
         const [keyType, valueType] = hmArg.innerType.types;
         return {
             kind: "builtin",
-            callerType: new FuncType(argTypes, new DictType(keyType, valueType)),
+            returnType: new DictType(keyType, valueType),
             toJS: (writer) => {
                 writer.write("new Map(");
                 args[0]?.toJS(writer);
@@ -859,7 +837,7 @@ const BUILTIN_RESOLVERS: Record<
         if (!(hsArg instanceof ArrayType)) return null;
         return {
             kind: "builtin",
-            callerType: new FuncType(argTypes, new SetType(hsArg.innerType)),
+            returnType: new SetType(hsArg.innerType),
             toJS: (writer) => {
                 writer.write("new Set(");
                 args[0]?.toJS(writer);
@@ -902,7 +880,7 @@ const BUILTIN_RESOLVERS: Record<
             if (cValue !== cContainer.innerType) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Bool"),
+                returnType: "Bool",
                 toJS: setOrMapToJS,
             };
         }
@@ -910,7 +888,7 @@ const BUILTIN_RESOLVERS: Record<
             if (cValue !== cContainer.innerType) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Bool"),
+                returnType: "Bool",
                 toJS: arrToJS,
             };
         }
@@ -918,7 +896,7 @@ const BUILTIN_RESOLVERS: Record<
             if (cValue !== cContainer.innerType) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Bool"),
+                returnType: "Bool",
                 toJS: iterToJS,
             };
         }
@@ -926,7 +904,7 @@ const BUILTIN_RESOLVERS: Record<
             if (cValue !== cContainer.keyType) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Bool"),
+                returnType: "Bool",
                 toJS: setOrMapToJS,
             };
         }
@@ -934,7 +912,7 @@ const BUILTIN_RESOLVERS: Record<
             if (cValue !== "Str") return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Bool"),
+                returnType: "Bool",
                 toJS: strToJS,
             };
         }
@@ -964,7 +942,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!typeEquals(fContainer.innerType, fValue)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new MaybeType("Num")),
+                returnType: new MaybeType("Num"),
                 toJS: arrOrStrToJS,
             };
         }
@@ -972,14 +950,14 @@ const BUILTIN_RESOLVERS: Record<
             if (!typeEquals(fContainer.innerType, fValue)) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new MaybeType("Num")),
+                returnType: new MaybeType("Num"),
                 toJS: iterToJS,
             };
         }
         if (fContainer === "Str" && fValue === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new MaybeType("Num")),
+                returnType: new MaybeType("Num"),
                 toJS: arrOrStrToJS,
             };
         }
@@ -990,7 +968,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] === "Str" && argTypes[1] === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, new ArrayType("Str")),
+                returnType: new ArrayType("Str"),
                 toJS: (writer) => {
                     args[1]?.toJS(writer);
                     writer.write(".split(");
@@ -1006,7 +984,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] === "Str" && argTypes[1] === "Str" && argTypes[2] === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Str"),
+                returnType: "Str",
                 toJS: (writer) => {
                     args[2]?.toJS(writer);
                     writer.write(".replaceAll(");
@@ -1028,7 +1006,7 @@ const BUILTIN_RESOLVERS: Record<
         ) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, argTypes[0]),
+                returnType: argTypes[0],
                 toJS: (writer) => {
                     writer.write("new Set([...");
                     args[0]?.toJS(writer);
@@ -1049,7 +1027,7 @@ const BUILTIN_RESOLVERS: Record<
         ) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, argTypes[0]),
+                returnType: argTypes[0],
                 toJS: (writer) => {
                     writer.write("new Set([...");
                     args[0]?.toJS(writer);
@@ -1089,7 +1067,7 @@ const BUILTIN_RESOLVERS: Record<
         };
         return {
             kind: "builtin",
-            callerType: new FuncType(argTypes, new IterType(new TupleType(innerTypes))),
+            returnType: new IterType(new TupleType(innerTypes)),
             toJS,
         };
     },
@@ -1120,17 +1098,14 @@ const BUILTIN_RESOLVERS: Record<
         ) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    [repeatCount, repeatInner],
-                    new IterType(repeatInner.innerType)
-                ),
+                returnType: new IterType(repeatInner.innerType),
                 toJS,
             };
         }
         if (repeatInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([repeatCount, repeatInner], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS,
             };
         }
@@ -1163,14 +1138,14 @@ const BUILTIN_RESOLVERS: Record<
         ) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([riCount, riInner], new IterType(riInner.innerType)),
+                returnType: new IterType(riInner.innerType),
                 toJS,
             };
         }
         if (riInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([riCount, riInner], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS,
             };
         }
@@ -1201,7 +1176,7 @@ const BUILTIN_RESOLVERS: Record<
         };
         return {
             kind: "builtin",
-            callerType: new FuncType(argTypes, new IterType(new TupleType(innerTypes))),
+            returnType: new IterType(new TupleType(innerTypes)),
             toJS,
         };
     },
@@ -1231,7 +1206,7 @@ const BUILTIN_RESOLVERS: Record<
                 permInner instanceof IterType ? permInner.innerType : permInner.innerType;
             return {
                 kind: "builtin",
-                callerType: new FuncType([permInner], new IterType(new ArrayType(pInner))),
+                returnType: new IterType(new ArrayType(pInner)),
                 toJS,
             };
         }
@@ -1273,7 +1248,7 @@ const BUILTIN_RESOLVERS: Record<
             const cInner = combIter instanceof IterType ? combIter.innerType : combIter.innerType;
             return {
                 kind: "builtin",
-                callerType: new FuncType([combN, combIter], new IterType(new ArrayType(cInner))),
+                returnType: new IterType(new ArrayType(cInner)),
                 toJS,
             };
         }
@@ -1285,7 +1260,7 @@ const BUILTIN_RESOLVERS: Record<
         if (tiInner instanceof ArrayType || tiInner instanceof MutArrType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([tiInner], new IterType(tiInner.innerType)),
+                returnType: new IterType(tiInner.innerType),
                 toJS: (writer) => {
                     writer.useBuiltin("$ArrayIterator$");
                     writer.write("new $ArrayIterator$(");
@@ -1297,10 +1272,7 @@ const BUILTIN_RESOLVERS: Record<
         if (tiInner instanceof DictType || tiInner instanceof MutDictType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    [tiInner],
-                    new IterType(new TupleType([tiInner.keyType, tiInner.valueType]))
-                ),
+                returnType: new IterType(new TupleType([tiInner.keyType, tiInner.valueType])),
                 toJS: (writer) => {
                     writer.useBuiltin("$ArrayIterator$");
                     writer.write("new $ArrayIterator$([...");
@@ -1312,7 +1284,7 @@ const BUILTIN_RESOLVERS: Record<
         if (tiInner instanceof SetType || tiInner instanceof MutSetType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([tiInner], new IterType(tiInner.innerType)),
+                returnType: new IterType(tiInner.innerType),
                 toJS: (writer) => {
                     writer.useBuiltin("$ArrayIterator$");
                     writer.write("new $ArrayIterator$([...");
@@ -1324,7 +1296,7 @@ const BUILTIN_RESOLVERS: Record<
         if (tiInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([tiInner], new IterType("Str")),
+                returnType: new IterType("Str"),
                 toJS: (writer) => {
                     writer.useBuiltin("$ArrayIterator$");
                     writer.write("new $ArrayIterator$(");
@@ -1342,10 +1314,7 @@ const BUILTIN_RESOLVERS: Record<
         if (taInner instanceof DictType || taInner instanceof MutDictType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType(
-                    [taInner],
-                    new ArrayType(new TupleType([taInner.keyType, taInner.valueType]))
-                ),
+                returnType: new ArrayType(new TupleType([taInner.keyType, taInner.valueType])),
                 toJS: (writer) => {
                     writer.write("[...");
                     args[0]?.toJS(writer);
@@ -1356,7 +1325,7 @@ const BUILTIN_RESOLVERS: Record<
         if (taInner instanceof SetType || taInner instanceof MutSetType) {
             return {
                 kind: "builtin",
-                callerType: new FuncType([taInner], new ArrayType(taInner.innerType)),
+                returnType: new ArrayType(taInner.innerType),
                 toJS: (writer) => {
                     writer.write("[...");
                     args[0]?.toJS(writer);
@@ -1367,7 +1336,7 @@ const BUILTIN_RESOLVERS: Record<
         if (taInner === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType([taInner], new ArrayType("Str")),
+                returnType: new ArrayType("Str"),
                 toJS: (writer) => {
                     args[0]?.toJS(writer);
                     writer.write('.split("")');
@@ -1384,7 +1353,7 @@ const BUILTIN_RESOLVERS: Record<
             if (!typeEquals(innerType, argTypes[0])) return null;
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, innerType),
+                returnType: innerType,
                 toJS: (writer) => {
                     writer.useBuiltin("$unwrapWithFallback$");
                     writer.write("$unwrapWithFallback$(");
@@ -1398,7 +1367,7 @@ const BUILTIN_RESOLVERS: Record<
         if (!(argTypes[0] instanceof MaybeType)) return null;
         return {
             kind: "builtin",
-            callerType: new FuncType(argTypes, argTypes[0].innerType),
+            returnType: argTypes[0].innerType,
             toJS: (writer) => {
                 writer.useBuiltin("$unwrapNoFallback$");
                 writer.write("$unwrapNoFallback$(");
@@ -1412,7 +1381,7 @@ const BUILTIN_RESOLVERS: Record<
         if (!(argTypes[0] instanceof MaybeType)) return null;
         return {
             kind: "builtin",
-            callerType: new FuncType(argTypes, "Bool"),
+            returnType: "Bool",
             toJS: (writer) => {
                 args[0]?.toJS(writer);
                 writer.write(" === null");
@@ -1423,7 +1392,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes.length !== 1) return null;
         return {
             kind: "builtin",
-            callerType: new FuncType(argTypes, new MaybeType(argTypes[0])),
+            returnType: new MaybeType(argTypes[0]),
             toJS: (writer) => {
                 args[0].toJS(writer);
             },
@@ -1434,7 +1403,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] === "Int" || argTypes[0] === "Num" || argTypes[0] === "Bool") {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Str"),
+                returnType: "Str",
                 toJS: (writer) => {
                     writer.write("String(");
                     args[0]?.toJS(writer);
@@ -1449,7 +1418,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] === "Num" || argTypes[0] === "Bool") {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Int"),
+                returnType: "Int",
                 toJS: (writer) => {
                     if (args[0]?.type === "Num") {
                         writer.write("BigInt(Math.trunc(");
@@ -1470,7 +1439,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] === "Int") {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Num"),
+                returnType: "Num",
                 toJS: (writer) => {
                     writer.write("Number(");
                     args[0]?.toJS(writer);
@@ -1485,7 +1454,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[0] === "Int" || argTypes[0] === "Num" || argTypes[0] === "Str") {
             return {
                 kind: "builtin",
-                callerType: new FuncType(argTypes, "Bool"),
+                returnType: "Bool",
                 toJS: (writer) => {
                     writer.write("Boolean(");
                     args[0]?.toJS(writer);

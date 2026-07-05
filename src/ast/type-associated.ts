@@ -16,9 +16,9 @@ export class TypeAssociatedExpr extends Expression {
 
     toJSHelper: ((writer: JSWriter) => void) | null = null;
 
-    constructor(variableToken: Token, templateTypes: TemplateTypes, innerExpr: Expression) {
-        super(variableToken.line, variableToken.col);
-        const type = getType(variableToken.text, templateTypes);
+    constructor(typeToken: Token, templateTypes: TemplateTypes, innerExpr: Expression) {
+        super(typeToken.line, typeToken.col);
+        const type = getType(typeToken.text, templateTypes);
         if (type === null) {
             throw this.error("Invalid type name before '::'");
         }
@@ -57,14 +57,21 @@ export class TypeAssociatedExpr extends Expression {
             }
 
             this.toJSHelper = result.toJS;
-            this.type =
-                result.kind === "variable" ? result.returnType : result.callerType.returnType;
+            this.type = result.returnType;
 
             // TODO: Might need to resolve lambda params here
         }
         // For now, the only other thing this can be is an enum instantiation (with no contents)
         else if (this.innerExpr instanceof Variable) {
-            // TODO!
+            const enumMatch = this.getScope()?.lookupEnum(this.associatedType, this.innerExpr.name);
+            if (!enumMatch) {
+                throw this.error(`unable to resolve type of enum instantiation`);
+            }
+            this.type = this.associatedType;
+            const literalValue = enumMatch.isTaggedUnion
+                ? `{ $tag: ${enumMatch.variantIndex}, $val: null }`
+                : enumMatch.variantIndex.toString();
+            this.toJSHelper = (writer) => writer.write(literalValue);
         }
     }
 

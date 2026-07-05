@@ -286,9 +286,11 @@ export class FunctionDef extends Expression {
             return null;
         }
         // Check if the lastExpr is a call to _this_ function
-        // Must match both name and type — type alone isn't enough because trait-routed
-        // calls inside generic bodies can have the same type signature as the enclosing function.
-        if (lastExpr.name !== this.name || !typeEquals(lastExpr.callerType, this.getFuncType())) {
+        // Must match both name and type
+        if (
+            lastExpr.name !== this.name ||
+            this.params.some((p, i) => !typeEquals(p.type, lastExpr.args[i].type))
+        ) {
             return null;
         }
         return lastExpr;

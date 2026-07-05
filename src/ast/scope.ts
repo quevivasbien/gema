@@ -1,5 +1,5 @@
-import { paramTypesMatchArgTypes, substituteTypeParams } from "./type-utils";
-import { FuncType, GenericType, type TemplateTypes, type Type } from "./types";
+import { paramTypesMatchArgTypes, substituteTypeParams, typeEquals } from "./type-utils";
+import { CustomType, FuncType, GenericType, type TemplateTypes, type Type } from "./types";
 
 export type VarAttributes = {
     class: "var";
@@ -45,7 +45,7 @@ export type GenericFuncAttributes = {
     ) => GenericMappingInfo[] | null;
 };
 
-export type ResolvedGenericFuncAttributes = {
+export type ResolvedGenericFunc = {
     class: "generic";
     name: string;
     type: FuncType;
@@ -67,6 +67,14 @@ export type EnumAttributes = {
     name: string;
     variants: { name: string; type: Type | null }[];
     genericTypes: GenericType[] | null;
+    isTaggedUnion: boolean;
+};
+
+export type ResolvedEnumInstantiation = {
+    class: "enum";
+    enumType: CustomType;
+    variantIndex: number;
+    isTaggedUnion: boolean;
 };
 
 export type TraitAttributes = {
@@ -155,27 +163,22 @@ export class Scope {
     /**
      * Look for a function definition (including generic definitions) with the given name
      * and a compatible type signature.
-     * Matches with incompatible param types are skipped (we keep looking for a match).
+     * Matches with incompatible param types ae skipped (we keep looking for a match).
      */
     lookupFunction(
         name: string,
         argTypes: Type[],
         associatedType: Type | null,
-        allowIterForArr: boolean = false,
         rootScope: Scope | null = null
-    ): FuncAttributes | ResolvedGenericFuncAttributes | null {
+    ): FuncAttributes | ResolvedGenericFunc | ResolvedEnumInstantiation | null {
         for (let i = this.variables.length - 1; i >= 0; i--) {
             const v = this.variables[i];
-            if (v.name !== name) {
-                continue;
-            }
-            if (v.class === "func") {
+            if (v.name === name && v.class === "func") {
                 // For concrete functions, check that param types match
-                if (paramTypesMatchArgTypes(v.type.paramTypes, argTypes, allowIterForArr)) {
+                if (paramTypesMatchArgTypes(v.type.paramTypes, argTypes)) {
                     return v;
                 }
-            } else if (v.class === "generic") {
-                // For generic functions, call the traitImplGetter to verify that argTypes are compatible
+            } else if (v.name === name && v.class === "generic") {
                 const genericMapping = v.traitImplGetter(
                     rootScope ?? this,
                     argTypes,
@@ -196,11 +199,36 @@ export class Scope {
                     };
                 }
             }
+            // Handle case of enum instantiation (like `EnumName::variantName(value)`)
+            // The call must have an associated type the `EnumName` and must take exactly one value (maybe in the future we will permit multiple values)
+            // TODO: This doesn't yet support generic enums
+            else if (
+                v.class === "enum" &&
+                associatedType !== null &&
+                associatedType instanceof CustomType &&
+                argTypes.length === 1
+            ) {
+                if (v.name === associatedType.name) {
+                    // Check if one of the variants matches
+                    for (let i = 0; i < v.variants.length; i++) {
+                        const variant = v.variants[i];
+                        if (variant.name !== name || !typeEquals(variant.type, argTypes[0])) {
+                            continue;
+                        }
+                        return {
+                            class: v.class,
+                            enumType: associatedType,
+                            variantIndex: i,
+                            isTaggedUnion: false,
+                        };
+                    }
+                }
+            }
         }
         if (this.parent === null) {
             return null;
         }
-        return this.parent.lookupFunction(name, argTypes, associatedType, allowIterForArr, this);
+        return this.parent.lookupFunction(name, argTypes, associatedType, this);
     }
 
     /**
@@ -218,7 +246,6 @@ export class Scope {
             if (v.class !== "struct") {
                 continue;
             }
-            // TODO: Should we allow implicit Arr -> Iter conversion when constructing structs?
             if (
                 paramTypesMatchArgTypes(
                     v.fields.map((f) => f.type),
@@ -233,6 +260,42 @@ export class Scope {
             return null;
         }
         return this.parent.lookupStruct(name, argTypes);
+    }
+
+    lookupEnum(
+        enumType: Type,
+        argName: string,
+        argType: Type | null = null
+    ): ResolvedEnumInstantiation | null {
+        if (!(enumType instanceof CustomType)) {
+            return null;
+        }
+        for (let i = this.variables.length - 1; i >= 0; i--) {
+            const v = this.variables[i];
+            if (v.class !== "enum") {
+                continue;
+            }
+            if (enumType.name !== v.name) {
+                continue;
+            }
+            // Check if one of the variants matches
+            for (let j = 0; j < v.variants.length; j++) {
+                const variant = v.variants[j];
+                if (variant.name !== argName || !typeEquals(variant.type, argType)) {
+                    continue;
+                }
+                return {
+                    class: v.class,
+                    enumType: enumType,
+                    variantIndex: j,
+                    isTaggedUnion: v.isTaggedUnion,
+                };
+            }
+        }
+        if (this.parent === null) {
+            return null;
+        }
+        return this.parent.lookupEnum(enumType, argName, argType);
     }
 
     /**

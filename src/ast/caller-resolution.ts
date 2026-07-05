@@ -20,39 +20,15 @@ import {
     MutArrType,
     MutDictType,
     TupleType,
-    type CallableType,
     type Type,
 } from "./types";
 
 // ── Discriminated union for findCaller results ──
-// TODO: Probably do not need to include the callerType in each of these -- can just save the return type
-
-type VariableResult = {
-    kind: "variable";
-    callerType: CallableType;
+export type CallerResult = {
+    kind: "variable" | "function" | "struct-constructor" | "enum-instantiation" | "builtin";
     returnType: Type;
     toJS: (writer: JSWriter) => void;
 };
-
-type FuncDefResult = {
-    kind: "function";
-    callerType: FuncType;
-    toJS: (writer: JSWriter) => void;
-};
-
-type StructDefResult = {
-    kind: "struct-constructor";
-    callerType: FuncType;
-    toJS: (writer: JSWriter) => void;
-};
-
-type BuiltinResult = {
-    kind: "builtin";
-    callerType: FuncType;
-    toJS: (writer: JSWriter) => void;
-};
-
-export type CallerResult = VariableResult | FuncDefResult | StructDefResult | BuiltinResult;
 
 /**
  * Check whether a variable or expression is being called with compatible argument types
@@ -67,7 +43,7 @@ export function resolveDirectCaller(
 ):
     | {
           error: null;
-          result: VariableResult;
+          result: { kind: "variable"; returnType: Type; toJS: (writer: JSWriter) => void };
       }
     | { error: string; result: null } {
     const isVarCall = typeof caller === "string";
@@ -96,7 +72,6 @@ export function resolveDirectCaller(
             error: null,
             result: {
                 kind: "variable",
-                callerType: callerType,
                 returnType: callerType.returnType,
                 toJS(writer) {
                     writeCaller(writer);
@@ -140,7 +115,6 @@ export function resolveDirectCaller(
                 error: null,
                 result: {
                     kind: "variable",
-                    callerType: callerType,
                     returnType: callerType,
                     toJS(writer) {
                         writeCaller(writer);
@@ -178,7 +152,6 @@ export function resolveDirectCaller(
             error: null,
             result: {
                 kind: "variable",
-                callerType: callerType,
                 returnType: isUnsafe ? innerType : new MaybeType(innerType),
                 toJS(writer) {
                     writer.write("(");
@@ -201,7 +174,6 @@ export function resolveDirectCaller(
             error: null,
             result: {
                 kind: "variable",
-                callerType: callerType,
                 returnType: isUnsafe ? callerType.innerType : new MaybeType(callerType.innerType),
                 toJS(writer) {
                     writer.useBuiltin("$iterGet$");
@@ -247,7 +219,6 @@ export function resolveDirectCaller(
             error: null,
             result: {
                 kind: "variable",
-                callerType: callerType,
                 returnType: callerType.types[0],
                 toJS(writer) {
                     writeCaller(writer);
@@ -268,7 +239,6 @@ export function resolveDirectCaller(
             error: null,
             result: {
                 kind: "variable",
-                callerType: callerType,
                 returnType: isUnsafe ? callerType.valueType : new MaybeType(callerType.valueType),
                 toJS(writer) {
                     writer.write("(");
@@ -331,15 +301,12 @@ function resolveTraitFunctionCall(
                         bindings.set("Self", argTypes[i]);
                     }
                 }
-                const substitutedParamTypes = matchingFn.signature.paramTypes.map((t) =>
-                    substituteTypeParams(t, bindings)
-                );
                 const substitutedReturnType = matchingFn.signature.returnType
                     ? substituteTypeParams(matchingFn.signature.returnType, bindings)
                     : "Unknown";
                 return {
                     kind: "function",
-                    callerType: new FuncType(substitutedParamTypes, substitutedReturnType),
+                    returnType: substitutedReturnType,
                     toJS(writer) {
                         writer.write(`$$impl${traitName}_${genericName}.${name}(`);
                         args.forEach((arg, i) => {
@@ -385,6 +352,7 @@ export function findCaller(
           result: CallerResult;
       }
     | { error: string; result: null } {
+    console.log("Searching for", name, args, associatedType);
     const scope = callExpr.getScope();
     if (scope === null) {
         return {
@@ -428,7 +396,7 @@ export function findCaller(
                 error: null,
                 result: {
                     kind: "function",
-                    callerType: funcMatch.type,
+                    returnType: funcMatch.type.returnType,
                     toJS(writer) {
                         writer.write(safeJSName(funcMatch.fullName));
                         writer.write("(");
@@ -442,13 +410,13 @@ export function findCaller(
                     },
                 },
             };
-        } else {
+        } else if (funcMatch.class === "generic") {
             // Generic function definition
             return {
                 error: null,
                 result: {
                     kind: "function",
-                    callerType: funcMatch.type,
+                    returnType: funcMatch.type.returnType,
                     toJS(writer) {
                         writer.write(safeJSName(funcMatch.fullName));
                         writer.write("(");
@@ -464,75 +432,25 @@ export function findCaller(
                     },
                 },
             };
-        }
-    }
-    // If we didn't find an exact function match, try again allowing implicit Arr -> Iter conversion
-    const looseFuncMatch = scope.lookupFunction(name, argTypes, associatedType, true);
-    if (looseFuncMatch !== null) {
-        if (looseFuncMatch.class === "func") {
+        } else if (funcMatch.class === "enum") {
+            // Enum instantiation
             return {
                 error: null,
                 result: {
-                    kind: "function",
-                    callerType: looseFuncMatch.type,
+                    kind: "enum-instantiation",
+                    returnType: funcMatch.enumType,
                     toJS(writer) {
-                        writer.write(safeJSName(looseFuncMatch.fullName));
-                        writer.write("(");
-                        args.forEach((arg, i) => {
-                            if (i > 0) {
-                                writer.write(", ");
-                            }
-                            // Auto-convert Arg to Iter when the function expects Iter but gets Arg
-                            if (
-                                looseFuncMatch.type.paramTypes[i] instanceof IterType &&
-                                arg.type instanceof ArrayType
-                            ) {
-                                writer.useBuiltin("$ArrayIterator$");
-                                writer.write("new $ArrayIterator$(");
-                                arg.toJS(writer);
-                                writer.write(")");
-                            } else {
-                                arg.toJS(writer);
-                            }
-                        });
-                        writer.write(")");
+                        writer.write("{ $tag: ");
+                        writer.write(funcMatch.variantIndex.toString());
+                        writer.write(", $val: ");
+                        args[0].toJS(writer);
+                        writer.write(" }");
                     },
                 },
             };
+        } else {
+            throw new Error(`Got unexpected caller match ${funcMatch}`);
         }
-    }
-    // Check for generic loose match
-    if (looseFuncMatch && looseFuncMatch.class === "generic") {
-        return {
-            error: null,
-            result: {
-                kind: "function",
-                callerType: looseFuncMatch.type,
-                toJS(writer) {
-                    writer.write(safeJSName(looseFuncMatch.fullName));
-                    writer.write("(");
-                    args.forEach((arg, i) => {
-                        if (i > 0) {
-                            writer.write(", ");
-                        }
-                        // Auto-convert Arg to Iter when the function expects Iter but gets Arg
-                        if (
-                            looseFuncMatch.type.paramTypes[i] instanceof IterType &&
-                            arg.type instanceof ArrayType
-                        ) {
-                            writer.useBuiltin("$ArrayIterator$");
-                            writer.write("new $ArrayIterator$(");
-                            arg.toJS(writer);
-                            writer.write(")");
-                        } else {
-                            arg.toJS(writer);
-                        }
-                    });
-                    writeTraitImplDictionaries(writer, looseFuncMatch.genericMapping);
-                    writer.write(")");
-                },
-            },
-        };
     }
 
     // Check for struct constructor definitions
@@ -543,10 +461,7 @@ export function findCaller(
             error: null,
             result: {
                 kind: "struct-constructor",
-                callerType: new FuncType(
-                    structMatch.fields.map((f) => f.type),
-                    new CustomType(name)
-                ),
+                returnType: new CustomType(name),
                 toJS(writer) {
                     const safeNames = structMatch.fields.map((f) => writer.safeName(f.name));
                     writer.write("{");
