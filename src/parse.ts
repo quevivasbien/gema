@@ -609,7 +609,9 @@ function parseEnum(parser: Parser): AST.Expression {
     parser.advance(); // consume enum name
 
     // Parse optional type parameter list: enum Result[T, E] { ... }
-    const typeParams: string[] = [];
+    // We will use the same mechanism used for generic function definitions to parse
+    // the type parameters, although for now we won't accept trait bounds
+    const typeParams: Record<string, { traits: []; used: false }> = {};
     if (!parser.atEnd() && parser.current().type === TokenType.LBracket) {
         parser.advance(); // consume '['
         while (!parser.atEnd() && parser.current().type !== TokenType.RBracket) {
@@ -617,10 +619,10 @@ function parseEnum(parser: Parser): AST.Expression {
                 return parser.error("Expected type parameter name.");
             }
             const tpName = parser.current().text;
-            if (typeParams.includes(tpName)) {
+            if (tpName in typeParams) {
                 return parser.error(`Duplicate type parameter '${tpName}'.`);
             }
-            typeParams.push(tpName);
+            typeParams[tpName] = { traits: [], used: false };
             parser.advance();
             if (parser.current().type === TokenType.Comma) {
                 parser.advance();
@@ -655,7 +657,7 @@ function parseEnum(parser: Parser): AST.Expression {
         // Check for optional type annotation: variant: Type
         if (!parser.atEnd() && parser.current().type === TokenType.Colon) {
             parser.advance(); // consume ':'
-            variantType = parser.getTypeName();
+            variantType = parser.getTypeName(typeParams);
             if (!variantType) {
                 return parser.error("Invalid type annotation for enum variant.");
             }
@@ -673,8 +675,23 @@ function parseEnum(parser: Parser): AST.Expression {
     }
     parser.advance(); // consume '}'
 
+    // Check that we've actually used all the generic types that we created
+    for (const name of Object.keys(typeParams)) {
+        if (!typeParams[name].used) {
+            return parser.error(`Generic type ${name} is not used as a parameter type`);
+        }
+    }
+
     return parser.tryCreateASTExpression(
-        () => new AST.EnumDef(rootToken, name, variants, typeParams)
+        () =>
+            new AST.EnumDef(
+                rootToken,
+                name,
+                variants,
+                Object.keys(typeParams).map(
+                    (name) => new GenericType(name, typeParams[name].traits)
+                )
+            )
     );
 }
 
@@ -835,12 +852,15 @@ function parseVariable(parser: Parser): AST.Expression {
     const variableToken = parser.previous();
     // Get template types if there are any attached
     const templateTypes = parser.getTemplateTypes();
-    if (!parser.atEnd() && parser.current().type === TokenType.ColonColon) {
+    if (templateTypes !== null && !templateTypes.empty()) {
+        if (parser.atEnd() || parser.current().type !== TokenType.ColonColon) {
+            return parser.error("Expected '::' after template types");
+        }
         // Assume this is something like Foo::bar or Foo::baz(bim)
         parser.advance(); // consume '::'
         return parseTypeAssociatedVariable(parser, variableToken, templateTypes);
     }
-    return parser.tryCreateASTExpression(() => new AST.Variable(variableToken, templateTypes));
+    return parser.tryCreateASTExpression(() => new AST.Variable(variableToken));
 }
 
 function parseCall(parser: Parser): AST.Expression {
@@ -1474,7 +1494,7 @@ class Parser {
         let value: AST.Expression = rhs;
         if (isCompound && compoundOp) {
             // Desugar x += expr → x = x + expr by creating a Binary node
-            const varRef = new AST.Variable(variableToken, new TemplateTypes());
+            const varRef = new AST.Variable(variableToken);
             value = this.tryCreateASTExpression(() => {
                 // Build the binary operation token
                 const opToken = {

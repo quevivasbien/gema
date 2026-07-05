@@ -420,7 +420,6 @@ export function findCaller(
     }
 
     // See if we can find a function definition with a compatible type signature
-    // TODO: Cannot yet match TAFs!
     const funcMatch = scope.lookupFunction(name, argTypes, associatedType);
     if (funcMatch) {
         if (funcMatch.class === "func") {

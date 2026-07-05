@@ -1,6 +1,4 @@
-trait Any {}
-
-func fill(x: T, n: Num) where T is Any {
+func [T] fill(x: T, n: Num) {
   map(\_ x, 0..n-1) | collect
 }
 
@@ -9,10 +7,10 @@ func sieve(upto: Num) {
   primes = []:Num | trans;
   for i = range(2, upto) {
     if isPrime(i-1) | unwrap {
-      push(primes, i);
+      push(i, primes);
       if i * i < upto {
         for m = range(0, (upto - i*i) / i) {
-          put(isPrime, m*i + i*i - 1, false);
+          put(false, m*i + i*i - 1, isPrime);
         }
       }
     };

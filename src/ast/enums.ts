@@ -4,75 +4,51 @@ import { ASTError, Expression } from "./expression";
 import { Scope } from "./scope";
 
 import { substituteTypeParams, typeEquals } from "./type-utils";
-import { EscapeType, MaybeType, type Type } from "./types";
+import { EscapeType, GenericType, MaybeType, type Type } from "./types";
 
 // ── Enum definition ───────────────────────────────────────
 
 export class EnumDef extends Expression {
     name: string;
     variants: { name: string; type: Type | null }[];
-    typeParams: string[] = [];
-    monomorphizedVersions: EnumDef[] = [];
+    genericTypes: GenericType[];
 
     constructor(
         rootToken: Token,
         name: string,
         variants: { name: string; type: Type | null }[],
-        typeParams: string[] = []
+        genericTypes: GenericType[]
     ) {
         super(rootToken.line, rootToken.col);
         this.name = name;
         this.variants = variants;
-        this.typeParams = typeParams;
+        this.genericTypes = genericTypes;
+
+        // Enum definition always has type Null
         this.type = "Null";
     }
 
-    get isGeneric(): boolean {
-        return this.typeParams.length > 0;
+    isGeneric(): boolean {
+        return this.genericTypes.length > 0;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
         // Register this enum's name in the enclosing scope so Variable references can find it
-        const blockScope = this.getScope();
-        if (blockScope) {
-            blockScope.defineVariable({
+        const enclosingScope = this.getScope();
+        if (!enclosingScope) {
+            throw this.error("Enum definition is missing enclosing scope");
+        }
+        // Register enum definition in enclosing scope
+        if (enclosingScope) {
+            enclosingScope.defineVariable({
                 class: "enum",
                 name: this.name,
-                variants: this.variants.map((v) => ({ name: v.name, type: v.type })),
-                isGeneric: this.isGeneric || undefined,
-                typeParams: this.typeParams.length > 0 ? this.typeParams : undefined,
-                def: this.isGeneric ? this : undefined,
+                variants: this.variants,
+                genericTypes: this.genericTypes,
             });
         }
     }
-
-    // TODO: We need a different version of this that doesn't require monomorphization
-    // /**
-    //  * Monomorphize this generic enum with concrete type arguments.
-    //  * Returns the concrete variant types and an EnumType with concrete types.
-    //  */
-    // monomorphize(
-    //     typeArgs: Type[]
-    // ): { variants: { name: string; type: Type | null }[]; enumType: EnumType } | null {
-    //     if (!this.isGeneric) return null;
-    //     if (typeArgs.length !== this.typeParams.length) return null;
-
-    //     const bindings = new Map<string, Type>();
-    //     for (let i = 0; i < this.typeParams.length; i++) {
-    //         bindings.set(this.typeParams[i], typeArgs[i]);
-    //     }
-
-    //     const concreteVariants = this.variants.map((v) => ({
-    //         name: v.name,
-    //         type: v.type ? substituteTypeParams(v.type, bindings) : null,
-    //     }));
-
-    //     return {
-    //         variants: concreteVariants,
-    //         enumType: new EnumType(this.name, concreteVariants),
-    //     };
-    // }
 
     toJS(_writer: JSWriter): void {
         // Enum definitions are for type-checking only; not emitted to JS

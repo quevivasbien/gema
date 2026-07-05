@@ -66,9 +66,7 @@ export type EnumAttributes = {
     class: "enum";
     name: string;
     variants: { name: string; type: Type | null }[];
-    isGeneric?: true;
-    typeParams?: string[];
-    def?: unknown;
+    genericTypes: GenericType[] | null;
 };
 
 export type TraitAttributes = {

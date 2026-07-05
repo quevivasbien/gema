@@ -1,13 +1,9 @@
-import { TokenType, type Token } from "../tokens";
+import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Assignment } from "./assignment";
 import { functionNameWithParamTypes } from "./caller-utils";
-import type { EnumDef } from "./enums";
 import { Block, Expression } from "./expression";
-import type { FunctionDef } from "./functions";
-import type { StructDef } from "./structs";
 
-import { substituteTypeParams } from "./type-utils";
 import {
     CustomType,
     FuncType,
@@ -288,138 +284,16 @@ export class TupleLit extends Expression {
 
 export class Variable extends Expression {
     name: string;
-    templateTypes: TemplateTypes;
 
     fullName?: string;
 
-    constructor(token: Token, templateTypes: TemplateTypes) {
+    constructor(token: Token) {
         super(token.line, token.col);
         this.name = token.text;
-        this.templateTypes = templateTypes;
-    }
-
-    getTemplateTypes(): TemplateTypes | null {
-        return this.templateTypes;
     }
 
     toString(): string {
-        if (!this.templateTypes.empty()) {
-            return `${this.name}${this.templateTypes}`;
-        }
         return this.name;
-    }
-
-    /** Walk up the parent chain through enclosing Blocks, scanning older sibling
-     *  expressions in each one. Stops when the callback returns true (found). */
-    private walkEnclosingBlocks(callback: (siblings: Expression[]) => boolean): boolean {
-        let child: Expression | null = null;
-        let parent = this.parent;
-        while (parent) {
-            const siblingExprs = parent instanceof Block ? parent.expressions : null;
-            if (siblingExprs !== null) {
-                const idx = siblingExprs.indexOf(child ?? this);
-                const olderSiblings = siblingExprs.slice(0, idx);
-                if (callback(olderSiblings)) return true;
-            }
-            child = parent;
-            parent = parent.parent;
-        }
-        return false;
-    }
-
-    setTypeWithTemplateTypes(): void {
-        this.fullName = functionNameWithParamTypes(this.name, this.templateTypes?.types ?? []);
-
-        // Check scope first — search for a function entry by fullName
-        const scope = this.getScope();
-        if (scope) {
-            for (const v of scope.variables) {
-                if (v.class === "func" && v.fullName === this.fullName && !v.isGeneric) {
-                    // Non-generic or already-monomorphized function found in scope
-                    this.type = v.type;
-                    this.fullName = v.fullName;
-                    return;
-                }
-            }
-            // Check for generic entries by base name
-            const bareResult = scope.lookup(this.name);
-            if (bareResult && bareResult.attrs.class === "func" && bareResult.attrs.isGeneric) {
-                // Generic entry found in scope — monomorphization will happen via parent walk below
-            }
-        }
-
-        // Check scope for function entries
-        // Walk the full scope chain to find function entries
-        let currentScope = this.getScope();
-        while (currentScope) {
-            for (const v of currentScope.variables) {
-                if (v.class === "func" && v.fullName === this.fullName && !v.isGeneric) {
-                    this.type = v.type;
-                    this.fullName = v.fullName;
-                    return;
-                }
-            }
-            // Check for generic function entries in this scope level
-            for (const v of currentScope.variables) {
-                if (v.class === "func" && v.name === this.name && v.isGeneric && v.def) {
-                    const genericFn = v.def as FunctionDef;
-                    const argTypes = this.templateTypes?.types ?? [];
-                    const result = genericFn.monomorphize(argTypes);
-                    if (result !== null) {
-                        this.fullName = result.fullName;
-                        this.type = result.funcType;
-                        return;
-                    }
-                }
-            }
-            currentScope = currentScope.parent;
-        }
-
-        // Check for generic struct — e.g., Pair[Int]
-        if (scope) {
-            const structResult = scope.lookup(this.name);
-            if (
-                structResult &&
-                structResult.attrs.class === "struct" &&
-                structResult.attrs.isGeneric &&
-                structResult.attrs.def
-            ) {
-                const structDefNode = structResult.attrs.def as StructDef;
-                const monomorphized = structDefNode.monomorphize(this.templateTypes.types);
-                if (monomorphized) {
-                    this.type = new CustomType(this.name);
-                    this.fullName = this.name;
-                    return;
-                }
-            }
-        }
-
-        // Check for generic enum — e.g., Result[Int, Str]
-        if (scope) {
-            const enumResult = scope.lookup(this.name);
-            if (
-                enumResult &&
-                enumResult.attrs.class === "enum" &&
-                enumResult.attrs.isGeneric &&
-                enumResult.attrs.def
-            ) {
-                const enumDefNode = enumResult.attrs.def as EnumDef;
-                const monomorphized = enumDefNode.monomorphize(this.templateTypes.types);
-                if (monomorphized) {
-                    this.type = monomorphized.enumType;
-                    this.fullName = this.name;
-                    return;
-                }
-            }
-        }
-
-        // Fall back to type reference (e.g., Arr[Int] → type Arr with template [Int])
-        if (isBuiltinTypeName(this.name)) {
-            this.type = new CustomType(this.name);
-            this.fullName = this.name;
-            return;
-        }
-        throw this.error(`cannot resolve type of variable '${this}'`);
     }
 
     resolveAssignment(e: Expression): Type | null {
@@ -431,10 +305,6 @@ export class Variable extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
-        if (!this.templateTypes.empty()) {
-            this.setTypeWithTemplateTypes();
-            return;
-        }
         // Scope-based lookup — resolves params, loop vars, local assignments,
         // function references, struct/enum/trait references from the enclosing scope hierarchy.
         const scope = this.getScope();
@@ -464,46 +334,13 @@ export class Variable extends Expression {
                     this.type = attrs.type;
                     this.fullName = attrs.fullName;
                     return;
-                } else if (attrs.class === "struct") {
+                } else if (attrs.class === "struct" || attrs.class === "enum") {
                     this.type = new CustomType(this.name);
-                    this.fullName = this.name;
-                    return;
-                } else if (attrs.class === "enum") {
-                    this.type = new EnumType(
-                        attrs.name,
-                        attrs.variants.map((v) => ({ name: v.name, type: v.type }))
-                    );
-                    this.fullName = this.name;
+                    this.fullName = this.name; // TODO: Do we need a special name here if this var has associated types?
                     return;
                 }
             }
         }
-
-        // type param from enclosing generic function (e.g., T in T.zero())
-        // TODO: We need to handle this case differently now that we have have reworked our scope system
-        // if (!isBuiltinTypeName(this.name)) {
-        // let fn: Expression | null = this.parent;
-        // TODO: we could get rid of the instanceof check here and just
-        // have a class method called something like getGenericTypeParams
-        // while (fn) {
-        // if (
-        //     fn instanceof FunctionDef &&
-        //     fn.isGeneric &&
-        //     fn.typeParams.includes(this.name)
-        // ) {
-        //     const traits: string[] = [];
-        //     for (const param of fn.params) {
-        //         traits.push(...collectTraitsForTypeParam(param.type, this.name));
-        //     }
-        //     const ct = new CustomType(this.name);
-        //     for (const t of traits) ct.addTrait(t);
-        //     this.type = ct;
-        //     this.fullName = this.name;
-        //     return;
-        // }
-        // fn = fn.parent;
-        // }
-        // }
 
         // builtin type name used as a type reference (e.g., Int in Int.zero())
         if (isBuiltinTypeName(this.name)) {
