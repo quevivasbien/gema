@@ -22,34 +22,6 @@ import {
     type Type,
 } from "./types";
 
-// ── Helpers ──
-
-/** Walk up parent chain to find a variable of string type by name. */
-function findStringTypedVariable(startNode: Expression, name: string): string | null {
-    let node: Expression | null = startNode.parent;
-    while (node) {
-        if (node instanceof FunctionDef || node instanceof AnonymousFunction) {
-            for (const param of node.params) {
-                if (param.name === name && param.type === "Str") {
-                    return name;
-                }
-            }
-        } else if (node instanceof Block) {
-            for (const expr of node.expressions) {
-                let e = expr;
-                while (e instanceof DropValue) e = e.child;
-                if (e instanceof Assignment && e.name === name) {
-                    if (e.value.type === "Str") {
-                        return name;
-                    }
-                }
-            }
-        }
-        node = node.parent;
-    }
-    return null;
-}
-
 // ── Call (named function call) ──
 
 export class Call extends Expression {
@@ -330,8 +302,6 @@ export class Call extends Expression {
     }
 
     toJS(writer: JSWriter): void {
-        // TODO: The goal here is to get rid of the "referToByName" system and have all the callers provide a "toJS" callback during the resolution in cascadeTypes.
-        // Then this method can just call that callback.
         if (!this.toJSHelper) {
             throw new Error(
                 `missing compilation helper for call to ${this.name} -- this should have been resolved during type checking`

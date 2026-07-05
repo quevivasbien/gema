@@ -16,6 +16,7 @@ export enum TokenType {
     Dot = ".",
     DotDot = "..",
     Colon = ":",
+    ColonColon = "::",
     Semicolon = ";",
     // Unary operators
     Bang = "!",

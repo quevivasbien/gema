@@ -185,11 +185,18 @@ class Scanner {
             } else if (c === "." && nextChar === ".") {
                 this.index += 1;
                 return this.makeToken("..");
+            } else if (c === ":" && nextChar === ":") {
+                this.index += 1;
+                return this.makeToken("::");
             }
         }
         // Handle single dot (field access)
         if (c === ".") {
             return this.makeToken(".");
+        }
+        // Handle single colon (type annotation)
+        if (c === ":") {
+            return this.makeToken(":");
         }
         // Handle literals
         if (c === '"') {

@@ -47,6 +47,9 @@ export { ArrLit, FieldAccess, FieldAssignment, StructDef } from "./structs";
 // Traits
 export { Trait } from "./traits";
 
+// Type-associated expressions
+export { TypeAssociatedExpr } from "./type-associated";
+
 // Caller resolution
 export { findCaller } from "./caller-resolution";
 

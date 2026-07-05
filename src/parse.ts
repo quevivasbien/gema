@@ -503,23 +503,29 @@ function parseTrait(parser: Parser): AST.Expression {
     while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
         // Expect inputs of form:
         //   funcName[Type, ...: ReturnType]
-        //   Self.funcName[Type, ...: ReturnType]  (type-associated function)
+        //   Type::funcName[Type, ...: ReturnType]  (type-associated function)
         if (parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected function name.");
         }
+        // If current identifier is not immediately followed by "[",
+        // assume this is a signature for a TAF
+        let associatedType: Type | null = null;
+        if (parser.peek().type !== TokenType.LBracket) {
+            associatedType = parser.getTypeName();
+            if (associatedType === null) {
+                return parser.error("Expected function name or associated type");
+            }
+            if (parser.current().type !== TokenType.ColonColon) {
+                return parser.error("Expected '::' after type name");
+            }
+            parser.advance(); // consume '::'
+            if (parser.current().type !== TokenType.Identifier) {
+                return parser.error("Expected function name.");
+            }
+        }
+
         let funcName = parser.current().text;
         parser.advance();
-
-        // Detect Self.funcName pattern
-        if (
-            funcName === "Self" &&
-            parser.current().type === TokenType.Dot &&
-            parser.peek()?.type === TokenType.Identifier
-        ) {
-            parser.advance(); // skip '.'
-            funcName = "Self." + parser.current().text;
-            parser.advance(); // skip funcName
-        }
 
         // Expect '[' after function name
         if (parser.atEnd() || parser.current().type !== TokenType.LBracket) {
@@ -571,7 +577,7 @@ function parseTrait(parser: Parser): AST.Expression {
 
         requiredFunctions.push({
             name: funcName,
-            signature: new FuncType(paramTypes, returnType),
+            signature: new FuncType(paramTypes, returnType, associatedType),
         });
 
         if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
@@ -829,6 +835,11 @@ function parseVariable(parser: Parser): AST.Expression {
     const variableToken = parser.previous();
     // Get template types if there are any attached
     const templateTypes = parser.getTemplateTypes();
+    if (!parser.atEnd() && parser.current().type === TokenType.ColonColon) {
+        // Assume this is something like Foo::bar or Foo::baz(bim)
+        parser.advance(); // consume '::'
+        return parseTypeAssociatedVariable(parser, variableToken, templateTypes);
+    }
     return parser.tryCreateASTExpression(() => new AST.Variable(variableToken, templateTypes));
 }
 
@@ -857,6 +868,24 @@ function parseCall(parser: Parser): AST.Expression {
     return parser.tryCreateASTExpression(() => {
         return new AST.Call(nameToken, args);
     });
+}
+
+function parseTypeAssociatedVariable(
+    parser: Parser,
+    variableToken: Token,
+    templateTypes: TemplateTypes
+): AST.Expression {
+    if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+        return parser.error("Expected identifier after '::'");
+    }
+    parser.advance();
+    const innerExpr = parseVariable(parser);
+    if (innerExpr instanceof AST.ASTError) {
+        return innerExpr;
+    }
+    return parser.tryCreateASTExpression(
+        () => new AST.TypeAssociatedExpr(variableToken, templateTypes, innerExpr)
+    );
 }
 
 function parseDirectCall(
@@ -1553,12 +1582,12 @@ class Parser {
                 return this.error("Expected function name or associated type name");
             }
             if (
-                this.current()?.type !== TokenType.Dot ||
+                this.current()?.type !== TokenType.ColonColon ||
                 this.peek()?.type !== TokenType.Identifier
             ) {
                 return this.error("Expected function name after associated type name");
             }
-            this.advance(); // consume "."
+            this.advance(); // consume "::"
         }
         name = this.current().text;
         this.advance();

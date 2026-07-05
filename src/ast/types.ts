@@ -21,12 +21,22 @@ export function isBuiltinTypeName(name: string): boolean {
 
 export class FuncType {
     constructor(
+        /** The types of arguments that this function expects to receive */
         public paramTypes: Type[],
-        public returnType: Type
+        /** The type of the value that this function produces */
+        public returnType: Type,
+        /** If this function is associated with a specific type --
+         * e.g., a call to Foo.bar(1, 2, 3) would have associated type Foo
+         */
+        public associatedType: Type | null = null
     ) {}
 
     toString(): string {
-        return `Func[${this.paramTypes.join(", ")}, ${this.returnType}]`;
+        const str = `$Func[${this.paramTypes.join(", ")}: ${this.returnType}]`;
+        if (this.associatedType !== null) {
+            return `(${this.associatedType.toString()})${str}`;
+        }
+        return str;
     }
 }
 

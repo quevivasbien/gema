@@ -47,31 +47,32 @@ export class EnumDef extends Expression {
         }
     }
 
-    /**
-     * Monomorphize this generic enum with concrete type arguments.
-     * Returns the concrete variant types and an EnumType with concrete types.
-     */
-    monomorphize(
-        typeArgs: Type[]
-    ): { variants: { name: string; type: Type | null }[]; enumType: EnumType } | null {
-        if (!this.isGeneric) return null;
-        if (typeArgs.length !== this.typeParams.length) return null;
+    // TODO: We need a different version of this that doesn't require monomorphization
+    // /**
+    //  * Monomorphize this generic enum with concrete type arguments.
+    //  * Returns the concrete variant types and an EnumType with concrete types.
+    //  */
+    // monomorphize(
+    //     typeArgs: Type[]
+    // ): { variants: { name: string; type: Type | null }[]; enumType: EnumType } | null {
+    //     if (!this.isGeneric) return null;
+    //     if (typeArgs.length !== this.typeParams.length) return null;
 
-        const bindings = new Map<string, Type>();
-        for (let i = 0; i < this.typeParams.length; i++) {
-            bindings.set(this.typeParams[i], typeArgs[i]);
-        }
+    //     const bindings = new Map<string, Type>();
+    //     for (let i = 0; i < this.typeParams.length; i++) {
+    //         bindings.set(this.typeParams[i], typeArgs[i]);
+    //     }
 
-        const concreteVariants = this.variants.map((v) => ({
-            name: v.name,
-            type: v.type ? substituteTypeParams(v.type, bindings) : null,
-        }));
+    //     const concreteVariants = this.variants.map((v) => ({
+    //         name: v.name,
+    //         type: v.type ? substituteTypeParams(v.type, bindings) : null,
+    //     }));
 
-        return {
-            variants: concreteVariants,
-            enumType: new EnumType(this.name, concreteVariants),
-        };
-    }
+    //     return {
+    //         variants: concreteVariants,
+    //         enumType: new EnumType(this.name, concreteVariants),
+    //     };
+    // }
 
     toJS(_writer: JSWriter): void {
         // Enum definitions are for type-checking only; not emitted to JS
