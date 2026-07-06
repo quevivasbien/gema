@@ -1,10 +1,39 @@
-import { TokenType, type Token } from "../tokens";
+import type { Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { ASTError, Expression } from "./expression";
 import { Scope } from "./scope";
 
 import { substituteTypeParams, typeEquals } from "./type-utils";
-import { EscapeType, GenericType, MaybeType, type Type } from "./types";
+import { CustomType, EscapeType, type GenericType, MaybeType, type Type } from "./types";
+
+// ── Helper: get enum attributes for a type (if it's an enum) ──
+
+/**
+ * If `t` is a CustomType and the scope has an enum definition registered under that name,
+ * returns the enum's variant info. Otherwise returns null.
+ */
+function getEnumInfo(
+    scope: Scope | null,
+    t: Type
+): {
+    name: string;
+    variants: { name: string; type: Type | null }[];
+    isTaggedUnion: boolean;
+    genericTypes: GenericType[] | null;
+    templateArgs: Type[] | null;
+} | null {
+    if (!scope || !(t instanceof CustomType)) return null;
+    const lookup = scope.lookup(t.name);
+    if (!lookup || lookup.attrs.class !== "enum") return null;
+    const enumAttrs = lookup.attrs;
+    return {
+        name: enumAttrs.name,
+        variants: enumAttrs.variants,
+        isTaggedUnion: enumAttrs.isTaggedUnion,
+        genericTypes: enumAttrs.genericTypes,
+        templateArgs: t.templateArgs,
+    };
+}
 
 // ── Enum definition ───────────────────────────────────────
 
@@ -173,15 +202,22 @@ export class Match extends Expression {
         // Cascade scrutinee
         this.scrutinee.cascadeTypes(this, true);
         const scrutType = this.scrutinee.type;
+        if (scrutType === null) {
+            throw this.error(`unable to resolve type of scrutinee in match expression`);
+        }
 
         if (scrutType instanceof MaybeType) {
             this.cascadeMaybeMatch(valueUsed, scrutType);
-        } else if (scrutType instanceof EnumType) {
-            this.cascadeEnumMatch(valueUsed, scrutType);
         } else {
-            throw this.error(
-                `match expression requires a Maybe or enum type, but found ${scrutType}`
-            );
+            // Check if the scrutinee type is an enum via scope lookup
+            const enumInfo = getEnumInfo(this.getScope(), scrutType);
+            if (enumInfo) {
+                this.cascadeEnumMatch(valueUsed, enumInfo);
+            } else {
+                throw this.error(
+                    `match expression requires a Maybe or enum type, but found ${scrutType}`
+                );
+            }
         }
     }
 
@@ -231,17 +267,38 @@ export class Match extends Expression {
         return commonType;
     }
 
-    private cascadeEnumMatch(valueUsed: boolean, enumType: EnumType): void {
+    private cascadeEnumMatch(
+        valueUsed: boolean,
+        enumInfo: {
+            name: string;
+            variants: { name: string; type: Type | null }[];
+            isTaggedUnion: boolean;
+            genericTypes: GenericType[] | null;
+            templateArgs: Type[] | null;
+        }
+    ): void {
         let commonType: Type | null = null;
         const matchedVariants = new Set<string>();
+
+        // Build bindings for generic enum: generic type param → concrete template arg
+        const bindings = new Map<string, Type>();
+        if (enumInfo.genericTypes && enumInfo.templateArgs) {
+            for (
+                let i = 0;
+                i < enumInfo.genericTypes.length && i < enumInfo.templateArgs.length;
+                i++
+            ) {
+                bindings.set(enumInfo.genericTypes[i].name, enumInfo.templateArgs[i]);
+            }
+        }
 
         for (const arm of this.arms) {
             if (arm.kind === "variant") {
                 // Look up the variant in the enum
-                const vIdx = enumType.variantIndex(arm.variantName);
-                if (vIdx === -1) {
+                const variant = enumInfo.variants.find((v) => v.name === arm.variantName);
+                if (!variant) {
                     throw this.error(
-                        `enum ${enumType.name} has no variant named "${arm.variantName}"`
+                        `enum ${enumInfo.name} has no variant named "${arm.variantName}"`
                     );
                 }
                 if (matchedVariants.has(arm.variantName)) {
@@ -249,7 +306,8 @@ export class Match extends Expression {
                 }
                 matchedVariants.add(arm.variantName);
 
-                const vType = enumType.variantType(arm.variantName);
+                // Substitute generic type params in the variant type
+                const vType = variant.type ? substituteTypeParams(variant.type, bindings) : null;
                 arm.bindingType = vType;
                 this.cascadeArm(
                     arm,
@@ -266,8 +324,7 @@ export class Match extends Expression {
 
         // If all variants are covered or there's an else, the match has the common type.
         // Otherwise it's Null.
-        // If all arms are Escape (e.g. all return/break), fall back to Null.
-        const allCovered = matchedVariants.size === enumType.variants.length;
+        const allCovered = matchedVariants.size === enumInfo.variants.length;
         const hasElse = this.arms.some((a) => a.kind === "else");
         const resolvedType = commonType instanceof EscapeType ? "Null" : (commonType ?? "Null");
         this.type = allCovered || hasElse ? resolvedType : "Null";
@@ -275,13 +332,16 @@ export class Match extends Expression {
 
     toJS(writer: JSWriter): void {
         const scrutType = this.scrutinee.type;
+        if (scrutType === null) {
+            throw new Error(`match scrutinee type not resolved before writing to JS`);
+        }
         const isMaybe = scrutType instanceof MaybeType;
-        const isEnum = scrutType instanceof EnumType;
+        const enumInfo = getEnumInfo(this.getScope(), scrutType);
 
         if (isMaybe) {
             this.toJSMaybe(writer);
-        } else if (isEnum) {
-            this.toJSEnum(writer);
+        } else if (enumInfo) {
+            this.toJSEnum(writer, enumInfo);
         }
     }
 
@@ -362,9 +422,15 @@ export class Match extends Expression {
         }
     }
 
-    private toJSEnum(writer: JSWriter): void {
-        const scrutType = this.scrutinee.type as EnumType;
-        const isTagged = scrutType.isTagged;
+    private toJSEnum(
+        writer: JSWriter,
+        enumInfo: {
+            name: string;
+            variants: { name: string; type: Type | null }[];
+            isTaggedUnion: boolean;
+        }
+    ): void {
+        const isTagged = enumInfo.isTaggedUnion;
         const scrutVar = writer.uniqueName("$match$");
         const hasElse = this.arms.some((a) => a.kind === "else");
 
@@ -388,14 +454,14 @@ export class Match extends Expression {
             writer.write(`switch (${writer.safeName(scrutVar)}) {`);
         }
         writer.indentIn();
-        writer.newLine();
 
         for (const arm of this.arms) {
             if (arm.kind !== "variant") continue;
-            const vIdx = scrutType.variantIndex(arm.variantName);
+            const vIdx = enumInfo.variants.findIndex((v) => v.name === arm.variantName);
             const tagValue = vIdx;
 
-            writer.write(`case ${tagValue}:`);
+            writer.newLine();
+            writer.write(`case ${tagValue}: {`);
             writer.indentIn();
             writer.newLine();
 
@@ -409,17 +475,25 @@ export class Match extends Expression {
             }
 
             // Don't add `return` prefix if the arm body handles its own control flow (Escape type)
-            if (this.isValueUsed && !(arm.body.type instanceof EscapeType)) writer.write("return ");
+            const writeReturn = this.isValueUsed && !(arm.body.type instanceof EscapeType);
+            if (writeReturn) {
+                writer.write("return ");
+            }
             arm.body.toJS(writer);
             writer.write(";");
-            writer.newLine();
+
+            if (!writeReturn) {
+                writer.newLine();
+                writer.write("break;");
+            }
 
             writer.indentOut();
-            writer.write("break;");
             writer.newLine();
+            writer.write("}");
         }
 
         if (hasElse) {
+            writer.newLine();
             writer.write("default:");
             writer.indentIn();
             writer.newLine();
@@ -429,11 +503,11 @@ export class Match extends Expression {
                 writer.write("return ");
             elseArm.body.toJS(writer);
             writer.write(";");
-            writer.newLine();
             writer.indentOut();
         }
 
         writer.indentOut();
+        writer.newLine();
         writer.write("}");
         writer.newLine();
 

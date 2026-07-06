@@ -289,6 +289,7 @@ export class FunctionDef extends Expression {
         // Must match both name and type
         if (
             lastExpr.name !== this.name ||
+            this.params.length !== lastExpr.args.length ||
             this.params.some((p, i) => !typeEquals(p.type, lastExpr.args[i].type))
         ) {
             return null;

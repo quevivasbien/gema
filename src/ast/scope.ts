@@ -161,16 +161,16 @@ export class Scope {
     }
 
     /**
-     * Look for a function definition (including generic definitions) with the given name
+     * Look for a callable definition (including generic definitions) with the given name
      * and a compatible type signature.
      * Matches with incompatible param types ae skipped (we keep looking for a match).
      */
-    lookupFunction(
+    lookupCaller(
         name: string,
         argTypes: Type[],
         associatedType: Type | null,
         rootScope: Scope | null = null
-    ): FuncAttributes | ResolvedGenericFunc | ResolvedEnumInstantiation | null {
+    ): FuncAttributes | ResolvedGenericFunc | StructAttributes | ResolvedEnumInstantiation | null {
         for (let i = this.variables.length - 1; i >= 0; i--) {
             const v = this.variables[i];
             if (v.name === name && v.class === "func") {
@@ -197,6 +197,19 @@ export class Scope {
                         fullName: v.fullName,
                         genericMapping,
                     };
+                }
+            }
+            // Handle case of struct constructor
+            // TODO: This doesn't yet work with generic structs
+            else if (v.name === name && v.class === "struct") {
+                if (
+                    paramTypesMatchArgTypes(
+                        v.fields.map((f) => f.type),
+                        argTypes,
+                        false
+                    )
+                ) {
+                    return v;
                 }
             }
             // Handle case of enum instantiation (like `EnumName::variantName(value)`)
@@ -228,16 +241,14 @@ export class Scope {
         if (this.parent === null) {
             return null;
         }
-        return this.parent.lookupFunction(name, argTypes, associatedType, this);
+        return this.parent.lookupCaller(name, argTypes, associatedType, this);
     }
 
     /**
-     * Look for a struct definition with the given name and compatible types
-     * Matches will be ignored (and we'll keep looking for a match)
-     * if the type signature we find is not compatible.
-     * TODO: This should probably be combined with lookupFunction -- we shouldn't be searching for them separately
+     * Look for a struct definition with the given name
+     * TODO: This doesn't yet work with generic structs
      */
-    lookupStruct(name: string, argTypes: Type[]): StructAttributes | null {
+    lookupStruct(name: string): StructAttributes | null {
         for (let i = this.variables.length - 1; i >= 0; i--) {
             const v = this.variables[i];
             if (v.name !== name) {
@@ -246,20 +257,12 @@ export class Scope {
             if (v.class !== "struct") {
                 continue;
             }
-            if (
-                paramTypesMatchArgTypes(
-                    v.fields.map((f) => f.type),
-                    argTypes,
-                    false
-                )
-            ) {
-                return v;
-            }
+            return v;
         }
         if (this.parent === null) {
             return null;
         }
-        return this.parent.lookupStruct(name, argTypes);
+        return this.parent.lookupStruct(name);
     }
 
     lookupEnum(

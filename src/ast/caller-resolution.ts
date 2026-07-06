@@ -352,7 +352,6 @@ export function findCaller(
           result: CallerResult;
       }
     | { error: string; result: null } {
-    console.log("Searching for", name, args, associatedType);
     const scope = callExpr.getScope();
     if (scope === null) {
         return {
@@ -388,17 +387,17 @@ export function findCaller(
     }
 
     // See if we can find a function definition with a compatible type signature
-    const funcMatch = scope.lookupFunction(name, argTypes, associatedType);
-    if (funcMatch) {
-        if (funcMatch.class === "func") {
+    const callerMatch = scope.lookupCaller(name, argTypes, associatedType);
+    if (callerMatch) {
+        if (callerMatch.class === "func") {
             // Concrete function definition
             return {
                 error: null,
                 result: {
                     kind: "function",
-                    returnType: funcMatch.type.returnType,
+                    returnType: callerMatch.type.returnType,
                     toJS(writer) {
-                        writer.write(safeJSName(funcMatch.fullName));
+                        writer.write(safeJSName(callerMatch.fullName));
                         writer.write("(");
                         args.forEach((arg, i) => {
                             if (i > 0) {
@@ -410,15 +409,15 @@ export function findCaller(
                     },
                 },
             };
-        } else if (funcMatch.class === "generic") {
+        } else if (callerMatch.class === "generic") {
             // Generic function definition
             return {
                 error: null,
                 result: {
                     kind: "function",
-                    returnType: funcMatch.type.returnType,
+                    returnType: callerMatch.type.returnType,
                     toJS(writer) {
-                        writer.write(safeJSName(funcMatch.fullName));
+                        writer.write(safeJSName(callerMatch.fullName));
                         writer.write("(");
                         args.forEach((arg, i) => {
                             if (i > 0) {
@@ -427,21 +426,41 @@ export function findCaller(
                             arg.toJS(writer);
                         });
                         // Pass trait implementation dictionaries
-                        writeTraitImplDictionaries(writer, funcMatch.genericMapping);
+                        writeTraitImplDictionaries(writer, callerMatch.genericMapping);
                         writer.write(")");
                     },
                 },
             };
-        } else if (funcMatch.class === "enum") {
+        } else if (callerMatch.class === "struct") {
+            return {
+                error: null,
+                result: {
+                    kind: "struct-constructor",
+                    returnType: new CustomType(name),
+                    toJS(writer) {
+                        const safeNames = callerMatch.fields.map((f) => writer.safeName(f.name));
+                        writer.write("{");
+                        args.forEach((arg, i) => {
+                            if (i > 0) {
+                                writer.write(", ");
+                            }
+                            writer.write(`${safeNames[i]}: `);
+                            arg.toJS(writer);
+                        });
+                        writer.write("}");
+                    },
+                },
+            };
+        } else if (callerMatch.class === "enum") {
             // Enum instantiation
             return {
                 error: null,
                 result: {
                     kind: "enum-instantiation",
-                    returnType: funcMatch.enumType,
+                    returnType: callerMatch.enumType,
                     toJS(writer) {
                         writer.write("{ $tag: ");
-                        writer.write(funcMatch.variantIndex.toString());
+                        writer.write(callerMatch.variantIndex.toString());
                         writer.write(", $val: ");
                         args[0].toJS(writer);
                         writer.write(" }");
@@ -449,33 +468,8 @@ export function findCaller(
                 },
             };
         } else {
-            throw new Error(`Got unexpected caller match ${funcMatch}`);
+            throw new Error(`Got unexpected caller match ${callerMatch}`);
         }
-    }
-
-    // Check for struct constructor definitions
-    // TODO: This doesn't yet work with generic structs!
-    const structMatch = scope.lookupStruct(name, argTypes);
-    if (structMatch) {
-        return {
-            error: null,
-            result: {
-                kind: "struct-constructor",
-                returnType: new CustomType(name),
-                toJS(writer) {
-                    const safeNames = structMatch.fields.map((f) => writer.safeName(f.name));
-                    writer.write("{");
-                    args.forEach((arg, i) => {
-                        if (i > 0) {
-                            writer.write(", ");
-                        }
-                        writer.write(`${safeNames[i]}: `);
-                        arg.toJS(writer);
-                    });
-                    writer.write("}");
-                },
-            },
-        };
     }
 
     // Check for builtin functions
