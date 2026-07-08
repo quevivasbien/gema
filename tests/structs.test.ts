@@ -276,13 +276,13 @@ test("parse functional operations with structs", () => {
     testParse(`
         struct P { p: Num }
 
-        filtered = filter(func (p: P) { p("p") > 0 }, [P(-1), P(2)]);
-        filtered!(0)("p")
+        filtered = filter(func (p: P) { p.p > 0 }, [P(-1), P(2)]);
+        filtered!(0).p
     `);
     testParse(`
         struct P { p: Num }
 
-        collect(map(func (p: P) { p("p") }, [P(1), P(2)]))
+        collect(map(func (p: P) { p.p }, [P(1), P(2)]))
     `);
 });
 

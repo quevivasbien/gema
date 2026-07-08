@@ -51,7 +51,7 @@ export class FunctionDef extends Expression {
         this.body = body;
         this.genericTypes = genericTypes;
 
-        const baseName = associatedType ? `${associatedType.toString()}.${name}` : name;
+        const baseName = associatedType ? `${associatedType.toString()}::${name}` : name;
         this.fullName = functionNameWithParamTypes(
             baseName,
             params.map((p) => p.type)
@@ -95,7 +95,8 @@ export class FunctionDef extends Expression {
                 name: this.name,
                 type: new FuncType(
                     this.params.map((p) => p.type),
-                    this.returnType ?? "Unknown"
+                    this.returnType ?? "Unknown",
+                    this.associatedType
                 ),
                 fullName: this.fullName,
                 traitImplGetter: (callerScope, argTypes, associatedType) =>
@@ -107,7 +108,8 @@ export class FunctionDef extends Expression {
                 name: this.name,
                 type: new FuncType(
                     this.params.map((p) => p.type),
-                    this.returnType ?? "Unknown"
+                    this.returnType ?? "Unknown",
+                    this.associatedType
                 ),
                 fullName: this.fullName,
             });
@@ -189,7 +191,8 @@ export class FunctionDef extends Expression {
                 this.fullName,
                 new FuncType(
                     this.params.map((p) => p.type),
-                    this.returnType
+                    this.returnType,
+                    this.associatedType,
                 )
             );
         }

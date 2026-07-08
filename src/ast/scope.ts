@@ -110,7 +110,7 @@ export class Scope {
 
     private getKey(varAttrs: DefinitionAttributes): string {
         // Functions use fullName (includes param types) as dedup key so overloads coexist
-        if (varAttrs.class === "func") return varAttrs.fullName;
+        if (varAttrs.class === "func" || varAttrs.class === "generic") return varAttrs.fullName;
         return varAttrs.name;
     }
 
@@ -175,7 +175,10 @@ export class Scope {
             const v = this.variables[i];
             if (v.name === name && v.class === "func") {
                 // For concrete functions, check that param types match
-                if (paramTypesMatchArgTypes(v.type.paramTypes, argTypes)) {
+                if (
+                    typeEquals(v.type.associatedType, associatedType) &&
+                    paramTypesMatchArgTypes(v.type.paramTypes, argTypes)
+                ) {
                     return v;
                 }
             } else if (v.name === name && v.class === "generic") {

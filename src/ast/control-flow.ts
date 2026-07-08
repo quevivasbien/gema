@@ -123,6 +123,7 @@ export class If extends Expression {
             this.branchToJS(writer, branch);
         });
         if (this.elseBranch !== null) {
+            writer.write(" else ");
             this.branchToJS(writer, this.elseBranch);
         }
         if (shouldWrapInIIFE) {

@@ -56,9 +56,12 @@ export function safeJSName(name: string): string {
     const dollarIdx = name.indexOf("$");
     const baseName = dollarIdx === -1 ? name : name.slice(0, dollarIdx);
     // Sanitize special characters in type-associated function names
-    // e.g., "Int.zero" → "Int_zero", "Arr[Int].empty" → "Arr_Int_empty"
-    let sanitizedBase = baseName.replace(/\./g, "Ϯ");
-    sanitizedBase = sanitizedBase.replace(/\[/g, "_").replace(/\]/g, "");
+    // e.g., "Int::zero" → "IntϮzero", "Arr[Int].empty" → "ArrюIntϮempty"
+    let sanitizedBase = baseName
+        .replace(/::/g, "Ϯ")
+        .replace(/\[/g, "ю")
+        .replace(/\]/g, "")
+        .replace(/,/g, "ф");
     if (JS_RESERVED_WORDS.has(sanitizedBase)) {
         const suffix = dollarIdx === -1 ? "" : name.slice(dollarIdx);
         return `$${sanitizedBase}${suffix}`;

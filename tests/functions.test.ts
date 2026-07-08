@@ -430,7 +430,7 @@ test("TAF type-param: multiple TAF functions with same root name", () => {
             x
         }
 
-        foo(1) + foo(1, 2)
+        Num::foo(1) + Num::foo(1, 2)
         `,
         2
     );
@@ -438,28 +438,28 @@ test("TAF type-param: multiple TAF functions with same root name", () => {
 
 // ── Trait integration ────────────────────────────────────
 
-test("TAF trait: Self.zero in trait definition", () => {
+test("TAF trait: Self::zero in trait definition", () => {
     testParse(`
         trait Summable {
             add[Self, Self: Self],
-            Self.zero[:Self]
+            Self::zero[:Self]
         }
         1
     `);
 });
 
-test("TAF trait: struct implementing Self.zero", () => {
+test("TAF trait: struct implementing Self::zero", () => {
     testCompile(
         `
         trait Summable {
             add[Self, Self: Self],
-            Self.zero[:Self]
+            Self::zero[:Self]
         }
         struct S { s: Num }
         func add(a: S, b: S) { S(a.s + b.s) }
         func S::zero() { S(0) }
         func [T: Summable] sum(iter: Iter[T]) {
-            reduce(\\(acc, x) { acc + x }, T.zero(), iter)
+            reduce(\\(acc, x) { acc + x }, T::zero(), iter)
         }
         sum([S(1), S(2), S(3)]).s
         `,

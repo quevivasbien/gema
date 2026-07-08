@@ -1491,7 +1491,7 @@ class Parser {
         let value: AST.Expression = rhs;
         if (isCompound && compoundOp) {
             // Desugar x += expr → x = x + expr by creating a Binary node
-            const varRef = new AST.Variable(variableToken);
+            const varRef = new AST.Variable(variableToken, null);
             value = this.tryCreateASTExpression(() => {
                 // Build the binary operation token
                 const opToken = {

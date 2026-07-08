@@ -371,16 +371,17 @@ export function findCaller(
         argTypes.push(arg.type);
     }
 
-    // See if the first match for `name` is a variable
-    // TODO: This should happen during the caller match step below; otherwise we can have weird
-    // order resolutions, like thinking variantName is a variable in EnumName::variantName
-    const varMatch = scope.lookupVariable(name);
-    if (varMatch) {
-        return resolveDirectCaller(name, args, varMatch.type, argTypes);
+    // If the caller doesn't have an associated type, check if the first match for `name` is a variable
+    // If so, attempt to resolve it in the same way we resolve direct calls
+    if (associatedType === null) {
+        const varMatch = scope.lookupVariable(name);
+        if (varMatch) {
+            return resolveDirectCaller(name, args, varMatch.type, argTypes);
+        }
     }
 
     // If any arg type is a GenericType (i.e., we're inside a generic function body),
-    // skip normal concrete function lookup and route through trait dictionaries instead.
+    // start by checking trait definitions for relevant functions.
     const hasGenericArg = argTypes.some((t) => t instanceof GenericType);
     if (hasGenericArg) {
         const traitResult = resolveTraitFunctionCall(scope, name, args, argTypes);
