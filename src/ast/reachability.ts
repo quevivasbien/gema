@@ -90,8 +90,8 @@ export function collectReferences(
 
     // Check for operator-overloaded Binary nodes where the resolved function
     // name is stored in overloadedAs.name (a string), not as a child Expression.
-    if (node instanceof Binary && node.overloadedAs?.name) {
-        referencedNames.add(node.overloadedAs.name);
+    if (node instanceof Binary && node.toJSOverload?.name) {
+        referencedNames.add(node.toJSOverload.name);
     }
 
     // Recurse into children

@@ -101,7 +101,7 @@ func quicksort(iter: Iter[Num]): Iter[Num] {
     match iter(0) {
         none { iter },
         some(pivot) {
-            rest = (drop(1, iter));
+            rest = drop(1, iter);
             left = filter(\\x { x <= pivot }, rest);
             right = filter(\\x { x > pivot }, rest);
             quicksort(left) + toIter([pivot]) + quicksort(right)
@@ -110,7 +110,7 @@ func quicksort(iter: Iter[Num]): Iter[Num] {
 };
 
 unsorted = [3, 7, 8, 5, 2, 1, 9, 6, 4];
-quicksort(unsorted) | collect   # [1, 2, 3, 4, 5, 6, 7, 8, 9]`,
+unsorted | toIter | quicksort | collect   # [1, 2, 3, 4, 5, 6, 7, 8, 9]`,
         [1, 2, 3, 4, 5, 6, 7, 8, 9]
     );
 });

@@ -135,7 +135,9 @@ test("compile generic function without return type annotation", () => {
     `,
         "hello"
     );
-    // Generic function calling another generic function inside a generic body
+});
+
+test("generic function calling another generic function inside a generic body", () => {
     testCompile(
         `
         func [T] id(x: T) { x }
@@ -144,19 +146,9 @@ test("compile generic function without return type annotation", () => {
     `,
         10
     );
-    // Generic with trait-defined function, nested in another generic
-    testCompile(
-        `
-        trait Foo {
-            foo[Self: Self]
-        }
-        func foo(x: Num) { x }
-        func [T: Foo] id(x: T) { foo(x) }
-        func [T: Foo] wrap(x: T): T { id(x) }
-        id(10)
-    `,
-        10
-    );
+});
+
+test("generic with trait-defined function, nested in another generic", () => {
     testCompile(
         `
         trait Foo {
@@ -244,7 +236,7 @@ test("functions: a function that returns a function on an iterable", () => {
                 t(i)
             }
         }
-        makeGetter(1)([1,2,3])
+        makeGetter(1)(1..3)
         `,
         2
     );
@@ -299,11 +291,11 @@ test("recursive function with tail call optimization and JS reserved keyword", (
 // ── Type-associated functions (static methods) ───────────
 
 test("type-associated function: basic definition and call", () => {
-    testCompile("func Int.zero() { 0 }; Int.zero()", 0);
+    testCompile("func Int::zero() { 0 }; Int::zero()", 0);
 });
 
 test("type-associated function: with parameters", () => {
-    testCompile("func Int.add(n: Num): Num { n + 1 }; Int.add(5)", 6);
+    testCompile("func Int::add(n: Num): Num { n + 1 }; Int::add(5)", 6);
 });
 
 test("type-associated function: on struct", () => {
@@ -318,7 +310,7 @@ test("type-associated function: on struct", () => {
 });
 
 test("type-associated function: on Str type", () => {
-    testCompile('func Str.zero() { "" }; Str.zero()', "");
+    testCompile('func Str::zero() { "" }; Str::zero()', "");
 });
 
 test("type-associated function: missing type", () => {
@@ -472,36 +464,5 @@ test("TAF trait: struct implementing Self.zero", () => {
         sum([S(1), S(2), S(3)]).s
         `,
         6
-    );
-});
-
-// ── Automatic array -> iterator conversion ────────────────────────────────────
-
-test("automatic Arr -> Iter conversion: fallback on Iter signature if no matching Arr signature exists", () => {
-    testCompile(
-        `
-        func foo(iter: Iter[Num]) { 1 }
-        foo([1,2,3])
-        `,
-        1
-    );
-});
-
-test("automatic Arr -> Iter conversion: fallback should happen only if no matching Arr signature exists", () => {
-    testCompile(
-        `
-        func foo(iter: Iter[Num]) { 1 }
-        func foo(iter: Arr[Num]) { 2 }
-        foo([1,2,3])
-        `,
-        2
-    );
-    testCompile(
-        `
-        func foo(iter: Arr[Num]) { 2 }
-        func foo(iter: Iter[Num]) { 1 }
-        foo([1,2,3])
-        `,
-        2
     );
 });

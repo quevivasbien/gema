@@ -92,7 +92,7 @@ export class Unary extends Expression {
 
 export class Binary extends Expression {
     operator: TokenType;
-    overloadedAs?: { name: string };
+    toJSOverload: ((writer: JSWriter) => void) | null = null;
 
     constructor(
         operatorToken: Token,
@@ -221,53 +221,33 @@ export class Binary extends Expression {
             }
         }
 
-        // Enum types support == and != (they compare by value at runtime)
-        // TODO: Maybe we should not support this anymore
-        // if (
-        //     ltype instanceof EnumType &&
-        //     rtype instanceof EnumType &&
-        //     ltype.name === rtype.name &&
-        //     (this.operator === TokenType.EqualEqual || this.operator === TokenType.BangEqual)
-        // ) {
-        //     this.type = "Bool";
-        //     return;
-        // }
-
         // Try operator overloading for user-defined types
-        // TODO: This should work via a system of built-in traits instead
-        // if (
-        //     (ltype instanceof CustomType || rtype instanceof CustomType) &&
-        //     !(ltype instanceof ArrayType) &&
-        //     !(rtype instanceof ArrayType) &&
-        //     !(ltype instanceof IterType) &&
-        //     !(rtype instanceof IterType)
-        // ) {
-        //     const opName = OPERATOR_TO_FUNCTION[this.operator];
-        //     if (opName) {
-        //         const { error, result } = findCaller(this, opName, [this.left, this.right]);
-        //         if (error === null) {
-        //             this.type =
-        //                 result.kind === "variable"
-        //                     ? result.returnType
-        //                     : result.callerType.returnType;
-        //             this.overloadedAs = { name: result.referToByName };
-        //             return;
-        //         }
-        //     }
-        // }
+        // TODO: This maybe should work via a system of built-in traits instead
+        if (
+            (ltype instanceof CustomType || rtype instanceof CustomType) &&
+            !(ltype instanceof ArrayType) &&
+            !(rtype instanceof ArrayType) &&
+            !(ltype instanceof IterType) &&
+            !(rtype instanceof IterType)
+        ) {
+            const opName = OPERATOR_TO_FUNCTION[this.operator];
+            if (opName) {
+                const { error, result } = findCaller(this, opName, [this.left, this.right]);
+                if (error === null) {
+                    this.type = result.returnType;
+                    this.toJSOverload = result.toJS;
+                    return;
+                }
+            }
+        }
         throw this.error(
             `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
         );
     }
 
     toJS(writer: JSWriter): void {
-        if (this.overloadedAs) {
-            writer.write(writer.safeName(this.overloadedAs.name));
-            writer.write("(");
-            this.left.toJS(writer);
-            writer.write(", ");
-            this.right.toJS(writer);
-            writer.write(")");
+        if (this.toJSOverload) {
+            this.toJSOverload(writer);
             return;
         }
         // Handle + for arrays (array concatenation)

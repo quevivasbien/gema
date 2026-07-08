@@ -334,7 +334,8 @@ export class DirectCall extends Expression {
             this.caller,
             this.args,
             this.caller.type,
-            argTypes
+            argTypes,
+            this.isUnsafe
         );
         if (error) {
             throw this.error(error);

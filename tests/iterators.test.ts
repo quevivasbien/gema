@@ -214,31 +214,6 @@ test("compile repeated use of iterator", () => {
     );
 });
 
-test("compile fallback on functions with Iter params when calling with Arr", () => {
-    // Tests the combination of both features:
-    //   1. Nested generic type Iter[T] in the signature
-    //   2. Auto array-to-iterator conversion (Arr[Num] → Iter[Num])
-    testCompile(
-        `
-        func foo(x: Iter[Num]) { reduce(func(acc: Num, x: Num){acc+x}, 0, [1,2,3]) }
-
-        foo([1,2,3])
-     `,
-        6
-    );
-    // If Arr signature is available, this is the one that should be used
-    testCompile(
-        `
-        func matches(x: Arr[Num]) { true }
-
-        func matches(x: Iter[Num]) { false }
-
-        matches([1])
-    `,
-        true
-    );
-});
-
 test("compile function with nested generic type", () => {
     testCompile(
         `
@@ -257,7 +232,7 @@ test("compile function with nested generic type", () => {
         }
 
         func [T: Summable] computeSum(arr: Arr[T]): T {
-            reduce(func(acc: T, x: T) { sum(acc, x) }, 0, arr)
+            reduce(func(acc: T, x: T) { sum(acc, x) }, unwrap(arr(0)), arr(1..))
         }
 
         func sum(x: Num, y: Num): Num {
@@ -267,45 +242,6 @@ test("compile function with nested generic type", () => {
         computeSum([1,2,3])
     `,
         6
-    );
-    // Tests the combination of both features:
-    //   1. Nested generic type Iter[T] in the signature
-    //   2. Auto array-to-iterator conversion (Arr[Num] → Iter[Num])
-    testCompile(
-        `
-        trait Summable {
-            sum[Self, Self: Self],
-        }
-
-        func [T: Summable] sum(iter: Iter[T], start: T): T {
-            reduce(func(acc: T, x: T) { sum(acc, x) }, start, iter)
-        }
-
-        func sum(a: Num, b: Num): Num {
-            a + b
-        }
-
-        sum([1, 2, 3], 0)
-    `,
-        6
-    );
-    testCompile(
-        `
-        trait Concat {
-            concat[Self, Self: Self],
-        }
-
-        func [T: Concat] join(iter: Iter[T], start: T): T {
-            reduce(func(acc: T, x: T) { concat(acc, x) }, start, iter)
-        }
-
-        func concat(a: Arr[Num], b: Arr[Num]): Arr[Num] {
-            a + b
-        }
-
-        join([[1,2], [3,4], [5,6]], []: Num)
-    `,
-        [1, 2, 3, 4, 5, 6]
     );
 });
 
@@ -330,17 +266,6 @@ test("parse reduce expression", () => {
             x + y
         };
         collect(filter(myFilter, [1, 2, 3], false))
-    `);
-});
-
-test("parse fallback on functions with Iter params when calling with Arr", () => {
-    testParse(`
-        func toStr(iter: Iter[Bool]) {
-            strs = map(func(x: Bool){ if x { "*" } else { " " }}, iter);
-            reduce(func(acc:Str, x:Str){acc+x}, "", strs)
-        }
-
-        toStr([false, true, false, true])
     `);
 });
 

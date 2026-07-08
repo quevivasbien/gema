@@ -201,10 +201,11 @@ export function resolveDirectCaller(
         }
         // Also need to check that the indices used are a literal that is in bounds
         let validIndex = true;
+        let literalValue = -1;
         if (!(args[0] instanceof Literal)) {
             validIndex = false;
         } else {
-            const literalValue = parseInt(args[0].value.trim());
+            literalValue = parseInt(args[0].value.trim());
             if (literalValue < 0 || literalValue >= callerType.length) {
                 validIndex = false;
             }
@@ -219,7 +220,7 @@ export function resolveDirectCaller(
             error: null,
             result: {
                 kind: "variable",
-                returnType: callerType.types[0],
+                returnType: callerType.types[literalValue],
                 toJS(writer) {
                     writeCaller(writer);
                     writer.write("[");
