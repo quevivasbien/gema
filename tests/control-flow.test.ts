@@ -347,7 +347,7 @@ test("for: nested for loop with same iterator", () => {
             }
             result
         }
-        square([1,2])
+        [1,2] | toIter | square
         `,
         [
             [1, 1],
@@ -1006,7 +1006,7 @@ test("escape: match enum with return in some variants", () => {
                 err(m) { return 0 },
             }
         };
-        unwrap(Res[Num, Str].ok(42))
+        unwrap(Res[Num, Str]::ok(42))
         `,
         42
     );
@@ -1019,7 +1019,7 @@ test("escape: match enum with return in some variants", () => {
                 err(m) { return 0 },
             }
         };
-        unwrap(Res[Num, Str].err("oops"))
+        unwrap(Res[Num, Str]::err("oops"))
         `,
         0
     );
@@ -1081,7 +1081,7 @@ test("escape: match enum with break in for loop", () => {
     testCompile(
         `
         enum Action { add: Num, stop }
-        actions = [Action.add(10), Action.add(20), Action.stop, Action.add(30)];
+        actions = [Action::add(10), Action::add(20), Action::stop, Action::add(30)];
         mut total = 0;
         for action = actions {
             total += match action {
@@ -1099,7 +1099,7 @@ test("escape: match enum with continue in for loop", () => {
     testCompile(
         `
         enum Action { add: Num, skip }
-        actions = [Action.add(10), Action.skip, Action.add(20), Action.add(30)];
+        actions = [Action::add(10), Action::skip, Action::add(20), Action::add(30)];
         mut total = 0;
         for action = actions {
             total += match action {

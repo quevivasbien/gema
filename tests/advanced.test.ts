@@ -82,7 +82,7 @@ test("compile trait-defined functions", () => {
             add[Self, Self: Self],
         };
 
-        func addNum, Num: Num {
+        func add(a: Num, b: Num): Num {
             a + b
         }
 
@@ -105,11 +105,11 @@ test("compile trait-defined functions", () => {
             lt(a, b) or eq(a, b)
         }
 
-        func eqNum, Num: Bool {
+        func eq(a: Num, b: Num): Bool {
             a == b
         }
 
-        func ltNum, Num: Bool {
+        func lt(a: Num, b: Num): Bool {
             a < b
         }
         
@@ -162,7 +162,7 @@ test("parse trait-defined functions", () => {
             add[Self, Self: Self],
         };
 
-        func addNum, Num: Num {
+        func add(a: Num, b: Num): Num {
             a + b
         }
 
@@ -182,11 +182,11 @@ test("parse trait-defined functions", () => {
             lt(a, b) or eq(a, b)
         }
 
-        func eqNum, Num: Bool {
+        func eq(a: Num, b: Num): Bool {
             a == b
         }
 
-        func ltNum, Num: Bool {
+        func lt(a: Num, b: Num): Bool {
             a < b
         }
         
@@ -270,7 +270,7 @@ test("parse positional args still work in generic functions with traits", () => 
         trait Adder {
             add[Self, Self: Self],
         };
-        func addNum, Num: Num { a + b };
+        func add(a: Num, b: Num): Num { a + b };
         func [T: Adder] foo(a: T, b: T): T { add(a, b) };
         foo(1, 2)
     `);
@@ -279,8 +279,8 @@ test("parse positional args still work in generic functions with traits", () => 
             eq[Self, Self: Bool],
             lt[Self, Self: Bool]
         };
-        func eqNum, Num: Bool { a == b };
-        func ltNum, Num: Bool { a < b };
+        func eq(a: Num, b: Num): Bool { a == b };
+        func lt(a: Num, b: Num): Bool { a < b };
         func [T: Comparable] lte(a: T, b: T): Bool { lt(a, b) or eq(a, b) };
         lte(2, 3)
     `);

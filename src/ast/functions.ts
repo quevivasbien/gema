@@ -192,7 +192,7 @@ export class FunctionDef extends Expression {
                 new FuncType(
                     this.params.map((p) => p.type),
                     this.returnType,
-                    this.associatedType,
+                    this.associatedType
                 )
             );
         }
@@ -213,11 +213,15 @@ export class FunctionDef extends Expression {
         if (!this.isGeneric()) {
             throw this.error(`tried to monomorphize non-generic function ${this.fullName}`);
         }
-        if (this.params.length !== argTypes.length) {
+        // Start by checking that everything beside generic types matches
+        if (
+            this.params.length !== argTypes.length ||
+            this.params.some((p, i) => !typeEquals(p.type, argTypes[i], true))
+        ) {
             // Not a match
             return null;
         }
-        if ((this.associatedType === null) !== (associatedType === null)) {
+        if (!typeEquals(this.associatedType, associatedType, true)) {
             // Not a match
             return null;
         }

@@ -1,7 +1,7 @@
 import type { JSWriter } from "../../write-js";
 import { wrapArrayToIter } from "../caller-utils";
 import type { Expression } from "../expression";
-import { looseMatch, typeEquals } from "../type-utils";
+import { typeEquals } from "../type-utils";
 import {
     ArrayType,
     DictType,
@@ -106,7 +106,7 @@ const BUILTIN_RESOLVERS: Record<
             mapFirst.paramTypes.length === 1 &&
             mapSecond === "Str"
         ) {
-            if (!looseMatch(mapFirst.paramTypes[0], "Str")) return null;
+            if (!typeEquals(mapFirst.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
                 returnType: new IterType(mapFirst.returnType),
@@ -121,7 +121,7 @@ const BUILTIN_RESOLVERS: Record<
         ) {
             const mapIterInner =
                 mapSecond instanceof IterType ? mapSecond.innerType : mapSecond.innerType;
-            if (!looseMatch(mapFirst.paramTypes[0], mapIterInner)) return null;
+            if (!typeEquals(mapFirst.paramTypes[0], mapIterInner)) return null;
             const mapOutputType = mapFirst.returnType;
             return {
                 kind: "builtin",
@@ -148,7 +148,7 @@ const BUILTIN_RESOLVERS: Record<
         };
 
         if (fIterType === "Str") {
-            if (!looseMatch(fFnType.paramTypes[0], "Str")) return null;
+            if (!typeEquals(fFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
                 returnType: new IterType("Str"),
@@ -163,7 +163,7 @@ const BUILTIN_RESOLVERS: Record<
             return null;
         const fIterInner =
             fIterType instanceof IterType ? fIterType.innerType : fIterType.innerType;
-        if (!looseMatch(fFnType.paramTypes[0], fIterInner)) return null;
+        if (!typeEquals(fFnType.paramTypes[0], fIterInner)) return null;
         return {
             kind: "builtin",
             returnType: new IterType(fIterInner),
@@ -187,8 +187,8 @@ const BUILTIN_RESOLVERS: Record<
         };
 
         if (rIterType === "Str") {
-            if (!looseMatch(rFnType.paramTypes[0], rInitType)) return null;
-            if (!looseMatch(rFnType.paramTypes[1], "Str")) return null;
+            if (!typeEquals(rFnType.paramTypes[0], rInitType)) return null;
+            if (!typeEquals(rFnType.paramTypes[1], "Str")) return null;
             return {
                 kind: "builtin",
                 returnType: rInitType,
@@ -203,9 +203,9 @@ const BUILTIN_RESOLVERS: Record<
             return null;
         const rIterInner =
             rIterType instanceof IterType ? rIterType.innerType : rIterType.innerType;
-        if (!looseMatch(rFnType.paramTypes[0], rInitType)) return null;
-        if (!looseMatch(rFnType.paramTypes[1], rIterInner)) return null;
-        if (!looseMatch(rFnType.returnType, rInitType)) return null;
+        if (!typeEquals(rFnType.paramTypes[0], rInitType)) return null;
+        if (!typeEquals(rFnType.paramTypes[1], rIterInner)) return null;
+        if (!typeEquals(rFnType.returnType, rInitType)) return null;
         return {
             kind: "builtin",
             returnType: rInitType,
@@ -246,8 +246,8 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes.length !== 2) return null;
         const [iFnType, iStartType] = argTypes;
         if (!(iFnType instanceof FuncType) || iFnType.paramTypes.length !== 1) return null;
-        if (!looseMatch(iFnType.paramTypes[0], iStartType)) return null;
-        if (!looseMatch(iFnType.returnType, iStartType)) return null;
+        if (!typeEquals(iFnType.paramTypes[0], iStartType)) return null;
+        if (!typeEquals(iFnType.returnType, iStartType)) return null;
 
         const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$IterateIterator$");
@@ -520,7 +520,7 @@ const BUILTIN_RESOLVERS: Record<
         };
 
         if (twIterType instanceof IterType) {
-            if (!looseMatch(twFnType.paramTypes[0], twIterType.innerType)) return null;
+            if (!typeEquals(twFnType.paramTypes[0], twIterType.innerType)) return null;
             return {
                 kind: "builtin",
                 returnType: new IterType(twIterType.innerType),
@@ -528,7 +528,7 @@ const BUILTIN_RESOLVERS: Record<
             };
         }
         if (twIterType instanceof ArrayType || twIterType instanceof MutArrType) {
-            if (!looseMatch(twFnType.paramTypes[0], twIterType.innerType)) return null;
+            if (!typeEquals(twFnType.paramTypes[0], twIterType.innerType)) return null;
             return {
                 kind: "builtin",
                 returnType: new IterType(twIterType.innerType),
@@ -536,7 +536,7 @@ const BUILTIN_RESOLVERS: Record<
             };
         }
         if (twIterType === "Str") {
-            if (!looseMatch(twFnType.paramTypes[0], "Str")) return null;
+            if (!typeEquals(twFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
                 returnType: new IterType("Str"),
@@ -561,7 +561,7 @@ const BUILTIN_RESOLVERS: Record<
         };
 
         if (dwIterType instanceof IterType) {
-            if (!looseMatch(dwFnType.paramTypes[0], dwIterType.innerType)) return null;
+            if (!typeEquals(dwFnType.paramTypes[0], dwIterType.innerType)) return null;
             return {
                 kind: "builtin",
                 returnType: new IterType(dwIterType.innerType),
@@ -569,7 +569,7 @@ const BUILTIN_RESOLVERS: Record<
             };
         }
         if (dwIterType instanceof ArrayType || dwIterType instanceof MutArrType) {
-            if (!looseMatch(dwFnType.paramTypes[0], dwIterType.innerType)) return null;
+            if (!typeEquals(dwFnType.paramTypes[0], dwIterType.innerType)) return null;
             return {
                 kind: "builtin",
                 returnType: new IterType(dwIterType.innerType),
@@ -577,7 +577,7 @@ const BUILTIN_RESOLVERS: Record<
             };
         }
         if (dwIterType === "Str") {
-            if (!looseMatch(dwFnType.paramTypes[0], "Str")) return null;
+            if (!typeEquals(dwFnType.paramTypes[0], "Str")) return null;
             return {
                 kind: "builtin",
                 returnType: new IterType("Str"),
@@ -689,7 +689,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes.length !== 2) return null;
         if (argTypes[1] instanceof MutArrType) {
             const [valueType, mutArrType] = argTypes;
-            if (!looseMatch(mutArrType.innerType, valueType)) return null;
+            if (!typeEquals(mutArrType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
                 returnType: mutArrType,
@@ -705,7 +705,7 @@ const BUILTIN_RESOLVERS: Record<
         }
         if (argTypes[1] instanceof MutSetType) {
             const [valueType, mutSetType] = argTypes;
-            if (!looseMatch(mutSetType.innerType, valueType)) return null;
+            if (!typeEquals(mutSetType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
                 returnType: mutSetType,
@@ -726,7 +726,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes[2] instanceof MutArrType) {
             const [valueType, indexType, mutArrType] = argTypes;
             if (indexType !== "Int" && indexType !== "Num") return null;
-            if (!looseMatch(mutArrType.innerType, valueType)) return null;
+            if (!typeEquals(mutArrType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
                 returnType: mutArrType,
@@ -744,8 +744,8 @@ const BUILTIN_RESOLVERS: Record<
         }
         if (argTypes[2] instanceof MutDictType) {
             const [valueType, keyType, mutDictType] = argTypes;
-            if (!looseMatch(mutDictType.keyType, keyType)) return null;
-            if (!looseMatch(mutDictType.valueType, valueType)) return null;
+            if (!typeEquals(mutDictType.keyType, keyType)) return null;
+            if (!typeEquals(mutDictType.valueType, valueType)) return null;
             return {
                 kind: "builtin",
                 returnType: mutDictType,
@@ -783,7 +783,7 @@ const BUILTIN_RESOLVERS: Record<
         if (argTypes.length !== 2) return null;
         if (argTypes[1] instanceof MutDictType) {
             const [keyType, mutDictType] = argTypes;
-            if (!looseMatch(mutDictType.keyType, keyType)) return null;
+            if (!typeEquals(mutDictType.keyType, keyType)) return null;
             return {
                 kind: "builtin",
                 returnType: mutDictType,
@@ -799,7 +799,7 @@ const BUILTIN_RESOLVERS: Record<
         }
         if (argTypes[1] instanceof MutSetType) {
             const [valueType, mutSetType] = argTypes;
-            if (!looseMatch(mutSetType.innerType, valueType)) return null;
+            if (!typeEquals(mutSetType.innerType, valueType)) return null;
             return {
                 kind: "builtin",
                 returnType: mutSetType,

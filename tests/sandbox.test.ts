@@ -151,7 +151,7 @@ func smallestFactor(n: Num): Num {
         (3..)
             | takeWhile(\\x { x * x <= n})
             | filter(\\x { n % x == 0 })
-            | \\x x(0)
+            | head
             | unwrap(n)
     }
 };
