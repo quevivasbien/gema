@@ -639,3 +639,15 @@ test("struct: allow overloading of struct constructor", () => {
         7
     );
 });
+
+test("struct: reference struct constructor as callable variable", () => {
+    testCompile(
+        `
+        struct Foo { x: Num, y: Num }
+        f = Foo[Num, Num];
+        z = f(1, 2);
+        z.x + z.y
+        `,
+        3
+    );
+});

@@ -340,6 +340,7 @@ export class DirectCall extends Expression {
             throw this.error(error);
         }
         if (result) {
+            this.type = result.returnType;
             this.toJSHelper = result.toJS;
         }
     }

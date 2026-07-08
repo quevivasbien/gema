@@ -1,7 +1,7 @@
 import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Assignment } from "./assignment";
-import { functionNameWithParamTypes } from "./caller-utils";
+import { findCaller } from "./caller-resolution";
 import { Block, Expression } from "./expression";
 
 import {
@@ -279,90 +279,5 @@ export class TupleLit extends Expression {
             elem.toJS(writer);
         });
         writer.write("]");
-    }
-}
-
-export class Variable extends Expression {
-    name: string;
-
-    fullName?: string;
-
-    constructor(token: Token) {
-        super(token.line, token.col);
-        this.name = token.text;
-    }
-
-    toString(): string {
-        return this.name;
-    }
-
-    resolveAssignment(e: Expression): Type | null {
-        if (e instanceof Assignment && e.name === this.name) {
-            return e.value.type;
-        }
-        return null;
-    }
-
-    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
-        super.cascadeTypes(parent, valueUsed);
-        // Scope-based lookup — resolves params, loop vars, local assignments,
-        // function references, struct/enum/trait references from the enclosing scope hierarchy.
-        const scope = this.getScope();
-        if (scope) {
-            const result = scope.lookup(this.name);
-            if (result) {
-                const attrs = result.attrs;
-                if (attrs.class === "var") {
-                    // Check if this variable was consumed
-                    // Variables consumed cannot be used afterward.
-                    if (attrs.isConsumed) {
-                        throw this.error(
-                            `cannot use variable '${this.name}' after it was consumed`
-                        );
-                    }
-                    this.type = attrs.type;
-                    this.fullName = this.name;
-                    return;
-                } else if (attrs.class === "func") {
-                    // Functions with parameters cannot be referenced as values
-                    // without explicit type annotations (e.g. foo[Int, Int]).
-                    if (attrs.type instanceof FuncType && attrs.type.paramTypes.length > 0) {
-                        throw this.error(
-                            `cannot reference function '${this.name}' without type annotations`
-                        );
-                    }
-                    this.type = attrs.type;
-                    this.fullName = attrs.fullName;
-                    return;
-                } else if (attrs.class === "struct" || attrs.class === "enum") {
-                    this.type = new CustomType(this.name);
-                    this.fullName = this.name; // TODO: Do we need a special name here if this var has associated types?
-                    return;
-                }
-            }
-        }
-
-        // builtin type name used as a type reference (e.g., Int in Int.zero())
-        if (isBuiltinTypeName(this.name)) {
-            this.type = new CustomType(this.name);
-            this.fullName = this.name;
-            return;
-        }
-
-        throw this.error(`unable to resolve type of variable ${this}`);
-    }
-
-    toJS(writer: JSWriter): void {
-        if (this.fullName === undefined) {
-            throw this.error(`type of variable ${this} not resolved`);
-        }
-        const name = writer.safeName(this.fullName);
-        writer.write(name);
-        // Clone iterator variables on every use so that sharing an iterator
-        // across multiple expressions (nested loops, call arguments, pipes, etc.)
-        // doesn't cause one consumer to share the same state as another
-        if (this.type instanceof IterType) {
-            writer.write(".clone()");
-        }
     }
 }

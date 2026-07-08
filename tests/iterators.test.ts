@@ -7,18 +7,8 @@ import {
     requireIdenticalCompilation,
 } from "./helpers";
 
-test("compile map iterator", () => {
+test("map iterator with anonymous function", () => {
     testCompile(`collect(map(func(x: Num) { x + 1 }, [1, 2, 3]))`, [2, 3, 4]);
-    testCompile(
-        `
-        func foo(x: Num): Num {
-            x
-        };
-        
-        collect(map(foo[Num], [1, 2, 3]))
-        `,
-        [1, 2, 3]
-    );
     testCompile(
         `
         add1 = func(x: Num) {
@@ -33,6 +23,22 @@ test("compile map iterator", () => {
         `,
         [3, 4, 5]
     );
+});
+
+test("map iterator with named function", () => {
+    testCompile(
+        `
+        func foo(x: Num): Num {
+            x
+        };
+        
+        collect(map(foo[Num], [1, 2, 3]))
+        `,
+        [1, 2, 3]
+    );
+});
+
+test("map iterator with array", () => {
     testCompile(
         `
         arr = ["hello", "there"];

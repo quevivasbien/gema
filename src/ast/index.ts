@@ -11,14 +11,7 @@ export { Literal } from "./literals";
 export { Binary, Unary } from "./operators";
 
 // Nodes (variables, tuples)
-export {
-    RangeIter,
-    TupleLit,
-    UseModule,
-    UseJSModule,
-    type JSImportSymbol,
-    Variable,
-} from "./nodes";
+export { RangeIter, TupleLit, UseModule, UseJSModule, type JSImportSymbol } from "./nodes";
 
 // Functions
 export { FunctionDef, AnonymousFunction } from "./functions";
@@ -28,6 +21,9 @@ export { Call, DirectCall } from "./calls";
 
 // Variable assignment, including tuple unpacking
 export { Assignment, TupleUnpack } from "./assignment";
+
+// Variable use
+export { Variable } from "./variable";
 
 // Enums and match
 export {

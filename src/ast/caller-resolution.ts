@@ -325,7 +325,7 @@ function resolveTraitFunctionCall(
     return null;
 }
 
-function writeTraitImplDictionaries(writer: JSWriter, genericMapping: GenericMappingInfo[]) {
+export function writeTraitImplDictionaries(writer: JSWriter, genericMapping: GenericMappingInfo[]) {
     for (const genericInfo of genericMapping) {
         for (const trait of Object.keys(genericInfo.traitImpls)) {
             const traitImpl = genericInfo.traitImpls[trait];
@@ -371,6 +371,8 @@ export function findCaller(
     }
 
     // See if the first match for `name` is a variable
+    // TODO: This should happen during the caller match step below; otherwise we can have weird
+    // order resolutions, like thinking variantName is a variable in EnumName::variantName
     const varMatch = scope.lookupVariable(name);
     if (varMatch) {
         return resolveDirectCaller(name, args, varMatch.type, argTypes);
@@ -436,7 +438,7 @@ export function findCaller(
                 error: null,
                 result: {
                     kind: "struct-constructor",
-                    returnType: new CustomType(name),
+                    returnType: new CustomType(name), // TOOD: This doesn't work with generic structs
                     toJS(writer) {
                         const safeNames = callerMatch.fields.map((f) => writer.safeName(f.name));
                         writer.write("{");

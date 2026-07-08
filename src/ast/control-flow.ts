@@ -163,10 +163,6 @@ export class ForLoop extends Expression {
         return true;
     }
 
-    getLoopVariableName(): string | null {
-        return this.varName;
-    }
-
     getLoopVariableInnerType(): Type | null {
         if (this.iter === null || this.iter.type === null) return null;
         let innerType: Type;

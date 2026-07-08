@@ -191,7 +191,8 @@ test("non-anonymous functions do not have values unless annotated with param typ
 });
 
 test("allow references to named functions", () => {
-    testParse(`
+    testCompile(
+        `
         func foo(x: Num): Num {
             x
         };
@@ -199,7 +200,29 @@ test("allow references to named functions", () => {
         bar = foo[Num];
 
         bar(1)
-    `);
+        `,
+        1
+    );
+});
+
+test("references to named generic functions", () => {
+    testCompile(
+        `
+        trait Bar {
+            bar[Self, Self: Self]
+        }
+
+        func [T: Bar] foo(x: T) { bar(x, x) }
+
+        func bar(a: Num, b: Num) {
+            a + b
+        }
+
+        f = foo[Num];
+        f(1)
+        `,
+        2
+    );
 });
 
 test("functions: a function that returns a function on an iterable", () => {
@@ -287,8 +310,8 @@ test("type-associated function: on struct", () => {
     testCompile(
         `
         struct S { x: Num }
-        func S.zero() { S(0) }
-        S.zero().x
+        func S::zero() { S(0) }
+        S::zero().x
         `,
         0
     );
@@ -299,39 +322,39 @@ test("type-associated function: on Str type", () => {
 });
 
 test("type-associated function: missing type", () => {
-    testParseExpectError("func Int.increment(i: Num) { i + 1 }; increment(1)");
+    testParseExpectError("func Int::increment(i: Num) { i + 1 }; increment(1)");
 });
 
 test("type-associated function: non-type-associated function with same base name", () => {
     testCompile(
         `
-        func Int.increment(i: Num) { i + 1 }
+        func Int::increment(i: Num) { i + 1 }
         func increment(i: Num) { i + 2 }
-        (Int.increment(1), increment(1))
+        (Int::increment(1), increment(1))
         `,
         [2, 3]
     );
 });
 
-// ── Templated TAFs: func Arr[Num].empty() ───────────────
+// ── Templated TAFs: func Arr[Num]::empty() ───────────────
 
-test("TAF template: concrete Arr[Num].empty()", () => {
+test("TAF template: concrete Arr[Num]::empty()", () => {
     testCompile(
         `
-        func Arr[Num].empty() { []:Int }
-        Arr[Num].empty()
+        func Arr[Num]::empty() { []:Int }
+        Arr[Num]::empty()
         `,
         []
     );
 });
 
-test("TAF template: Arr[Num].zeros(n)", () => {
+test("TAF template: Arr[Num]::zeros(n)", () => {
     testCompile(
         `
-        func Arr[Num].zeros(n: Num) {
+        func Arr[Num]::zeros(n: Num) {
             map(\\_ 0, 1..n) | collect
         }
-        Arr[Num].zeros(3)
+        Arr[Num]::zeros(3)
         `,
         [0, 0, 0]
     );
@@ -340,67 +363,84 @@ test("TAF template: Arr[Num].zeros(n)", () => {
 test("TAF template: multiple template args", () => {
     testCompile(
         `
-        func Arr[Num].empty() { []:Int }
-        func Arr[Str].empty() { []:Str }
-        (Arr[Num].empty(), Arr[Str].empty())
+        func Arr[Num]::empty() { []:Int }
+        func Arr[Str]::empty() { []:Str }
+        (Arr[Num]::empty(), Arr[Str]::empty())
         `,
         [[], []]
     );
 });
 
-// ─ [T]─ Generic TAFs: func Arr[T].empty() ────
+// ─ [T]─ Generic TAFs: func Arr[T]::empty() ────
 
-test("TAF generic: Arr[T].empty() monomorphized to Int", () => {
+test("TAF generic: Arr[T]::empty() monomorphized to Int", () => {
     testCompile(
         `
-        func [T] Arr[T].empty() { []:T }
-        Arr[Num].empty()
+        func [T] Arr[T]::empty() { []:T }
+        Arr[Num]::empty()
         `,
         []
     );
 });
 
-test("TAF generic: Arr[T].empty() monomorphized to Str", () => {
+test("TAF generic: Arr[T]::empty() monomorphized to Str", () => {
     testCompile(
         `
-        func [T] Arr[T].empty() { []:T }
-        Arr[Str].empty()
+        func [T] Arr[T]::empty() { []:T }
+        Arr[Str]::empty()
         `,
         []
     );
 });
 
-test("TAF generic: Arr[T].empty with type-param body", () => {
+test("TAF generic: Arr[T]::empty with type-param body", () => {
     testCompile(
         `
-        func [T] Arr[T].fill(v: T, n: Num): Arr[T] {
+        func [T] Arr[T]::fill(v: T, n: Num): Arr[T] {
             map(\\_ v, 1..n) | collect
         }
-        Arr[Num].fill(42, 3)
+        Arr[Num]::fill(42, 3)
         `,
         [42, 42, 42]
     );
 });
 
-// ── Type-param as associated type: func T.emptyArray() ──
+// ── Type-param as associated type: func T::emptyArray() ──
 
-test("TAF type-param: T.emptyArray() monomorphized to Int", () => {
+test("TAF type-param: T::emptyArray() monomorphized to Int", () => {
     testCompile(
         `
-        func [T] T.emptyArray() { []:T }
-        Int.emptyArray()
+        func [T] T::emptyArray() { []:T }
+        Int::emptyArray()
         `,
         []
     );
 });
 
-test("TAF type-param: T.emptyArray() monomorphized to Str", () => {
+test("TAF type-param: T::emptyArray() monomorphized to Str", () => {
     testCompile(
         `
-        func [T] T.emptyArray() { []:T }
-        Str.emptyArray()
+        func [T] T::emptyArray() { []:T }
+        Str::emptyArray()
         `,
         []
+    );
+});
+
+test("TAF type-param: multiple TAF functions with same root name", () => {
+    testCompile(
+        `
+        func [T] T::foo(x: T) {
+            x
+        }
+
+        func [T] T::foo(x: T, y: T) {
+            x
+        }
+
+        foo(1) + foo(1, 2)
+        `,
+        2
     );
 });
 
@@ -425,7 +465,7 @@ test("TAF trait: struct implementing Self.zero", () => {
         }
         struct S { s: Num }
         func add(a: S, b: S) { S(a.s + b.s) }
-        func S.zero() { S(0) }
+        func S::zero() { S(0) }
         func [T: Summable] sum(iter: Iter[T]) {
             reduce(\\(acc, x) { acc + x }, T.zero(), iter)
         }

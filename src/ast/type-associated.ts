@@ -3,8 +3,8 @@ import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller-resolution";
 import { Call } from "./calls";
 import { Expression } from "./expression";
-import { Variable } from "./nodes";
 import { getType, type TemplateTypes, type Type } from "./types";
+import { Variable } from "./variable";
 
 /**
  * An expression like Foo::bar(baz) or Foo::bim

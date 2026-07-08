@@ -435,6 +435,7 @@ const BUILTIN_RESOLVERS: Record<
 
         const toJS = (writer: JSWriter) => {
             writer.useBuiltin("$TakeIterator$");
+            writer.write("new $TakeIterator$(");
             args[0]?.toJS(writer);
             writer.write(", ");
             wrapArrayToIter(writer, args[1]);

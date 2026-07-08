@@ -852,19 +852,12 @@ function parseVariable(parser: Parser): AST.Expression {
     const variableToken = parser.previous();
     // Get template types if there are any attached
     const templateTypes = parser.getTemplateTypes();
-    if (templateTypes !== null && !templateTypes.empty()) {
-        if (parser.atEnd() || parser.current().type !== TokenType.ColonColon) {
-            return parser.error("Expected '::' after template types");
-        }
-        // This is something like Foo[T]::bar or Foo[T]::baz(bim)
-        parser.advance(); // consume '::'
-        return parseTypeAssociatedVariable(parser, variableToken, templateTypes);
-    } else if (!parser.atEnd() && parser.current().type === TokenType.ColonColon) {
-        // This is something like Foo::bar or Foo::baz(bim)
+    if (parser.current()?.type === TokenType.ColonColon) {
+        // This is something like Foo[T]::bar or Foo::baz(bim)
         parser.advance(); // consume '::'
         return parseTypeAssociatedVariable(parser, variableToken, templateTypes);
     }
-    return parser.tryCreateASTExpression(() => new AST.Variable(variableToken));
+    return parser.tryCreateASTExpression(() => new AST.Variable(variableToken, templateTypes));
 }
 
 function parseCall(parser: Parser): AST.Expression {
