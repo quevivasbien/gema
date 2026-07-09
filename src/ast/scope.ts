@@ -1,3 +1,4 @@
+import { extractGenericBindings } from "./caller-utils";
 import { paramTypesMatchArgTypes, substituteTypeParams, typeEquals } from "./type-utils";
 import { CustomType, FuncType, GenericType, type TemplateTypes, type Type } from "./types";
 
@@ -57,9 +58,7 @@ export type StructAttributes = {
     class: "struct";
     name: string;
     fields: { name: string; type: Type; mutable: boolean }[];
-    isGeneric?: true;
-    typeParams?: string[];
-    def?: unknown;
+    templateTypes: Type[];
 };
 
 export type EnumAttributes = {
@@ -83,6 +82,7 @@ export type TraitAttributes = {
     requiredFunctions: { name: string; signature: FuncType }[];
 };
 
+/** These are the types that can be stored within the Scope object */
 export type DefinitionAttributes =
     | VarAttributes
     | FuncAttributes
@@ -205,14 +205,65 @@ export class Scope {
             // Handle case of struct constructor
             // TODO: This doesn't yet work with generic structs
             else if (v.name === name && v.class === "struct") {
-                if (
+                // TODO: For case of generic struct, need to use extractGenericBindings
+                if (v.templateTypes === null || v.templateTypes.length === 0) {
+                    // Not a generic struct, just need to check that types match
+                    if (
+                        paramTypesMatchArgTypes(
+                            v.fields.map((f) => f.type),
+                            argTypes
+                        )
+                    ) {
+                        return v;
+                    }
+                }
+                // Case of generic struct
+                // Start by checking that everything except the generic types match
+                else if (
                     paramTypesMatchArgTypes(
                         v.fields.map((f) => f.type),
                         argTypes,
-                        false
+                        true
                     )
                 ) {
-                    return v;
+                    // Now check that we're setting compatible bindings
+                    // (for now, this is just to make sure we don't try to bind the same generic type to multiple concrete types,
+                    // but in the future we might also check traits here)
+                    const bindings = new Map<string, Type>();
+                    let compatible = true;
+                    for (let i = 0; i < v.fields.length; i++) {
+                        if (!extractGenericBindings(v.fields[i].type, argTypes[i], bindings)) {
+                            // Not a match -- trying to substitute incompatible types
+                            compatible = false;
+                            break;
+                        }
+                    }
+                    if (compatible) {
+                        // Return the struct match with its generic types remapped to concrete types
+                        return {
+                            class: "struct",
+                            fields: v.fields.map((f) => ({
+                                name: f.name,
+                                type: substituteTypeParams(f.type, bindings),
+                                mutable: f.mutable,
+                            })),
+                            templateTypes: v.templateTypes.map((t) => {
+                                if (!(t instanceof GenericType)) {
+                                    throw new Error(
+                                        `Unexpected non-generic template type ${t} in generic struct`
+                                    );
+                                }
+                                const boundType = bindings.get(t.name);
+                                if (boundType === undefined) {
+                                    throw new Error(
+                                        `Unbound generic type ${t.name} in concretized generic struct ${v.name}`
+                                    );
+                                }
+                                return boundType;
+                            }),
+                            name: v.name,
+                        };
+                    }
                 }
             }
             // Handle case of enum instantiation (like `EnumName::variantName(value)`)
@@ -249,7 +300,6 @@ export class Scope {
 
     /**
      * Look for a struct definition with the given name
-     * TODO: This doesn't yet work with generic structs
      */
     lookupStruct(name: string): StructAttributes | null {
         for (let i = this.variables.length - 1; i >= 0; i--) {

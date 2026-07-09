@@ -1,6 +1,6 @@
 import type { JSWriter } from "../write-js";
 import type { Expression } from "./expression";
-import { typeEquals, typesMatchWithConversion } from "./type-utils";
+import { typeEquals } from "./type-utils";
 import {
     ArrayType,
     CustomType,
@@ -52,7 +52,10 @@ export function extractGenericBindings(
 ): boolean {
     if (paramType instanceof GenericType) {
         const existing = bindings.get(paramType.name);
-        if (existing && !typeEquals(existing, argType)) return false;
+        if (existing && !typeEquals(existing, argType)) {
+            // This generic type has a different type already bound to it!
+            return false;
+        }
         bindings.set(paramType.name, argType);
         return true;
     }
@@ -115,7 +118,7 @@ export function extractGenericBindings(
     if (paramType instanceof MaybeType && argType instanceof MaybeType) {
         return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
-    if (!typesMatchWithConversion(paramType, argType, true)) return false;
+    if (!typeEquals(paramType, argType)) return false;
     return true;
 }
 

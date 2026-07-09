@@ -1465,6 +1465,16 @@ const BUILTIN_RESOLVERS: Record<
         }
         return null;
     },
+    typeof: (_args, argTypes) => {
+        if (argTypes.length !== 1) return null;
+        return {
+            kind: "builtin",
+            returnType: "Str",
+            toJS: (writer) => {
+                writer.write(`"${argTypes[0].toString()}"`);
+            },
+        };
+    },
 };
 
 export function findBuiltin(

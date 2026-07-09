@@ -143,15 +143,15 @@ export class CustomType {
     name: string;
     /** Template arguments for generic types (e.g., Pair[Int] → templateArgs=[Int]).
      *  Used by generic structs and enums to carry concrete type args. */
-    templateArgs: Type[] | null;
+    templateArgs: Type[];
 
-    constructor(name: string, templateArgs: Type[] | null = null) {
+    constructor(name: string, templateArgs: Type[] = []) {
         this.name = name;
         this.templateArgs = templateArgs;
     }
 
     toString(): string {
-        if (!this.templateArgs) {
+        if (this.templateArgs.length === 0) {
             return this.name;
         } else {
             return `${this.name}[${this.templateArgs.map((ta) => ta.toString()).join(", ")}]`;

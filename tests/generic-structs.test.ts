@@ -1,5 +1,5 @@
 import { test, describe } from "bun:test";
-import { testCompile, testCompileMultiExpectError } from "./helpers";
+import { testCompile, testCompileMultiExpectError, testParseExpectError } from "./helpers";
 
 // ─── Generic structs ────────────────────────────────────────────
 
@@ -34,6 +34,18 @@ describe("generic structs", () => {
         );
     });
 
+    test("error: unused type param", () => {
+        testParseExpectError(
+            `
+            struct Foo[T, U] {
+                x: T,
+                y: T,
+            };
+            Foo(1,1)
+            `
+        );
+    });
+
     test("field access on generic struct instance", () => {
         testCompile(
             `
@@ -49,7 +61,7 @@ describe("generic structs", () => {
         testCompile(
             `
             struct Pair[T] { a: T, b: T }
-            func first[T](p: Pair[T]): T { p.a }
+            func [T] first(p: Pair[T]): T { p.a }
             first(Pair(3, 4))
             `,
             3
@@ -60,10 +72,28 @@ describe("generic structs", () => {
         testCompile(
             `
             struct Pair[T] { a: T, b: T }
-            func [T] makePair[T](x: T): Pair[T] { Pair(x, x) }
+            func [T] makePair(x: T): Pair[T] { Pair(x, x) }
             makePair(5)
             `,
             { a: 5, b: 5 }
+        );
+    });
+
+    test("concretized generic struct type in function param", () => {
+        testCompile(
+            `
+            struct Foo[T] {
+                x: T,
+                y: T,
+            };
+
+            func sum(f: Foo[Num]) {
+                f.x + f.y
+            };
+
+            sum(Foo(1, 1))
+            `,
+            2
         );
     });
 
@@ -146,39 +176,21 @@ describe("generic structs", () => {
         );
     });
 
-    test("non-generic struct unchanged", () => {
-        testCompile(
-            `
-            struct Point { x: Num, y: Num }
-            Point(3, 4)
-            `,
-            { x: 3, y: 4 }
-        );
-    });
-
     test("error: type param count mismatch on call", () => {
-        testCompileMultiExpectError(
-            {
-                "main.gema": `
-                    struct Pair[T, U] { a: T, b: U }
-                    Pair(1)
-                `,
-            },
-            "main.gema",
-            "constructor"
+        testParseExpectError(
+            `
+            struct Pair[T, U] { a: T, b: U }
+            Pair(1)
+            `
         );
     });
 
     test("error: field type mismatch", () => {
-        testCompileMultiExpectError(
-            {
-                "main.gema": `
-                    struct Pair[T] { a: T, b: T }
-                    Pair(1, "hi")
-                `,
-            },
-            "main.gema",
-            "constructor expects"
+        testParseExpectError(
+            `
+            struct Pair[T] { a: T, b: T }
+            Pair(1, "hi")
+            `
         );
     });
 

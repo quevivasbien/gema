@@ -1863,7 +1863,9 @@ class Parser {
         this.advance(); // consume struct name
 
         // Parse optional type parameter list: struct Pair[T, U] { ... }
-        const typeParams: string[] = [];
+        // We will use the same mechanism used for generic enum definitions to parse
+        // the type parameters, although for now we won't accept trait bounds
+        const typeParams: Record<string, { traits: []; used: false }> = {};
         if (!this.atEnd() && this.current().type === TokenType.LBracket) {
             this.advance(); // consume '['
             while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
@@ -1871,10 +1873,10 @@ class Parser {
                     return this.error("Expected type parameter name.");
                 }
                 const tpName = this.current().text;
-                if (typeParams.includes(tpName)) {
+                if (tpName in typeParams) {
                     return this.error(`Duplicate type parameter '${tpName}'.`);
                 }
-                typeParams.push(tpName);
+                typeParams[tpName] = { traits: [], used: false };
                 this.advance();
                 if (this.current().type === TokenType.Comma) {
                     this.advance();
@@ -1910,7 +1912,9 @@ class Parser {
                 return this.error("Expected ':' after field name.");
             }
             this.advance();
-            const fieldType = this.getTypeName();
+            const fieldType = this.getTypeName(
+                Object.keys(typeParams).length > 0 ? typeParams : null
+            );
             if (!fieldType) {
                 return new AST.ErrorExpression(rootToken, "Invalid type annotation for field.");
             }
@@ -1927,8 +1931,24 @@ class Parser {
             return this.error("Unterminated struct definition.");
         }
         this.advance(); // consume '}'
+
+        // Check that we've actually used all the generic types that we created
+        for (const name of Object.keys(typeParams)) {
+            if (!typeParams[name].used) {
+                return this.error(`Generic type ${name} is not used as a parameter type`);
+            }
+        }
+
         return this.tryCreateASTExpression(
-            () => new AST.StructDef(rootToken, name, fields, typeParams)
+            () =>
+                new AST.StructDef(
+                    rootToken,
+                    name,
+                    fields,
+                    Object.keys(typeParams).map(
+                        (name) => new GenericType(name, typeParams[name].traits)
+                    )
+                )
         );
     }
 

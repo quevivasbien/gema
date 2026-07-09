@@ -440,7 +440,7 @@ export function findCaller(
                 error: null,
                 result: {
                     kind: "struct-constructor",
-                    returnType: new CustomType(name), // TOOD: This doesn't work with generic structs
+                    returnType: new CustomType(name, callerMatch.templateTypes), // TOOD: This doesn't work with generic structs
                     toJS(writer) {
                         const safeNames = callerMatch.fields.map((f) => writer.safeName(f.name));
                         writer.write("{");

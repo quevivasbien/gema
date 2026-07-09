@@ -5,7 +5,7 @@ export { ASTError, Block, DropValue, ErrorExpression, Expression } from "./expre
 export { Break, Continue, ForLoop, If, Return } from "./control-flow";
 
 // Literals
-export { Literal } from "./literals";
+export { ArrLit, Literal } from "./literals";
 
 // Operators
 export { Binary, Unary } from "./operators";
@@ -37,8 +37,8 @@ export {
     type VariantArm,
 } from "./enums";
 
-// Structs and arrays
-export { ArrLit, FieldAccess, FieldAssignment, StructDef } from "./structs";
+// Structs
+export { FieldAccess, FieldAssignment, StructDef } from "./structs";
 
 // Traits
 export { Trait } from "./traits";
