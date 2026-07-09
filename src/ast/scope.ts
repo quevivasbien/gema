@@ -268,7 +268,6 @@ export class Scope {
             }
             // Handle case of enum instantiation (like `EnumName::variantName(value)`)
             // The call must have an associated type the `EnumName` and must take exactly one value (maybe in the future we will permit multiple values)
-            // TODO: This doesn't yet support generic enums
             else if (
                 v.class === "enum" &&
                 associatedType !== null &&
@@ -276,18 +275,47 @@ export class Scope {
                 argTypes.length === 1
             ) {
                 if (v.name === associatedType.name) {
+                    // Validate type param count for generic enums
+                    if (
+                        v.genericTypes &&
+                        v.genericTypes.length > 0 &&
+                        (!associatedType.templateArgs ||
+                            associatedType.templateArgs.length !== v.genericTypes.length)
+                    ) {
+                        continue;
+                    }
                     // Check if one of the variants matches
                     for (let i = 0; i < v.variants.length; i++) {
                         const variant = v.variants[i];
-                        if (variant.name !== name || !typeEquals(variant.type, argTypes[0])) {
-                            continue;
+                        if (variant.name !== name) continue;
+                        if (variant.type === null && argTypes[0] === null) {
+                            return {
+                                class: v.class,
+                                enumType: associatedType,
+                                variantIndex: i,
+                                isTaggedUnion: v.isTaggedUnion,
+                            };
                         }
-                        return {
-                            class: v.class,
-                            enumType: associatedType,
-                            variantIndex: i,
-                            isTaggedUnion: false,
-                        };
+                        if (variant.type === null || argTypes[0] === null) continue;
+                        // For generic enums, use extractGenericBindings
+                        if (v.genericTypes && v.genericTypes.length > 0) {
+                            const bindings = new Map<string, Type>();
+                            if (extractGenericBindings(variant.type, argTypes[0], bindings)) {
+                                return {
+                                    class: v.class,
+                                    enumType: associatedType,
+                                    variantIndex: i,
+                                    isTaggedUnion: v.isTaggedUnion,
+                                };
+                            }
+                        } else if (typeEquals(variant.type, argTypes[0])) {
+                            return {
+                                class: v.class,
+                                enumType: associatedType,
+                                variantIndex: i,
+                                isTaggedUnion: v.isTaggedUnion,
+                            };
+                        }
                     }
                 }
             }
@@ -337,15 +365,36 @@ export class Scope {
             // Check if one of the variants matches
             for (let j = 0; j < v.variants.length; j++) {
                 const variant = v.variants[j];
-                if (variant.name !== argName || !typeEquals(variant.type, argType)) {
-                    continue;
+                if (variant.name !== argName) continue;
+                // Both null: plain variant with no data
+                if (variant.type === null && argType === null) {
+                    return {
+                        class: v.class,
+                        enumType: enumType,
+                        variantIndex: j,
+                        isTaggedUnion: v.isTaggedUnion,
+                    };
                 }
-                return {
-                    class: v.class,
-                    enumType: enumType,
-                    variantIndex: j,
-                    isTaggedUnion: v.isTaggedUnion,
-                };
+                if (variant.type === null || argType === null) continue;
+                // For generic enums, use extractGenericBindings
+                if (v.genericTypes && v.genericTypes.length > 0) {
+                    const bindings = new Map<string, Type>();
+                    if (extractGenericBindings(variant.type, argType, bindings)) {
+                        return {
+                            class: v.class,
+                            enumType: enumType,
+                            variantIndex: j,
+                            isTaggedUnion: v.isTaggedUnion,
+                        };
+                    }
+                } else if (typeEquals(variant.type, argType)) {
+                    return {
+                        class: v.class,
+                        enumType: enumType,
+                        variantIndex: j,
+                        isTaggedUnion: v.isTaggedUnion,
+                    };
+                }
             }
         }
         if (this.parent === null) {
