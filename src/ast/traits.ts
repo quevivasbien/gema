@@ -1,7 +1,7 @@
 import type { Token } from "../tokens";
 import { Expression } from "./expression";
 
-import { FuncType } from "./types";
+import type { FuncType } from "./types";
 
 export class Trait extends Expression {
     name: string;

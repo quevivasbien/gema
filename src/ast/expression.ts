@@ -1,4 +1,4 @@
-import { TokenType, type Token } from "../tokens";
+import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Scope } from "./scope";
 import { EscapeType, type Type, type TemplateTypes } from "./types";

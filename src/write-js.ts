@@ -57,7 +57,7 @@ export function safeJSName(name: string): string {
     const baseName = dollarIdx === -1 ? name : name.slice(0, dollarIdx);
     // Sanitize special characters in type-associated function names
     // e.g., "Int::zero" → "IntϮzero", "Arr[Int].empty" → "ArrюIntϮempty"
-    let sanitizedBase = baseName
+    const sanitizedBase = baseName
         .replace(/::/g, "Ϯ")
         .replace(/\[/g, "ю")
         .replace(/\]/g, "")

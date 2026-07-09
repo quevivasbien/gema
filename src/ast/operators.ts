@@ -3,7 +3,7 @@ import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller-resolution";
 import { Expression } from "./expression";
 import { typeEquals } from "./type-utils";
-import { ArrayType, CustomType, IterType, type Type } from "./types";
+import { ArrayType, CustomType, IterType } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
 const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {

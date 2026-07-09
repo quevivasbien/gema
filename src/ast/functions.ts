@@ -1,12 +1,12 @@
-import { TokenType, type Token } from "../tokens";
+import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { extractGenericBindings, functionNameWithParamTypes } from "./caller-utils";
 import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression";
 
 import { Call } from "./calls";
-import { Scope, type TraitAttributes, type GenericMappingInfo } from "./scope";
-import { substituteTypeParams, typeEquals } from "./type-utils";
-import { CustomType, EscapeType, FuncType, GenericType, type Type } from "./types";
+import { Scope, type GenericMappingInfo, type TraitAttributes } from "./scope";
+import { typeEquals } from "./type-utils";
+import { CustomType, EscapeType, FuncType, type GenericType, type Type } from "./types";
 
 /**
  * A non-anonymous function definition block
@@ -88,7 +88,7 @@ export class FunctionDef extends Expression {
         // and so we can access definitions of variables defined outside the function.
         // If we don't yet know the return type of the function, we will need to update this
         // scope entry later.
-        let mustResolveReturnTypeLater = this.returnType === null;
+        const mustResolveReturnTypeLater = this.returnType === null;
         if (this.isGeneric()) {
             enclosingScope.defineVariable({
                 class: "generic",

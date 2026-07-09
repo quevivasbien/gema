@@ -50,7 +50,7 @@ export function resolveDirectCaller(
     const name = isVarCall ? caller : "<anon>";
 
     // Helper to either write the literal caller name or compile the caller expression (in the case of a direct call to a non-variable expression)
-    let writeCaller = isVarCall
+    const writeCaller = isVarCall
         ? (writer: JSWriter) => {
               writer.write(writer.safeName(name));
           }

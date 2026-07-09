@@ -1,6 +1,6 @@
 import { extractGenericBindings } from "./caller-utils";
 import { paramTypesMatchArgTypes, substituteTypeParams, typeEquals } from "./type-utils";
-import { CustomType, FuncType, GenericType, type TemplateTypes, type Type } from "./types";
+import { CustomType, FuncType, GenericType, type Type } from "./types";
 
 export type VarAttributes = {
     class: "var";
@@ -465,6 +465,7 @@ export class Scope {
             // Search the scope chain for a function definition with this name
             // whose param types match the expected ones
             let found: { fullName: string } | null = null;
+            // eslint-disable-next-line @typescript-eslint/no-this-alias
             let searchScope: Scope | null = this;
             while (searchScope !== null) {
                 for (const v of searchScope.variables) {

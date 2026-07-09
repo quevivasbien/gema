@@ -1,5 +1,5 @@
 import { test, describe } from "bun:test";
-import { testCompile, testCompileMultiExpectError, testParseExpectError } from "./helpers";
+import { testCompile, testParseExpectError } from "./helpers";
 
 // ─── Generic structs ────────────────────────────────────────────
 

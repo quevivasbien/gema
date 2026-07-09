@@ -524,7 +524,7 @@ function parseTrait(parser: Parser): AST.Expression {
             }
         }
 
-        let funcName = parser.current().text;
+        const funcName = parser.current().text;
         parser.advance();
 
         // Expect '[' after function name
@@ -1590,7 +1590,6 @@ class Parser {
         }
         const generics = genericsResult.result;
 
-        let name: string;
         let associatedType: Type | null = null;
         if (this.peek()?.type !== TokenType.LParen) {
             // Assume this must be a type-associated function
@@ -1606,7 +1605,7 @@ class Parser {
             }
             this.advance(); // consume "::"
         }
-        name = this.current().text;
+        const name = this.current().text;
         this.advance();
 
         if (this.current().type !== TokenType.LParen) {

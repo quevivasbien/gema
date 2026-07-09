@@ -1,18 +1,8 @@
 import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import { Assignment } from "./assignment";
-import { findCaller } from "./caller-resolution";
 import { Block, Expression } from "./expression";
 
-import {
-    CustomType,
-    FuncType,
-    isBuiltinTypeName,
-    IterType,
-    TemplateTypes,
-    TupleType,
-    type Type,
-} from "./types";
+import { IterType, TupleType, type Type } from "./types";
 
 /**
  * Use directive: contains the parsed AST of the imported module.

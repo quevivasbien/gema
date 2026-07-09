@@ -2,7 +2,7 @@ import type { Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import { substituteTypeParams, typeEquals } from "./type-utils";
-import { ArrayType, CustomType, GenericType, type Type } from "./types";
+import { CustomType, GenericType, type Type } from "./types";
 
 export class StructDef extends Expression {
     name: string;

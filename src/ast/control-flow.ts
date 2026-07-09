@@ -1,18 +1,10 @@
-import { TokenType, type Token } from "../tokens";
+import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Block, Expression, lastExprShouldReturn } from "./expression";
 import { Match } from "./enums";
 import { Scope } from "./scope";
 import { typeEquals } from "./type-utils";
-import {
-    ArrayType,
-    CustomType,
-    EscapeType,
-    isBuiltinTypeName,
-    IterType,
-    MutArrType,
-    type Type,
-} from "./types";
+import { ArrayType, EscapeType, IterType, MutArrType, type Type } from "./types";
 
 export class If extends Expression {
     // TODO: Parser shuold reflect that any Expression type is permissible for the branches

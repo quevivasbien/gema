@@ -3,8 +3,6 @@ import { parse } from "./parse";
 import { scan } from "./scan";
 import { writeJS } from "./write-js";
 
-import { treeShake } from "./tree-shake";
-
 interface CompileResult {
     js: string;
     result: null;

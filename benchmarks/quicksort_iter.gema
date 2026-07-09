@@ -1,10 +1,10 @@
-func quicksort(arr: Iter[Num]): Iter[Num] {
-    first = arr(0);
+func quicksort(iter: Iter[Num]): Iter[Num] {
+    first = iter(0);
     if isnone(first){
-        arr
+        iter
     } else {
         pivot = unwrap(first);
-        rest = (drop(1, arr));
+        rest = drop(1, iter);
         left = filter(\x { x <= pivot }, rest);
         right = filter(\x { x > pivot }, rest);
         quicksort(left) + toIter([pivot]) + quicksort(right)
@@ -13,5 +13,5 @@ func quicksort(arr: Iter[Num]): Iter[Num] {
 
 n = 1000;
 prime = 2179;
-arr = (1..n) | collect | \x map(\i {x((i*prime) % n) | unwrap}, 1..n) | collect;
-quicksort(arr) | collect
+iter = (1..n) | collect | \x map(\i {x((i*prime) % n) | unwrap}, 1..n);
+quicksort(iter) | collect
