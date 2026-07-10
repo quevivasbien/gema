@@ -6,7 +6,7 @@ import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression"
 import { Call } from "./calls";
 import { Scope, type GenericMappingInfo, type TraitAttributes } from "./scope";
 import { typeEquals } from "./type-utils";
-import { CustomType, EscapeType, FuncType, type GenericType, type Type } from "./types";
+import { EscapeType, FuncType, type GenericType, type Type } from "./types";
 
 /**
  * A non-anonymous function definition block
@@ -434,8 +434,11 @@ export class AnonymousFunction extends Expression {
         this.needsInference = params.some((p) => p.type === null);
     }
 
-    /** Fill param types from an inferred signature, then cascade the body. */
-    fillParams(types: Type[], parent?: Expression | null): void {
+    /** Fill param types from an inferred signature, then cascade the body.
+     *  If `expectedReturnType` is provided, it overrides the parsed return type
+     *  and is checked against the body's inferred return type.
+     */
+    fillParams(types: Type[], expectedReturnType?: Type | null, parent?: Expression | null): void {
         if (!this.needsInference) return;
         for (let i = 0; i < this.params.length; i++) {
             this.params[i].type = types[i] ?? this.params[i].type;
@@ -461,6 +464,13 @@ export class AnonymousFunction extends Expression {
             this.scope.parent = this.parent.getScope();
         }
         this.body.scope.parent = this.scope;
+
+        // If the caller provides an expected return type, use that
+        // instead of the parsed (null) return type.
+        if (expectedReturnType !== undefined) {
+            this.returnType = expectedReturnType;
+        }
+
         // Body: last expression is the return value (always consumed).
         this.body.cascadeTypes(this, true);
         this.bodyCascaded = true;
@@ -510,11 +520,9 @@ export class AnonymousFunction extends Expression {
         // If params have null types, set a placeholder FuncType and skip body cascade.
         // fillParams() must be called by the enclosing context to provide real types.
         if (this.needsInference) {
-            // Use a non-concrete placeholder type so looseMatch allows the match
-            const placeholder = new CustomType("__infer__");
             this.type = new FuncType(
-                this.params.map(() => placeholder),
-                placeholder
+                this.params.map(() => "Infer" as Type),
+                "Infer"
             );
             return;
         }

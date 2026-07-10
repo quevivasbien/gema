@@ -1258,7 +1258,11 @@ class Parser {
                 const returnTypeName = this.current().text;
                 this.advance();
                 const nestedTemplateTypes = this.getTemplateTypes();
-                templateTypes.returnType = getType(returnTypeName, nestedTemplateTypes, effectiveGenerics);
+                templateTypes.returnType = getType(
+                    returnTypeName,
+                    nestedTemplateTypes,
+                    effectiveGenerics
+                );
                 break;
             }
             if (this.current().type !== TokenType.Identifier) {

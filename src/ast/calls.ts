@@ -29,8 +29,8 @@ export class Call extends Expression {
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
-        // Pre-fill unresolved anonymous function params so findBuiltin can match them
-        this.prefillLambdaParams();
+        // Infer lambda param types from the calling context before the main cascade
+        this.inferLambdaParams();
 
         for (let i = 0; i < this.args.length; i++) {
             const arg = this.args[i];
@@ -47,240 +47,143 @@ export class Call extends Expression {
 
         this.toJSHelper = result.toJS;
         this.type = result.returnType;
-
-        // Fill unresolved anonymous function params using inferred types from context
-        // TODO: This doesn't currently work except for builtins, and it needs to happen during the findCaller resolution, not here
-        this.fillLambdaFunctionParams();
     }
 
     /**
-     * Before the main cascade, pre-fill lambda params for known builtins by
-     * cascading the non-function args first to get their types.
+     * Before the main arg cascade, infer lambda (backslash) param types by
+     * searching the scope for a matching function definition.
+     *
+     * Strategy:
+     *   1. Find all args that are AnonymousFunction with needsInference.
+     *   2. Cascade non-lambda args first to get concrete types.
+     *   3. Build sketch arg types (lambda positions = "Infer" sentinel).
+     *   4. For user-defined functions: check for ambiguity, lookup caller,
+     *      extract expected FuncType at each lambda position and fill.
+     *   5. For builtins (map, filter, reduce, iterate, etc.): fallback to
+     *      the old builtin-specific inference.
      */
-    private prefillLambdaParams(): void {
-        // Find the anonymous function arg and the iterable arg
-        // Normal call: map(fn, iter) → fn at 0, iter at 1
-        // Pipe call: iter | map(fn) → iter at 0, fn at 1
-        let anonFn: AnonymousFunction | null = null;
-        let iterExpr: Expression | null = null;
-
-        if (this.args[0] instanceof AnonymousFunction && this.args[0].needsInference) {
-            anonFn = this.args[0];
-            iterExpr = this.args.length >= 2 ? this.args[1] : null;
-        } else if (
-            this.args.length >= 2 &&
-            this.args[1] instanceof AnonymousFunction &&
-            this.args[1].needsInference
-        ) {
-            anonFn = this.args[1];
-            iterExpr = this.args[0];
-        }
-
-        if (!anonFn) return;
-
-        // Cascade the non-function args (everything except the anon function) first
+    private inferLambdaParams(): void {
+        // 1. Find all lambda args
+        const lambdaPositions: Map<number, AnonymousFunction> = new Map();
         for (let i = 0; i < this.args.length; i++) {
-            if (this.args[i] !== anonFn) {
+            const arg = this.args[i];
+            if (arg instanceof AnonymousFunction && arg.needsInference) {
+                lambdaPositions.set(i, arg);
+            }
+        }
+        if (lambdaPositions.size === 0) return;
+
+        // 2. Cascade non-lambda args first
+        for (let i = 0; i < this.args.length; i++) {
+            if (!lambdaPositions.has(i)) {
                 this.args[i].cascadeTypes(this, true);
             }
         }
 
-        // Determine expected param types from the resolved args
-        let expectedParamTypes: Type[] | null = null;
+        // 3. Build sketch arg types
+        const sketchTypes: Type[] = this.args.map((_arg, i) =>
+            lambdaPositions.has(i) ? ("Infer" as Type) : (this.args[i].type as Type)
+        );
 
-        if (this.name === "reduce" && iterExpr && this.args.length >= 3) {
-            // reduce(fn, init, iter): fn params are (initType, elemType)
-            const nonFnArgs = this.args.filter((a) => a !== anonFn);
-            if (nonFnArgs.length >= 2 && nonFnArgs[0].type && nonFnArgs[1].type) {
-                const iterType = nonFnArgs[1].type;
-                const innerType =
-                    iterType instanceof ArrayType ||
-                    iterType instanceof IterType ||
-                    iterType instanceof MutArrType
-                        ? iterType.innerType
-                        : iterType;
-                expectedParamTypes = [nonFnArgs[0].type, innerType];
+        const scope = this.getScope();
+        if (!scope) return;
+
+        // 4. Check for ambiguity and try user-defined functions first
+        const lambdaParamCounts = new Map(
+            [...lambdaPositions].map(([pos, anonFn]) => [pos, anonFn.params.length] as const)
+        );
+        const matchCount = scope.countMatchingCallers(this.name, lambdaParamCounts);
+        if (matchCount > 1) {
+            throw this.error(
+                `ambiguous lambda type — multiple matching signatures found for '${this.name}'`
+            );
+        }
+        if (matchCount === 1) {
+            const match = scope.lookupCaller(this.name, sketchTypes, null);
+            if (match) {
+                const matchedParamTypes =
+                    match.class === "func" || match.class === "generic"
+                        ? match.type.paramTypes
+                        : match.class === "struct"
+                          ? match.fields.map((f) => f.type)
+                          : [];
+                for (const [pos, anonFn] of lambdaPositions) {
+                    const expectedFT = matchedParamTypes[pos];
+                    if (expectedFT instanceof FuncType) {
+                        anonFn.fillParams(expectedFT.paramTypes, expectedFT.returnType, this);
+                    }
+                }
+                return;
             }
-        } else if (this.name === "iterate" && iterExpr && iterExpr.type) {
-            expectedParamTypes = [iterExpr.type];
-        } else if (
-            ["map", "filter", "takeWhile", "dropWhile"].includes(this.name) &&
-            iterExpr &&
-            iterExpr.type
-        ) {
-            const iterType = iterExpr.type;
+        }
+
+        // 5. Fallback: builtin-specific inference (for map, filter, reduce, iterate, etc.)
+        // TODO: Do we still want to have a separate path for this?
+        this.inferBuiltinLambdaParams(lambdaPositions);
+    }
+
+    /**
+     * Fallback inference for well-known builtins that aren't in scope variables.
+     */
+    private inferBuiltinLambdaParams(lambdaPositions: Map<number, AnonymousFunction>): void {
+        if (lambdaPositions.size !== 1) return;
+
+        const [lambdaPos, anonFn] = lambdaPositions.entries().next().value as [
+            number,
+            AnonymousFunction,
+        ];
+
+        // Find the non-lambda arg that represents the iterable/start value
+        const nonLambdaArgs = this.args.filter((_, i) => i !== lambdaPos);
+
+        let expectedParamTypes: Type[] | null = null;
+        let expectedReturnType: Type | null = null;
+
+        if (this.name === "reduce" && nonLambdaArgs.length >= 2) {
+            // reduce(fn, init, iter): fn params are (initType, elemType)
+            const initType = nonLambdaArgs[0].type;
+            const iterType = nonLambdaArgs[1].type;
             const innerType =
                 iterType instanceof ArrayType ||
                 iterType instanceof IterType ||
                 iterType instanceof MutArrType
                     ? iterType.innerType
                     : iterType;
-            expectedParamTypes = [innerType];
+            if (initType && innerType) {
+                expectedParamTypes = [initType, innerType];
+                expectedReturnType = initType;
+            }
+        } else if (this.name === "iterate" && nonLambdaArgs.length >= 1) {
+            // iterate(fn, start): fn param is start type, return is start type
+            const startType = nonLambdaArgs[0].type;
+            if (startType) {
+                expectedParamTypes = [startType];
+                expectedReturnType = startType;
+            }
+        } else if (
+            ["map", "filter", "takeWhile", "dropWhile"].includes(this.name) &&
+            nonLambdaArgs.length >= 1
+        ) {
+            // map/filter/takeWhile/dropWhile(fn, iter): fn param is iter's inner type
+            const iterType = nonLambdaArgs[0].type;
+            if (iterType) {
+                const innerType =
+                    iterType instanceof ArrayType ||
+                    iterType instanceof IterType ||
+                    iterType instanceof MutArrType
+                        ? iterType.innerType
+                        : iterType;
+                expectedParamTypes = [innerType];
+                // For filter, return type is always Bool; for others, leave it inferred from body
+                if (this.name === "filter") {
+                    expectedReturnType = "Bool";
+                }
+            }
         }
 
         if (expectedParamTypes !== null) {
-            anonFn.fillParams(expectedParamTypes, this);
-            return;
+            anonFn.fillParams(expectedParamTypes, expectedReturnType, this);
         }
-
-        // Fallback: try to find a user-defined function by name in ancestor chain
-        // and extract the expected function param type from its first parameter.
-        // const fnDef = this.findUserFunctionDef(this.args.slice(1).map((a) => a.type as Type));
-        // if (fnDef && fnDef.params.length > 0) {
-        //     const firstParamType = fnDef.params[0].type;
-        //     if (firstParamType instanceof FuncType && firstParamType.paramTypes.length > 0) {
-        //         anonFn.fillParams(firstParamType.paramTypes, this);
-        //     }
-        // }
-    }
-
-    // /**
-    //  * Search ancestor chain for a Function definition matching this call's name,
-    //  * matching non-function args to narrow down overloads.
-    //  */
-    // private findUserFunctionDef(
-    //     otherArgTypes: Type[]
-    // ): { params: { name: string; type: Type }[]; returnType: Type } | null {
-    //     let child: Expression | null = null;
-    //     let parent = this.parent;
-    //     while (parent) {
-    //         if (parent instanceof Block) {
-    //             const idx = parent.expressions.indexOf(child ?? this);
-    //             const olderSiblings = parent.expressions.slice(0, idx);
-    //             for (let j = olderSiblings.length - 1; j >= 0; j--) {
-    //                 let sib = olderSiblings[j];
-    //                 while (sib instanceof DropValue) sib = sib.child;
-    //                 if (sib instanceof FunctionDef && sib.name === this.name && !sib.isGeneric) {
-    //                     // Check that other arg types match (skip the function arg)
-    //                     const fnParams = sib.params;
-    //                     if (fnParams.length - 1 === otherArgTypes.length) {
-    //                         let match = true;
-    //                         for (let k = 0; k < otherArgTypes.length; k++) {
-    //                             if (!typeEquals(otherArgTypes[k], fnParams[k + 1].type)) {
-    //                                 match = false;
-    //                                 break;
-    //                             }
-    //                         }
-    //                         if (match) return { params: fnParams, returnType: sib.returnType };
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //         child = parent;
-    //         parent = parent.parent;
-    //     }
-    //     return null;
-    // }
-
-    /**
-     * Fill unresolved anonymous function (lambda) params from the call context.
-     * Derives expected param types based on the builtin kind and non-function args.
-     */
-    private fillLambdaFunctionParams(): void {
-        const anonFn = this.args[0];
-        if (!(anonFn instanceof AnonymousFunction) || !anonFn.needsInference) return;
-
-        // TODO: I intentionally commented this out, because I want to rework how this process works so that we attempt to resolve param types for any function call, not just builtin types
-
-        // A lot of this is also just to deal with use-after-detrans errors, but I am intending to also get rid of that, too
-
-        // let expectedParamTypes: Type[] | null = null;
-
-        // // Determine expected param types from the builtin's semantics and other args
-        // switch (this.builtinKind) {
-        //     case "map":
-        //     case "filter":
-        //     case "takeWhile":
-        //     case "dropWhile":
-        //     case "mapFromArray": {
-        //         // fn(param: innerType): ?
-        //         if (this.args.length >= 2 && this.args[1].type) {
-        //             const iterType = this.args[1].type;
-        //             const innerType =
-        //                 iterType instanceof ArrayType ||
-        //                 iterType instanceof IterType ||
-        //                 iterType instanceof MutArrType
-        //                     ? iterType.innerType
-        //                     : iterType;
-        //             expectedParamTypes = [innerType];
-        //         }
-        //         break;
-        //     }
-        //     case "reduce": {
-        //         // fn(acc: initType, elem: innerType): ?
-        //         if (this.args.length >= 3 && this.args[2].type && this.args[1].type) {
-        //             const iterType = this.args[2].type;
-        //             const innerType =
-        //                 iterType instanceof ArrayType ||
-        //                 iterType instanceof IterType ||
-        //                 iterType instanceof MutArrType
-        //                     ? iterType.innerType
-        //                     : iterType;
-        //             expectedParamTypes = [this.args[1].type, innerType];
-        //         }
-        //         break;
-        //     }
-        //     case "iterate": {
-        //         // fn(param: startType): startType
-        //         if (this.args.length >= 2 && this.args[1].type) {
-        //             expectedParamTypes = [this.args[1].type];
-        //         }
-        //         break;
-        //     }
-        // }
-
-        // if (expectedParamTypes !== null) {
-        //     anonFn.fillParams(expectedParamTypes, this);
-        //     // Re-resolve the call with the now-resolved function type
-        //     const resolvedArgTypes = this.args.map((arg) => arg.type as Type);
-        //     const { error, result } = findCaller(this, this.parent, this.name, resolvedArgTypes);
-        //     if (error === null) {
-        //         this.callerType = result.callerType;
-        //         this.type = result.rootType;
-        //         this.referToByName = result.referToByName;
-        //         this.isStructConstructor = result.kind === "struct-constructor";
-
-        //         if (result.kind === "builtin") {
-        //             this.isBuiltin = true;
-        //             this.builtinKind = result.builtinKind;
-        //         }
-        //         // Re-check consumed vars with resolved result
-        //         if (
-        //             this.builtinKind === "detrans" ||
-        //             this.builtinKind === "detransDict" ||
-        //             this.builtinKind === "detransSet"
-        //         ) {
-        //             const detransArg = this.args[0];
-        //             if (detransArg instanceof Variable && detransArg.fullName) {
-        //                 const callScope = this.getScope();
-        //                 if (callScope === null) {
-        //                     // This should be impossible
-        //                     throw new Error(
-        //                         `Tried to mark a variable as consumed in a place with no enclosing scope.`
-        //                     );
-        //                 }
-        //                 callScope.markVarConsumed(detransArg.fullName);
-        //             }
-        //         }
-        //         if (
-        //             this.builtinKind === "push" ||
-        //             this.builtinKind === "put" ||
-        //             this.builtinKind === "putDict" ||
-        //             this.builtinKind === "removeDict" ||
-        //             this.builtinKind === "pushSet" ||
-        //             this.builtinKind === "removeSet"
-        //         ) {
-        //             const mutArg = this.args[0];
-        //             if (mutArg instanceof Variable && mutArg.fullName) {
-        //                 if (this.getScope()?.isVarConsumed(mutArg.fullName)) {
-        //                     throw this.error(
-        //                         `cannot use variable '${mutArg.fullName}' after it was detrans'd`
-        //                     );
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
     }
 
     toJS(writer: JSWriter): void {
@@ -325,8 +228,18 @@ export class DirectCall extends Expression {
         // If the caller is an unresolved anonymous function, infer params from call args first
         if (this.caller instanceof AnonymousFunction && this.caller.needsInference) {
             // Set anon function params from call arg types, then cascade the body
-            this.caller.fillParams(argTypes, this);
+            this.caller.fillParams(argTypes, undefined, this);
             this.type = this.caller.type instanceof FuncType ? this.caller.type.returnType : "Null";
+            this.toJSHelper = (writer) => {
+                writer.write("(");
+                this.caller.toJS(writer);
+                writer.write(")(");
+                this.args.forEach((arg, i) => {
+                    if (i > 0) writer.write(", ");
+                    arg.toJS(writer);
+                });
+                writer.write(")");
+            };
             return;
         }
 

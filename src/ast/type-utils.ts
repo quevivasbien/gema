@@ -45,6 +45,9 @@ export function typeEquals(
         return true;
     }
 
+    // "Infer" is a wildcard sentinel: matches any type
+    if (a === "Infer" || b === "Infer") return true;
+
     // If one is a string and the other isn't, they can't be equal
     if (typeof a !== typeof b) return false;
 

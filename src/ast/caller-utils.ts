@@ -50,6 +50,9 @@ export function extractGenericBindings(
     argType: Type,
     bindings: Map<string, Type>
 ): boolean {
+    // "Infer" is a wildcard sentinel for unresolved lambda params — skip binding.
+    if (argType === "Infer") return true;
+
     if (paramType instanceof GenericType) {
         const existing = bindings.get(paramType.name);
         if (existing && !typeEquals(existing, argType)) {

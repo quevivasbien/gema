@@ -205,7 +205,8 @@ export type Type =
     | CustomType
     | GenericType
     | "Self"
-    | "Unknown";
+    | "Unknown"
+    | "Infer";
 
 export type CallableType =
     | FuncType

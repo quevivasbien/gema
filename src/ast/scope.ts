@@ -443,6 +443,39 @@ export class Scope {
     }
 
     /**
+     * Count callers matching `name` where lambda positions have a FuncType
+     * with the correct number of parameters.
+     * Used for ambiguity detection during lambda type inference.
+     * `lambdaParamCounts` maps arg index → number of params the lambda expects.
+     * Searches this scope and all ancestor scopes.
+     */
+    countMatchingCallers(name: string, lambdaParamCounts: Map<number, number>): number {
+        let count = 0;
+        for (let i = this.variables.length - 1; i >= 0; i--) {
+            const v = this.variables[i];
+            if (v.name !== name) continue;
+            if (v.class !== "func" && v.class !== "generic") continue;
+            const fnType = v.type;
+            if (!(fnType instanceof FuncType)) continue;
+            const maxPos = Math.max(...lambdaParamCounts.keys(), -1);
+            if (fnType.paramTypes.length <= maxPos) continue;
+            let allMatch = true;
+            for (const [pos, paramCount] of lambdaParamCounts) {
+                const ft = fnType.paramTypes[pos];
+                if (!(ft instanceof FuncType) || ft.paramTypes.length !== paramCount) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch) count++;
+        }
+        if (this.parent) {
+            count += this.parent.countMatchingCallers(name, lambdaParamCounts);
+        }
+        return count;
+    }
+
+    /**
      * Check that the required functions to satisfy a trait exist for the given candidate type.
      * Searches the entire scope chain for matching function definitions.
      * Returns a mapping from each required trait function name to the matching function fullName,

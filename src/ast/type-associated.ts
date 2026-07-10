@@ -20,7 +20,7 @@ export class TypeAssociatedExpr extends Expression {
         typeToken: Token,
         templateTypes: TemplateTypes,
         innerExpr: Expression,
-        generics: Record<string, { traits: string[]; used: boolean }> | null = null,
+        generics: Record<string, { traits: string[]; used: boolean }> | null = null
     ) {
         super(typeToken.line, typeToken.col);
         const type = getType(typeToken.text, templateTypes, generics);

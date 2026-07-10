@@ -471,10 +471,10 @@ export function findCaller(
                 error: null,
                 result: {
                     kind: "struct-constructor",
-                    returnType: new CustomType(name, callerMatch.templateTypes), // TOOD: This doesn't work with generic structs
+                    returnType: new CustomType(name, callerMatch.templateTypes),
                     toJS(writer) {
                         const safeNames = callerMatch.fields.map((f) => writer.safeName(f.name));
-                        writer.write("{");
+                        writer.write("({");
                         args.forEach((arg, i) => {
                             if (i > 0) {
                                 writer.write(", ");
@@ -482,7 +482,7 @@ export function findCaller(
                             writer.write(`${safeNames[i]}: `);
                             arg.toJS(writer);
                         });
-                        writer.write("}");
+                        writer.write("})");
                     },
                 },
             };
@@ -494,11 +494,11 @@ export function findCaller(
                     kind: "enum-instantiation",
                     returnType: callerMatch.enumType,
                     toJS(writer) {
-                        writer.write("{ $tag: ");
+                        writer.write("({ $tag: ");
                         writer.write(callerMatch.variantIndex.toString());
                         writer.write(", $val: ");
                         args[0].toJS(writer);
-                        writer.write(" }");
+                        writer.write(" })");
                     },
                 },
             };
