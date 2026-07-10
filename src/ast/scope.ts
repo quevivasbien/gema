@@ -452,6 +452,21 @@ export class Scope {
         candidateType: Type,
         traitAttrs: TraitAttributes
     ): Record<string, string> | null {
+        // When candidateType is a GenericType that already declares the required trait,
+        // the trait is satisfied by the generic type's own bounds. The concrete
+        // implementations will be resolved when the outer generic function is
+        // monomorphized. Reference the trait dictionary parameter directly.
+        if (
+            candidateType instanceof GenericType &&
+            candidateType.traits.includes(traitAttrs.name)
+        ) {
+            const fnImpls: Record<string, string> = {};
+            for (const reqFn of traitAttrs.requiredFunctions) {
+                fnImpls[reqFn.name] = `$$impl${traitAttrs.name}_${candidateType.name}`;
+            }
+            return fnImpls;
+        }
+
         const fnImpls: Record<string, string> = {};
 
         for (const reqFn of traitAttrs.requiredFunctions) {

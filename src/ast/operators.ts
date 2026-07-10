@@ -3,7 +3,7 @@ import type { JSWriter } from "../write-js";
 import { findCaller } from "./caller-resolution";
 import { Expression } from "./expression";
 import { typeEquals } from "./type-utils";
-import { ArrayType, CustomType, IterType } from "./types";
+import { ArrayType, CustomType, GenericType, IterType } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
 const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {
@@ -220,10 +220,13 @@ export class Binary extends Expression {
             }
         }
 
-        // Try operator overloading for user-defined types
+        // Try operator overloading for user-defined types and generic types with traits
         // TODO: This maybe should work via a system of built-in traits instead
         if (
-            (ltype instanceof CustomType || rtype instanceof CustomType) &&
+            (ltype instanceof CustomType ||
+                rtype instanceof CustomType ||
+                ltype instanceof GenericType ||
+                rtype instanceof GenericType) &&
             !(ltype instanceof ArrayType) &&
             !(rtype instanceof ArrayType) &&
             !(ltype instanceof IterType) &&

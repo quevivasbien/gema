@@ -258,14 +258,17 @@ export function resolveDirectCaller(
 }
 
 /**
- * Inside a generic function body, when arg types include GenericType instances,
- * route the call through the trait dictionary instead of looking for a concrete function.
+ * Inside a generic function body, route a call through a trait dictionary
+ * instead of looking for a concrete function. Handles two cases:
+ * 1. Arg types include GenericType instances (e.g., `foo(x)` where `x: T: Summable`)
+ * 2. Associated type is a GenericType with traits (e.g., `T::zero()` where `T: Summable`)
  */
 function resolveTraitFunctionCall(
     scope: Scope,
     name: string,
     args: Expression[],
-    argTypes: Type[]
+    argTypes: Type[],
+    associatedType: Type | null = null
 ): CallerResult | null {
     // Collect all unique { traitName, genericName } pairs from generic arg types
     const neededTraits: { traitName: string; genericName: string }[] = [];
@@ -282,6 +285,18 @@ function resolveTraitFunctionCall(
             }
         }
     }
+    // Also collect traits from the associated type (for TAFs like `T::zero()`)
+    if (associatedType instanceof GenericType) {
+        for (const traitName of associatedType.traits) {
+            if (
+                !neededTraits.some(
+                    (nt) => nt.traitName === traitName && nt.genericName === associatedType.name
+                )
+            ) {
+                neededTraits.push({ traitName, genericName: associatedType.name });
+            }
+        }
+    }
 
     // For each needed trait, check if it defines a function matching the call name
     for (const { traitName, genericName } of neededTraits) {
@@ -291,7 +306,6 @@ function resolveTraitFunctionCall(
             if (matchingFn) {
                 // Build bindings: substitute Self in the trait's param types with
                 // the actual arg types at the corresponding positions.
-                // TODO: Doesn't yet work with associated types
                 const bindings = new Map<string, Type>();
                 for (
                     let i = 0;
@@ -301,6 +315,11 @@ function resolveTraitFunctionCall(
                     if (matchingFn.signature.paramTypes[i] === "Self") {
                         bindings.set("Self", argTypes[i]);
                     }
+                }
+                // For TAF calls (e.g., `T::zero()`), Self in the return type should
+                // map to the associated type since there are no params to bind from.
+                if (!bindings.has("Self") && associatedType instanceof GenericType) {
+                    bindings.set("Self", associatedType);
                 }
                 const substitutedReturnType = matchingFn.signature.returnType
                     ? substituteTypeParams(matchingFn.signature.returnType, bindings)
@@ -330,14 +349,24 @@ export function writeTraitImplDictionaries(writer: JSWriter, genericMapping: Gen
     for (const genericInfo of genericMapping) {
         for (const trait of Object.keys(genericInfo.traitImpls)) {
             const traitImpl = genericInfo.traitImpls[trait];
-            writer.write(", {");
-            let first = true;
-            for (const fnName of Object.keys(traitImpl)) {
-                if (!first) writer.write(", ");
-                first = false;
-                writer.write(`${fnName}: ${safeJSName(traitImpl[fnName])}`);
+            const values = Object.values(traitImpl);
+            // If all implementation names are trait dict parameter references
+            // (e.g., "$$implFoo_T"), emit the parameter directly — this happens
+            // when a generic function passes its trait dict through to another
+            // generic function with the same trait bound.
+            if (values.length === 1 && values[0].startsWith("$$impl")) {
+                writer.write(", ");
+                writer.write(values[0]);
+            } else {
+                writer.write(", {");
+                let first = true;
+                for (const fnName of Object.keys(traitImpl)) {
+                    if (!first) writer.write(", ");
+                    first = false;
+                    writer.write(`${fnName}: ${safeJSName(traitImpl[fnName])}`);
+                }
+                writer.write("}");
             }
-            writer.write("}");
         }
     }
 }
@@ -380,11 +409,13 @@ export function findCaller(
         }
     }
 
-    // If any arg type is a GenericType (i.e., we're inside a generic function body),
-    // start by checking trait definitions for relevant functions.
+    // If any arg type is a GenericType or the associated type is a GenericType
+    // with traits (e.g., `T::zero()`), check trait definitions for the function.
     const hasGenericArg = argTypes.some((t) => t instanceof GenericType);
-    if (hasGenericArg) {
-        const traitResult = resolveTraitFunctionCall(scope, name, args, argTypes);
+    const hasGenericAssocType =
+        associatedType instanceof GenericType && associatedType.traits.length > 0;
+    if (hasGenericArg || hasGenericAssocType) {
+        const traitResult = resolveTraitFunctionCall(scope, name, args, argTypes, associatedType);
         if (traitResult) {
             return { error: null, result: traitResult };
         }

@@ -89,10 +89,6 @@ export function extractGenericBindings(
     if (paramType instanceof IterType && argType instanceof IterType) {
         return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }
-    // Auto-convert: Arr[X] matches Iter[X]
-    if (paramType instanceof IterType && argType instanceof ArrayType) {
-        return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
-    }
     if (paramType instanceof SetType && argType instanceof SetType) {
         return extractGenericBindings(paramType.innerType, argType.innerType, bindings);
     }

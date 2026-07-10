@@ -23,6 +23,10 @@ export class Call extends Expression {
         this.args = args;
     }
 
+    getAllChildren(): Expression[] {
+        return this.args;
+    }
+
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
         // Pre-fill unresolved anonymous function params so findBuiltin can match them

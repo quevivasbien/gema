@@ -125,14 +125,14 @@ test("compile generic function without return type annotation", () => {
         `
         func [T] id(x: T) { x }
         id(42)
-    `,
+        `,
         42
     );
     testCompile(
         `
         func [T] id(x: T) { x }
         id("hello")
-    `,
+        `,
         "hello"
     );
 });
@@ -143,12 +143,12 @@ test("generic function calling another generic function inside a generic body", 
         func [T] id(x: T) { x }
         func [T] wrap(x: T): T { id(x) }
         wrap(10)
-    `,
+        `,
         10
     );
 });
 
-test("generic with trait-defined function, nested in another generic", () => {
+test("generic with trait-defined function, calls another function that uses the same trait bound", () => {
     testCompile(
         `
         trait Foo {
@@ -158,8 +158,23 @@ test("generic with trait-defined function, nested in another generic", () => {
         func [T: Foo] id(x: T) { foo(x) }
         func [T: Foo] wrap(x: T): T { id(x) }
         wrap(10)
-    `,
+        `,
         10
+    );
+});
+
+test("generic function defines nested function that uses outer function's generic type as a param type", () => {
+    testCompile(
+        `
+        func [T] foo(x: T) {
+            func bar(y: T) {
+                y
+            };
+            bar(x)
+        }
+        foo(1)
+        `,
+        1
     );
 });
 
@@ -461,7 +476,7 @@ test("TAF trait: struct implementing Self::zero", () => {
         func [T: Summable] sum(iter: Iter[T]) {
             reduce(\\(acc, x) { acc + x }, T::zero(), iter)
         }
-        sum([S(1), S(2), S(3)]).s
+        sum([S(1), S(2), S(3)] | toIter).s
         `,
         6
     );

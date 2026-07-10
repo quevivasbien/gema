@@ -1,19 +1,5 @@
 # Roadmap for `gema` development
 
-### Outstanding bugs with reworked caller dispatch:
-
-```gema
-func [T] foo(x: T) {
-    func bar(y: T) {
-        y
-    }
-    bar(x)
-}
-
-foo(1)
-# fails with error `function bar[T[[]]: unknown] not found`
-```
-
 ## IO
 
 We should have some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.

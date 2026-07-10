@@ -31,6 +31,10 @@ export class TypeAssociatedExpr extends Expression {
         this.innerExpr = innerExpr;
     }
 
+    getAllChildren(): Expression[] {
+        return [this.innerExpr];
+    }
+
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
         super.cascadeTypes(parent, valueUsed);
 
