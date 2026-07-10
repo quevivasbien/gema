@@ -900,8 +900,9 @@ function parseTypeAssociatedVariable(
     if (innerExpr instanceof AST.ASTError) {
         return innerExpr;
     }
+    const generics = parser.bodyGenerics;
     return parser.tryCreateASTExpression(
-        () => new AST.TypeAssociatedExpr(variableToken, templateTypes, innerExpr)
+        () => new AST.TypeAssociatedExpr(variableToken, templateTypes, innerExpr, generics)
     );
 }
 
@@ -1147,13 +1148,23 @@ function parseMatchExpression(parser: Parser): AST.Expression {
 }
 
 class Parser {
+    /** The tokens in the currently parsing module */
     tokens: Token[];
+    /** The index of the current token (with the `tokens` list) */
     index: number = 0;
     previousIndex: number = 0;
+    /** If we've encountered an error, we enter "panic mode" until we're able to get to a
+     * recoverable spot */
     panicMode: boolean = false;
+    /** We accumulate any errors encountered during parsing here */
     errors: ParseError[] = [];
+    /** Used to keep track of which modules we've visited so far
+     * so we can avoid circular imports  */
     visitedModules: Set<string>;
+    /** Map of moduleName -> module contents for all modules available for compilation */
     moduleTokens: Record<string, Token[]>;
+    /** Generic type params from enclosing generic function bodies */
+    bodyGenerics: Record<string, { traits: string[]; used: boolean }> | null = null;
 
     constructor(
         tokens: Token[],
@@ -1215,9 +1226,23 @@ class Parser {
         }
     }
 
+    /** Resolve the effective generics: merge explicitly passed generics with
+     *  bodyGenerics from enclosing generic function bodies, with explicit generics
+     *  taking priority. The bodyGenerics merge at functionDef time already prevents
+     *  conflicting redefinitions, so this merge is for type resolution only. */
+    private effectiveGenerics(
+        generics: Record<string, { traits: string[]; used: boolean }> | null
+    ): Record<string, { traits: string[]; used: boolean }> | null {
+        if (generics === null) return this.bodyGenerics;
+        if (this.bodyGenerics === null) return generics;
+        // Both are present — merge, with explicit generics taking priority
+        return { ...this.bodyGenerics, ...generics };
+    }
+
     getTemplateTypes(
         generics: Record<string, { traits: string[]; used: boolean }> | null = null
     ): TemplateTypes {
+        const effectiveGenerics = this.effectiveGenerics(generics);
         if (this.atEnd() || this.current().type !== TokenType.LBracket) {
             return new TemplateTypes();
         }
@@ -1233,7 +1258,7 @@ class Parser {
                 const returnTypeName = this.current().text;
                 this.advance();
                 const nestedTemplateTypes = this.getTemplateTypes();
-                templateTypes.returnType = getType(returnTypeName, nestedTemplateTypes, generics);
+                templateTypes.returnType = getType(returnTypeName, nestedTemplateTypes, effectiveGenerics);
                 break;
             }
             if (this.current().type !== TokenType.Identifier) {
@@ -1242,7 +1267,7 @@ class Parser {
             const typeName = this.current().text;
             this.advance();
             const nestedTemplateTypes = this.getTemplateTypes();
-            templateTypes.push(getType(typeName, nestedTemplateTypes, generics));
+            templateTypes.push(getType(typeName, nestedTemplateTypes, effectiveGenerics));
             if (this.current().type === TokenType.Comma) {
                 this.advance();
             }
@@ -1257,17 +1282,18 @@ class Parser {
     getTypeName(
         generics: Record<string, { traits: string[]; used: boolean }> | null = null
     ): Type | null {
+        const effectiveGenerics = this.effectiveGenerics(generics);
         if (this.current().type !== TokenType.Identifier) {
             return null;
         }
         const paramType = this.current().text;
         this.advance();
-        const templateTypes = this.getTemplateTypes(generics);
+        const templateTypes = this.getTemplateTypes(effectiveGenerics);
         if (!this.atEnd() && this.current().type === TokenType.Comma) {
             this.advance();
         }
         try {
-            return getType(paramType, templateTypes, generics);
+            return getType(paramType, templateTypes, effectiveGenerics);
         } catch (e) {
             if (e instanceof Error) {
                 this.error(e.message);
@@ -1675,6 +1701,23 @@ class Parser {
         }
         this.advance();
 
+        // Merge with any existing bodyGenerics from enclosing generic functions.
+        const savedBodyGenerics = this.bodyGenerics;
+        if (generics !== null) {
+            const merged = { ...(this.bodyGenerics ?? {}) };
+            for (const key of Object.keys(generics)) {
+                if (key in merged) {
+                    return this.error(
+                        `Generic type '${key}' is already defined in an enclosing scope`
+                    );
+                }
+                merged[key] = generics[key];
+            }
+            this.bodyGenerics = merged;
+        }
+        const body = this.block();
+        this.bodyGenerics = savedBodyGenerics;
+
         return this.tryCreateASTExpression(
             () =>
                 new AST.FunctionDef(
@@ -1683,7 +1726,7 @@ class Parser {
                     associatedType,
                     params,
                     returnType,
-                    this.block(),
+                    body,
                     generics === null
                         ? null
                         : Object.keys(generics).map((k) => new GenericType(k, generics[k].traits))

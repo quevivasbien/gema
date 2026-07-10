@@ -178,6 +178,50 @@ test("generic function defines nested function that uses outer function's generi
     );
 });
 
+test("generic function contains nested generic function that re-uses outer function's generic type", () => {
+    testCompile(
+        `
+        func [T] foo(x: T) {
+            func [U] bar(x: T, y: U) {
+                (x, y)
+            };
+            bar(x, x)
+        };
+        foo(1)
+        `,
+        [1, 1]
+    );
+});
+
+test("error: generic function contains nested generic function that overrides outer function's generic type", () => {
+    testParseExpectError(
+        `
+        func [T] foo(x: T) {
+            func [T] bar(y: T) {
+                y
+            };
+            bar(x)
+        };
+        foo(1)
+        `
+    );
+});
+
+test.todo("error: generic type should not leak out of function body", () => {
+    // TODO: Problem here right is not that the generic type is leaking but that we don't actually have any checking to make sure type definitions are actually in scope -- this requires a substantial fix
+    testParseExpectError(
+        `
+        func foo() {
+            func [T] bar(x: T) {
+                x
+            };
+            []: T
+        }
+        foo()
+        `
+    );
+});
+
 test("non-anonymous functions do not have values unless annotated with param types", () => {
     testParseExpectError(
         `

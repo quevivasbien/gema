@@ -16,9 +16,14 @@ export class TypeAssociatedExpr extends Expression {
 
     toJSHelper: ((writer: JSWriter) => void) | null = null;
 
-    constructor(typeToken: Token, templateTypes: TemplateTypes, innerExpr: Expression) {
+    constructor(
+        typeToken: Token,
+        templateTypes: TemplateTypes,
+        innerExpr: Expression,
+        generics: Record<string, { traits: string[]; used: boolean }> | null = null,
+    ) {
         super(typeToken.line, typeToken.col);
-        const type = getType(typeToken.text, templateTypes);
+        const type = getType(typeToken.text, templateTypes, generics);
         if (type === null) {
             throw this.error("Invalid type name before '::'");
         }

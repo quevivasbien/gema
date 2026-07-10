@@ -5,8 +5,7 @@ import { ASTError, Block, Expression, lastExprShouldReturn } from "./expression"
 
 import { Call } from "./calls";
 import { Scope, type GenericMappingInfo, type TraitAttributes } from "./scope";
-import { substituteTypeParams, typeEquals } from "./type-utils";
-import { TypeAssociatedExpr } from "./type-associated";
+import { typeEquals } from "./type-utils";
 import { CustomType, EscapeType, FuncType, type GenericType, type Type } from "./types";
 
 /**
@@ -138,18 +137,6 @@ export class FunctionDef extends Expression {
         // can find parameters, the function's own name for recursion,
         // and other things defined outside the function.
         this.body.scope.parent = this.scope;
-
-        // If this is a generic function, resolve any CustomType references inside the body
-        // that match generic type param names into GenericType instances.
-        // This handles cases like anonymous function param types (e.g., `x: T` inside
-        // `func [T] foo(arr: Arr[T])`) where the parser didn't have generics context.
-        if (this.isGeneric()) {
-            const bindings = new Map<string, Type>();
-            for (const gt of this.genericTypes!) {
-                bindings.set(gt.name, gt);
-            }
-            resolveGenericParamsInTree(this.body, bindings);
-        }
 
         // Cascade types in body
         this.body.cascadeTypes(this, true);
@@ -406,35 +393,6 @@ export class FunctionDef extends Expression {
             writer.write("}");
         }
         writer.endFunction();
-    }
-}
-
-/**
- * Walk an expression tree and resolve any CustomType references that match
- * generic type param names (from an enclosing generic function) into GenericType instances.
- * This is needed because the parser doesn't propagate generics context into function bodies,
- * so type annotations like `x: T` inside `func [T] foo(...)` get parsed as CustomType("T")
- * instead of GenericType("T").
- */
-function resolveGenericParamsInTree(expr: Expression, bindings: Map<string, Type>): void {
-    if (expr instanceof AnonymousFunction) {
-        for (const param of expr.params) {
-            param.type = substituteTypeParams(param.type, bindings);
-        }
-    }
-    if (expr instanceof FunctionDef) {
-        for (const param of expr.params) {
-            param.type = substituteTypeParams(param.type, bindings);
-        }
-        if (expr.returnType !== null) {
-            expr.returnType = substituteTypeParams(expr.returnType, bindings);
-        }
-    }
-    if (expr instanceof TypeAssociatedExpr) {
-        expr.associatedType = substituteTypeParams(expr.associatedType, bindings);
-    }
-    for (const child of expr.getAllChildren()) {
-        resolveGenericParamsInTree(child, bindings);
     }
 }
 
