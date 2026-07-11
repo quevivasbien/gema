@@ -93,6 +93,8 @@ export class Unary extends Expression {
 export class Binary extends Expression {
     operator: TokenType;
     toJSOverload: ((writer: JSWriter) => void) | null = null;
+    /** Set when operator overloading resolves: the function name (e.g. "multiply"). */
+    resolvedOverloadName: string | null = null;
 
     constructor(
         operatorToken: Token,
@@ -238,6 +240,7 @@ export class Binary extends Expression {
                 if (error === null) {
                     this.type = result.returnType;
                     this.toJSOverload = result.toJS;
+                    this.resolvedOverloadName = opName;
                     return;
                 }
             }

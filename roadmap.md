@@ -72,13 +72,33 @@ Maybe the most straightforward way to support this and any other deep recursion 
 
 This is maybe not a huge priority, since usually the iterate iterator is a better way to solve this sort of problem, anyway.
 
+### Get rid of the multiple types of anonymous function syntax
+
+Currently we allow defining anonymous functions like:
+
+```gema
+foo = func(x: Num) {
+  x + 1
+};
+```
+
+and also allow using special lambdas as arguments in function calls, with no type annotations on the args, like
+
+```gema
+map(\x { x + 1 }, 1..3)
+```
+
+Probably we should _just_ have the lambda syntax, with optional type annotations so the first example would be:
+
+```gema
+foo = \x: Num { x + 1 };
+```
+
 ### Others
 
 - Separate more things from the giant `nodes.ts` file
 
 - Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
-
-- Allow lambdas not just in builtin functions -- if there is a function that _could_ match, we take that match (will need to think through the details here more).
 
 - When resolving callers, keep track of the closest match so far, so this can be reported in the error message if no match is found.
 

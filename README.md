@@ -348,12 +348,12 @@ match opt {
 ```gema
 # Traits define required function signatures
 trait Comparable {
-    eq[(a: Self, b: Self): Bool],
-    lt[(a: Self, b: Self): Bool]
+    eq[Self, Self: Bool],
+    lt[Self, Self: Bool]
 };
 
 # Generic function with trait bound
-func lte(a: T, b: T): Bool where T is Comparable {
+func [T: Comparable] lte(a: T, b: T): Bool {
     lt(a, b) or eq(a, b)
 };
 
@@ -366,8 +366,7 @@ lte(3, 3)   # → true
 lte(4, 3)   # → false
 
 # Generic identity function
-trait Any {}
-func id(x: T): T where T is Any { x };
+func [T] id(x: T) { x };
 id(42)      # → 42
 id("hello") # → "hello"
 
@@ -391,15 +390,15 @@ struct Triple[T, U, V] { a: T, b: U, c: V }
 Pair(Pair(1, 2), Pair(3, 4))
 
 # Generic structs in function params / return types
-func first(p: Pair[T]): T where T is Any { p.a }
+func [T] first(p: Pair[T]) { p.a }
 
 # Generic enums
 enum Option[T] { some: T, nothing }
-Option[Int].some(1i)     # → { $tag: 0, $val: 5n }
-Option[Str].some("hi")
+Option[Int]::some(1i)     # → { $tag: 0, $val: 5n }
+Option[Str]::some("hi")
 
 # Match on a generic enum variant
-x = Option[Str].some("hello");
+x = Option[Str]::some("hello");
 match x {
     some(v) { v },
     nothing { "empty" }
@@ -407,8 +406,8 @@ match x {
 
 # Generic enums with multiple type params
 enum Result[T, E] { value: T, error: E }
-Result[Int, Str].value(42i)
-Result[Int, Str].error("oops")
+Result[Int, Str]::value(42i)
+Result[Int, Str]::error("oops")
 ```
 
 ### 11. Tuples

@@ -28,6 +28,8 @@ export type CallerResult = {
     kind: "variable" | "function" | "struct-constructor" | "enum-instantiation" | "builtin";
     returnType: Type;
     toJS: (writer: JSWriter) => void;
+    /** For generic function calls, the resolved trait implementation fullNames. */
+    traitImplFullNames?: string[];
 };
 
 /**
@@ -445,12 +447,26 @@ export function findCaller(
                 },
             };
         } else if (callerMatch.class === "generic") {
+            // Collect trait implementation fullNames so tree-shaking can
+            // keep them reachable (they're referenced only at codegen time
+            // through the trait dictionary).
+            const traitImplFullNames: string[] = [];
+            for (const gi of callerMatch.genericMapping) {
+                for (const implMap of Object.values(gi.traitImpls)) {
+                    for (const fnName of Object.values(implMap)) {
+                        if (!fnName.startsWith("$$impl")) {
+                            traitImplFullNames.push(fnName);
+                        }
+                    }
+                }
+            }
             // Generic function definition
             return {
                 error: null,
                 result: {
                     kind: "function",
                     returnType: callerMatch.type.returnType,
+                    traitImplFullNames,
                     toJS(writer) {
                         writer.write(safeJSName(callerMatch.fullName));
                         writer.write("(");

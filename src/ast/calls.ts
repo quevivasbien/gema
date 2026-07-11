@@ -13,6 +13,9 @@ export class Call extends Expression {
 
     // This will be filled in during cascadeTypes when we resolve the caller
     toJSHelper: ((writer: JSWriter) => void) | null = null;
+    /** FullNames of trait implementation functions referenced by this call,
+     *  populated when the resolved caller is a generic function. */
+    traitImplFullNames: string[] = [];
 
     constructor(nameToken: Token, args: Expression[]) {
         if (nameToken.type !== TokenType.Identifier) {
@@ -47,6 +50,10 @@ export class Call extends Expression {
 
         this.toJSHelper = result.toJS;
         this.type = result.returnType;
+        // Store trait impl references so tree-shaking keeps them reachable
+        if (result.traitImplFullNames) {
+            this.traitImplFullNames = result.traitImplFullNames;
+        }
     }
 
     /**

@@ -1,6 +1,7 @@
 import { ASTError, Block, Expression, UseModule } from "./ast";
 import { parse } from "./parse";
 import { scan } from "./scan";
+import { treeShake } from "./tree-shake";
 import { writeJS } from "./write-js";
 
 interface CompileResult {
@@ -187,8 +188,7 @@ export function compile(
         }
 
         // Tree-shaking — remove unreachable definitions
-        // const filteredBlock = treeShake(entryAst); // TODO: Re-enable this
-        const filteredBlock = entryAst;
+        const filteredBlock = treeShake(entryAst);
 
         // Codegen
         const js = writeJS(filteredBlock, mode);

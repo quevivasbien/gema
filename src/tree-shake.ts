@@ -26,8 +26,9 @@ import { TokenType } from "./tokens";
  *   module's definition with the same name.
  */
 function shouldKeepDefinition(e: Expression, reachable: Set<string>): boolean {
-    if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
-        return reachable.has(e.fullName);
+    if (e instanceof FunctionDef) {
+        if (e.isGeneric()) return true; // generics kept — monomorphization creates implicit refs
+        if (e.fullName) return reachable.has(e.fullName) || reachable.has(e.name);
     }
 
     if (e instanceof Assignment && e.name && !e.isReassignment) {
@@ -89,8 +90,8 @@ function filterUseModule(
         while (e instanceof DropValue) e = e.child;
         // Determine the base name for this definition
         let baseName: string | null = null;
-        if (e instanceof FunctionDef && !e.isGeneric && e.fullName) {
-            baseName = baseNameOf(e.fullName);
+        if (e instanceof FunctionDef) {
+            baseName = e.fullName ? baseNameOf(e.fullName) : e.name;
         } else if (e instanceof Assignment && e.name && !e.isReassignment) {
             baseName = e.name;
         } else if (e instanceof StructDef && e.name) {
@@ -99,10 +100,17 @@ function filterUseModule(
             baseName = e.name;
         }
         if (baseName === null) return true; // non-definition expressions always kept
+        const key = baseName;
 
         // Check reachability
-        const key = e instanceof FunctionDef && e.fullName ? e.fullName : baseName;
-        if (!reachable.has(key)) return false;
+        if (e instanceof FunctionDef) {
+            if (!e.isGeneric()) {
+                const fullKey = e.fullName || key;
+                if (!reachable.has(fullKey) && !reachable.has(key)) return false;
+            }
+        } else if (!reachable.has(key)) {
+            return false;
+        }
 
         if (isSelective) {
             if (explicitSymbols!.has(baseName)) {
