@@ -1,5 +1,9 @@
 .vscode
-node_modules/
-dist/
-compiled/
-scratch.*
+
+# Rust
+/target/
+
+
+# Added by cargo
+
+/target
