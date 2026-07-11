@@ -1,14 +1,15 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Gema compiler — a statically-typed programming language that
+//! transpiles to JavaScript.
+//!
+//! This is the Rust rewrite of the Gema compiler.  It follows a
+//! multi-phase pipeline:
+//!
+//!   scan -> parse -> resolve -> infer -> monomorphize -> lower -> codegen
+//!
+//! See [`ROADMAP-RUST-REWRITE.md`](https://github.com/quevivasbien/gema)
+//! for the full architecture plan.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod diagnostics;
+pub mod scan;
+pub mod source;
+pub mod token;
