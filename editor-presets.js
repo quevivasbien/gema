@@ -86,7 +86,7 @@ func quicksort(iter: Iter[Num]): Iter[Num] {
     match iter(0) {
         none { iter },
         some(pivot) {
-            rest = (drop(1, iter));
+            rest = drop(1, iter);
             left = filter(\\x { x <= pivot }, rest);
             right = filter(\\x { x > pivot }, rest);
             quicksort(left) + toIter([pivot]) + quicksort(right)
@@ -95,7 +95,7 @@ func quicksort(iter: Iter[Num]): Iter[Num] {
 };
 
 unsorted = [3, 7, 8, 5, 2, 1, 9, 6, 4];
-quicksort(unsorted) | collect   # [1, 2, 3, 4, 5, 6, 7, 8, 9]`,
+unsorted | toIter | quicksort | collect   # [1, 2, 3, 4, 5, 6, 7, 8, 9]`,
         },
     },
     sieve: {
@@ -134,7 +134,7 @@ func smallestFactor(n: Num): Num {
         (3..)
             | takeWhile(\\x { x * x <= n})
             | filter(\\x { n % x == 0 })
-            | \\x x(0)
+            | head
             | unwrap(n)
     }
 };
@@ -184,11 +184,11 @@ freq = countWords(words);
             "main.gema": `# Generic functions with trait bounds
 
 trait Concatenatable {
-  concat[(a: Self, b: Self): Self],
+  concat[Self, Self: Self],
 }
 
 # Generic: works with any Concatenatable type
-func tacnoc(a: T, b: T): T where T is Concatenatable {
+func [T: Concatenatable] tacnoc(a: T, b: T): T {
   concat(b, a)
 }
 
