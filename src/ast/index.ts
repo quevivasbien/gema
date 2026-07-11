@@ -5,28 +5,25 @@ export { ASTError, Block, DropValue, ErrorExpression, Expression } from "./expre
 export { Break, Continue, ForLoop, If, Return } from "./control-flow";
 
 // Literals
-export { Literal } from "./literals";
+export { ArrLit, Literal } from "./literals";
 
 // Operators
 export { Binary, Unary } from "./operators";
 
-// Nodes (variables, functions, tuples)
-export {
-    AnonymousFunction,
-    FunctionDef,
-    RangeIter,
-    TupleLit,
-    UseModule,
-    UseJSModule,
-    type JSImportSymbol,
-    Variable,
-} from "./nodes";
+// Nodes (variables, tuples)
+export { RangeIter, TupleLit, UseModule, UseJSModule, type JSImportSymbol } from "./nodes";
+
+// Functions
+export { FunctionDef, AnonymousFunction } from "./functions";
 
 // Calls
 export { Call, DirectCall } from "./calls";
 
 // Variable assignment, including tuple unpacking
 export { Assignment, TupleUnpack } from "./assignment";
+
+// Variable use
+export { Variable } from "./variable";
 
 // Enums and match
 export {
@@ -40,14 +37,17 @@ export {
     type VariantArm,
 } from "./enums";
 
-// Structs and arrays
-export { ArrLit, FieldAccess, FieldAssignment, StructDef } from "./structs";
+// Structs
+export { FieldAccess, FieldAssignment, StructDef } from "./structs";
 
 // Traits
 export { Trait } from "./traits";
 
+// Type-associated expressions
+export { TypeAssociatedExpr } from "./type-associated";
+
 // Caller resolution
-export { findCaller } from "./caller";
+export { findCaller } from "./caller-resolution";
 
 // Reachability (for tree shaking)
 export { computeReachable } from "./reachability";

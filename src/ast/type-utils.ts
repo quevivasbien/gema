@@ -2,9 +2,9 @@ import {
     ArrayType,
     CustomType,
     DictType,
-    EnumType,
     EscapeType,
     FuncType,
+    GenericType,
     isBuiltinTypeName,
     IterType,
     MaybeType,
@@ -26,7 +26,11 @@ import {
  * - FuncType (paramTypes array + returnType recursion)
  * - null values
  */
-export function typeEquals(a: unknown, b: unknown): boolean {
+export function typeEquals(
+    a: unknown,
+    b: unknown,
+    looseMatchForGenerics: boolean = false
+): boolean {
     if (a === b) return true;
 
     if (a == null || b == null) return false;
@@ -36,6 +40,14 @@ export function typeEquals(a: unknown, b: unknown): boolean {
         return a === b;
     }
 
+    // Handle (optional) loose match for generic types
+    if (looseMatchForGenerics && (a instanceof GenericType || b instanceof GenericType)) {
+        return true;
+    }
+
+    // "Infer" is a wildcard sentinel: matches any type
+    if (a === "Infer" || b === "Infer") return true;
+
     // If one is a string and the other isn't, they can't be equal
     if (typeof a !== typeof b) return false;
 
@@ -44,7 +56,7 @@ export function typeEquals(a: unknown, b: unknown): boolean {
 
     // EscapeType
     if (a instanceof EscapeType && b instanceof EscapeType) {
-        return typeEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType, looseMatchForGenerics);
     }
     if (a instanceof EscapeType || b instanceof EscapeType) {
         return false;
@@ -53,15 +65,12 @@ export function typeEquals(a: unknown, b: unknown): boolean {
     // CustomType
     if (a instanceof CustomType && b instanceof CustomType) {
         if (a.name !== b.name) return false;
-        if (a.traits.length !== b.traits.length) return false;
-        for (let i = 0; i < a.traits.length; i++) {
-            if (a.traits[i] !== b.traits[i]) return false;
-        }
         // Compare template args
         if (a.templateArgs && b.templateArgs) {
             if (a.templateArgs.length !== b.templateArgs.length) return false;
             for (let i = 0; i < a.templateArgs.length; i++) {
-                if (!typeEquals(a.templateArgs[i], b.templateArgs[i])) return false;
+                if (!typeEquals(a.templateArgs[i], b.templateArgs[i], looseMatchForGenerics))
+                    return false;
             }
         } else if (a.templateArgs || b.templateArgs) {
             return false;
@@ -69,76 +78,75 @@ export function typeEquals(a: unknown, b: unknown): boolean {
         return true;
     }
 
+    // GenericType
+    if (a instanceof GenericType && b instanceof GenericType) {
+        if (a.name !== b.name) return false;
+        if (a.traits.length !== b.traits.length) return false;
+        for (let i = 0; i < a.traits.length; i++) {
+            if (a.traits[i] !== b.traits[i]) return false;
+        }
+        return true;
+    }
+
     // ArrayType
     if (a instanceof ArrayType && b instanceof ArrayType) {
-        return typeEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType, looseMatchForGenerics);
     }
 
     // IterType
     if (a instanceof IterType && b instanceof IterType) {
-        return typeEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType, looseMatchForGenerics);
     }
 
     // MutArrType
     if (a instanceof MutArrType && b instanceof MutArrType) {
-        return typeEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType, looseMatchForGenerics);
     }
 
     // TupleType
     if (a instanceof TupleType && b instanceof TupleType) {
         if (a.types.length !== b.types.length) return false;
         for (let i = 0; i < a.types.length; i++) {
-            if (!typeEquals(a.types[i], b.types[i])) return false;
+            if (!typeEquals(a.types[i], b.types[i], looseMatchForGenerics)) return false;
         }
         return true;
     }
 
     // DictType
     if (a instanceof DictType && b instanceof DictType) {
-        if (!typeEquals(a.keyType, b.keyType)) return false;
-        if (!typeEquals(a.valueType, b.valueType)) return false;
+        if (!typeEquals(a.keyType, b.keyType, looseMatchForGenerics)) return false;
+        if (!typeEquals(a.valueType, b.valueType, looseMatchForGenerics)) return false;
         return true;
     }
 
     // MutDictType
     if (a instanceof MutDictType && b instanceof MutDictType) {
-        if (!typeEquals(a.keyType, b.keyType)) return false;
-        if (!typeEquals(a.valueType, b.valueType)) return false;
+        if (!typeEquals(a.keyType, b.keyType, looseMatchForGenerics)) return false;
+        if (!typeEquals(a.valueType, b.valueType, looseMatchForGenerics)) return false;
         return true;
     }
 
     // SetType
     if (a instanceof SetType && b instanceof SetType) {
-        return typeEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType, looseMatchForGenerics);
     }
 
     // MutSetType
     if (a instanceof MutSetType && b instanceof MutSetType) {
-        return typeEquals(a.innerType, b.innerType);
+        return typeEquals(a.innerType, b.innerType, looseMatchForGenerics);
     }
 
     // MaybeType
     if (a instanceof MaybeType && b instanceof MaybeType) {
-        return typeEquals(a.innerType, b.innerType);
-    }
-
-    // EnumType
-    if (a instanceof EnumType && b instanceof EnumType) {
-        if (a.name !== b.name) return false;
-        if (a.variants.length !== b.variants.length) return false;
-        for (let i = 0; i < a.variants.length; i++) {
-            if (a.variants[i].name !== b.variants[i].name) return false;
-            if (!typeEquals(a.variants[i].type, b.variants[i].type)) return false;
-        }
-        return true;
+        return typeEquals(a.innerType, b.innerType, looseMatchForGenerics);
     }
 
     // FuncType
     if (a instanceof FuncType && b instanceof FuncType) {
-        if (!typeEquals(a.returnType, b.returnType)) return false;
+        if (!typeEquals(a.returnType, b.returnType, looseMatchForGenerics)) return false;
         if (a.paramTypes.length !== b.paramTypes.length) return false;
         for (let i = 0; i < a.paramTypes.length; i++) {
-            if (!typeEquals(a.paramTypes[i], b.paramTypes[i])) return false;
+            if (!typeEquals(a.paramTypes[i], b.paramTypes[i], looseMatchForGenerics)) return false;
         }
         return true;
     }
@@ -191,12 +199,9 @@ export function stripTraits(t: Type): Type {
     return t;
 }
 
-/** Compare two types for equality, ignoring trait differences on CustomTypes. */
-export function typeEqualsWithStrippedTraits(a: Type, b: Type): boolean {
-    return typeEquals(stripTraits(a), stripTraits(b));
-}
-
-/** Check if a type is fully concrete (not a type variable from an enclosing generic). */
+/** Check if a type is fully concrete (not a type variable from an enclosing generic).
+ * TODO: This is not used by anything anymore and maybe could be removed
+ */
 export function isConcreteType(t: Type): boolean {
     if (typeof t === "string") return true;
     if (t instanceof CustomType) {
@@ -217,95 +222,82 @@ export function isConcreteType(t: Type): boolean {
     return true;
 }
 
-/** Check if two types match, allowing optional Arr[X] ↔ Iter[X] auto-conversion
- *  and ignoring trait differences on CustomTypes. */
-export function typesMatchWithConversion(a: Type, b: Type, allowIterForArr: boolean): boolean {
-    if (typeEquals(a, b)) return true;
-    // Try comparison with traits stripped (traits are metadata, not semantic type identity)
-    if (typeEquals(stripTraits(a), stripTraits(b))) return true;
-    if (allowIterForArr) {
-        // Arr[X] can be treated as Iter[X]
-        if (a instanceof IterType && b instanceof ArrayType) {
-            return typesMatchWithConversion(a.innerType, b.innerType, allowIterForArr);
-        }
-        if (a instanceof ArrayType && b instanceof IterType) {
-            return typesMatchWithConversion(a.innerType, b.innerType, allowIterForArr);
-        }
-    }
-    return false;
-}
-
 export function paramTypesMatchArgTypes(
     funcParamTypes: Type[],
     argTypes: Type[],
-    allowIterForArr: boolean = true
+    looseMatchForGenerics: boolean = false
 ): boolean {
     if (funcParamTypes.length !== argTypes.length) return false;
-    return funcParamTypes.every((t, i) =>
-        typesMatchWithConversion(t, argTypes[i], allowIterForArr)
-    );
+    return funcParamTypes.every((t, i) => typeEquals(t, argTypes[i], looseMatchForGenerics));
 }
 
-/** Loose type comparison that allows type variables (non-concrete types) to match anything */
-export function looseMatch(a: Type, b: Type): boolean {
-    if (a === b) return true;
-    // If either type is not concrete, allow the match (for generic function bodies)
-    // TODO: This probably is not quite correct and could lead to bugs!
-    if (!isConcreteType(a) || !isConcreteType(b)) return true;
-    return typeEquals(a, b);
+export function compatibleIndicesForArrayType(indexTypes: Type[]): string | null {
+    if (indexTypes.length !== 1) {
+        return `indexed access requires exactly one index, got ${indexTypes.length}`;
+    }
+    if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
+        return `indexed access index must be of type Int or Num`;
+    }
+    return null;
 }
 
-/** Collect trait names associated with a type param name inside a type tree. */
-export function collectTraitsForTypeParam(t: Type, typeParamName: string): string[] {
-    if (t instanceof CustomType && t.name === typeParamName) {
-        return [...t.traits];
+// Substitute type parameters in a type tree using a binding map
+export function substituteTypeParams(type: Type, bindings: Map<string, Type>): Type {
+    if (type === "Self" && bindings.has("Self")) {
+        const substituted = bindings.get("Self")!;
+        return substituted;
     }
-    if (t instanceof ArrayType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    if ((type instanceof CustomType || type instanceof GenericType) && bindings.has(type.name)) {
+        const substituted = bindings.get(type.name)!;
+        return substituted;
     }
-    if (t instanceof MutArrType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    if (type instanceof CustomType && type.templateArgs) {
+        return new CustomType(
+            type.name,
+            type.templateArgs.map((t) => substituteTypeParams(t, bindings))
+        );
     }
-    if (t instanceof IterType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    if (type instanceof FuncType) {
+        return new FuncType(
+            type.paramTypes.map((pt) => substituteTypeParams(pt, bindings)),
+            substituteTypeParams(type.returnType, bindings)
+        );
     }
-    if (t instanceof FuncType) {
-        const result: string[] = [];
-        t.paramTypes.forEach((pt) => result.push(...collectTraitsForTypeParam(pt, typeParamName)));
-        result.push(...collectTraitsForTypeParam(t.returnType, typeParamName));
-        return result;
+    if (type instanceof ArrayType) {
+        return new ArrayType(substituteTypeParams(type.innerType, bindings));
     }
-    if (t instanceof DictType) {
-        return [
-            ...collectTraitsForTypeParam(t.keyType, typeParamName),
-            ...collectTraitsForTypeParam(t.valueType, typeParamName),
-        ];
+    if (type instanceof IterType) {
+        return new IterType(substituteTypeParams(type.innerType, bindings));
     }
-    if (t instanceof MutDictType) {
-        return [
-            ...collectTraitsForTypeParam(t.keyType, typeParamName),
-            ...collectTraitsForTypeParam(t.valueType, typeParamName),
-        ];
+    if (type instanceof MutArrType) {
+        return new MutArrType(substituteTypeParams(type.innerType, bindings));
     }
-    if (t instanceof SetType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    if (type instanceof TupleType) {
+        return new TupleType(type.types.map((t) => substituteTypeParams(t, bindings)));
     }
-    if (t instanceof MutSetType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    if (type instanceof DictType) {
+        return new DictType(
+            substituteTypeParams(type.keyType, bindings),
+            substituteTypeParams(type.valueType, bindings)
+        );
     }
-    if (t instanceof MaybeType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    if (type instanceof MutDictType) {
+        return new MutDictType(
+            substituteTypeParams(type.keyType, bindings),
+            substituteTypeParams(type.valueType, bindings)
+        );
     }
-    if (t instanceof EscapeType) {
-        return collectTraitsForTypeParam(t.innerType, typeParamName);
+    if (type instanceof SetType) {
+        return new SetType(substituteTypeParams(type.innerType, bindings));
     }
-    // Recurse into CustomType templateArgs (e.g., T in MinHeap[T])
-    if (t instanceof CustomType && t.templateArgs) {
-        const result: string[] = [];
-        for (const ta of t.templateArgs) {
-            result.push(...collectTraitsForTypeParam(ta, typeParamName));
-        }
-        return result;
+    if (type instanceof MutSetType) {
+        return new MutSetType(substituteTypeParams(type.innerType, bindings));
     }
-    return [];
+    if (type instanceof MaybeType) {
+        return new MaybeType(substituteTypeParams(type.innerType, bindings));
+    }
+    if (type instanceof EscapeType) {
+        return new EscapeType(substituteTypeParams(type.innerType, bindings));
+    }
+    return type;
 }

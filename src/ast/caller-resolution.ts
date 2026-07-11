@@ -1,0 +1,536 @@
+import { safeJSName, type JSWriter } from "../write-js";
+import { findBuiltin } from "./builtins/builtin-calls";
+import type { Expression } from "./expression";
+import { Literal } from "./literals";
+import { RangeIter } from "./nodes";
+import type { GenericMappingInfo, Scope } from "./scope";
+import {
+    compatibleIndicesForArrayType,
+    paramTypesMatchArgTypes,
+    substituteTypeParams,
+} from "./type-utils";
+import {
+    ArrayType,
+    CustomType,
+    DictType,
+    FuncType,
+    GenericType,
+    IterType,
+    MaybeType,
+    MutArrType,
+    MutDictType,
+    TupleType,
+    type Type,
+} from "./types";
+
+// ── Discriminated union for findCaller results ──
+export type CallerResult = {
+    kind: "variable" | "function" | "struct-constructor" | "enum-instantiation" | "builtin";
+    returnType: Type;
+    toJS: (writer: JSWriter) => void;
+    /** For generic function calls, the resolved trait implementation fullNames. */
+    traitImplFullNames?: string[];
+};
+
+/**
+ * Check whether a variable or expression is being called with compatible argument types
+ * and return the toJS callback that should be used to compile the call.
+ */
+export function resolveDirectCaller(
+    caller: string | Expression,
+    args: Expression[],
+    callerType: Type,
+    argTypes: Type[],
+    isUnsafe: boolean = false
+):
+    | {
+          error: null;
+          result: { kind: "variable"; returnType: Type; toJS: (writer: JSWriter) => void };
+      }
+    | { error: string; result: null } {
+    const isVarCall = typeof caller === "string";
+    const name = isVarCall ? caller : "<anon>";
+
+    // Helper to either write the literal caller name or compile the caller expression (in the case of a direct call to a non-variable expression)
+    const writeCaller = isVarCall
+        ? (writer: JSWriter) => {
+              writer.write(writer.safeName(name));
+          }
+        : (writer: JSWriter) => {
+              writer.write("(");
+              caller.toJS(writer);
+              writer.write(")");
+          };
+
+    // Check each of the callable types and handle them as appropriate
+    if (callerType instanceof FuncType) {
+        if (!paramTypesMatchArgTypes(callerType.paramTypes, argTypes)) {
+            return {
+                error: "incompatible type signature for this function call",
+                result: null,
+            };
+        }
+        return {
+            error: null,
+            result: {
+                kind: "variable",
+                returnType: callerType.returnType,
+                toJS(writer) {
+                    writeCaller(writer);
+                    writer.write("(");
+                    args.forEach((arg, i) => {
+                        if (i > 0) {
+                            writer.write(", ");
+                        }
+                        // Auto-convert Arg to Iter when the function expects Iter but gets Arg
+                        if (
+                            callerType.paramTypes[i] instanceof IterType &&
+                            arg.type instanceof ArrayType
+                        ) {
+                            writer.useBuiltin("$ArrayIterator$");
+                            writer.write("new $ArrayIterator$(");
+                            arg.toJS(writer);
+                            writer.write(")");
+                        } else {
+                            arg.toJS(writer);
+                        }
+                    });
+                    writer.write(")");
+                },
+            },
+        };
+    }
+    if (
+        callerType instanceof ArrayType ||
+        callerType instanceof MutArrType ||
+        callerType === "Str"
+    ) {
+        // Handle special case of slicing with RangeIter
+        if (
+            argTypes.length === 1 &&
+            argTypes[0] instanceof IterType &&
+            args[0] instanceof RangeIter
+        ) {
+            const range = args[0];
+            const rangeType = argTypes[0].innerType;
+            return {
+                error: null,
+                result: {
+                    kind: "variable",
+                    returnType: callerType,
+                    toJS(writer) {
+                        writeCaller(writer);
+                        writer.write(".slice(");
+                        if (rangeType === "Int") {
+                            writer.write("Number(");
+                            range.start.toJS(writer);
+                            writer.write(")");
+                        } else {
+                            range.start.toJS(writer);
+                        }
+                        if (range.end !== null) {
+                            writer.write(", ");
+                            if (rangeType === "Int") {
+                                writer.write("Number(");
+                                range.end.toJS(writer);
+                                writer.write(") + 1");
+                            } else {
+                                range.end.toJS(writer);
+                                writer.write(" + 1");
+                            }
+                        }
+                        writer.write(")");
+                    },
+                },
+            };
+        }
+        // Case of indexing with a single integer index
+        const incompatible = compatibleIndicesForArrayType(argTypes);
+        if (incompatible !== null) {
+            return { error: incompatible, result: null };
+        }
+        const innerType = callerType === "Str" ? "Str" : callerType.innerType;
+        return {
+            error: null,
+            result: {
+                kind: "variable",
+                returnType: isUnsafe ? innerType : new MaybeType(innerType),
+                toJS(writer) {
+                    writer.write("(");
+                    writeCaller(writer);
+                    writer.write("[");
+                    args[0].toJS(writer);
+                    writer.write("] ?? null)");
+                },
+            },
+        };
+    }
+    // Case of indexed access of iterator with single integer index
+    if (callerType instanceof IterType) {
+        const incompatible = compatibleIndicesForArrayType(argTypes);
+        if (incompatible !== null) {
+            return { error: incompatible, result: null };
+        }
+        const index = args[0];
+        return {
+            error: null,
+            result: {
+                kind: "variable",
+                returnType: isUnsafe ? callerType.innerType : new MaybeType(callerType.innerType),
+                toJS(writer) {
+                    writer.useBuiltin("$iterGet$");
+                    writer.write("$iterGet$(");
+                    if (index.type === "Num") {
+                        index.toJS(writer);
+                        writer.write(", ");
+                    } else if (index.type === "Int") {
+                        writer.write("Number(");
+                        index.toJS(writer);
+                        writer.write("), ");
+                    }
+                    writeCaller(writer);
+                    writer.write(")");
+                },
+            },
+        };
+    }
+    // Access to element of a tuple
+    if (callerType instanceof TupleType) {
+        // Only integer literals are allowed for tuple indexed access
+        const incompatible = compatibleIndicesForArrayType(argTypes);
+        if (incompatible !== null) {
+            return { error: incompatible, result: null };
+        }
+        // Also need to check that the indices used are a literal that is in bounds
+        let validIndex = true;
+        let literalValue = -1;
+        if (!(args[0] instanceof Literal)) {
+            validIndex = false;
+        } else {
+            literalValue = parseInt(args[0].value.trim());
+            if (literalValue < 0 || literalValue >= callerType.length) {
+                validIndex = false;
+            }
+        }
+        if (!validIndex) {
+            return {
+                error: "Tuple indices must be integer literals that are in bounds for the tuple type",
+                result: null,
+            };
+        }
+        return {
+            error: null,
+            result: {
+                kind: "variable",
+                returnType: callerType.types[literalValue],
+                toJS(writer) {
+                    writeCaller(writer);
+                    writer.write("[");
+                    args[0].toJS(writer);
+                    writer.write("]");
+                },
+            },
+        };
+    }
+    // Access to entry of a Dict
+    if (callerType instanceof DictType || callerType instanceof MutDictType) {
+        const incompatible = callerType.checkIndicesCompatible(argTypes);
+        if (incompatible !== null) {
+            return { error: incompatible, result: null };
+        }
+        return {
+            error: null,
+            result: {
+                kind: "variable",
+                returnType: isUnsafe ? callerType.valueType : new MaybeType(callerType.valueType),
+                toJS(writer) {
+                    writer.write("(");
+                    writeCaller(writer);
+                    writer.write(".get(");
+                    args[0].toJS(writer);
+                    writer.write(") ?? null)");
+                },
+            },
+        };
+    }
+    return {
+        error: `variable ${name} is of type ${callerType}, which is not a callable object.`,
+        result: null,
+    };
+}
+
+/**
+ * Inside a generic function body, route a call through a trait dictionary
+ * instead of looking for a concrete function. Handles two cases:
+ * 1. Arg types include GenericType instances (e.g., `foo(x)` where `x: T: Summable`)
+ * 2. Associated type is a GenericType with traits (e.g., `T::zero()` where `T: Summable`)
+ */
+function resolveTraitFunctionCall(
+    scope: Scope,
+    name: string,
+    args: Expression[],
+    argTypes: Type[],
+    associatedType: Type | null = null
+): CallerResult | null {
+    // Collect all unique { traitName, genericName } pairs from generic arg types
+    const neededTraits: { traitName: string; genericName: string }[] = [];
+    for (const argType of argTypes) {
+        if (argType instanceof GenericType) {
+            for (const traitName of argType.traits) {
+                if (
+                    !neededTraits.some(
+                        (nt) => nt.traitName === traitName && nt.genericName === argType.name
+                    )
+                ) {
+                    neededTraits.push({ traitName, genericName: argType.name });
+                }
+            }
+        }
+    }
+    // Also collect traits from the associated type (for TAFs like `T::zero()`)
+    if (associatedType instanceof GenericType) {
+        for (const traitName of associatedType.traits) {
+            if (
+                !neededTraits.some(
+                    (nt) => nt.traitName === traitName && nt.genericName === associatedType.name
+                )
+            ) {
+                neededTraits.push({ traitName, genericName: associatedType.name });
+            }
+        }
+    }
+
+    // For each needed trait, check if it defines a function matching the call name
+    for (const { traitName, genericName } of neededTraits) {
+        const traitDef = scope.lookupTrait(traitName);
+        if (traitDef) {
+            const matchingFn = traitDef.requiredFunctions.find((rf) => rf.name === name);
+            if (matchingFn) {
+                // Build bindings: substitute Self in the trait's param types with
+                // the actual arg types at the corresponding positions.
+                const bindings = new Map<string, Type>();
+                for (
+                    let i = 0;
+                    i < matchingFn.signature.paramTypes.length && i < argTypes.length;
+                    i++
+                ) {
+                    if (matchingFn.signature.paramTypes[i] === "Self") {
+                        bindings.set("Self", argTypes[i]);
+                    }
+                }
+                // For TAF calls (e.g., `T::zero()`), Self in the return type should
+                // map to the associated type since there are no params to bind from.
+                if (!bindings.has("Self") && associatedType instanceof GenericType) {
+                    bindings.set("Self", associatedType);
+                }
+                const substitutedReturnType = matchingFn.signature.returnType
+                    ? substituteTypeParams(matchingFn.signature.returnType, bindings)
+                    : "Unknown";
+                return {
+                    kind: "function",
+                    returnType: substitutedReturnType,
+                    toJS(writer) {
+                        writer.write(`$$impl${traitName}_${genericName}.${name}(`);
+                        args.forEach((arg, i) => {
+                            if (i > 0) {
+                                writer.write(", ");
+                            }
+                            arg.toJS(writer);
+                        });
+                        writer.write(")");
+                    },
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
+export function writeTraitImplDictionaries(writer: JSWriter, genericMapping: GenericMappingInfo[]) {
+    for (const genericInfo of genericMapping) {
+        for (const trait of Object.keys(genericInfo.traitImpls)) {
+            const traitImpl = genericInfo.traitImpls[trait];
+            const values = Object.values(traitImpl);
+            // If all implementation names are trait dict parameter references
+            // (e.g., "$$implFoo_T"), emit the parameter directly — this happens
+            // when a generic function passes its trait dict through to another
+            // generic function with the same trait bound.
+            if (values.length === 1 && values[0].startsWith("$$impl")) {
+                writer.write(", ");
+                writer.write(values[0]);
+            } else {
+                writer.write(", {");
+                let first = true;
+                for (const fnName of Object.keys(traitImpl)) {
+                    if (!first) writer.write(", ");
+                    first = false;
+                    writer.write(`${fnName}: ${safeJSName(traitImpl[fnName])}`);
+                }
+                writer.write("}");
+            }
+        }
+    }
+}
+
+export function findCaller(
+    callExpr: Expression,
+    name: string,
+    args: Expression[],
+    associatedType: Type | null = null
+):
+    | {
+          error: null;
+          result: CallerResult;
+      }
+    | { error: string; result: null } {
+    const scope = callExpr.getScope();
+    if (scope === null) {
+        return {
+            error: `missing scope when trying to resolve caller ${name}`,
+            result: null,
+        };
+    }
+    const argTypes: Type[] = [];
+    for (const arg of args) {
+        if (arg.type === null) {
+            return {
+                error: "arg types not resolved before attempting to resolve caller",
+                result: null,
+            };
+        }
+        argTypes.push(arg.type);
+    }
+
+    // If the caller doesn't have an associated type, check if the first match for `name` is a variable
+    // If so, attempt to resolve it in the same way we resolve direct calls
+    if (associatedType === null) {
+        const varMatch = scope.lookupVariable(name);
+        if (varMatch) {
+            return resolveDirectCaller(name, args, varMatch.type, argTypes);
+        }
+    }
+
+    // If any arg type is a GenericType or the associated type is a GenericType
+    // with traits (e.g., `T::zero()`), check trait definitions for the function.
+    const hasGenericArg = argTypes.some((t) => t instanceof GenericType);
+    const hasGenericAssocType =
+        associatedType instanceof GenericType && associatedType.traits.length > 0;
+    if (hasGenericArg || hasGenericAssocType) {
+        const traitResult = resolveTraitFunctionCall(scope, name, args, argTypes, associatedType);
+        if (traitResult) {
+            return { error: null, result: traitResult };
+        }
+    }
+
+    // See if we can find a function definition with a compatible type signature
+    const callerMatch = scope.lookupCaller(name, argTypes, associatedType);
+    if (callerMatch) {
+        if (callerMatch.class === "func") {
+            // Concrete function definition
+            return {
+                error: null,
+                result: {
+                    kind: "function",
+                    returnType: callerMatch.type.returnType,
+                    toJS(writer) {
+                        writer.write(safeJSName(callerMatch.fullName));
+                        writer.write("(");
+                        args.forEach((arg, i) => {
+                            if (i > 0) {
+                                writer.write(", ");
+                            }
+                            arg.toJS(writer);
+                        });
+                        writer.write(")");
+                    },
+                },
+            };
+        } else if (callerMatch.class === "generic") {
+            // Collect trait implementation fullNames so tree-shaking can
+            // keep them reachable (they're referenced only at codegen time
+            // through the trait dictionary).
+            const traitImplFullNames: string[] = [];
+            for (const gi of callerMatch.genericMapping) {
+                for (const implMap of Object.values(gi.traitImpls)) {
+                    for (const fnName of Object.values(implMap)) {
+                        if (!fnName.startsWith("$$impl")) {
+                            traitImplFullNames.push(fnName);
+                        }
+                    }
+                }
+            }
+            // Generic function definition
+            return {
+                error: null,
+                result: {
+                    kind: "function",
+                    returnType: callerMatch.type.returnType,
+                    traitImplFullNames,
+                    toJS(writer) {
+                        writer.write(safeJSName(callerMatch.fullName));
+                        writer.write("(");
+                        args.forEach((arg, i) => {
+                            if (i > 0) {
+                                writer.write(", ");
+                            }
+                            arg.toJS(writer);
+                        });
+                        // Pass trait implementation dictionaries
+                        writeTraitImplDictionaries(writer, callerMatch.genericMapping);
+                        writer.write(")");
+                    },
+                },
+            };
+        } else if (callerMatch.class === "struct") {
+            return {
+                error: null,
+                result: {
+                    kind: "struct-constructor",
+                    returnType: new CustomType(name, callerMatch.templateTypes),
+                    toJS(writer) {
+                        const safeNames = callerMatch.fields.map((f) => writer.safeName(f.name));
+                        writer.write("({");
+                        args.forEach((arg, i) => {
+                            if (i > 0) {
+                                writer.write(", ");
+                            }
+                            writer.write(`${safeNames[i]}: `);
+                            arg.toJS(writer);
+                        });
+                        writer.write("})");
+                    },
+                },
+            };
+        } else if (callerMatch.class === "enum") {
+            // Enum instantiation
+            return {
+                error: null,
+                result: {
+                    kind: "enum-instantiation",
+                    returnType: callerMatch.enumType,
+                    toJS(writer) {
+                        writer.write("({ $tag: ");
+                        writer.write(callerMatch.variantIndex.toString());
+                        writer.write(", $val: ");
+                        args[0].toJS(writer);
+                        writer.write(" })");
+                    },
+                },
+            };
+        } else {
+            throw new Error(`Got unexpected caller match ${callerMatch}`);
+        }
+    }
+
+    // Check for builtin functions
+    const builtinResult = findBuiltin(name, args, argTypes);
+    if (builtinResult) {
+        return { error: null, result: builtinResult };
+    }
+
+    return {
+        error: `function ${name}[${argTypes.map((t) => t.toString()).join(", ")}: unknown] not found`,
+        result: null,
+    };
+}

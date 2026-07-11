@@ -1,4 +1,4 @@
-import { TokenType, type Token } from "../tokens";
+import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Scope } from "./scope";
 import { EscapeType, type Type, type TemplateTypes } from "./types";
@@ -101,22 +101,6 @@ export abstract class Expression {
     }
 
     /**
-     * If this expression is a for-loop with a named iteration variable, return the variable name.
-     * Used by Variable.cascadeTypes to resolve loop variable types without instanceof checks.
-     */
-    getLoopVariableName(): string | null {
-        return null;
-    }
-
-    /**
-     * Return the inner (element) type of this node's iterator expression, if any.
-     * Used by Variable.cascadeTypes to resolve the type of loop variables.
-     */
-    getLoopVariableInnerType(): Type | null {
-        return null;
-    }
-
-    /**
      * Walks recursively through the AST, resolving types
      * This is also where parent pointers get set for all AST nodes,
      * and where we propogate information about whether the values returned from downstream
@@ -130,9 +114,6 @@ export abstract class Expression {
     toJS(_writer: JSWriter): void {
         throw new Error(`\`toJS\` not implemented for ${this.constructor.name}.`);
     }
-
-    // Deep-clone this expression tree, optionally substituting type parameters
-    abstract clone(bindings?: Map<string, Type>): Expression;
 }
 
 export class ErrorExpression extends Expression {
@@ -141,10 +122,6 @@ export class ErrorExpression extends Expression {
         public message: string
     ) {
         super(token.line, token.col);
-    }
-
-    clone(_bindings?: Map<string, Type>): Expression {
-        return this; // Error expressions don't need deep cloning
     }
 }
 
@@ -166,10 +143,6 @@ export class DropValue extends Expression {
 
     toJS(writer: JSWriter): void {
         this.child.toJS(writer);
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new DropValue(this.child.clone(bindings));
     }
 }
 
@@ -194,10 +167,11 @@ export function lastExprShouldReturn(lastExpr: Expression): boolean {
  */
 export class Block extends Expression {
     expressions: Expression[];
-    scope: Scope = new Scope();
+    scope: Scope;
     /** JS module imports collected from UseJSModule nodes during cascadeTypes.
      *  Maps module path → array of imported symbol names.
-     *  Only meaningful on the top-level Block. */
+     *  Only meaningful on the top-level Block.
+     * */
     jsImports: Map<string, string[]>;
 
     constructor(
@@ -210,6 +184,7 @@ export class Block extends Expression {
             throw new Error("block expression must not be empty.");
         }
         this.expressions = expressions;
+        this.scope = new Scope();
         this.jsImports = jsImports;
     }
 
@@ -245,14 +220,6 @@ export class Block extends Expression {
             this.expressions[i].cascadeTypes(this, childValueUsed);
         }
         this.type = this.expressions[this.expressions.length - 1].type;
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new Block(
-            { line: this.line, col: this.col, text: "", type: TokenType.LBrace },
-            this.expressions.map((e) => e.clone(bindings)),
-            new Map(this.jsImports)
-        );
     }
 
     toJS(writer: JSWriter): void {

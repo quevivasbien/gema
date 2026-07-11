@@ -1,7 +1,8 @@
 import type { Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
-import { type Type } from "./types";
+import { typeEquals } from "./type-utils";
+import { ArrayType, type Type } from "./types";
 
 const MAX_SAFE_INTEGER = 9007199254740991;
 const MIN_SAFE_INTEGER = -9007199254740991;
@@ -46,10 +47,6 @@ export class Literal extends Expression {
         }
     }
 
-    clone(_bindings?: Map<string, Type>): Expression {
-        return this; // Literals are immutable, safe to share
-    }
-
     toJS(compiler: JSWriter): void {
         switch (this.type) {
             case "Int":
@@ -69,5 +66,50 @@ export class Literal extends Expression {
             default:
                 throw this.error(`cannot use token ${this.value} as literal type`);
         }
+    }
+}
+
+export class ArrLit extends Expression {
+    expressions: Expression[];
+    innerType?: Type;
+
+    constructor(startToken: Token, expressions: Expression[], innerType?: Type) {
+        super(startToken.line, startToken.col);
+        this.expressions = expressions;
+        if (innerType !== undefined) {
+            this.innerType = innerType;
+        }
+    }
+
+    cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
+        super.cascadeTypes(parent, valueUsed);
+        this.expressions.forEach((expr, i) => {
+            expr.cascadeTypes(this, true);
+            if (expr.type === null) {
+                throw this.error(`unable to resolve type of array element ${i + 1}`);
+            }
+            if (this.innerType === undefined) {
+                this.innerType = expr.type;
+            } else if (!typeEquals(this.innerType, expr.type)) {
+                throw this.error(
+                    `incompatible types in array: expected ${this.innerType}, got ${expr.type}`
+                );
+            }
+        });
+        if (this.innerType === undefined) {
+            throw this.error(`empty array must be annotated with a type`);
+        }
+        this.type = new ArrayType(this.innerType);
+    }
+
+    toJS(writer: JSWriter): void {
+        writer.write("[");
+        this.expressions.forEach((expr, i) => {
+            if (i > 0) {
+                writer.write(", ");
+            }
+            expr.toJS(writer);
+        });
+        writer.write("]");
     }
 }

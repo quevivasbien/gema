@@ -40,11 +40,11 @@ bun tsc                  # TypeScript check
 | `Literal`             | `literals.ts`   | Int, Num, Str, Bool, Null literals                                                                                      |
 | `Binary` / `Unary`    | `operators.ts`  | Binary and unary operators                                                                                              |
 | `Variable`            | `nodes.ts`      | Variable/type references; carries `templateTypes` for `Arr[Int]`, `Result[Int, Str]`, etc.                              |
-| `FunctionDef`         | `nodes.ts`      | Named function definition; supports generics via `typeParams` + `monomorphize()`                                        |
+| `FunctionDef`         | `nodes.ts`      | Named function definition; supports generics via `typeParams`                                                           |
 | `AnonymousFunction`   | `nodes.ts`      | Lambda/func expression with optional inferred param types                                                               |
 | `Call` / `DirectCall` | `calls.ts`      | Named function calls and direct callee calls                                                                            |
-| `StructDef`           | `structs.ts`    | Struct definition; supports generics via `typeParams` + `monomorphize()`                                                |
-| `EnumDef`             | `enums.ts`      | Enum definition; supports generics via `typeParams` + `monomorphize()`                                                  |
+| `StructDef`           | `structs.ts`    | Struct definition; supports generics via `typeParams`                                                                   |
+| `EnumDef`             | `enums.ts`      | Enum definition; supports generics via `typeParams`                                                                     |
 | `FieldAccess`         | `structs.ts`    | Field access (`obj.field`) and enum variant access                                                                      |
 | `UseModule`           | `nodes.ts`      | Gema module import (`use "path.gema"`)                                                                                  |
 | `UseJSModule`         | `nodes.ts`      | JS module import (`use (fn: Type) from "path.js"`)                                                                      |
@@ -64,25 +64,10 @@ Types are defined in `src/ast/types.ts`:
 - **`typeEquals(a, b)`**: Structural comparison of types. Compares `templateArgs` for `CustomType`.
 - **`extractBindingsFromParams(params, argTypes, typeParams, bindings)`**: Infers type param bindings by matching parameter types against argument types. Handles `CustomType` with `templateArgs`.
 
-## Monomorphization
-
-Generic functions, structs, and enums use a consistent monomorphization pattern:
-
-1. **Generic definitions** are stored in scope with `isGeneric: true`, `typeParams: string[]`, and `def` referencing the AST node.
-2. **On concrete usage**, `monomorphize(concreteTypes)` is called which:
-    - Creates bindings from type params to concrete types (via `extractBindingsFromParams` or direct mapping)
-    - Calls `substituteTypeParams` on all relevant types
-    - Returns concrete field/variant/param types
-3. **Monomorphized versions** are registered in scope before the generic entry via `defineVariableBefore()` for functions.
-4. **Generic struct/enum** monomorphization doesn't register in scope — it computes concrete types inline.
-
 ## Generic Functions
 
-- Defined with `func name(x: T): T where T is Any { ... }`
-- `where T is TraitName` clause is **required** to register `T` as a type parameter
-- `trait Any {}` is the universal trait bound
-- `monomorphize()` infers type bindings from call argument types
-- Monomorphized versions are cached in `monomorphizedVersions[]`
+- Defined with `func [T: TraitName] name(x: T): T { ... }`
+- `[T: TraitName]` clause is **required** to register `T` as a type parameter`
 
 ## Generic Structs
 
@@ -93,7 +78,7 @@ struct Pair[T] { a: T, b: T }
 - Type params in square brackets after the struct name
 - `where` clauses are NOT supported for structs
 - Type params are inferred from constructor arguments: `Pair(1, 2)` → `T = Num`
-- Field access on monomorphized instances substitutes the concrete types
+- Field access on concretized instances substitutes the concrete types
 
 ## Generic Enums
 

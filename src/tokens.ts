@@ -16,6 +16,7 @@ export enum TokenType {
     Dot = ".",
     DotDot = "..",
     Colon = ":",
+    ColonColon = "::",
     Semicolon = ";",
     // Unary operators
     Bang = "!",
@@ -44,8 +45,6 @@ export enum TokenType {
     Struct = "struct",
     Trait = "trait",
     Enum = "enum",
-    Where = "where",
-    Is = "is",
     If = "if",
     Else = "else",
     Mut = "mut",
@@ -85,14 +84,10 @@ for (const tt of Object.values(TokenType)) {
         KEYWORDS.add(tt);
     }
 }
-// console.log("single char tokens", SINGLE_CHAR_TOKENS);
-// console.log("keywords", KEYWORDS)
 
 export const STRING_TO_TOKEN_MAP = Object.fromEntries(
     Object.values(TokenType).map((k) => [k, k as TokenType])
 );
-
-// console.log("string to token map", STRING_TO_TOKEN_MAP);
 
 export interface Token {
     type: TokenType;

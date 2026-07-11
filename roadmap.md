@@ -1,52 +1,5 @@
 # Roadmap for `gema` development
 
-## Adjust type resolution for branching control flow where one branch has a break/continue/return
-
-Currently, `break`, `continue`, and `return` expressions all have `Null` type. This means that constructions like the following are not possible:
-
-```gema
-func add(a: Maybe[Num], b: Maybe[Num]) {
-  a_unwrapped = match a {
-    some(v) { v },
-    none { return none:Num },
-  };
-  b_unwrapped = match b {
-    some(v) { v },
-    none { return none:Num },
-  };
-  some(a_unwrapped + b_unwrapped)
-}
-```
-
-because the types of each of the match statement branches are not be the same (the `some` branch has type `Num`, and the `none` branch has type `Maybe[Num]`).
-
-Similarly, we can't do things like
-
-```gema
-mut total = 0;
-for i = 1..10 {
-  delta = if inbounds(i) {
-    break;
-  } else {
-    getdelta(i)
-  };
-  total += delta
-}
-```
-
-(though it's less important to be able to do this with if/else clauses, because they don't need to have branches for all of a fixed set of variants).
-
-I think a solution here is for continue/break/return statements to have a special "Short-circuited" type, instead of "Null" type, that behaves like "Null" (e.g. you can't set a variable equal to a value of "Null" type, and you can't do that with a short-circuited value, either), with the difference that if you have a branching expression like a match, then a branch with "Short-circuited" type can have be overriden by other branches when we are figuring out the time of the entire branching expression.
-
-To take part of the example above
-
-```gema
-a_unwrapped = match a {
-  some(v) { v },  # This branch has type `Num`
-  none { return none:Num },  # This branch has type `Escape` (or whatever we want to call the short-circuited type)
-};  # Match expression has type `Num` -- `Num` overrides `Escape`
-```
-
 ## IO
 
 We should have some form of IO capabilities. The form this takes really depends a lot on whether the language is intended to be executed purely with the browser or not.
@@ -119,44 +72,39 @@ Maybe the most straightforward way to support this and any other deep recursion 
 
 This is maybe not a huge priority, since usually the iterate iterator is a better way to solve this sort of problem, anyway.
 
-### Weirdness when combining TAFs and generics
+### Get rid of the multiple types of anonymous function syntax
 
-Something like
+Currently we allow defining anonymous functions like:
 
 ```gema
-trait Any {}
-
-func Int.foo(x: T) where T is Any { 1i }
-
-Int.foo(1)
+foo = func(x: Num) {
+  x + 1
+};
 ```
 
-fails at runtime with error:
+and also allow using special lambdas as arguments in function calls, with no type annotations on the args, like
 
+```gema
+map(\x { x + 1 }, 1..3)
 ```
-Error in main.gema at line 5, column 1: incompatible argument types in function call: expected T[[Any]], got Num
-  5 | Int.foo(1)
+
+Probably we should _just_ have the lambda syntax, with optional type annotations so the first example would be:
+
+```gema
+foo = \x: Num { x + 1 };
 ```
 
 ### Others
 
 - Separate more things from the giant `nodes.ts` file
 
-- Break up the huge switch statements in the caller resolution logic? Or at least rename things (including the file names) so it's clearer what everything does.
-
 - Don't require param types when referencing functions in a context where it's inferable (e.g. in map).
 
-- Allow lambdas not just in builtin functions -- if there is a function that _could_ match, we take that match (will need to think through the details here more).
-
 - When resolving callers, keep track of the closest match so far, so this can be reported in the error message if no match is found.
-
-- Go back to allowing generic types in functions to not specify a trait bound.
 
 - Fix weird error message when trying to compile an empty program: "Error in main.gema at line 1, column 1: can't access property "line", Z is undefined"
 
 - if/else exprs should not require {} -- or, places where {} is not currently required (like lambdas and matches) _should_ -- we just ought to be consistent
-
-- Make sure all the builtins follow the `f(<func>, <values>..., <container>)` idiom so they are easily chainable.
 
 - Allow underscores in numeric literals
 
@@ -164,21 +112,19 @@ Error in main.gema at line 5, column 1: incompatible argument types in function 
 
 - Nodes should have their module names in addition to their lines and cols, set during parsing instead of as a post-parsing step
 
-- Get rid of automatic Str -> Iter conversions. Users can explicitly convert strings to iter if they want to do this.
-
-- It should be possible to break/continue/return out of match expressions or if/else statements (special control flow statements need special type resolution logic)
-
 - Return does not seem to work inside an anonymous function defined within another function (it tries to return out of the outer function)
-
-- Probably should get rid of the automatic Arr -> Iter conversion. It adds weirdness in the type and caller resolution logic, and it's probably best to be explicit, anyway.
 
 - Related to previous point, it could be good to have a shorthand for the `toIter` conversion. Should probably also have a shorthand for the `collect` builtin (maybe `toArr` should also work for that purpose or should replace `collect`)? We would bring back the `@` symbol for collection (but treat it as a special function name) and maybe introduce another special name for `toIter` (if we do this, top candidates would be either `*` or `~`).
 
 - We could often figure out the type of un-annotated empty arrays or `none`s from context.
 
-- Check the `looseMatch` helper -- see if it could result in bugs and fix it if so.
+- Fix layouts forced before content fully loaded in frontend
 
-- `typeof` expression -- would just evaluate to a Str that shows the type of whatever it contains -- basically, useful for debugging purposes.
+- Only allow integer literals for accessing tuples.
+
+- Generic functions defined in a different module won't correctly capture variables if monomorphized from another module. The easiest way to avoid this would probably just be to prohibit generics from capturing variables, but that would be a bit awkward... Maybe there's a way to give the original definition a unique name that won't clash with anything else, make sure it's not removed by tree-shaking, and reference the original definition in the monomorphized version.
+
+- Allow traits to have Self in a nested position, like `trait Foo { foo[(a: Arr[Self]): Maybe[Self]] }`
 
 ## Optimizations
 

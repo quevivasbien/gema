@@ -1,19 +1,10 @@
-import { TokenType, type Token } from "../tokens";
+import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Block, Expression, lastExprShouldReturn } from "./expression";
 import { Match } from "./enums";
 import { Scope } from "./scope";
 import { typeEquals } from "./type-utils";
-import {
-    ArrayType,
-    CustomType,
-    EnumType,
-    EscapeType,
-    isBuiltinTypeName,
-    IterType,
-    MutArrType,
-    type Type,
-} from "./types";
+import { ArrayType, EscapeType, IterType, MutArrType, type Type } from "./types";
 
 export class If extends Expression {
     // TODO: Parser shuold reflect that any Expression type is permissible for the branches
@@ -84,18 +75,6 @@ export class If extends Expression {
         this.type = this.elseBranch !== null ? this.resolveBranchType(allBranches) : "Null";
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new If(
-            { line: this.line, col: this.col, text: "if", type: TokenType.If },
-            this.conditionalBranches.map(({ condition, branch }) => ({
-                condition: condition.clone(bindings),
-                branch: branch.clone(bindings),
-            })),
-            this.elseBranch?.clone(bindings) ?? null
-        );
-        return cloned;
-    }
-
     private branchToJS(writer: JSWriter, branch: Expression) {
         writer.beginScope();
         if (branch instanceof Block) {
@@ -129,14 +108,14 @@ export class If extends Expression {
             writer.indentIn();
             writer.newLine();
         }
-        this.conditionalBranches.forEach(({ condition, branch }) => {
-            writer.write("if (");
+        this.conditionalBranches.forEach(({ condition, branch }, i) => {
+            writer.write(i > 0 ? " else if (" : "if (");
             condition.toJS(writer);
             writer.write(") ");
             this.branchToJS(writer, branch);
-            writer.write(" else ");
         });
         if (this.elseBranch !== null) {
+            writer.write(" else ");
             this.branchToJS(writer, this.elseBranch);
         }
         if (shouldWrapInIIFE) {
@@ -149,54 +128,11 @@ export class If extends Expression {
 }
 
 export class ForLoop extends Expression {
-    scope: Scope = new Scope();
-
-    getScope(): Scope | null {
-        return this.scope;
-    }
-
-    isLoopBoundary(): boolean {
-        return true;
-    }
-
-    getLoopVariableName(): string | null {
-        return this.varName;
-    }
-
-    getLoopVariableInnerType(): Type | null {
-        if (this.iter === null || this.iter.type === null) return null;
-        let innerType: Type;
-        if (this.iter.type instanceof ArrayType) innerType = this.iter.type.innerType;
-        else if (this.iter.type instanceof IterType) innerType = this.iter.type.innerType;
-        else if (this.iter.type instanceof MutArrType) innerType = this.iter.type.innerType;
-        else if (this.iter.type === "Str") return "Str";
-        else return null;
-
-        // Resolve CustomType names to their actual enum/struct types from scope.
-        // For example, Arr[Action] stores Action as CustomType("Action"), but the
-        // loop variable needs the full EnumType for match expressions to work.
-        if (innerType instanceof CustomType && !isBuiltinTypeName(innerType.name)) {
-            const scopeLookup = this.scope.lookup(innerType.name);
-            if (scopeLookup) {
-                const attrs = scopeLookup.attrs;
-                if (attrs.class === "enum") {
-                    return new EnumType(
-                        attrs.name,
-                        attrs.variants.map((v: { name: string; type: Type | null }) => ({
-                            name: v.name,
-                            type: v.type,
-                        }))
-                    );
-                }
-            }
-        }
-        return innerType;
-    }
-
     // TODO: Parser should reflect that any Expression type is permissible for the body
     varName: string | null;
     iter: Expression | null;
     body: Expression;
+    scope: Scope;
 
     constructor(
         startToken: Token,
@@ -208,7 +144,33 @@ export class ForLoop extends Expression {
         this.varName = varName;
         this.iter = iter;
         this.body = body;
+        this.scope = new Scope();
         this.type = "Null";
+    }
+
+    getScope(): Scope | null {
+        return this.scope;
+    }
+
+    isLoopBoundary(): boolean {
+        return true;
+    }
+
+    getLoopVariableInnerType(): Type | null {
+        if (this.iter === null || this.iter.type === null) return null;
+        let innerType: Type;
+        if (this.iter.type instanceof ArrayType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type instanceof IterType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type instanceof MutArrType) {
+            innerType = this.iter.type.innerType;
+        } else if (this.iter.type === "Str") {
+            return "Str";
+        } else {
+            return null;
+        }
+        return innerType;
     }
 
     cascadeTypes(parent: Expression | null, valueUsed: boolean): void {
@@ -257,15 +219,6 @@ export class ForLoop extends Expression {
         // For loop will always have "Null" type, but we still need to cascade the types
         // for the body to make sure it's valid.
         this.body.cascadeTypes(this, false);
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new ForLoop(
-            { line: this.line, col: this.col, text: "for", type: TokenType.For },
-            this.varName,
-            this.iter !== null ? this.iter.clone(bindings) : null,
-            this.body.clone(bindings)
-        );
     }
 
     /** Walk the body subtree to check if any Break/Continue needs exception handling. */
@@ -415,10 +368,6 @@ export class Break extends Expression {
         }
     }
 
-    clone(_bindings?: Map<string, Type>): Expression {
-        return new Break({ line: this.line, col: this.col, text: "break", type: TokenType.Break });
-    }
-
     needsExceptionForControlFlow(): boolean {
         return inForLoopNeedsExceptionForControlFlow(this);
     }
@@ -445,15 +394,6 @@ export class Continue extends Expression {
         if (!this.findEnclosing(ForLoop)) {
             throw this.error("`continue` is only allowed inside a for loop");
         }
-    }
-
-    clone(_bindings?: Map<string, Type>): Expression {
-        return new Continue({
-            line: this.line,
-            col: this.col,
-            text: "continue",
-            type: TokenType.Continue,
-        });
     }
 
     needsExceptionForControlFlow(): boolean {
@@ -497,13 +437,6 @@ export class Return extends Expression {
                 this.value
             );
         }
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new Return(
-            { line: this.line, col: this.col, text: "return", type: TokenType.Return },
-            this.value.clone(bindings)
-        );
     }
 
     /** True if this return is inside an IIFE (computed lazily via parent pointers) */

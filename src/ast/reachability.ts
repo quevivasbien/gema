@@ -2,7 +2,9 @@ import { Call, DirectCall } from "./calls";
 import { DropValue, Expression, Block } from "./expression";
 import { Assignment, TupleUnpack } from "./assignment";
 import { ForLoop, If } from "./control-flow";
-import { FunctionDef, UseModule, Variable } from "./nodes";
+import { FunctionDef } from "./functions";
+import { UseModule } from "./nodes";
+import { Variable } from "./variable";
 import { Binary } from "./operators";
 import { FieldAccess, StructDef } from "./structs";
 import { Trait } from "./traits";
@@ -62,10 +64,14 @@ export function collectReferences(
 
     // Extract name references from key node types (these are stored in string
     // fields, not as Expression children, so the generic walk won't find them).
-    if (node instanceof Call && node.referToByName) {
-        referencedNames.add(node.referToByName);
-    } else if (node instanceof Variable && node.fullName) {
-        referencedNames.add(node.fullName);
+    if (node instanceof Call) {
+        referencedNames.add(node.name);
+        // Trait implementation functions referenced through generic resolution
+        for (const fnName of node.traitImplFullNames) {
+            referencedNames.add(fnName);
+        }
+    } else if (node instanceof Variable) {
+        referencedNames.add(node.name);
     } else if (node instanceof FunctionDef && node.fullName) {
         referencedNames.add(node.fullName);
     } else if (node instanceof DirectCall && node.caller instanceof FieldAccess) {
@@ -73,9 +79,8 @@ export function collectReferences(
         const fa = node.caller;
         if (fa.tafTargetName) {
             referencedNames.add(fa.tafTargetName);
-        } else if (fa.obj instanceof Variable && fa.obj.fullName) {
-            const tafName = `${fa.obj.fullName}.${fa.fieldName}`;
-            // TAF function lookup uses scope; without global registry, add the name directly
+        } else if (fa.obj instanceof Variable) {
+            const tafName = `${fa.obj.name}.${fa.fieldName}`;
             referencedNames.add(tafName);
         }
     } else if (node instanceof Assignment && node.name) {
@@ -86,10 +91,9 @@ export function collectReferences(
         }
     }
 
-    // Check for operator-overloaded Binary nodes where the resolved function
-    // name is stored in overloadedAs.name (a string), not as a child Expression.
-    if (node instanceof Binary && node.overloadedAs?.name) {
-        referencedNames.add(node.overloadedAs.name);
+    // Operator-overloaded Binary: the function name resolved via findCaller.
+    if (node instanceof Binary && node.resolvedOverloadName) {
+        referencedNames.add(node.resolvedOverloadName);
     }
 
     // Recurse into children
@@ -210,12 +214,6 @@ export function computeReachable(block: Block): Set<string> {
                             (name.includes("$") && e.name === name.split("$")[0]))
                     ) {
                         queue.push(e.body);
-                        // Also trace into monomorphized versions
-                        for (const mv of e.monomorphizedVersions) {
-                            if (mv.fullName === name) {
-                                queue.push(mv.body);
-                            }
-                        }
                     }
                     if (e instanceof Assignment && e.name === name && e.value) {
                         queue.push(e.value);

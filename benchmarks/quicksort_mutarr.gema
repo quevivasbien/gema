@@ -7,15 +7,15 @@ func quicksortRecursion(arr: MutArr[Num], start_idx: Num, end_idx: Num) {
       # If arr(i) < pivot, swap it with the previous element (which will be the pivot)
       if arr!(i) < pivot {
         temp = arr!(i);
-        put(arr, i, arr!(i-1));
-        put(arr, i-1, temp);
+        put(arr!(i-1), i, arr);
+        put(temp, i-1, arr);
         i += 1;
       }
       # Otherwise, it needs to get swapped with the next position on the right
       else {
         temp = arr!(i);
-        put(arr, i, arr!(j));
-        put(arr, j, temp);
+        put(arr!(j), i, arr);
+        put(temp, j, arr);
         j -= 1;
       }
       if i >= j {

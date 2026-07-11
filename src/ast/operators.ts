@@ -1,9 +1,9 @@
 import { TokenType, type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
-import { findCaller } from "./caller";
+import { findCaller } from "./caller-resolution";
 import { Expression } from "./expression";
-import { typeEquals, typeEqualsWithStrippedTraits } from "./type-utils";
-import { ArrayType, CustomType, EnumType, IterType, type Type } from "./types";
+import { typeEquals } from "./type-utils";
+import { ArrayType, CustomType, GenericType, IterType } from "./types";
 
 // Operator overloading — maps TokenType to function names for user-defined types
 const OPERATOR_TO_FUNCTION: Partial<Record<string, string>> = {
@@ -83,19 +83,6 @@ export class Unary extends Expression {
         );
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new Unary(
-            {
-                line: this.line,
-                col: this.col,
-                text: this.operator,
-                type: this.operator as TokenType,
-            },
-            this.child.clone(bindings)
-        );
-        return cloned;
-    }
-
     toJS(writer: JSWriter): void {
         writer.write(`(${this.operator}(`);
         this.child.toJS(writer);
@@ -105,7 +92,9 @@ export class Unary extends Expression {
 
 export class Binary extends Expression {
     operator: TokenType;
-    overloadedAs?: { name: string };
+    toJSOverload: ((writer: JSWriter) => void) | null = null;
+    /** Set when operator overloading resolves: the function name (e.g. "multiply"). */
+    resolvedOverloadName: string | null = null;
 
     constructor(
         operatorToken: Token,
@@ -135,8 +124,7 @@ export class Binary extends Expression {
         }
 
         // Enforce that left-hand type == right-hand type for all binary ops
-        // (ignore trait metadata — traits are not part of type identity)
-        if (!typeEqualsWithStrippedTraits(ltype, rtype)) {
+        if (!typeEquals(ltype, rtype)) {
             throw this.error(
                 `Cannot use operator ${this.operator} with left operand of type ${ltype} and right operand of type ${rtype}.`
             );
@@ -234,20 +222,13 @@ export class Binary extends Expression {
             }
         }
 
-        // Enum types support == and != (they compare by value at runtime)
+        // Try operator overloading for user-defined types and generic types with traits
+        // TODO: This maybe should work via a system of built-in traits instead
         if (
-            ltype instanceof EnumType &&
-            rtype instanceof EnumType &&
-            ltype.name === rtype.name &&
-            (this.operator === TokenType.EqualEqual || this.operator === TokenType.BangEqual)
-        ) {
-            this.type = "Bool";
-            return;
-        }
-
-        // Try operator overloading for user-defined types
-        if (
-            (ltype instanceof CustomType || rtype instanceof CustomType) &&
+            (ltype instanceof CustomType ||
+                rtype instanceof CustomType ||
+                ltype instanceof GenericType ||
+                rtype instanceof GenericType) &&
             !(ltype instanceof ArrayType) &&
             !(rtype instanceof ArrayType) &&
             !(ltype instanceof IterType) &&
@@ -255,10 +236,11 @@ export class Binary extends Expression {
         ) {
             const opName = OPERATOR_TO_FUNCTION[this.operator];
             if (opName) {
-                const { error, result } = findCaller(this, this.parent, opName, [ltype, rtype]);
+                const { error, result } = findCaller(this, opName, [this.left, this.right]);
                 if (error === null) {
-                    this.type = result.rootType;
-                    this.overloadedAs = { name: result.referToByName };
+                    this.type = result.returnType;
+                    this.toJSOverload = result.toJS;
+                    this.resolvedOverloadName = opName;
                     return;
                 }
             }
@@ -268,28 +250,9 @@ export class Binary extends Expression {
         );
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new Binary(
-            {
-                line: this.line,
-                col: this.col,
-                text: this.operator,
-                type: this.operator as TokenType,
-            },
-            this.left.clone(bindings),
-            this.right.clone(bindings)
-        );
-        return cloned;
-    }
-
     toJS(writer: JSWriter): void {
-        if (this.overloadedAs) {
-            writer.write(writer.safeName(this.overloadedAs.name));
-            writer.write("(");
-            this.left.toJS(writer);
-            writer.write(", ");
-            this.right.toJS(writer);
-            writer.write(")");
+        if (this.toJSOverload) {
+            this.toJSOverload(writer);
             return;
         }
         // Handle + for arrays (array concatenation)

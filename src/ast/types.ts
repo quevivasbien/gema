@@ -19,122 +19,24 @@ export function isBuiltinTypeName(name: string): boolean {
     return BUILTIN_TYPE_NAMES.has(name);
 }
 
-// Collect all CustomType names from a type tree
-export function collectCustomTypeNames(type: Type, names: Set<string>): void {
-    if (type instanceof CustomType) {
-        names.add(type.name);
-        if (type.templateArgs) {
-            for (const ta of type.templateArgs) {
-                collectCustomTypeNames(ta, names);
-            }
-        }
-    } else if (type instanceof FuncType) {
-        type.paramTypes.forEach((pt) => collectCustomTypeNames(pt, names));
-        collectCustomTypeNames(type.returnType, names);
-    } else if (type instanceof ArrayType) {
-        collectCustomTypeNames(type.innerType, names);
-    } else if (type instanceof IterType) {
-        collectCustomTypeNames(type.innerType, names);
-    } else if (type instanceof MutArrType) {
-        collectCustomTypeNames(type.innerType, names);
-    } else if (type instanceof TupleType) {
-        type.types.forEach((t) => collectCustomTypeNames(t, names));
-    } else if (type instanceof DictType) {
-        collectCustomTypeNames(type.keyType, names);
-        collectCustomTypeNames(type.valueType, names);
-    } else if (type instanceof MutDictType) {
-        collectCustomTypeNames(type.keyType, names);
-        collectCustomTypeNames(type.valueType, names);
-    } else if (type instanceof SetType) {
-        collectCustomTypeNames(type.innerType, names);
-    } else if (type instanceof MutSetType) {
-        collectCustomTypeNames(type.innerType, names);
-    } else if (type instanceof MaybeType) {
-        collectCustomTypeNames(type.innerType, names);
-    } else if (type instanceof EnumType) {
-        for (const v of type.variants) {
-            if (v.type) collectCustomTypeNames(v.type, names);
-        }
-    } else if (type instanceof EscapeType) {
-        collectCustomTypeNames(type.innerType, names);
-    }
-}
-
-// Substitute type parameters in a type tree using a binding map
-export function substituteTypeParams(type: Type, bindings: Map<string, Type>): Type {
-    if (type instanceof CustomType && bindings.has(type.name)) {
-        const substituted = bindings.get(type.name)!;
-        return substituted;
-    }
-    if (type instanceof CustomType && type.templateArgs) {
-        return new CustomType(
-            type.name,
-            type.traits,
-            type.templateArgs.map((t) => substituteTypeParams(t, bindings))
-        );
-    }
-    if (type instanceof FuncType) {
-        return new FuncType(
-            type.paramTypes.map((pt) => substituteTypeParams(pt, bindings)),
-            substituteTypeParams(type.returnType, bindings)
-        );
-    }
-    if (type instanceof ArrayType) {
-        return new ArrayType(substituteTypeParams(type.innerType, bindings));
-    }
-    if (type instanceof IterType) {
-        return new IterType(substituteTypeParams(type.innerType, bindings));
-    }
-    if (type instanceof MutArrType) {
-        return new MutArrType(substituteTypeParams(type.innerType, bindings));
-    }
-    if (type instanceof TupleType) {
-        return new TupleType(type.types.map((t) => substituteTypeParams(t, bindings)));
-    }
-    if (type instanceof DictType) {
-        return new DictType(
-            substituteTypeParams(type.keyType, bindings),
-            substituteTypeParams(type.valueType, bindings)
-        );
-    }
-    if (type instanceof MutDictType) {
-        return new MutDictType(
-            substituteTypeParams(type.keyType, bindings),
-            substituteTypeParams(type.valueType, bindings)
-        );
-    }
-    if (type instanceof SetType) {
-        return new SetType(substituteTypeParams(type.innerType, bindings));
-    }
-    if (type instanceof MutSetType) {
-        return new MutSetType(substituteTypeParams(type.innerType, bindings));
-    }
-    if (type instanceof MaybeType) {
-        return new MaybeType(substituteTypeParams(type.innerType, bindings));
-    }
-    if (type instanceof EnumType) {
-        return new EnumType(
-            type.name,
-            type.variants.map((v) => ({
-                name: v.name,
-                type: v.type ? substituteTypeParams(v.type, bindings) : null,
-            }))
-        );
-    }
-    if (type instanceof EscapeType) {
-        return new EscapeType(substituteTypeParams(type.innerType, bindings));
-    }
-    return type;
-}
-
 export class FuncType {
     constructor(
+        /** The types of arguments that this function expects to receive */
         public paramTypes: Type[],
-        public returnType: Type
+        /** The type of the value that this function produces */
+        public returnType: Type,
+        /** If this function is associated with a specific type --
+         * e.g., a call to Foo.bar(1, 2, 3) would have associated type Foo
+         */
+        public associatedType: Type | null = null
     ) {}
 
     toString(): string {
-        return `Func[${this.paramTypes.join(", ")}, ${this.returnType}]`;
+        const str = `$Func[${this.paramTypes.join(", ")}: ${this.returnType}]`;
+        if (this.associatedType !== null) {
+            return `(${this.associatedType.toString()})${str}`;
+        }
+        return str;
     }
 }
 
@@ -144,26 +46,6 @@ export class ArrayType {
     toString(): string {
         return `Arr[${this.innerType}]`;
     }
-
-    nDims(): number {
-        if (!(this.innerType instanceof ArrayType)) {
-            return 1;
-        }
-        return 1 + this.innerType.nDims();
-    }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length < 1) {
-            return "array access requires at least one index";
-        }
-        if (indexTypes.length > this.nDims()) {
-            return `incompatible number of array indices: expected at most ${this.nDims()}, got ${indexTypes.length}`;
-        }
-        if (indexTypes.some((type) => type !== "Int" && type !== "Num")) {
-            return `array indices are not of type Int or Num`;
-        }
-        return null;
-    }
 }
 
 export class IterType {
@@ -172,16 +54,6 @@ export class IterType {
     toString(): string {
         return `Iter[${this.innerType}]`;
     }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== 1) {
-            return `iter type requires exactly one index, got ${indexTypes.length}`;
-        }
-        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
-            return `iter index must be of type Int or Num`;
-        }
-        return null;
-    }
 }
 
 export class MutArrType {
@@ -189,16 +61,6 @@ export class MutArrType {
 
     toString(): string {
         return `MutArr[${this.innerType}]`;
-    }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== 1) {
-            return `mutable array requires exactly one index, got ${indexTypes.length}`;
-        }
-        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
-            return `mutable array index must be of type Int or Num`;
-        }
-        return null;
     }
 }
 
@@ -211,16 +73,6 @@ export class TupleType {
 
     get length(): number {
         return this.types.length;
-    }
-
-    checkIndicesCompatible(indexTypes: Type[]): string | null {
-        if (indexTypes.length !== 1) {
-            return `tuple type requires exactly one index, got ${indexTypes.length}`;
-        }
-        if (indexTypes[0] !== "Int" && indexTypes[0] !== "Num") {
-            return `tuple index must be of type Int or Num`;
-        }
-        return null;
     }
 }
 
@@ -239,6 +91,7 @@ export class DictType {
             return `dict requires exactly one key, got ${indexTypes.length}`;
         }
         // Any type is allowed as a key
+        // TODO: This is not right! The type has to match!
         return null;
     }
 }
@@ -286,55 +139,36 @@ export class MaybeType {
     }
 }
 
-export interface EnumVariant {
-    name: string;
-    type: Type | null;
-}
-
-export class EnumType {
-    constructor(
-        public name: string,
-        public variants: EnumVariant[]
-    ) {}
-
-    toString(): string {
-        return this.name;
-    }
-
-    /** Return the index of a variant by name, or -1 if not found. */
-    variantIndex(variantName: string): number {
-        return this.variants.findIndex((v) => v.name === variantName);
-    }
-
-    /** Return the type of a variant's value, or null if plain. */
-    variantType(variantName: string): Type | null {
-        const v = this.variants.find((v) => v.name === variantName);
-        return v ? v.type : null;
-    }
-
-    /** True if at least one variant has a value type (tagged union). */
-    get isTagged(): boolean {
-        return this.variants.some((v) => v.type !== null);
-    }
-}
-
 export class CustomType {
     name: string;
-    traits: string[];
     /** Template arguments for generic types (e.g., Pair[Int] → templateArgs=[Int]).
      *  Used by generic structs and enums to carry concrete type args. */
-    templateArgs?: Type[];
+    templateArgs: Type[];
 
-    constructor(name: string, traits: string[] = [], templateArgs?: Type[]) {
+    constructor(name: string, templateArgs: Type[] = []) {
         this.name = name;
-        this.traits = traits;
-        this.templateArgs = templateArgs && templateArgs.length > 0 ? templateArgs : undefined;
+        this.templateArgs = templateArgs;
     }
 
     toString(): string {
-        if (this.traits.length === 0) {
+        if (this.templateArgs.length === 0) {
             return this.name;
+        } else {
+            return `${this.name}[${this.templateArgs.map((ta) => ta.toString()).join(", ")}]`;
         }
+    }
+}
+
+export class GenericType {
+    name: string;
+    traits: string[];
+
+    constructor(name: string, traits: string[]) {
+        this.name = name;
+        this.traits = traits;
+    }
+
+    toString(): string {
         return `${this.name}[[${this.traits.join(", ")}]]`;
     }
 
@@ -368,19 +202,21 @@ export type Type =
     | SetType
     | MutSetType
     | MaybeType
-    | EnumType
     | CustomType
-    | "Self";
+    | GenericType
+    | "Self"
+    | "Unknown"
+    | "Infer";
 
 export type CallableType =
     | FuncType
-    | ArrayType
     | IterType
+    | ArrayType
     | MutArrType
     | TupleType
     | DictType
     | MutDictType
-    | MutSetType;
+    | "Str";
 
 export class TemplateTypes {
     constructor(
@@ -401,7 +237,19 @@ export class TemplateTypes {
     }
 }
 
-export function getType(typeName: string, templateTypes: TemplateTypes): Type {
+export function getType(
+    typeName: string,
+    templateTypes: TemplateTypes,
+    generics: Record<string, { traits: string[]; used: boolean }> | null = null
+): Type {
+    if (generics !== null && typeName in generics) {
+        if (!templateTypes.empty()) {
+            throw new Error(`Generic type ${typeName} cannot have template types`);
+        }
+        // Mark this generic as used so the parser can easily figure out if we try to declare a function with a generic that is not used as part of the function definition
+        generics[typeName].used = true;
+        return new GenericType(typeName, generics[typeName].traits);
+    }
     if (["Int", "Num", "Str", "Bool", "Null", "Self"].includes(typeName)) {
         if (!templateTypes.empty()) {
             throw new Error(`${typeName} cannot have template types`);
@@ -502,7 +350,6 @@ export function getType(typeName: string, templateTypes: TemplateTypes): Type {
 
     return new CustomType(
         typeName,
-        [],
         templateTypes.types.length > 0 ? templateTypes.types : undefined
     );
 }

@@ -1,6 +1,6 @@
 import type * as AST from "./ast/index";
 import { Block } from "./ast/expression";
-import { BUILTINS } from "./builtins";
+import { BUILTINS } from "./ast/builtins/builtin-js";
 
 const INDENT = "    ";
 
@@ -56,9 +56,12 @@ export function safeJSName(name: string): string {
     const dollarIdx = name.indexOf("$");
     const baseName = dollarIdx === -1 ? name : name.slice(0, dollarIdx);
     // Sanitize special characters in type-associated function names
-    // e.g., "Int.zero" → "Int_zero", "Arr[Int].empty" → "Arr_Int_empty"
-    let sanitizedBase = baseName.replace(/\./g, "Ϯ");
-    sanitizedBase = sanitizedBase.replace(/\[/g, "_").replace(/\]/g, "");
+    // e.g., "Int::zero" → "IntϮzero", "Arr[Int].empty" → "ArrюIntϮempty"
+    const sanitizedBase = baseName
+        .replace(/::/g, "Ϯ")
+        .replace(/\[/g, "ю")
+        .replace(/\]/g, "")
+        .replace(/,/g, "ф");
     if (JS_RESERVED_WORDS.has(sanitizedBase)) {
         const suffix = dollarIdx === -1 ? "" : name.slice(dollarIdx);
         return `$${sanitizedBase}${suffix}`;
@@ -67,14 +70,14 @@ export function safeJSName(name: string): string {
     return `${sanitizedBase}${suffix}`;
 }
 
-class Scope {
-    parent: Scope | null;
+class WriterScope {
+    parent: WriterScope | null;
     variableNames: Set<string> = new Set();
 
     lines: string[] = [];
 
     constructor(
-        parent: Scope | null = null,
+        parent: WriterScope | null = null,
         public baseIndentLevel = 0
     ) {
         this.parent = parent;
@@ -91,7 +94,7 @@ export class JSWriter {
     ast: AST.Expression;
     currentLine: string = "";
     indentLevel: number = 0;
-    scope: Scope = new Scope();
+    scope: WriterScope = new WriterScope();
     builtins: Set<string> = new Set();
     nextUniqueId: number = 0;
     /** Depth of IIFE nesting — incremented when entering an IIFE-wrapping Block or If */
@@ -143,7 +146,7 @@ export class JSWriter {
         this.write("{");
         this.indentIn();
         this.newLine();
-        this.scope = new Scope(this.scope, this.indentLevel);
+        this.scope = new WriterScope(this.scope, this.indentLevel);
     }
 
     endScope() {

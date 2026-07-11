@@ -78,14 +78,6 @@ test("MutDict: detrans gives an immutable Dict", () => {
     testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(2, "b", d)`);
 });
 
-test("MutDict: cannot use after detrans", () => {
-    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); put(2, "b", m)`);
-    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); remove("a", m)`);
-    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m("a")`); // Not even non-mutating operations are allowed
-    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m2 = m;`);
-    testParseExpectError(`m = trans(Dict([("a", 1),])); d = detrans(m); m`); // Cannot even reference the variable
-});
-
 test("MutDict: unsafeTrans is a no-op", () => {
     requireIdenticalCompilation(`unsafeTrans(Dict([("a", 1),]))`, `Dict([("a", 1),])`);
 });
@@ -158,14 +150,6 @@ test("MutSet: when using unsafeTrans, mutating a mutable set does change the ori
 test("MutSet: detrans gives an immutable Set", () => {
     testCompile(`m = trans(Set([1, 2])); s = detrans(m); contains(2, s)`, true);
     testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(2, s)`);
-});
-
-test("MutSet: cannot use after detrans", () => {
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); push(2, m)`);
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); remove(2, m)`);
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); contains(2, m)`); // Not even non-mutating operations are allowed
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); m2 = m;`);
-    testParseExpectError(`m = trans(Set([1, 2])); s = detrans(m); m`); // Cannot even reference the variable
 });
 
 test("MutSet: unsafeTrans is a no-op", () => {

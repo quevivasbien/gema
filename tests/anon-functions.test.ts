@@ -155,6 +155,7 @@ test("anon: backslash multiple params, no curly braces", () => {
 });
 
 test("anon: backslash zero params", () => {
+    // TODO: I don't actually think we should allow this. It seems like this will create parsing ambiguities.
     testCompile("(\\ { 42 })()", 42);
 });
 
@@ -260,8 +261,7 @@ test("anon: pipe with func syntax", () => {
 test("anon: backslash inside generic function body", () => {
     testCompile(
         `
-        trait Any {}
-        func length(arr: Iter[T]): Num where T is Any {
+        func [T] length(arr: Iter[T]): Num {
             reduce(\\(acc, x) { acc + 1 }, 0, arr)
         };
         length([10, 20, 30])
@@ -342,4 +342,89 @@ test("anon: error — type mismatch in builtin function arg", () => {
 test("anon: error — backslash cannot be assigned to variable", () => {
     // Backslash syntax only works in direct call contexts; use func(x: Type) for variable assignment
     testParseExpectError("f = \\x { x + 1 }; f(5)");
+});
+
+// ============================================================
+// Inference — user-defined functions
+// ============================================================
+
+test("anon: inference — user-defined function with lambda", () => {
+    testCompile(
+        `
+        func apply(fn: Func[Num: Num], x: Num): Num { fn(x) }
+        apply(\\x { x + 1 }, 5)
+    `,
+        6
+    );
+});
+
+test("anon: inference — user-defined function, structural match", () => {
+    testCompile(
+        `
+        func transform(arr: Arr[Num], fn: Func[Num: Num]): Iter[Num] { map(fn, arr) }
+        collect(transform([1, 2, 3], \\x { x * 2 }))
+    `,
+        [2, 4, 6]
+    );
+});
+
+test("anon: inference — user-defined generic function", () => {
+    testCompile(
+        `
+        func [T] apply(fn: Func[T: T], x: T): T { fn(x) }
+        apply(\\x { x + 1 }, 5)
+    `,
+        6
+    );
+    testCompile(
+        `
+        func [T] apply(fn: Func[T: T], x: T): T { fn(x) }
+        apply(\\x { x + "!" }, "hello")
+    `,
+        "hello!"
+    );
+});
+
+test("anon: inference — user-defined function checks return type", () => {
+    // Lambda body returns Str but function expects Func[Num: Num] → error
+    testParseExpectError(`
+        func apply(fn: Func[Num: Num], x: Num): Num { fn(x) }
+        apply(\\x { "oops" }, 5)
+    `);
+});
+
+test("anon: inference — user-defined function with 2-param lambda", () => {
+    testCompile(
+        `
+        func fold(fn: Func[Num, Num: Num], init: Num, arr: Arr[Num]): Num {
+            reduce(fn, init, arr)
+        }
+        fold(\\(acc, x) { acc + x }, 0, [1, 2, 3])
+    `,
+        6
+    );
+});
+
+test("anon: inference — lambda as non-first arg to user-defined function", () => {
+    testCompile(
+        `
+        func schedule(x: Num, fn: Func[Num: Num]): Num { fn(x) }
+        schedule(5, \\x { x * 3 })
+    `,
+        15
+    );
+});
+
+test("anon: inference — unambiguous by lambda param count", () => {
+    // Two overloads differing in the FuncType's param count — the lambda's
+    // param count should disambiguate.
+    testCompile(
+        `
+        func foo(f: Func[Num, Num: Num]) { f(1, 2) }
+        func foo(f: Func[Num: Num]) { f(1) }
+
+        foo(\\x { x + 1 })
+    `,
+        2
+    );
 });

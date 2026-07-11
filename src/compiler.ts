@@ -1,9 +1,8 @@
 import { ASTError, Block, Expression, UseModule } from "./ast";
 import { parse } from "./parse";
 import { scan } from "./scan";
-import { writeJS } from "./write-js";
-
 import { treeShake } from "./tree-shake";
+import { writeJS } from "./write-js";
 
 interface CompileResult {
     js: string;

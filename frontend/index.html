@@ -4,7 +4,14 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Gema Playground</title>
-        <link rel="stylesheet" href="styles.css" />
+        <!-- To avoid flash of unstyled content before everything loads: -->
+        <style>
+            html {
+                visibility: hidden;
+                opacity: 0;
+            }
+        </style>
+        <link rel="preload" href="styles.css" as="style" onload="this.rel = 'stylesheet'" />
         <link rel="icon" href="favicon.svg" type="image/x-icon" />
     </head>
 
@@ -53,5 +60,11 @@
         </main>
 
         <script type="module" src="dist/bundle.js"></script>
+        <script>
+            window.addEventListener("DOMContentLoaded", () => {
+                document.documentElement.style.visibility = "visible";
+                document.documentElement.style.opacity = "1";
+            });
+        </script>
     </body>
 </html>

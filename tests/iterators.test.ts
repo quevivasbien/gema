@@ -7,18 +7,8 @@ import {
     requireIdenticalCompilation,
 } from "./helpers";
 
-test("compile map iterator", () => {
+test("map iterator with anonymous function", () => {
     testCompile(`collect(map(func(x: Num) { x + 1 }, [1, 2, 3]))`, [2, 3, 4]);
-    testCompile(
-        `
-        func foo(x: Num): Num {
-            x
-        };
-        
-        collect(map(foo[Num], [1, 2, 3]))
-        `,
-        [1, 2, 3]
-    );
     testCompile(
         `
         add1 = func(x: Num) {
@@ -33,6 +23,22 @@ test("compile map iterator", () => {
         `,
         [3, 4, 5]
     );
+});
+
+test("map iterator with named function", () => {
+    testCompile(
+        `
+        func foo(x: Num): Num {
+            x
+        };
+        
+        collect(map(foo[Num], [1, 2, 3]))
+        `,
+        [1, 2, 3]
+    );
+});
+
+test("map iterator with array", () => {
     testCompile(
         `
         arr = ["hello", "there"];
@@ -208,37 +214,10 @@ test("compile repeated use of iterator", () => {
     );
 });
 
-test("compile fallback on functions with Iter params when calling with Arr", () => {
-    // Tests the combination of both features:
-    //   1. Nested generic type Iter[T] in the signature
-    //   2. Auto array-to-iterator conversion (Arr[Num] → Iter[Num])
-    testCompile(
-        `
-        func foo(x: Iter[Num]) { reduce(func(acc: Num, x: Num){acc+x}, 0, [1,2,3]) }
-
-        foo([1,2,3])
-     `,
-        6
-    );
-    // If Arr signature is available, this is the one that should be used
-    testCompile(
-        `
-        func matches(x: Arr[Num]) { true }
-
-        func matches(x: Iter[Num]) { false }
-
-        matches([1])
-    `,
-        true
-    );
-});
-
 test("compile function with nested generic type", () => {
     testCompile(
         `
-        trait Any {}
-
-        func getLength(arr: Arr[T]): Num where T is Any {
+        func [T] getLength(arr: Arr[T]): Num {
             reduce(func(acc: Num, x: T) { acc + 1 }, 0, arr)
         }
 
@@ -249,11 +228,11 @@ test("compile function with nested generic type", () => {
     testCompile(
         `
         trait Summable {
-            sum[(a: Self, b: Self): Self],
+            sum[Self, Self: Self],
         }
 
-        func computeSum(arr: Arr[T]): T where T is Summable {
-            reduce(func(acc: T, x: T) { sum(acc, x) }, 0, arr)
+        func [T: Summable] computeSum(arr: Arr[T]): T {
+            reduce(func(acc: T, x: T) { sum(acc, x) }, unwrap(arr(0)), arr(1..))
         }
 
         func sum(x: Num, y: Num): Num {
@@ -263,45 +242,6 @@ test("compile function with nested generic type", () => {
         computeSum([1,2,3])
     `,
         6
-    );
-    // Tests the combination of both features:
-    //   1. Nested generic type Iter[T] in the signature
-    //   2. Auto array-to-iterator conversion (Arr[Num] → Iter[Num])
-    testCompile(
-        `
-        trait Summable {
-            sum[(a: Self, b: Self): Self],
-        }
-
-        func sum(iter: Iter[T], start: T): T where T is Summable {
-            reduce(func(acc: T, x: T) { sum(acc, x) }, start, iter)
-        }
-
-        func sum(a: Num, b: Num): Num {
-            a + b
-        }
-
-        sum([1, 2, 3], 0)
-    `,
-        6
-    );
-    testCompile(
-        `
-        trait Concat {
-            concat[(a: Self, b: Self): Self],
-        }
-
-        func join(iter: Iter[T], start: T): T where T is Concat {
-            reduce(func(acc: T, x: T) { concat(acc, x) }, start, iter)
-        }
-
-        func concat(a: Arr[Num], b: Arr[Num]): Arr[Num] {
-            a + b
-        }
-
-        join([[1,2], [3,4], [5,6]], []: Num)
-    `,
-        [1, 2, 3, 4, 5, 6]
     );
 });
 
@@ -326,17 +266,6 @@ test("parse reduce expression", () => {
             x + y
         };
         collect(filter(myFilter, [1, 2, 3], false))
-    `);
-});
-
-test("parse fallback on functions with Iter params when calling with Arr", () => {
-    testParse(`
-        func toStr(iter: Iter[Bool]) {
-            strs = map(func(x: Bool){ if x { "*" } else { " " }}, iter);
-            reduce(func(acc:Str, x:Str){acc+x}, "", strs)
-        }
-
-        toStr([false, true, false, true])
     `);
 });
 

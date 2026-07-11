@@ -1,4 +1,4 @@
-import { TokenType, type Token } from "../tokens";
+import { type Token } from "../tokens";
 import type { JSWriter } from "../write-js";
 import { Expression } from "./expression";
 import type { Scope } from "./scope";
@@ -119,16 +119,6 @@ export class Assignment extends Expression {
         }
     }
 
-    clone(bindings?: Map<string, Type>): Expression {
-        const cloned = new Assignment(
-            { line: this.line, col: this.col, text: this.name, type: TokenType.Identifier },
-            this.value.clone(bindings),
-            this.isDropped,
-            this.isMutable
-        );
-        return cloned;
-    }
-
     toJS(writer: JSWriter): void {
         const safeName = writer.safeName(this.name);
         if (this.isReassignment) {
@@ -201,15 +191,6 @@ export class TupleUnpack extends Expression {
                 binding.isReassignment = true;
             }
         }
-    }
-
-    clone(bindings?: Map<string, Type>): Expression {
-        return new TupleUnpack(
-            { line: this.line, col: this.col, text: "(", type: TokenType.LParen },
-            this.bindings.map((b) => ({ name: b.name, isMutable: b.isMutable })),
-            this.source.clone(bindings),
-            this.isDropped
-        );
     }
 
     toJS(writer: JSWriter): void {

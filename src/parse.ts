@@ -1,5 +1,5 @@
 import * as AST from "./ast/index";
-import { type Type, TemplateTypes, getType } from "./ast/types";
+import { type Type, FuncType, GenericType, TemplateTypes, getType } from "./ast/types";
 import { TokenType, KEYWORDS, type Token } from "./tokens";
 
 interface ParseError {
@@ -499,27 +499,33 @@ function parseTrait(parser: Parser): AST.Expression {
         return parser.error("Expected '{' after trait name.");
     }
     parser.advance();
-    const requiredFunctions: { name: string; paramNames: string[]; types: TemplateTypes }[] = [];
+    const requiredFunctions: { name: string; signature: FuncType }[] = [];
     while (!parser.atEnd() && parser.current().type !== TokenType.RBrace) {
         // Expect inputs of form:
-        //   FuncName[(name: Type, ...): ReturnType]
-        //   Self.funcName[(name: Type, ...): ReturnType]  (type-associated function)
+        //   funcName[Type, ...: ReturnType]
+        //   Type::funcName[Type, ...: ReturnType]  (type-associated function)
         if (parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected function name.");
         }
-        let funcName = parser.current().text;
-        parser.advance();
-
-        // Detect Self.funcName pattern
-        if (
-            funcName === "Self" &&
-            parser.current().type === TokenType.Dot &&
-            parser.peek()?.type === TokenType.Identifier
-        ) {
-            parser.advance(); // skip '.'
-            funcName = "Self." + parser.current().text;
-            parser.advance(); // skip funcName
+        // If current identifier is not immediately followed by "[",
+        // assume this is a signature for a TAF
+        let associatedType: Type | null = null;
+        if (parser.peek().type !== TokenType.LBracket) {
+            associatedType = parser.getTypeName();
+            if (associatedType === null) {
+                return parser.error("Expected function name or associated type");
+            }
+            if (parser.current().type !== TokenType.ColonColon) {
+                return parser.error("Expected '::' after type name");
+            }
+            parser.advance(); // consume '::'
+            if (parser.current().type !== TokenType.Identifier) {
+                return parser.error("Expected function name.");
+            }
         }
+
+        const funcName = parser.current().text;
+        parser.advance();
 
         // Expect '[' after function name
         if (parser.atEnd() || parser.current().type !== TokenType.LBracket) {
@@ -527,33 +533,17 @@ function parseTrait(parser: Parser): AST.Expression {
         }
         parser.advance();
 
-        // Expect '(' for parameter list
-        if (parser.atEnd() || parser.current().type !== TokenType.LParen) {
-            return parser.error("Expected '(' for parameter list in trait function signature.");
-        }
-        parser.advance();
-
-        // Parse parameter list: name: Type, name: Type, ...
-        const paramNames: string[] = [];
+        // Parse parameter list: Type1, Type2, ...
         const paramTypes: Type[] = [];
-        while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-            if (parser.current().type !== TokenType.Identifier) {
-                return parser.error("Expected parameter name.");
-            }
-            const paramName = parser.current().text;
-            parser.advance();
-
-            if (parser.atEnd() || parser.current().type !== TokenType.Colon) {
-                return parser.error("Expected ':' after parameter name.");
-            }
-            parser.advance();
-
+        while (
+            !parser.atEnd() &&
+            parser.current().type !== TokenType.Colon &&
+            parser.current().type !== TokenType.RBracket
+        ) {
             const paramType = parser.getTypeName();
             if (!paramType) {
                 return parser.error("Invalid type for parameter.");
             }
-
-            paramNames.push(paramName);
             paramTypes.push(paramType);
 
             if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
@@ -563,7 +553,6 @@ function parseTrait(parser: Parser): AST.Expression {
         if (parser.atEnd()) {
             return parser.error("Unterminated parameter list in trait function signature.");
         }
-        parser.advance(); // consume ')'
 
         // Expect ':'
         if (parser.atEnd() || parser.current().type !== TokenType.Colon) {
@@ -575,10 +564,10 @@ function parseTrait(parser: Parser): AST.Expression {
         if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
             return parser.error("Expected return type.");
         }
-        const returnTypeName = parser.current().text;
-        parser.advance();
-        const nestedTemplateTypes = parser.getTemplateTypes();
-        const returnType = getType(returnTypeName, nestedTemplateTypes);
+        const returnType = parser.getTypeName();
+        if (!returnType) {
+            return parser.error("Invalid type for parameter.");
+        }
 
         // Expect ']'
         if (parser.atEnd() || parser.current().type !== TokenType.RBracket) {
@@ -588,8 +577,7 @@ function parseTrait(parser: Parser): AST.Expression {
 
         requiredFunctions.push({
             name: funcName,
-            paramNames,
-            types: new TemplateTypes(paramTypes, returnType),
+            signature: new FuncType(paramTypes, returnType, associatedType),
         });
 
         if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
@@ -621,7 +609,9 @@ function parseEnum(parser: Parser): AST.Expression {
     parser.advance(); // consume enum name
 
     // Parse optional type parameter list: enum Result[T, E] { ... }
-    const typeParams: string[] = [];
+    // We will use the same mechanism used for generic function definitions to parse
+    // the type parameters, although for now we won't accept trait bounds
+    const typeParams: Record<string, { traits: []; used: false }> = {};
     if (!parser.atEnd() && parser.current().type === TokenType.LBracket) {
         parser.advance(); // consume '['
         while (!parser.atEnd() && parser.current().type !== TokenType.RBracket) {
@@ -629,10 +619,10 @@ function parseEnum(parser: Parser): AST.Expression {
                 return parser.error("Expected type parameter name.");
             }
             const tpName = parser.current().text;
-            if (typeParams.includes(tpName)) {
+            if (tpName in typeParams) {
                 return parser.error(`Duplicate type parameter '${tpName}'.`);
             }
-            typeParams.push(tpName);
+            typeParams[tpName] = { traits: [], used: false };
             parser.advance();
             if (parser.current().type === TokenType.Comma) {
                 parser.advance();
@@ -667,7 +657,7 @@ function parseEnum(parser: Parser): AST.Expression {
         // Check for optional type annotation: variant: Type
         if (!parser.atEnd() && parser.current().type === TokenType.Colon) {
             parser.advance(); // consume ':'
-            variantType = parser.getTypeName();
+            variantType = parser.getTypeName(typeParams);
             if (!variantType) {
                 return parser.error("Invalid type annotation for enum variant.");
             }
@@ -685,8 +675,23 @@ function parseEnum(parser: Parser): AST.Expression {
     }
     parser.advance(); // consume '}'
 
+    // Check that we've actually used all the generic types that we created
+    for (const name of Object.keys(typeParams)) {
+        if (!typeParams[name].used) {
+            return parser.error(`Generic type ${name} is not used as a parameter type`);
+        }
+    }
+
     return parser.tryCreateASTExpression(
-        () => new AST.EnumDef(rootToken, name, variants, typeParams)
+        () =>
+            new AST.EnumDef(
+                rootToken,
+                name,
+                variants,
+                Object.keys(typeParams).map(
+                    (name) => new GenericType(name, typeParams[name].traits)
+                )
+            )
     );
 }
 
@@ -803,35 +808,12 @@ function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
     if (!parser.atEnd() && parser.current().type === TokenType.LParen) {
         parser.advance();
         const args: AST.Expression[] = [];
-        const keywordArgs: { name: string; value: AST.Expression }[] = [];
-        let seenKeyword = false;
         while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-            if (
-                parser.current().type === TokenType.Identifier &&
-                parser.peek()?.type === TokenType.Equal
-            ) {
-                if (seenKeyword) {
-                    return parser.error("Duplicate keyword argument.");
-                }
-                seenKeyword = true;
-                const kwName = parser.current().text;
-                parser.advance();
-                parser.advance(); // skip '='
-                const kwValue = parser.expression();
-                if (kwValue === null) {
-                    return parser.error("Expected value for keyword argument.");
-                }
-                keywordArgs.push({ name: kwName, value: kwValue });
-            } else {
-                if (seenKeyword) {
-                    return parser.error("Cannot mix positional and keyword arguments.");
-                }
-                const arg = parser.expression();
-                if (arg === null) {
-                    return parser.error("Expected expression.");
-                }
-                args.push(arg);
+            const arg = parser.expression();
+            if (arg === null) {
+                return parser.error("Expected expression.");
             }
+            args.push(arg);
             if (parser.atEnd()) {
                 return parser.error("Unterminated call.");
             }
@@ -846,9 +828,7 @@ function parsePipe(parser: Parser, leftExpr: AST.Expression): AST.Expression {
         // Append the piped value as the last argument
         args.push(leftExpr);
         return parser.tryCreateASTExpression(() => {
-            const call = new AST.Call(nameToken, args);
-            call.keywordArgs = keywordArgs;
-            return call;
+            return new AST.Call(nameToken, args);
         });
     }
     return parser.tryCreateASTExpression(() => new AST.Call(nameToken, [leftExpr]));
@@ -872,6 +852,11 @@ function parseVariable(parser: Parser): AST.Expression {
     const variableToken = parser.previous();
     // Get template types if there are any attached
     const templateTypes = parser.getTemplateTypes();
+    if (parser.current()?.type === TokenType.ColonColon) {
+        // This is something like Foo[T]::bar or Foo::baz(bim)
+        parser.advance(); // consume '::'
+        return parseTypeAssociatedVariable(parser, variableToken, templateTypes);
+    }
     return parser.tryCreateASTExpression(() => new AST.Variable(variableToken, templateTypes));
 }
 
@@ -882,39 +867,12 @@ function parseCall(parser: Parser): AST.Expression {
     }
     parser.advance();
     const args: AST.Expression[] = [];
-    const keywordArgs: { name: string; value: AST.Expression }[] = [];
-    let seenKeyword = false;
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-        // Detect keyword argument: Identifier =
-        if (
-            parser.current().type === TokenType.Identifier &&
-            parser.peek()?.type === TokenType.Equal
-        ) {
-            if (args.length > 0) {
-                return parser.error("Cannot mix positional and keyword arguments.");
-            }
-            seenKeyword = true;
-            const name = parser.current().text;
-            parser.advance(2); // skip Identifier and =
-            const value = parser.expression();
-            if (value === null) {
-                return parser.error("Expected value for keyword argument.");
-            }
-            // Check for duplicate keywords
-            if (keywordArgs.some((k) => k.name === name)) {
-                return parser.error(`Duplicate keyword argument '${name}'.`);
-            }
-            keywordArgs.push({ name, value });
-        } else {
-            if (seenKeyword) {
-                return parser.error("Cannot mix positional and keyword arguments.");
-            }
-            const arg = parser.expression();
-            if (arg === null) {
-                return parser.error("Unterminated call.");
-            }
-            args.push(arg);
+        const arg = parser.expression();
+        if (arg === null) {
+            return parser.error("Unterminated call.");
         }
+        args.push(arg);
         if (!parser.atEnd() && parser.current().type === TokenType.Comma) {
             parser.advance();
         }
@@ -925,43 +883,41 @@ function parseCall(parser: Parser): AST.Expression {
     parser.advance();
 
     return parser.tryCreateASTExpression(() => {
-        const call = new AST.Call(nameToken, args);
-        call.keywordArgs = keywordArgs;
-        return call;
+        return new AST.Call(nameToken, args);
     });
 }
 
-function parseDirectCall(parser: Parser, leftExpr: AST.Expression): AST.Expression {
+function parseTypeAssociatedVariable(
+    parser: Parser,
+    variableToken: Token,
+    templateTypes: TemplateTypes
+): AST.Expression {
+    if (parser.atEnd() || parser.current().type !== TokenType.Identifier) {
+        return parser.error("Expected identifier after '::'");
+    }
+    parser.advance();
+    const innerExpr = parseVariable(parser);
+    if (innerExpr instanceof AST.ASTError) {
+        return innerExpr;
+    }
+    const generics = parser.bodyGenerics;
+    return parser.tryCreateASTExpression(
+        () => new AST.TypeAssociatedExpr(variableToken, templateTypes, innerExpr, generics)
+    );
+}
+
+function parseDirectCall(
+    parser: Parser,
+    leftExpr: AST.Expression,
+    isUnsafe: boolean = false
+): AST.Expression {
     const args: AST.Expression[] = [];
-    const keywordArgs: { name: string; value: AST.Expression }[] = [];
-    let seenKeyword = false;
     while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-        // Detect keyword argument: Identifier =
-        if (
-            parser.current().type === TokenType.Identifier &&
-            parser.peek()?.type === TokenType.Equal
-        ) {
-            seenKeyword = true;
-            const name = parser.current().text;
-            parser.advance(2); // skip Identifier and =
-            const value = parser.expression();
-            if (value === null) {
-                return parser.error("Expected value for keyword argument.");
-            }
-            if (keywordArgs.some((k) => k.name === name)) {
-                return parser.error(`Duplicate keyword argument '${name}'.`);
-            }
-            keywordArgs.push({ name, value });
-        } else {
-            if (seenKeyword) {
-                return parser.error("Cannot mix positional and keyword arguments.");
-            }
-            const arg = parser.expression();
-            if (arg === null) {
-                return parser.error("Unterminated call.");
-            }
-            args.push(arg);
+        const arg = parser.expression();
+        if (arg === null) {
+            return parser.error("Unterminated call.");
         }
+        args.push(arg);
         if (parser.current().type === TokenType.Comma) {
             parser.advance();
         }
@@ -972,9 +928,7 @@ function parseDirectCall(parser: Parser, leftExpr: AST.Expression): AST.Expressi
     parser.advance();
 
     return parser.tryCreateASTExpression(() => {
-        const call = new AST.DirectCall(leftExpr, args);
-        call.keywordArgs = keywordArgs;
-        return call;
+        return new AST.DirectCall(leftExpr, args, isUnsafe);
     });
 }
 
@@ -985,27 +939,7 @@ function parseUnsafeCall(parser: Parser, leftExpr: AST.Expression): AST.Expressi
     }
     parser.advance(); // skip '('
 
-    const args: AST.Expression[] = [];
-    while (!parser.atEnd() && parser.current().type !== TokenType.RParen) {
-        const arg = parser.expression();
-        if (arg === null) {
-            return parser.error("Unterminated unsafe call.");
-        }
-        args.push(arg);
-        if (parser.current().type === TokenType.Comma) {
-            parser.advance();
-        }
-    }
-    if (parser.atEnd()) {
-        return parser.error("Unterminated unsafe call.");
-    }
-    parser.advance(); // skip ')'
-
-    return parser.tryCreateASTExpression(() => {
-        const call = new AST.DirectCall(leftExpr, args);
-        call.isUnsafe = true;
-        return call;
-    });
+    return parseDirectCall(parser, leftExpr, true);
 }
 
 function parseArray(parser: Parser): AST.Expression {
@@ -1214,13 +1148,23 @@ function parseMatchExpression(parser: Parser): AST.Expression {
 }
 
 class Parser {
+    /** The tokens in the currently parsing module */
     tokens: Token[];
+    /** The index of the current token (with the `tokens` list) */
     index: number = 0;
     previousIndex: number = 0;
+    /** If we've encountered an error, we enter "panic mode" until we're able to get to a
+     * recoverable spot */
     panicMode: boolean = false;
+    /** We accumulate any errors encountered during parsing here */
     errors: ParseError[] = [];
+    /** Used to keep track of which modules we've visited so far
+     * so we can avoid circular imports  */
     visitedModules: Set<string>;
+    /** Map of moduleName -> module contents for all modules available for compilation */
     moduleTokens: Record<string, Token[]>;
+    /** Generic type params from enclosing generic function bodies */
+    bodyGenerics: Record<string, { traits: string[]; used: boolean }> | null = null;
 
     constructor(
         tokens: Token[],
@@ -1282,7 +1226,23 @@ class Parser {
         }
     }
 
-    getTemplateTypes(): TemplateTypes {
+    /** Resolve the effective generics: merge explicitly passed generics with
+     *  bodyGenerics from enclosing generic function bodies, with explicit generics
+     *  taking priority. The bodyGenerics merge at functionDef time already prevents
+     *  conflicting redefinitions, so this merge is for type resolution only. */
+    private effectiveGenerics(
+        generics: Record<string, { traits: string[]; used: boolean }> | null
+    ): Record<string, { traits: string[]; used: boolean }> | null {
+        if (generics === null) return this.bodyGenerics;
+        if (this.bodyGenerics === null) return generics;
+        // Both are present — merge, with explicit generics taking priority
+        return { ...this.bodyGenerics, ...generics };
+    }
+
+    getTemplateTypes(
+        generics: Record<string, { traits: string[]; used: boolean }> | null = null
+    ): TemplateTypes {
+        const effectiveGenerics = this.effectiveGenerics(generics);
         if (this.atEnd() || this.current().type !== TokenType.LBracket) {
             return new TemplateTypes();
         }
@@ -1298,7 +1258,11 @@ class Parser {
                 const returnTypeName = this.current().text;
                 this.advance();
                 const nestedTemplateTypes = this.getTemplateTypes();
-                templateTypes.returnType = getType(returnTypeName, nestedTemplateTypes);
+                templateTypes.returnType = getType(
+                    returnTypeName,
+                    nestedTemplateTypes,
+                    effectiveGenerics
+                );
                 break;
             }
             if (this.current().type !== TokenType.Identifier) {
@@ -1307,7 +1271,7 @@ class Parser {
             const typeName = this.current().text;
             this.advance();
             const nestedTemplateTypes = this.getTemplateTypes();
-            templateTypes.push(getType(typeName, nestedTemplateTypes));
+            templateTypes.push(getType(typeName, nestedTemplateTypes, effectiveGenerics));
             if (this.current().type === TokenType.Comma) {
                 this.advance();
             }
@@ -1319,63 +1283,21 @@ class Parser {
         return templateTypes;
     }
 
-    getTypeTraits(): { type: Type; trait: Type }[] {
-        if (this.atEnd() || this.current().type !== TokenType.Where) {
-            return [];
-        }
-        this.advance();
-        const typeTraits: { type: Type; trait: Type }[] = [];
-        while (!this.atEnd() && this.current().type !== TokenType.LBrace) {
-            if (this.current().type !== TokenType.Identifier) {
-                throw new Error("expected type alias after 'where'");
-            }
-            let typeName: Type;
-            try {
-                typeName = getType(this.current().text, new TemplateTypes());
-            } catch (e) {
-                if (e instanceof Error) {
-                    throw new Error(e.message, { cause: e });
-                }
-                throw e;
-            }
-            this.advance();
-            if (this.atEnd() || this.current().type !== TokenType.Is) {
-                throw new Error("expected 'is' after type alias");
-            }
-            this.advance();
-            if (this.atEnd() || this.current().type !== TokenType.Identifier) {
-                throw new Error("expected trait name after 'is'");
-            }
-            let traitName: Type;
-            try {
-                traitName = getType(this.current().text, new TemplateTypes());
-            } catch (e) {
-                if (e instanceof Error) {
-                    throw new Error(e.message, { cause: e });
-                }
-                throw e;
-            }
-            this.advance();
-            if (!this.atEnd() && this.current().type === TokenType.Comma) {
-                this.advance();
-            }
-            typeTraits.push({ type: typeName, trait: traitName });
-        }
-        return typeTraits;
-    }
-
-    getTypeName(): Type | null {
+    getTypeName(
+        generics: Record<string, { traits: string[]; used: boolean }> | null = null
+    ): Type | null {
+        const effectiveGenerics = this.effectiveGenerics(generics);
         if (this.current().type !== TokenType.Identifier) {
             return null;
         }
         const paramType = this.current().text;
         this.advance();
-        const templateTypes = this.getTemplateTypes();
+        const templateTypes = this.getTemplateTypes(effectiveGenerics);
         if (!this.atEnd() && this.current().type === TokenType.Comma) {
             this.advance();
         }
         try {
-            return getType(paramType, templateTypes);
+            return getType(paramType, templateTypes, effectiveGenerics);
         } catch (e) {
             if (e instanceof Error) {
                 this.error(e.message);
@@ -1599,7 +1521,7 @@ class Parser {
         let value: AST.Expression = rhs;
         if (isCompound && compoundOp) {
             // Desugar x += expr → x = x + expr by creating a Binary node
-            const varRef = new AST.Variable(variableToken, new TemplateTypes());
+            const varRef = new AST.Variable(variableToken, null);
             value = this.tryCreateASTExpression(() => {
                 // Build the binary operation token
                 const opToken = {
@@ -1620,53 +1542,138 @@ class Parser {
         return new AST.Assignment(variableToken, value, isDropped, isMutable);
     }
 
+    /**
+     * Gets a record of "generic name": ["trait name", ...] from sequence of tokens like
+     * [T, U: Trait1 + Trait 2, V: Trait3] or [T, U: Trait1, U: Trait2, V: Trait3]
+     * Returns null if the following sequence of tokens does not match this pattern
+     */
+    getGenerics(): {
+        error: string | null;
+        result: Record<string, { traits: string[]; used: false }> | null;
+    } {
+        if (this.current()?.type !== TokenType.LBracket) {
+            return { error: null, result: null };
+        }
+        this.advance(); // Consume "["
+        if (this.current().type === TokenType.RBracket) {
+            return { error: "Cannot have empty generic type list", result: null };
+        }
+        const generics: Record<string, { traits: string[]; used: false }> = {};
+        while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
+            if (this.current().type !== TokenType.Identifier) {
+                return { error: "Expected generic type name", result: null };
+            }
+            const name = this.current().text;
+            const traits: string[] = [];
+            this.advance();
+            if (this.current()?.type === TokenType.Colon) {
+                this.advance();
+                // Parse trait names associated with generic
+                while (true) {
+                    if (this.current()?.type !== TokenType.Identifier) {
+                        return { error: "Expected trait name", result: null };
+                    }
+                    traits.push(this.current().text);
+                    this.advance();
+                    if (this.current()?.type === TokenType.Plus) {
+                        this.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if (name in generics) {
+                // Add any new traits to existing generic
+                for (const trait of traits) {
+                    if (!generics[name].traits.includes(trait)) {
+                        generics[name].traits.push(trait);
+                    }
+                }
+            } else {
+                // Add a new generic
+                generics[name] = { traits, used: false };
+            }
+            if (this.current()?.type === TokenType.Comma) {
+                this.advance();
+            }
+        }
+        if (!this.atEnd()) {
+            this.advance(); // Consume "]"
+        }
+        return { error: null, result: generics };
+    }
+
     functionDef(): AST.Expression | null {
-        if (this.current().type !== TokenType.Func || this.peek()?.type !== TokenType.Identifier) {
+        if (
+            this.current().type !== TokenType.Func ||
+            (this.peek().type !== TokenType.Identifier && this.peek().type !== TokenType.LBracket)
+        ) {
             return null;
         }
         const rootToken = this.current();
         this.advance();
-        let name = this.current().text;
-        let typeAssociatedName: string | null = null;
-        let typeAssociatedTemplates: TemplateTypes = new TemplateTypes();
+
+        // Check for generic types
+        const genericsResult = this.getGenerics();
+        if (genericsResult.error !== null) {
+            return this.error(genericsResult.error);
+        }
+        const generics = genericsResult.result;
+
+        let associatedType: Type | null = null;
+        if (this.peek()?.type !== TokenType.LParen) {
+            // Assume this must be a type-associated function
+            associatedType = this.getTypeName(generics);
+            if (associatedType === null) {
+                return this.error("Expected function name or associated type name");
+            }
+            if (
+                this.current()?.type !== TokenType.ColonColon ||
+                this.peek()?.type !== TokenType.Identifier
+            ) {
+                return this.error("Expected function name after associated type name");
+            }
+            this.advance(); // consume "::"
+        }
+        const name = this.current().text;
         this.advance();
-
-        // Check for template types on the type name: Arr[Int].funcName
-        if (this.current().type === TokenType.LBracket) {
-            typeAssociatedTemplates = this.getTemplateTypes();
-        }
-
-        // Check for type-associated function: func TypeName.funcName(...)
-        if (this.current().type === TokenType.Dot && this.peek()?.type === TokenType.Identifier) {
-            const templateStr = typeAssociatedTemplates.empty()
-                ? ""
-                : typeAssociatedTemplates.toString();
-            typeAssociatedName = name + templateStr;
-            this.advance(); // skip '.'
-            name = this.current().text;
-            this.advance(); // skip funcName
-        }
 
         if (this.current().type !== TokenType.LParen) {
             return this.error("Expected '(' after function name.");
         }
         this.advance();
+
         const params: { name: string; type: Type }[] = [];
         while (!this.atEnd() && this.current().type !== TokenType.RParen) {
             if (this.current().type !== TokenType.Identifier) {
                 return this.error("Expected parameter name.");
             }
             const paramName = this.current().text;
+            if (paramName === name) {
+                return this.error("Parameter name cannot be the same as the function name");
+            }
             this.advance();
             if (this.current().type !== TokenType.Colon) {
                 return this.error("Expected ':' after parameter name.");
             }
             this.advance();
-            const typeName = this.getTypeName();
+            const typeName = this.getTypeName(generics);
             if (!typeName) {
                 return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
             }
             params.push({ name: paramName, type: typeName });
+        }
+
+        // If this is a generic function definition, make sure we have used all the generic types as either (part of) an associated type or (part of) a param type
+        // Otherwise, we won't be able to resolve the type when we try to call this function
+        if (generics !== null) {
+            for (const genericName of Object.keys(generics)) {
+                if (!generics[genericName].used) {
+                    return this.error(
+                        `Generic type ${genericName} is not used as either an associated type or as a parameter type`
+                    );
+                }
+            }
         }
 
         if (this.atEnd()) {
@@ -1674,29 +1681,20 @@ class Parser {
         }
         this.advance();
 
-        let returnType: Type = "Null";
+        let returnType: Type | null = null;
         if (this.current().type === TokenType.Colon) {
             this.advance();
-            const explicitReturnType = this.getTypeName();
+            const explicitReturnType = this.getTypeName(generics);
             if (!explicitReturnType) {
                 return new AST.ErrorExpression(rootToken, "Invalid type annotation.");
             }
             returnType = explicitReturnType;
         }
-        // If no return type is specified, it defaults to "Null" and will be inferred
+        // If no return type is specified, it is set to null for now and will be inferred
         // from the body during cascadeTypes
 
         if (this.atEnd()) {
             return this.error("Unterminated function definition.");
-        }
-        let typeTraits;
-        try {
-            typeTraits = this.getTypeTraits();
-        } catch (e) {
-            if (e instanceof Error) {
-                return this.error(e.message);
-            }
-            throw e;
         }
 
         if (this.atEnd()) {
@@ -1707,18 +1705,35 @@ class Parser {
         }
         this.advance();
 
+        // Merge with any existing bodyGenerics from enclosing generic functions.
+        const savedBodyGenerics = this.bodyGenerics;
+        if (generics !== null) {
+            const merged = { ...(this.bodyGenerics ?? {}) };
+            for (const key of Object.keys(generics)) {
+                if (key in merged) {
+                    return this.error(
+                        `Generic type '${key}' is already defined in an enclosing scope`
+                    );
+                }
+                merged[key] = generics[key];
+            }
+            this.bodyGenerics = merged;
+        }
+        const body = this.block();
+        this.bodyGenerics = savedBodyGenerics;
+
         return this.tryCreateASTExpression(
             () =>
                 new AST.FunctionDef(
                     rootToken,
                     name,
+                    associatedType,
                     params,
                     returnType,
-                    typeTraits,
-                    this.block(),
-                    false,
-                    typeAssociatedName,
-                    typeAssociatedTemplates
+                    body,
+                    generics === null
+                        ? null
+                        : Object.keys(generics).map((k) => new GenericType(k, generics[k].traits))
                 )
         );
     }
@@ -1894,7 +1909,9 @@ class Parser {
         this.advance(); // consume struct name
 
         // Parse optional type parameter list: struct Pair[T, U] { ... }
-        const typeParams: string[] = [];
+        // We will use the same mechanism used for generic enum definitions to parse
+        // the type parameters, although for now we won't accept trait bounds
+        const typeParams: Record<string, { traits: []; used: false }> = {};
         if (!this.atEnd() && this.current().type === TokenType.LBracket) {
             this.advance(); // consume '['
             while (!this.atEnd() && this.current().type !== TokenType.RBracket) {
@@ -1902,10 +1919,10 @@ class Parser {
                     return this.error("Expected type parameter name.");
                 }
                 const tpName = this.current().text;
-                if (typeParams.includes(tpName)) {
+                if (tpName in typeParams) {
                     return this.error(`Duplicate type parameter '${tpName}'.`);
                 }
-                typeParams.push(tpName);
+                typeParams[tpName] = { traits: [], used: false };
                 this.advance();
                 if (this.current().type === TokenType.Comma) {
                     this.advance();
@@ -1941,7 +1958,9 @@ class Parser {
                 return this.error("Expected ':' after field name.");
             }
             this.advance();
-            const fieldType = this.getTypeName();
+            const fieldType = this.getTypeName(
+                Object.keys(typeParams).length > 0 ? typeParams : null
+            );
             if (!fieldType) {
                 return new AST.ErrorExpression(rootToken, "Invalid type annotation for field.");
             }
@@ -1958,8 +1977,24 @@ class Parser {
             return this.error("Unterminated struct definition.");
         }
         this.advance(); // consume '}'
+
+        // Check that we've actually used all the generic types that we created
+        for (const name of Object.keys(typeParams)) {
+            if (!typeParams[name].used) {
+                return this.error(`Generic type ${name} is not used as a parameter type`);
+            }
+        }
+
         return this.tryCreateASTExpression(
-            () => new AST.StructDef(rootToken, name, fields, typeParams)
+            () =>
+                new AST.StructDef(
+                    rootToken,
+                    name,
+                    fields,
+                    Object.keys(typeParams).map(
+                        (name) => new GenericType(name, typeParams[name].traits)
+                    )
+                )
         );
     }
 

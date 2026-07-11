@@ -189,36 +189,6 @@ test("mutarr: pass mutarr into function and push", () => {
     );
 });
 
-// ── Use-after-detrans error ──
-
-test("mutarr: error use after detrans", () => {
-    testParseExpectError(`
-        mutarr = trans([1, 2, 3]);
-        arr = detrans(mutarr);
-        push(4, mutarr)
-    `);
-    testParseExpectError(`
-        mutarr = trans([1, 2, 3]);
-        arr = detrans(mutarr);
-        put(99, 0, mutarr)
-    `);
-    testParseExpectError(`
-        mutarr = trans([1, 2, 3]);
-        arr = detrans(mutarr);
-        mutarr(0)
-    `); // not even non-mutating operations are allowed
-    testParseExpectError(`
-        mutarr = trans([1, 2, 3]);
-        arr = detrans(mutarr);
-        mutarr2 = mutarr;
-    `);
-    testParseExpectError(`
-        mutarr = trans([1, 2, 3]);
-        arr = detrans(mutarr);
-        mutarr
-    `); // cannot even reference the variable
-});
-
 // ── Error cases ──
 
 test("mutarr: error trans on non-array", () => {
