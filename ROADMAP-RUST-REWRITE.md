@@ -43,6 +43,7 @@ fully typed program, etc.
    - [Step 14: Error recovery & diagnostics polish](#step-14-error-recovery--diagnostics-polish)
    - [Step 15: Playground frontend](#step-15-playground-frontend)
 6. [Dataflow Diagram](#6-dataflow-diagram)
+7. [Breaking changes](#7-breaking-changes)
 
 ---
 
@@ -54,7 +55,7 @@ every downstream decision.
 ### 1a. Trait System
 
 **The current design** defines traits as a set of named function
-signatures. Implementation is *implicit* — you just define standalone
+signatures. Implementation is _implicit_ — you just define standalone
 functions with the right name and signature:
 
 ```gema
@@ -92,6 +93,7 @@ impl Equals for MyType {
 ```
 
 This fixes every issue above:
+
 - Implementations are **coherent** — a given `<Trait, Type>` pair has
   exactly one impl in scope.
 - The compiler can **verify trait bounds** by looking up the impl table,
@@ -139,6 +141,7 @@ deprecated `isConsumed` vestige).
 split** for Phase I. You can layer ownership on later if you want.
 
 Why:
+
 - Compiling ownership semantics to JavaScript (no borrow checker, no
   heap-allocated references by default) is a research problem, not an
   implementation detail.
@@ -151,7 +154,7 @@ Why:
 
 **If you want ownership later:** Add it as an opt-in lint or a separate
 pass that tracks move/borrow semantics on the typed HIR. The HIR still
-emits the same JS; ownership is a *static check*, not a codegen concern.
+emits the same JS; ownership is a _static check_, not a codegen concern.
 
 ### 1c. Target Scope
 
@@ -164,7 +167,7 @@ emits the same JS; ownership is a *static check*, not a codegen concern.
 - **Keep dependencies minimal.** The Rust ecosystem has great crate
   choices at every level, but you don't need a parser generator or a
   full query-based incremental system. A hand-written scanner + parser
-  + recursive tree walks is fully appropriate.
+  - recursive tree walks is fully appropriate.
 
 ---
 
@@ -219,14 +222,15 @@ Premature multi-crate adds friction for no benefit.
 
 **Key Cargo dependencies (recommended):**
 
-| Crate | Why | When |
-|-------|-----|------|
-| `codespan-reporting` or `miette` | Beautiful, structured diagnostics with source snippets | Phase I |
-| `rustc-hash` | Fast `FxHashMap` / `FxHashSet` for symbol tables | Phase II |
-| `wasm-pack` / `wasm-bindgen` | WASM target for the playground | Phase III |
-| `clap` | CLI argument parsing | Phase I (trivial, or skip it) |
+| Crate                            | Why                                                    | When                          |
+| -------------------------------- | ------------------------------------------------------ | ----------------------------- |
+| `codespan-reporting` or `miette` | Beautiful, structured diagnostics with source snippets | Phase I                       |
+| `rustc-hash`                     | Fast `FxHashMap` / `FxHashSet` for symbol tables       | Phase II                      |
+| `wasm-pack` / `wasm-bindgen`     | WASM target for the playground                         | Phase III                     |
+| `clap`                           | CLI argument parsing                                   | Phase I (trivial, or skip it) |
 
 **What NOT to add:**
+
 - `logos` / `nom` / `pest` — hand-written scanner+parser is cleaner for
   a language this size
 - `lalrpop` — Pratt parsing is already working; no need for a grammar
@@ -246,6 +250,7 @@ User note: since inkwell and llvm-sys are mentioned here, it's worth noting that
 errors.
 
 **SourceText:**
+
 ```rust
 pub struct SourceText {
     pub text: String,
@@ -254,6 +259,7 @@ pub struct SourceText {
 ```
 
 **Span:**
+
 ```rust
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
@@ -262,15 +268,17 @@ pub struct Span {
 }
 ```
 
-Span is *byte offset pair*, not line/col. Line/col is computed lazily
+Span is _byte offset pair_, not line/col. Line/col is computed lazily
 from the `SourceMap` when displaying diagnostics. This is critical
 because:
+
 - Spans survive transformations (parsing, lowering, codegen) without
   re-computation
 - They're `Copy` — cheap to thread everywhere
 - They compose naturally (`span.union(other_span)`)
 
 **SourceMap:**
+
 ```rust
 pub struct SourceMap {
     files: Vec<SourceText>,
@@ -283,6 +291,7 @@ impl SourceMap {
 ```
 
 **Diagnostics:**
+
 ```rust
 pub struct Diagnostic {
     pub severity: Severity,    // Error | Warning | Note
@@ -338,6 +347,7 @@ pub struct Token {
 ```
 
 Key design decisions:
+
 - **No `i` suffix on the integer token.** Strip it during scanning and
   mark the token as `TokenKind::Integer`. The `i` is a suffix, not part
   of the value.
@@ -346,6 +356,7 @@ Key design decisions:
   during parsing.
 
 **Implementation:**
+
 ```rust
 pub fn scan(source: &SourceText) -> (Vec<Token>, DiagnosticsBag) {
     let mut scanner = Scanner::new(source);
@@ -371,6 +382,7 @@ strings, invalid numeric suffixes) produce errors instead of panics.
 **Goal:** Define the AST as a set of recursive enums stored in arenas.
 
 **Core pattern:**
+
 ```rust
 pub type NodeId = id_arena::Id<NodeData>;
 
@@ -447,6 +459,7 @@ pub struct FuncDef {
 ```
 
 **Arena:**
+
 ```rust
 use id_arena::Arena;
 
@@ -464,6 +477,7 @@ impl AstArena {
 ```
 
 **Why arenas?**
+
 - `NodeId` is `Copy` (u32 internally) — no `Box` or `Rc` overhead
 - All nodes have the same lifetime (the arena's), so the borrow checker
   is happy
@@ -471,6 +485,7 @@ impl AstArena {
 - The arena can be dropped as a group, no recursive `Drop`
 
 **TypeNode for type annotations:**
+
 ```rust
 pub enum TypeNode {
     // Primitives
@@ -495,7 +510,7 @@ pub enum TypeNode {
 }
 ```
 
-`TypeNode` is what the parser produces. It gets *resolved* into interned
+`TypeNode` is what the parser produces. It gets _resolved_ into interned
 `Type` values (Phase II, Step 5) during type inference.
 
 ---
@@ -507,6 +522,7 @@ pub enum TypeNode {
 
 **Approach:** Pratt parser, closely modeled on the current
 `parse.ts` but cleaner because:
+
 - No exception-based error handling — collect into `DiagnosticsBag`
   and insert `ErrorExpr` sentinel nodes
 - No recursive module parsing — parse `use` statements as leaf nodes
@@ -633,6 +649,7 @@ pub enum TypeKind {
 ```
 
 **Key invariants:**
+
 - `TypeArena` deduplicates structurally equivalent types via
   `FxHashMap<TypeKind, TypeId>` (hash consing)
 - Named types with different `args` are different `TypeId`s
@@ -640,6 +657,7 @@ pub enum TypeKind {
   monomorphization, every type is concrete
 
 **Operations:**
+
 ```rust
 impl TypeArena {
     pub fn intern(&mut self, kind: TypeKind) -> TypeId;
@@ -692,6 +710,7 @@ pub struct ScopeData {
 ```
 
 **Resolution pass:**
+
 ```rust
 pub fn resolve_names(
     arena: &AstArena,
@@ -705,6 +724,7 @@ pub fn resolve_names(
 ```
 
 Algorithm:
+
 1. Walk the AST top-down.
 2. Enter a new scope at `Block`, `FuncDef`, `ForLoop`, `ImplBlock`.
 3. On encountering a definition (`Assignment`, `FuncDef`, `StructDef`,
@@ -719,6 +739,7 @@ Algorithm:
 
 **Why not conflate with type inference?** Because name resolution is
 unconditional — it doesn't depend on types at all. Separating it means:
+
 - You get "undefined name" errors immediately, before any type checking
 - The type inference pass can assume every name is resolved
 - The passes are independently testable
@@ -752,20 +773,20 @@ pub fn infer_types(
 
 **How each expression is typed (roughly):**
 
-| Expression | Inference rule |
-|---|---|
-| `IntLit` | Type is always `Int` |
-| `NumLit` | Type is always `Num` |
-| `StrLit` | Type is always `Str` |
-| `BoolLit` | Type is always `Bool` |
-| `NoneLit` | Type is `Maybe[T]` where `T` is inferred from context |
-| `Variable` | Look up `Symbol.ty` from the symbol table |
-| `Binary(a, op, b)` | Type-check `a` and `b`; result type from operator table |
-| `Call(name, args)` | Look up function signature; substitute generics if needed |
-| `FuncDef(...)` | Register `FuncType` in scope; type-check body with return type |
-| `Block(stmts)` | Type is the type of the last statement |
-| `If(conds, else)` | All branches must have the same type |
-| `Match(scrutinee, arms)` | Each arm type-checked; must unify to a single type |
+| Expression               | Inference rule                                                 |
+| ------------------------ | -------------------------------------------------------------- |
+| `IntLit`                 | Type is always `Int`                                           |
+| `NumLit`                 | Type is always `Num`                                           |
+| `StrLit`                 | Type is always `Str`                                           |
+| `BoolLit`                | Type is always `Bool`                                          |
+| `NoneLit`                | Type is `Maybe[T]` where `T` is inferred from context          |
+| `Variable`               | Look up `Symbol.ty` from the symbol table                      |
+| `Binary(a, op, b)`       | Type-check `a` and `b`; result type from operator table        |
+| `Call(name, args)`       | Look up function signature; substitute generics if needed      |
+| `FuncDef(...)`           | Register `FuncType` in scope; type-check body with return type |
+| `Block(stmts)`           | Type is the type of the last statement                         |
+| `If(conds, else)`        | All branches must have the same type                           |
+| `Match(scrutinee, arms)` | Each arm type-checked; must unify to a single type             |
 
 **The key simplification:** Because Gema has no subtyping, no
 higher-kinded types, and no complex type inference (like Hindley-Milner
@@ -783,7 +804,7 @@ recursive walk. The only tricky part is:
    problem and is handled by threading an "expected type" context
    parameter through the walk.
 
-User note: it would actually be nice to have more complex type inference so we don't need to provide type annotations in some locations where they are currently required (e.g., when creating empty arrays, instantiating generic enums, or using functions as values). 
+User note: it would actually be nice to have more complex type inference so we don't need to provide type annotations in some locations where they are currently required (e.g., when creating empty arrays, instantiating generic enums, or using functions as values).
 
 ---
 
@@ -808,7 +829,7 @@ pub fn monomorphize(
 
 1. **Collect instantiations.** Walk the typed AST and find every
    `Call` to a generic function. Record `(func_symbol, [concrete_type,
-   ...])` pairs. Likewise, find every `Variable` reference to a generic
+...])` pairs. Likewise, find every `Variable` reference to a generic
    struct/enum with concrete type args.
 
 2. **Deduplicate.** Use a `HashMap<(IdentId, Vec<TypeId>), NodeId>` to
@@ -922,6 +943,7 @@ fn monomorphize_generic() {
 simpler representation that maps directly to JavaScript.
 
 **The HIR:**
+
 ```rust
 pub enum HirExpr {
     /// Literals emit directly
@@ -1000,15 +1022,15 @@ pub enum HirExpr {
 
 **Lowering rules (examples):**
 
-| AST pattern | HIR output |
-|---|---|
-| `Binary(a, '+', b)` where both are `Int` | `Binary { op: Add, left: a, right: b }` |
-| `Binary(a, '//', b)` | `BuiltinCall { name: "intDiv", args: [a, b] }` |
-| `Match(scrut, arms)` where scrut is `Maybe[T]` | `If(..isNone..) { none .. } else { some .. }` |
-| `Block(stmts)` where value is used | Wrapped in `(() => { .. })()` |
-| `ForLoop(var, iter, body)` | `while` loop with `iter.next()` |
-| `Call("map", [fn, iter])` | `BuiltinFunc::Map` |
-| Generic call after monomorphization | `Call { name: "map$Int$Str", args: [...] }` |
+| AST pattern                                    | HIR output                                     |
+| ---------------------------------------------- | ---------------------------------------------- |
+| `Binary(a, '+', b)` where both are `Int`       | `Binary { op: Add, left: a, right: b }`        |
+| `Binary(a, '//', b)`                           | `BuiltinCall { name: "intDiv", args: [a, b] }` |
+| `Match(scrut, arms)` where scrut is `Maybe[T]` | `If(..isNone..) { none .. } else { some .. }`  |
+| `Block(stmts)` where value is used             | Wrapped in `(() => { .. })()`                  |
+| `ForLoop(var, iter, body)`                     | `while` loop with `iter.next()`                |
+| `Call("map", [fn, iter])`                      | `BuiltinFunc::Map`                             |
+| Generic call after monomorphization            | `Call { name: "map$Int$Str", args: [...] }`    |
 
 The HIR is **flat** — no recursion, no side tables. Every child
 reference is a `HirNodeId` index into a `Vec<HirExpr>`. You could
@@ -1042,19 +1064,20 @@ pub enum OutputMode {
 
 **Emission rules map directly from HIR to JS:**
 
-| HIR node | JS output |
-|---|---|
-| `IntLit("42")` | `42n` |
-| `NumLit("3.14")` | `3.14` |
-| `StrLit("hello")` | `"hello"` |
-| `StructLit([("x", a), ("y", b)])` | `{ x: a, y: b }` |
-| `Call { name: "foo$Int", args }` | `foo$Int(args)` |
-| `BuiltinFunc::Map` | `mapFn(fn, iter)` |
-| `Block { ..., returns_value: true }` | `(() => { ... return val; })()` |
-| `ForLoop { var, iter, body }` | `for (let var; ; ) { ... iter.next() ... }` |
+| HIR node                             | JS output                                   |
+| ------------------------------------ | ------------------------------------------- |
+| `IntLit("42")`                       | `42n`                                       |
+| `NumLit("3.14")`                     | `3.14`                                      |
+| `StrLit("hello")`                    | `"hello"`                                   |
+| `StructLit([("x", a), ("y", b)])`    | `{ x: a, y: b }`                            |
+| `Call { name: "foo$Int", args }`     | `foo$Int(args)`                             |
+| `BuiltinFunc::Map`                   | `mapFn(fn, iter)`                           |
+| `Block { ..., returns_value: true }` | `(() => { ... return val; })()`             |
+| `ForLoop { var, iter, body }`        | `for (let var; ; ) { ... iter.next() ... }` |
 
 **No more `toJS` closures stored during type-checking.** The HIR is a
 pure data structure. Codegen is a pure function:
+
 ```rust
 fn codegen(program: &HirProgram) -> String
 ```
@@ -1073,6 +1096,7 @@ fn codegen(program: &HirProgram) -> String
 
 2. **Module graph building:** The compiler resolves `use` paths to
    module files, building a `ModuleGraph`:
+
    ```rust
    pub struct ModuleGraph {
        pub modules: Vec<Module>,
@@ -1123,12 +1147,14 @@ pub fn compute_reachable(
     // Phase 3: Return the set of reachable SymbolIds.
 }
 ```
+
 let
 Then, during codegen (or as a filter on the HIR), only emit symbols
 in the reachable set. Functions that are never called, variables that
 are never read, and types that are never instantiated are dropped.
 
 **Why this is simpler than the current approach:**
+
 - The current code does ad-hoc string matching (`reachable.has(name)`,
   `name.includes("$")`, etc.)
 - The new approach uses actual resolved `SymbolId`s, so there are no
@@ -1145,13 +1171,13 @@ actionable error messages.
 
 **Recovery strategies:**
 
-| Pass | Recovery |
-|------|----------|
-| Scanner | Skip bad characters; continue to next token |
-| Parser | Insert `ErrorExpr` sentinel; skip to next `;` or `}` |
+| Pass            | Recovery                                                            |
+| --------------- | ------------------------------------------------------------------- |
+| Scanner         | Skip bad characters; continue to next token                         |
+| Parser          | Insert `ErrorExpr` sentinel; skip to next `;` or `}`                |
 | Name resolution | For undefined names, create a synthetic "error symbol" and continue |
-| Type inference | On type mismatch, emit error but continue with a best-guess type |
-| Codegen | On unrecognized IR node, emit `/* ERROR */` and continue |
+| Type inference  | On type mismatch, emit error but continue with a best-guess type    |
+| Codegen         | On unrecognized IR node, emit `/* ERROR */` and continue            |
 
 **Error formatting:**
 
@@ -1257,10 +1283,13 @@ files). The recommended migration order:
    the current `testCompile()` helper.
 
 The `testCompile()` helper in TypeScript:
+
 ```ts
-testCompile("1 + 2", 3)
+testCompile("1 + 2", 3);
 ```
+
 becomes in Rust:
+
 ```rust
 #[test]
 fn add_integers() {
@@ -1270,6 +1299,7 @@ fn add_integers() {
 ```
 
 You'll need a JS runtime for evaluation tests. The options are:
+
 - **Boa** (pure Rust JS interpreter) — good for testing, no binary
   dependency
 - **Deno core** (V8 bindings) — heavier but a real JS runtime
@@ -1279,3 +1309,94 @@ You'll need a JS runtime for evaluation tests. The options are:
 For a hobby project, the **sidecar approach** is simplest: the test
 writes the compiled JS to a temp file, spawns `bun run temp.js`, and
 reads stdout. It's what the current tests effectively do.
+
+## 7. Breaking changes
+
+This is a list of language features that will be changed during the rewrite.
+Anything not included in this list is intended to remain unchanged.
+
+### Trait impls must appear in a special `impl`
+
+As described earlier in this document, the current system of allowing trait-required
+functions to be defined anywhere in the program has some downsides. We will change
+this so that trait impls must appear in a special `impl` block. Example:
+
+```gema
+impl Add for Vec2 {
+    func add(a: Self, b: Self): Self {
+        Vec2(a.x + b.x, a.y + b.y)
+    }
+}
+```
+
+### Lambda functions
+
+Currently, we allow two types of anon function definitions.
+
+- `func` syntax with type annotations: `func(x: Num) { x + 1 }`
+- Backslash syntax with no type annotations: `\x { x + 1 }`
+
+In the rewrite, we will support _only_ the backslash syntax (no `func` syntax), and we will have
+type annotations for it be optional.
+
+We will also slightly modify the syntax:
+
+**Arrow syntax to separate params from body**
+
+- Currently, any expression type can follow the function params, so something like `\x x + 1` is valid.
+- In the rewrite, if the lambda body is not a block expression (enclosed in curly braces), it must be
+  separated from the params by a `->` (which is a new token type). The `->` token is optional if the
+  lambda body is a block expression.
+- So the example given above would be written as `\x -> x + 1`.
+
+**No parentheses around lambda params**
+
+- Currently, if a lambda has more than one param, its params must be enclosed in parentheses.
+- In the rewrite, we will not have parentheses around lambda params.
+- So instead of `\(x, y) { ... }`, we will have `\x, y { ... }`.
+
+Examples of things that are valid lambda functions in the new syntax:
+
+```gema
+\a { a + 1 }
+\a -> a + 1
+\a -> { a + 1 }
+\a: Num { a + 1 }
+\a: Num -> a + 1
+\a, b { a + b }
+\a, b -> a + b
+\a: Str, b: Str -> a + b
+\a -> { x = a + 1; x }
+```
+
+### Match expressions
+
+Here, we have a similar change to the change to lambda function syntax. When the expression that follows the
+match variant is not a block expression, it must be separated from the match result by a `->` token.
+
+So in the previous verison, something like this is legal:
+
+```gema
+match x {
+    variant1 2
+    variant2 3
+}
+```
+
+But in the new version, it must be written as:
+
+```gema
+match x {
+    variant1 -> 2
+    variant2 -> 3
+}
+```
+
+or as the (already legal)
+
+```gema
+match x {
+    variant1 { 2 }
+    variant2 { 3 }
+}
+```

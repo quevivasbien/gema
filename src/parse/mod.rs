@@ -338,7 +338,15 @@ mod tests {
     #[test]
     fn parse_match_variants() {
         let (arena, _, diags, root) =
-            parse_one("match x { Variant(a) => { a } none => { 0i } else => { 1i } }");
+            parse_one("match x { variant(a) -> a, none -> 0i, else -> 1i }");
+        assert!(!diags.has_errors(), "errors: {:?}", diags);
+        assert_eq!(last_kind(&arena, root), "Match");
+    }
+
+    #[test]
+    fn parse_match_variants_with_block() {
+        let (arena, _, diags, root) =
+            parse_one("match x { variant(a) { a }, none { 0i }, else -> { 1i } }");
         assert!(!diags.has_errors(), "errors: {:?}", diags);
         assert_eq!(last_kind(&arena, root), "Match");
     }
@@ -361,7 +369,21 @@ mod tests {
 
     #[test]
     fn parse_lambda_typed_param() {
-        let (arena, _, diags, root) = parse_one("\\x: Int -> x + 1");
+        let (arena, _, diags, root) = parse_one("\\x: Num -> x + 1");
+        assert!(!diags.has_errors());
+        assert_eq!(last_kind(&arena, root), "AnonFunc");
+    }
+
+    #[test]
+    fn parse_lambda_multi_typed_param() {
+        let (arena, _, diags, root) = parse_one("\\x: Num, y: Num -> x + y");
+        assert!(!diags.has_errors());
+        assert_eq!(last_kind(&arena, root), "AnonFunc");
+    }
+
+    #[test]
+    fn parse_lambda_with_block() {
+        let (arena, _, diags, root) = parse_one("\\x -> { out = x + 1; out }");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "AnonFunc");
     }
@@ -496,7 +518,7 @@ mod tests {
 
     #[test]
     fn parse_generic_func() {
-        let (arena, _, diags, root) = parse_one("func [T: Hash] id(x: T): T { x }");
+        let (arena, _, diags, root) = parse_one("func [T: Hash] id(x: T): T { hash(x) }");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "FuncDef");
     }
