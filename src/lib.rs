@@ -12,6 +12,7 @@
 pub mod ast;
 pub mod diagnostics;
 pub mod interner;
+pub mod parse;
 pub mod scan;
 pub mod source;
 pub mod token;

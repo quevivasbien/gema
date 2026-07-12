@@ -147,6 +147,7 @@ pub enum TypeNode {
     Null,
     Named {
         name: IdentId,
+        /// Type parameters (e.g. `Pair[Int, Str]` → two params).
         params: Vec<TypeNode>,
     },
     Func {
