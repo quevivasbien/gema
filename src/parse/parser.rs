@@ -106,6 +106,15 @@ impl<'a> Parser<'a> {
                     } else {
                         stmts.push(id);
                     }
+
+                    // If we got an ErrorExpr without consuming a
+                    // semicolon and we're still not at end, force-
+                    // advance to prevent an infinite loop (error
+                    // recovery may hit a boundary token it can't
+                    // advance past).
+                    if !has_semi && !at_end && matches!(self.arena[id], Expr::ErrorExpr) {
+                        self.advance();
+                    }
                 }
                 None => {
                     self.recover_to_boundary();
@@ -260,7 +269,7 @@ impl<'a> Parser<'a> {
                 return self.error_node();
             }
             _ => {
-                self.error_here(format!("expected expression"));
+                self.error_here("expected expression");
                 self.recover_to_boundary();
                 return self.error_node();
             }
@@ -549,17 +558,16 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// Parse an identifier, possibly followed by template args or `::`.
+    /// Parse an identifier, possibly followed by `::`.
+    /// NOTE: `[` after an identifier is NOT handled here — it's
+    /// parsed as index access by the infix loop. Template types on
+    /// variable references are not currently supported (they conflict
+    /// with the `[expr]` index syntax).
     fn parse_var_or_type_associated(&mut self) -> NodeId {
         let token = self.advance();
         let name = self.intern_str(token.text().unwrap());
 
-        // Template types: `Arr[Int]`
-        let template_types = if self.consume_discriminant(&TokenKind::LBracket) {
-            self.parse_template_types_inner()
-        } else {
-            Vec::new()
-        };
+        let template_types = Vec::new();
 
         self.alloc(Expr::Var(Var {
             span: token.span,
@@ -849,6 +857,12 @@ impl<'a> Parser<'a> {
 
         // `else => { ... }`
         if self.consume_discriminant(&TokenKind::Else) {
+            // Consume `=>`
+            if !(self.consume_discriminant(&TokenKind::Equal)
+                && self.consume_discriminant(&TokenKind::Greater))
+            {
+                self.error_here("expected '=>' after 'else' in match arm");
+            }
             let body = self.parse_block_with_braces();
             return Some(MatchArm {
                 kind: MatchArmKind::Else,
@@ -859,6 +873,12 @@ impl<'a> Parser<'a> {
 
         // `none => { ... }`
         if self.consume_discriminant(&TokenKind::None) {
+            // Consume `=>`
+            if !(self.consume_discriminant(&TokenKind::Equal)
+                && self.consume_discriminant(&TokenKind::Greater))
+            {
+                self.error_here("expected '=>' after 'none' in match arm");
+            }
             let body = self.parse_block_with_braces();
             return Some(MatchArm {
                 kind: MatchArmKind::None,
@@ -1049,15 +1069,11 @@ impl<'a> Parser<'a> {
 
         // Identifier assignment: `x = ...` or `x += ...`
         // Must be an identifier followed by = or compound assign.
-        if let TokenKind::Ident(_) = self.peek_kind() {
-            let next = self.next(1);
-            if let Some(next_tok) = next {
-                if matches!(next_tok.kind, TokenKind::Equal)
-                    || compound_op(&next_tok.kind).is_some()
-                {
-                    return Some(self.parse_identifier_assignment());
-                }
-            }
+        if let TokenKind::Ident(_) = self.peek_kind()
+            && let Some(next_tok) = self.next(1)
+            && (matches!(next_tok.kind, TokenKind::Equal) || compound_op(&next_tok.kind).is_some())
+        {
+            return Some(self.parse_identifier_assignment());
         }
 
         None
@@ -1108,11 +1124,7 @@ impl<'a> Parser<'a> {
 
         let mut bindings = Vec::new();
         while !self.consume_discriminant(&TokenKind::RParen) && !self.at_end() {
-            let b_mut = if self.consume_discriminant(&TokenKind::Mut) {
-                true
-            } else {
-                false
-            };
+            let b_mut = self.consume_discriminant(&TokenKind::Mut);
             let t = match self.peek_kind() {
                 TokenKind::Ident(_) => self.advance(),
                 _ => {
@@ -1272,7 +1284,7 @@ impl<'a> Parser<'a> {
     /// Parse `from "path..."` after a use declaration.
     fn parse_from_path(&mut self) -> Option<String> {
         match self.peek_kind() {
-            TokenKind::Ident(s) if s == "from" => {
+            TokenKind::From => {
                 self.advance();
                 match self.peek_kind() {
                     TokenKind::Str(_) => {
@@ -1316,6 +1328,13 @@ impl<'a> Parser<'a> {
             if !self.consume_comma() {
                 break;
             }
+        }
+
+        // Ensure the closing `)` is consumed (the while loop may
+        // have exited via break from inside, skipping the loop
+        // condition check).
+        if !self.consume_discriminant(&TokenKind::RParen) {
+            self.error_here("expected ')' after JS imports");
         }
 
         let path = self.parse_from_path().unwrap_or_default();
@@ -1607,17 +1626,17 @@ impl<'a> Parser<'a> {
 
                 // Parameters in parens
                 let mut param_types = Vec::new();
-                if self.consume_discriminant(&TokenKind::LParen) {
+                if self.consume_discriminant(&TokenKind::LParen)
+                    && !self.consume_discriminant(&TokenKind::RParen)
+                {
+                    loop {
+                        param_types.push(self.parse_type_node());
+                        if !self.consume_comma() {
+                            break;
+                        }
+                    }
                     if !self.consume_discriminant(&TokenKind::RParen) {
-                        loop {
-                            param_types.push(self.parse_type_node());
-                            if !self.consume_comma() {
-                                break;
-                            }
-                        }
-                        if !self.consume_discriminant(&TokenKind::RParen) {
-                            self.error_here("expected ')' after trait function parameters");
-                        }
+                        self.error_here("expected ')' after trait function parameters");
                     }
                 }
 
@@ -1728,18 +1747,22 @@ impl<'a> Parser<'a> {
                 // Check for built-in type constructors
                 match name.as_str() {
                     "Func" if !params.is_empty() => {
-                        // Func is special: last arg is the return type,
-                        // separated by `:` in the type annotation.
-                        // Actually, Func[Int, Str: Bool] is how it's
-                        // written, but the parser sees Int, Str: Bool
-                        // inside [...].  The colon is consumed during
-                        // parse_type_args_inner.
-                        // For now, assume all args are param types
-                        // and the return type is handled separately.
-                        TypeNode::Func {
-                            params,
-                            ret: Box::new(TypeNode::Null),
-                        }
+                        // Func[Int, Str: Bool] — the colon separates
+                        // parameter types from the return type.
+                        // parse_type_args_inner stops at `:` without
+                        // consuming it or the closing `]`.
+                        let ret = if self.consume_discriminant(&TokenKind::Colon) {
+                            let ret_node = self.parse_type_node();
+                            // Consume the `]` that parse_type_args_inner
+                            // couldn't reach.
+                            if !self.consume_discriminant(&TokenKind::RBracket) {
+                                self.error_here("expected ']' after function type arguments");
+                            }
+                            Box::new(ret_node)
+                        } else {
+                            Box::new(TypeNode::Null)
+                        };
+                        TypeNode::Func { params, ret }
                     }
                     "Arr" if params.len() == 1 => {
                         TypeNode::Arr(Box::new(params.into_iter().next().unwrap()))
@@ -1750,7 +1773,7 @@ impl<'a> Parser<'a> {
                     "MutArr" if params.len() == 1 => {
                         TypeNode::MutArr(Box::new(params.into_iter().next().unwrap()))
                     }
-                    "Tup" if params.len() >= 1 => TypeNode::Tup(params),
+                    "Tup" if !params.is_empty() => TypeNode::Tup(params),
                     "Dict" if params.len() == 2 => {
                         let mut iter = params.into_iter();
                         TypeNode::Dict {
@@ -1803,20 +1826,23 @@ impl<'a> Parser<'a> {
         if !self.consume_discriminant(&TokenKind::RBracket) {
             loop {
                 args.push(self.parse_type_node());
+                // `:` signals the return type separator in Func types.
+                // Stop and let the caller (Func case) handle it.
+                if matches!(self.peek_kind(), TokenKind::Colon) {
+                    break;
+                }
                 if !self.consume_comma() {
                     break;
                 }
             }
             if !self.consume_discriminant(&TokenKind::RBracket) {
-                self.error_here("expected ']' after type arguments");
+                // Only emit error if we didn't stop at `:` (for Func).
+                if !matches!(self.peek_kind(), TokenKind::Colon) {
+                    self.error_here("expected ']' after type arguments");
+                }
             }
         }
         args
-    }
-
-    /// Parse template types after a variable/type name: `[Int, Str]`
-    fn parse_template_types_inner(&mut self) -> Vec<TypeNode> {
-        self.parse_type_args_inner()
     }
 
     /// Parse generic parameters: `[T: Hash]`
@@ -1836,11 +1862,8 @@ impl<'a> Parser<'a> {
                 // Optional trait bound: `T: Hash`
                 let traits = if self.consume_discriminant(&TokenKind::Colon) {
                     let mut ts = Vec::new();
-                    loop {
-                        let name = match self.peek_kind() {
-                            TokenKind::Ident(s) => s.clone(),
-                            _ => break,
-                        };
+                    while let TokenKind::Ident(s) = self.peek_kind() {
+                        let name = s.clone();
                         let id = self.intern_str(&name);
                         ts.push(id);
                         self.advance();

@@ -268,3 +268,12 @@ When adding new features, add tests to both the Rust test suite and
 migration is complete. We should not make substantial changes to the
 language design during the re-write process, without first consulting
 the user.
+
+## Contributing
+
+When you are are wrapping up any changes:
+* Run `cargo test` to ensure all tests pass.
+* Run `cargo clippy` to catch any linting issues.
+
+If at any point you are stuck, or if you need to clarify anything, or
+suggest a deviation from the existing design, stop and ask the user.
