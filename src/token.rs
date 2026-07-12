@@ -35,6 +35,7 @@ pub enum TokenKind {
     From,
     None,
     Match,
+    Impl,
     True,
     False,
     And,

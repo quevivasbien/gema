@@ -25,6 +25,7 @@ fn keyword_token(word: &str) -> Option<TokenKind> {
         "from" => Some(TokenKind::From),
         "none" => Some(TokenKind::None),
         "match" => Some(TokenKind::Match),
+        "impl" => Some(TokenKind::Impl),
         "true" => Some(TokenKind::True),
         "false" => Some(TokenKind::False),
         "and" => Some(TokenKind::And),
@@ -623,7 +624,7 @@ mod tests {
 
     #[test]
     fn keywords() {
-        let kws: [(&str, TokenKind); 19] = [
+        let kws: [(&str, TokenKind); 20] = [
             ("func", TokenKind::Func),
             ("struct", TokenKind::Struct),
             ("trait", TokenKind::Trait),
@@ -639,6 +640,7 @@ mod tests {
             ("from", TokenKind::From),
             ("none", TokenKind::None),
             ("match", TokenKind::Match),
+            ("impl", TokenKind::Impl),
             ("true", TokenKind::True),
             ("false", TokenKind::False),
             ("and", TokenKind::And),

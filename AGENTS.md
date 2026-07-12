@@ -5,6 +5,12 @@ JavaScript.  This is the **Rust rewrite** of the compiler.  See
 [`ROADMAP-RUST-REWRITE.md`](./ROADMAP-RUST-REWRITE.md) for the full
 architecture plan and implementation phases.
 
+See [README.md](README.md) for an overview of the language syntax and features.
+You should use this as your reference for tests and implementation of the parser.
+Ask the user for clarification if you are not sure about some feature of the
+language design, or if you think there is some aspect of the design that could
+be improved.
+
 **GitHub:** https://github.com/quevivasbien/gema
 
 ---

@@ -1,127 +1,14 @@
-/// Pratt parser for Gema.
-///
-/// Parses a token stream into an `AstArena` of `Expr` nodes.
-/// Produces diagnostics for syntax errors but always returns a
-/// best-effort AST (with `ErrorExpr` sentinels where needed).
-use crate::ast::*;
-use crate::diagnostics::DiagnosticsBag;
-use crate::interner::{IdentId, Interner};
-use crate::source::Span;
-use crate::token::{Token, TokenKind};
-
-// ---------------------------------------------------------------------------
-// Precedence levels
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Precedence {
-    None,
-    Assignment,
-    Pipe,
-    Or,
-    And,
-    Equality,
-    Range,
-    Comparison,
-    Term,
-    Factor,
-    Unary,
-    Exponent,
-    Call,
-}
-
-// ---------------------------------------------------------------------------
-// Compound operator table
-// ---------------------------------------------------------------------------
-
-fn compound_op(kind: &TokenKind) -> Option<BinaryOp> {
-    match kind {
-        TokenKind::PlusEqual => Some(BinaryOp::Add),
-        TokenKind::MinusEqual => Some(BinaryOp::Sub),
-        TokenKind::StarEqual => Some(BinaryOp::Mul),
-        TokenKind::SlashEqual => Some(BinaryOp::Div),
-        TokenKind::SlashSlashEqual => Some(BinaryOp::IntDiv),
-        TokenKind::PercentEqual => Some(BinaryOp::Mod),
-        TokenKind::PercentPercentEqual => Some(BinaryOp::EucMod),
-        TokenKind::CaretEqual => Some(BinaryOp::Pow),
-        _ => None,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Infix precedence lookup
-// ---------------------------------------------------------------------------
-
-fn token_precedence(kind: &TokenKind) -> Option<Precedence> {
-    match kind {
-        TokenKind::Equal
-        | TokenKind::PlusEqual
-        | TokenKind::MinusEqual
-        | TokenKind::StarEqual
-        | TokenKind::SlashEqual
-        | TokenKind::SlashSlashEqual
-        | TokenKind::PercentEqual
-        | TokenKind::PercentPercentEqual
-        | TokenKind::CaretEqual => Some(Precedence::Assignment),
-
-        TokenKind::Pipe => Some(Precedence::Pipe),
-        TokenKind::Or => Some(Precedence::Or),
-        TokenKind::And => Some(Precedence::And),
-
-        TokenKind::EqualEqual | TokenKind::BangEqual => Some(Precedence::Equality),
-        TokenKind::DotDot => Some(Precedence::Range),
-
-        TokenKind::Less | TokenKind::LessEqual | TokenKind::Greater | TokenKind::GreaterEqual => {
-            Some(Precedence::Comparison)
-        }
-
-        TokenKind::Plus | TokenKind::Minus => Some(Precedence::Term),
-
-        TokenKind::Star
-        | TokenKind::Slash
-        | TokenKind::Percent
-        | TokenKind::SlashSlash
-        | TokenKind::PercentPercent => Some(Precedence::Factor),
-
-        TokenKind::Caret => Some(Precedence::Exponent),
-
-        TokenKind::LParen | TokenKind::Dot | TokenKind::LBracket | TokenKind::ColonColon => {
-            Some(Precedence::Call)
-        }
-
-        _ => None,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Operator-to-BinaryOp mapping
-// ---------------------------------------------------------------------------
-
-fn token_to_binary_op(kind: &TokenKind) -> BinaryOp {
-    match kind {
-        TokenKind::Plus => BinaryOp::Add,
-        TokenKind::Minus => BinaryOp::Sub,
-        TokenKind::Star => BinaryOp::Mul,
-        TokenKind::Slash => BinaryOp::Div,
-        TokenKind::SlashSlash => BinaryOp::IntDiv,
-        TokenKind::Percent => BinaryOp::Mod,
-        TokenKind::PercentPercent => BinaryOp::EucMod,
-        TokenKind::Caret => BinaryOp::Pow,
-        TokenKind::EqualEqual => BinaryOp::Eq,
-        TokenKind::BangEqual => BinaryOp::Ne,
-        TokenKind::Less => BinaryOp::Lt,
-        TokenKind::LessEqual => BinaryOp::Le,
-        TokenKind::Greater => BinaryOp::Gt,
-        TokenKind::GreaterEqual => BinaryOp::Ge,
-        TokenKind::And => BinaryOp::And,
-        TokenKind::Or => BinaryOp::Or,
-        _ => unreachable!(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Parser
-// ---------------------------------------------------------------------------
+use crate::{
+    ast::*,
+    diagnostics::DiagnosticsBag,
+    interner::{IdentId, Interner},
+    parse::{
+        precedence::{Precedence, token_precedence},
+        utils::{compound_op, token_to_binary_op},
+    },
+    source::Span,
+    token::{Token, TokenKind},
+};
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -1090,7 +977,7 @@ impl<'a> Parser<'a> {
                     }
 
                     let has_semi = self.consume_semi();
-                    let at_end = self.consume_discriminant(&TokenKind::RBrace) || self.at_end();
+                    let at_end = matches!(self.peek_kind(), TokenKind::RBrace) || self.at_end();
 
                     if has_semi {
                         // Explicit semicolon → drop the value
@@ -1135,10 +1022,11 @@ impl<'a> Parser<'a> {
             TokenKind::Struct => return Some(self.parse_struct_def()),
             TokenKind::Enum => return Some(self.parse_enum_def()),
             TokenKind::Trait => return Some(self.parse_trait_def()),
+            TokenKind::Impl => return Some(self.parse_impl_block()),
             _ => {}
         }
 
-        // Assignment statements: `let x = ...`, `mut x = ...`,
+        // Assignment statements: `mut x = ...`, `(a, b) = expr`,
         // `x = ...`, `x += ...`
         if let Some(assign) = self.try_parse_assignment_stmt() {
             return Some(assign);
@@ -1153,16 +1041,10 @@ impl<'a> Parser<'a> {
     // ==================================================================
 
     fn try_parse_assignment_stmt(&mut self) -> Option<NodeId> {
-        // `let` keyword (now an identifier, not a keyword)
-        if matches!(self.peek_kind(), TokenKind::Ident(s) if s == "let") {
-            self.advance();
-            return Some(self.parse_let_or_mut_decl(false));
-        }
-
         // `mut` keyword
         if matches!(self.peek_kind(), TokenKind::Mut) {
             self.advance();
-            return Some(self.parse_let_or_mut_decl(true));
+            return Some(self.parse_mut_decl());
         }
 
         // Identifier assignment: `x = ...` or `x += ...`
@@ -1181,12 +1063,12 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_let_or_mut_decl(&mut self, is_mut: bool) -> NodeId {
+    fn parse_mut_decl(&mut self) -> NodeId {
         let key_span = self.previous().span;
 
-        // Tuple unpacking: `let (a, b) = expr`
+        // Tuple unpacking: `(mut a, b) = expr`
         if matches!(self.peek_kind(), TokenKind::LParen) {
-            return self.parse_tuple_unpack_decl(is_mut);
+            return self.parse_tuple_unpack_decl();
         }
 
         // Variable name
@@ -1199,17 +1081,14 @@ impl<'a> Parser<'a> {
         };
         let name = self.intern_str(var_token.text().unwrap());
 
-        // Optional type annotation: `let x: Type = expr`
+        // Optional type annotation: `x: Type = expr`
         if self.consume_discriminant(&TokenKind::Colon) {
-            // Consume the type annotation but don't store it yet —
-            // type annotations on bindings will be handled during
-            // type checking.
             self.parse_type_node();
         }
 
         // `= expr`
         if !self.consume_discriminant(&TokenKind::Equal) {
-            self.error_here("expected '=' in let assignment");
+            self.error_here("expected '=' in assignment");
             return self.error_node();
         }
 
@@ -1219,11 +1098,11 @@ impl<'a> Parser<'a> {
             span: key_span.union(self.span_of(value)),
             name,
             value,
-            is_mut,
+            is_mut: true,
         }))
     }
 
-    fn parse_tuple_unpack_decl(&mut self, _is_mut: bool) -> NodeId {
+    fn parse_tuple_unpack_decl(&mut self) -> NodeId {
         let key_span = self.previous().span;
         self.advance(); // '(' — already confirmed by caller
 
@@ -1352,7 +1231,7 @@ impl<'a> Parser<'a> {
             }
 
             // `from "path.gema"`
-            let path = self.parse_from_path();
+            let path = self.parse_from_path().unwrap_or_default();
 
             return self.alloc(Expr::Use(Use {
                 span: token.span.union(self.previous().span),
@@ -1373,7 +1252,12 @@ impl<'a> Parser<'a> {
                     }
                     break;
                 }
-                _ => break,
+                _ => {
+                    if !path_parts.is_empty() {
+                        self.error_here("expected identifier in module path after '.'");
+                    }
+                    break;
+                }
             }
         }
 
@@ -1386,24 +1270,24 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse `from "path..."` after a use declaration.
-    fn parse_from_path(&mut self) -> String {
+    fn parse_from_path(&mut self) -> Option<String> {
         match self.peek_kind() {
             TokenKind::Ident(s) if s == "from" => {
                 self.advance();
                 match self.peek_kind() {
                     TokenKind::Str(_) => {
                         let path_token = self.advance();
-                        path_token.text().unwrap().to_string()
+                        Some(path_token.text().unwrap().to_string())
                     }
                     _ => {
                         self.error_here("expected module path string after 'from'");
-                        String::new()
+                        None
                     }
                 }
             }
             _ => {
                 self.error_here("expected 'from' after import specifier");
-                String::new()
+                None
             }
         }
     }
@@ -1434,7 +1318,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let path = self.parse_from_path();
+        let path = self.parse_from_path().unwrap_or_default();
 
         self.alloc(Expr::UseJs(UseJs {
             span: use_token.span.union(self.previous().span),
@@ -1763,6 +1647,66 @@ impl<'a> Parser<'a> {
         funcs
     }
 
+    fn parse_impl_block(&mut self) -> NodeId {
+        let token = self.advance(); // 'impl'
+
+        // Parse trait name
+        let name_token = match self.peek_kind() {
+            TokenKind::Ident(_) => self.advance(),
+            _ => {
+                self.error_here("expected trait name in impl block");
+                return self.error_node();
+            }
+        };
+        let trait_name = self.intern_str(name_token.text().unwrap());
+
+        // Consume 'for'
+        if !matches!(self.peek_kind(), TokenKind::For) {
+            self.error_here("expected 'for' in impl block");
+            return self.error_node();
+        }
+        self.advance();
+
+        // Parse self type
+        let self_type = self.parse_type_node();
+
+        // Parse { functions }
+        let functions = if self.consume_discriminant(&TokenKind::LBrace) {
+            self.parse_impl_funcs_inner()
+        } else {
+            Vec::new()
+        };
+
+        self.alloc(Expr::ImplBlock(ImplBlock {
+            span: token.span.union(self.previous().span),
+            trait_name,
+            self_type,
+            functions,
+        }))
+    }
+
+    fn parse_impl_funcs_inner(&mut self) -> Vec<NodeId> {
+        let mut funcs = Vec::new();
+        if !self.consume_discriminant(&TokenKind::RBrace) {
+            loop {
+                // Expect 'func' keyword
+                if !matches!(self.peek_kind(), TokenKind::Func) {
+                    self.error_here("expected 'func' in impl block");
+                    break;
+                }
+                funcs.push(self.parse_func_def());
+
+                if !self.consume_comma() {
+                    break;
+                }
+            }
+            if !self.consume_discriminant(&TokenKind::RBrace) {
+                self.error_here("expected '}' after impl functions");
+            }
+        }
+        funcs
+    }
+
     // ==================================================================
     // Type annotation parsing
     // ==================================================================
@@ -1965,121 +1909,6 @@ impl<'a> Parser<'a> {
                 self.error_here("expected function or lambda after '|'");
                 left
             }
-        }
-    }
-}
-
-// ======================================================================
-// Public API
-// ======================================================================
-
-/// Parse a token stream into an AST.
-///
-/// The result is a top-level `Block` node (representing the file).
-/// Diagnostics are accumulated in `DiagnosticsBag`.
-pub fn parse(
-    tokens: &[Token],
-    arena: &mut AstArena,
-    interner: &mut Interner,
-    diagnostics: &mut DiagnosticsBag,
-    file_idx: usize,
-) -> NodeId {
-    let parser = Parser::new(tokens, arena, interner, diagnostics, file_idx);
-    parser.finish()
-}
-
-// ======================================================================
-// Tests
-// ======================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::scan;
-    use crate::source::SourceText;
-
-    fn parse_one(source: &str) -> (AstArena, Interner, DiagnosticsBag, NodeId) {
-        let src = SourceText::new("test.gema", source);
-        let (tokens, scan_diags) = scan::scan(&src, 0);
-        let mut arena = AstArena::new();
-        let mut interner = Interner::new();
-        let mut diagnostics = DiagnosticsBag::new();
-
-        // Merge scan diagnostics
-        for diag in scan_diags.into_vec() {
-            diagnostics.push(diag);
-        }
-
-        let root = parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
-        (arena, interner, diagnostics, root)
-    }
-
-    #[test]
-    fn parse_integer_literal() {
-        let (arena, _, diags, root) = parse_one("42i");
-        assert!(!diags.has_errors(), "errors: {:?}", diags);
-        match &arena[root] {
-            Expr::Block(b) => {
-                assert_eq!(b.stmts.len(), 1);
-                match &arena[b.stmts[0]] {
-                    Expr::IntLit(lit) => assert_eq!(lit.value, "42"),
-                    Expr::DropValue(dv) => match &arena[dv.child] {
-                        Expr::IntLit(lit) => assert_eq!(lit.value, "42"),
-                        _ => panic!("expected IntLit inside DropValue"),
-                    },
-                    _ => panic!("expected IntLit or DropValue"),
-                }
-            }
-            _ => panic!("expected Block"),
-        }
-    }
-
-    #[test]
-    fn parse_simple_expression() {
-        let (arena, _, diags, root) = parse_one("1 + 2");
-        assert!(!diags.has_errors(), "errors: {:?}", diags);
-        match &arena[root] {
-            Expr::Block(b) => {
-                assert_eq!(b.stmts.len(), 1);
-            }
-            _ => panic!("expected Block"),
-        }
-    }
-
-    #[test]
-    fn parse_addition() {
-        let src = SourceText::new("test.gema", "1 + 2");
-        let (tokens, sd) = scan::scan(&src, 0);
-        let mut arena = AstArena::new();
-        let mut interner = Interner::new();
-        let mut diagnostics = DiagnosticsBag::new();
-        for d in sd.into_vec() {
-            diagnostics.push(d);
-        }
-        let root = parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
-
-        // Should have no errors
-        assert!(!diagnostics.has_errors(), "errors: {:?}", diagnostics);
-
-        // Walk the tree to find the Binary
-        let block = &arena[root];
-        if let Expr::Block(b) = block {
-            let last = &arena[b.stmts[b.stmts.len() - 1]];
-            let expr = if let Expr::DropValue(dv) = last {
-                &arena[dv.child]
-            } else {
-                last
-            };
-            match expr {
-                Expr::Binary(bin) => {
-                    assert_eq!(bin.op, BinaryOp::Add);
-                    assert!(matches!(&arena[bin.left], Expr::NumLit(_)));
-                    assert!(matches!(&arena[bin.right], Expr::NumLit(_)));
-                }
-                _ => panic!("expected Binary, got {:?}", expr),
-            }
-        } else {
-            panic!("expected Block");
         }
     }
 }
