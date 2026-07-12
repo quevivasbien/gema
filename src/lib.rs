@@ -9,7 +9,9 @@
 //! See [`ROADMAP-RUST-REWRITE.md`](https://github.com/quevivasbien/gema)
 //! for the full architecture plan.
 
+pub mod ast;
 pub mod diagnostics;
+pub mod interner;
 pub mod scan;
 pub mod source;
 pub mod token;

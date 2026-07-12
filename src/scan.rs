@@ -855,7 +855,7 @@ mod tests {
         let tokens = scan_one("func add(a: Int, b: Int): Int { a + b }");
         assert_eq!(tokens.len(), 18);
         let kinds: Vec<_> = tokens.iter().map(|t| format!("{:?}", t.kind)).collect();
-        assert_eq!(kinds[0], "Fn");
+        assert_eq!(kinds[0], "Func");
         assert_eq!(kinds[1], "Ident(\"add\")");
         assert_eq!(kinds[2], "LParen");
         assert_eq!(kinds[3], "Ident(\"a\")");
