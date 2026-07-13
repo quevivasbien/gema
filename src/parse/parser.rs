@@ -187,15 +187,6 @@ impl<'a> Parser<'a> {
         self.consume_discriminant(&TokenKind::Comma)
     }
 
-    /// Check if the current token matches an operator kind that is
-    /// a compound assignment.
-    fn check_compound(&self) -> Option<BinaryOp> {
-        match self.peek_kind() {
-            Some(kind) => compound_op(kind),
-            None => None,
-        }
-    }
-
     // ── Utilities ──
 
     fn alloc(&mut self, expr: Expr) -> NodeId {
@@ -663,8 +654,10 @@ impl<'a> Parser<'a> {
 
         // `(expr, ...)` — tuple
         let mut elements = vec![first];
+        let mut comma_count = 0u32;
         while self.consume_comma() {
-            if self.consume_discriminant(&TokenKind::RParen) {
+            comma_count += 1;
+            if self.peek_is(&TokenKind::RParen) {
                 break;
             }
             elements.push(self.parse_expression());
@@ -674,14 +667,13 @@ impl<'a> Parser<'a> {
             self.error_here("expected ')'");
         }
 
-        if elements.len() == 1 {
-            // Single-element tuple with trailing comma: already consumed
-            elements[0]
-        } else {
+        if elements.len() > 1 || comma_count > 0 {
             self.alloc(Expr::TupleLit(TupleLit {
                 span: open.span.union(self.previous().span),
                 elements,
             }))
+        } else {
+            elements[0]
         }
     }
 
@@ -1105,28 +1097,43 @@ impl<'a> Parser<'a> {
     // Assignment parsing
     // ==================================================================
 
-    fn try_parse_assignment_stmt(&mut self) -> Option<NodeId> {
-        return None;
-        // TODO: The logic here is fundamentally flawed. We need to backtrack if this isn't actually an assignment
-        // Tuple unpacking: `(mut a, b) = expr`
-        if matches!(self.peek_kind(), Some(TokenKind::LParen)) {
-            return self.parse_tuple_unpack_decl();
+    /// Scan ahead to see if `(` ... `)` is followed by `=`.
+    /// This disambiguates tuple unpack `(a, b) = expr` from
+    /// tuple expressions like `(1, 2)` without consuming tokens.
+    fn is_tuple_unpack(&self) -> bool {
+        if !self.peek_is(&TokenKind::LParen) {
+            return false;
         }
+        let mut depth = 1u32;
+        let mut i = self.pos + 1;
+        while i < self.tokens.len() && depth > 0 {
+            match &self.tokens[i].kind {
+                TokenKind::LParen => depth += 1,
+                TokenKind::RParen => depth -= 1,
+                _ => {}
+            }
+            i += 1;
+        }
+        // After matching ')', check if '=' follows
+        depth == 0 && i < self.tokens.len() && matches!(self.tokens[i].kind, TokenKind::Equal)
+    }
 
-        // `mut` keyword
+    fn try_parse_assignment_stmt(&mut self) -> Option<NodeId> {
+        // `mut` keyword — unambiguously a mutable variable declaration
         if matches!(self.peek_kind(), Some(TokenKind::Mut)) {
             self.advance();
             return Some(self.parse_mut_decl());
         }
 
-        // Identifier assignment: `x = ...` or `x += ...`
-        // Must be an identifier followed by = or compound assign.
-        if let Some(TokenKind::Ident(_)) = self.peek_kind()
-            && let Some(next_tok) = self.next(1)
-            && (matches!(next_tok.kind, TokenKind::Equal) || compound_op(&next_tok.kind).is_some())
-        {
-            return Some(self.parse_identifier_assignment());
+        // Tuple unpacking: `(mut a, b) = expr`
+        // Use scan-ahead to disambiguate from tuple expressions.
+        if self.is_tuple_unpack() {
+            return Some(self.parse_tuple_unpack_decl());
         }
+
+        // Note: Simple identifier assignment `x = expr` is handled
+        // by the infix loop (`=` has Assignment precedence), so it
+        // doesn't need special treatment here.
 
         None
     }
@@ -1160,11 +1167,8 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_tuple_unpack_decl(&mut self) -> Option<NodeId> {
-        // TODO: This is totally borked. We need a different approach here that allows backtracking
-        // if this doesn't actually turn out to be a tuple unpack declaration
-        let key_span = self.previous().span;
-        self.advance(); // '(' — already confirmed by caller
+    fn parse_tuple_unpack_decl(&mut self) -> NodeId {
+        let open = self.advance(); // consume '('
 
         let mut bindings = Vec::new();
         while !self.consume_discriminant(&TokenKind::RParen) && !self.at_end() {
@@ -1173,7 +1177,7 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected variable name in tuple pattern");
-                    return Some(self.error_node());
+                    return self.error_node();
                 }
             };
             bindings.push(UnpackBinding {
@@ -1185,65 +1189,25 @@ impl<'a> Parser<'a> {
             }
         }
 
+        // Consume the closing `)`
+        if !self.consume_discriminant(&TokenKind::RParen) {
+            self.error_here("expected ')' after tuple pattern");
+            return self.error_node();
+        }
+
         // `= expr`
         if !self.consume_discriminant(&TokenKind::Equal) {
             self.error_here("expected '=' after tuple pattern");
-            return Some(self.error_node());
+            return self.error_node();
         }
 
         let source = self.parse_expression();
 
-        Some(self.alloc(Expr::TupleUnpack(TupleUnpack {
-            span: key_span.union(self.span_of(source)),
+        self.alloc(Expr::TupleUnpack(TupleUnpack {
+            span: open.span.union(self.span_of(source)),
             bindings,
             source,
-        })))
-    }
-
-    fn parse_identifier_assignment(&mut self) -> NodeId {
-        let token = self.advance();
-        let name = self.intern_str(token.text().unwrap());
-
-        // Check for compound assignment first
-        if let Some(op) = self.check_compound() {
-            self.advance(); // consume the compound op
-            let rhs = self.parse_expression();
-            let rhs_span = self.span_of(rhs);
-
-            // Desugar: x += 1 → x = x + 1
-            let var_ref = self.alloc(Expr::Var(Var {
-                span: token.span,
-                name,
-                template_types: Vec::new(),
-            }));
-            let bin = self.alloc(Expr::Binary(Binary {
-                span: token.span.union(rhs_span),
-                op,
-                left: var_ref,
-                right: rhs,
-            }));
-            return self.alloc(Expr::Assign(Assign {
-                span: token.span.union(rhs_span),
-                name,
-                value: bin,
-                is_mut: false,
-            }));
-        }
-
-        // Regular assignment
-        if self.consume_discriminant(&TokenKind::Equal) {
-            let value = self.parse_expression();
-            return self.alloc(Expr::Assign(Assign {
-                span: token.span.union(self.span_of(value)),
-                name,
-                value,
-                is_mut: false,
-            }));
-        }
-
-        // Should not be reached — caller checked for this.
-        self.error_here("expected '=' or compound assignment");
-        self.error_node()
+        }))
     }
 
     // ==================================================================
