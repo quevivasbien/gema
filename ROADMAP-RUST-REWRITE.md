@@ -1277,7 +1277,7 @@ functions to be defined anywhere in the program has some downsides. We will chan
 this so that trait impls must appear in a special `impl` block. Example:
 
 ```gema
-impl Add for Vec2 {
+impl Vec2: Add {
     func add(a: Self, b: Self): Self {
         Vec2(a.x + b.x, a.y + b.y)
     }
@@ -1363,6 +1363,10 @@ The syntax for JS interoperation changes slightly. We require a `!` token after 
 ```gema
 use!(foo: Func[Num: Num]) from "foo.js"
 ```
+
+### Stricter requirements on semicolons and commas
+
+In the previous version, the syntax rules were rather lax around when commas and semicolons were required. In the new version, we always require semicolons after non-terminal expressions in a block, and we always require commas between adjacent expressions/tokens in an array, tuple, or other list-like construct.
 
 ---
 

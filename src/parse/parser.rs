@@ -139,22 +139,25 @@ impl<'a> Parser<'a> {
         self.pos >= self.tokens.len()
     }
 
-    fn peek(&self) -> &Token {
-        &self.tokens[self.pos]
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.pos)
     }
 
     fn next(&self, offset: usize) -> Option<&Token> {
         self.tokens.get(self.pos + offset)
     }
 
-    fn peek_kind(&self) -> &TokenKind {
-        &self.peek().kind
+    fn peek_kind(&self) -> Option<&TokenKind> {
+        self.peek().map(|t| &t.kind)
     }
 
     /// Checks if the current token type has the same discriminant as an expected type
     /// (by discriminant — ignores data-carrying variants).
     fn peek_is(&self, t: &TokenKind) -> bool {
-        std::mem::discriminant(self.peek_kind()) == std::mem::discriminant(t)
+        match self.peek_kind() {
+            Some(kind) => std::mem::discriminant(kind) == std::mem::discriminant(t),
+            None => false,
+        }
     }
 
     fn previous(&self) -> &Token {
@@ -170,9 +173,6 @@ impl<'a> Parser<'a> {
     /// Consume the current token if its kind matches the pattern
     /// (by discriminant — ignores data-carrying variants).
     fn consume_discriminant(&mut self, expected: &TokenKind) -> bool {
-        if self.at_end() {
-            return false;
-        }
         if self.peek_is(expected) {
             self.advance();
             true
@@ -190,10 +190,10 @@ impl<'a> Parser<'a> {
     /// Check if the current token matches an operator kind that is
     /// a compound assignment.
     fn check_compound(&self) -> Option<BinaryOp> {
-        if self.at_end() {
-            return None;
+        match self.peek_kind() {
+            Some(kind) => compound_op(kind),
+            None => None,
         }
-        compound_op(self.peek_kind())
     }
 
     // ── Utilities ──
@@ -217,12 +217,12 @@ impl<'a> Parser<'a> {
     }
 
     fn error_here(&mut self, msg: impl Into<String>) {
-        let current_token = if self.at_end() {
-            self.tokens
+        let current_token = match self.peek() {
+            Some(token) => token,
+            None => self
+                .tokens
                 .last()
-                .expect("tried to create error in a token stream that does not have any tokens")
-        } else {
-            self.peek()
+                .expect("tried to create error in a token stream that does not have any tokens"),
         };
         self.error_raw(current_token.span, msg);
     }
@@ -235,8 +235,8 @@ impl<'a> Parser<'a> {
     /// Advance past tokens until we hit a statement or structural
     /// boundary, so error recovery can continue.
     fn recover_to_boundary(&mut self) {
-        while !self.at_end() {
-            match self.peek_kind() {
+        while let Some(kind) = self.peek_kind() {
+            match kind {
                 TokenKind::Semicolon
                 | TokenKind::RBrace
                 | TokenKind::RBracket
@@ -254,7 +254,14 @@ impl<'a> Parser<'a> {
 
     fn parse_precedence(&mut self, min_prec: Precedence) -> NodeId {
         // ── Prefix (nud) ──
-        let left = match self.peek_kind() {
+        let token_kind = match self.peek_kind() {
+            Some(token) => token,
+            None => {
+                self.error_here("unexpected end of file");
+                return self.error_node();
+            }
+        };
+        let left = match token_kind {
             TokenKind::Integer(_) => self.parse_int_lit(),
             TokenKind::Num(_) => self.parse_num_lit(),
             TokenKind::Str(_) => self.parse_str_lit(),
@@ -294,20 +301,15 @@ impl<'a> Parser<'a> {
     /// Continue parsing infix operators for a left-hand side,
     /// respecting the minimum precedence.
     fn parse_infix_loop(&mut self, mut left: NodeId, min_prec: Precedence) -> NodeId {
-        loop {
-            if self.at_end() {
-                break;
-            }
-            let prec = match token_precedence(self.peek_kind()) {
-                Some(p) if p >= min_prec => p,
-                _ => break,
-            };
-
+        while let Some(token_kind) = self.peek_kind()
+            && let Some(prec) = token_precedence(token_kind)
+            && prec >= min_prec
+        {
             // --- Assignment operators ---
             // `=`, `+=`, `-=`, etc. are handled at the lowest precedence
             // and are only valid when the left side is a variable or
             // field access.
-            match self.peek_kind() {
+            match token_kind {
                 TokenKind::Equal => {
                     self.advance();
                     let value = self.parse_precedence(Precedence::Assignment);
@@ -420,14 +422,13 @@ impl<'a> Parser<'a> {
                     self.advance();
                     let end = if matches!(
                         self.peek_kind(),
-                        TokenKind::RBrace
-                            | TokenKind::RBracket
-                            | TokenKind::RParen
-                            | TokenKind::Comma
-                            | TokenKind::Semicolon
-                            | TokenKind::Pipe
-                    ) || self.at_end()
-                    {
+                        None | Some(TokenKind::RBracket)
+                            | Some(TokenKind::RParen)
+                            | Some(TokenKind::Comma)
+                            | Some(TokenKind::Semicolon)
+                            | Some(TokenKind::Pipe)
+                            | Some(TokenKind::RBrace)
+                    ) {
                         None
                     } else {
                         Some(self.parse_precedence(Precedence::Range))
@@ -483,7 +484,7 @@ impl<'a> Parser<'a> {
                 TokenKind::Dot => {
                     self.advance();
                     let field_token = match self.peek_kind() {
-                        TokenKind::Ident(_) => self.advance(),
+                        Some(TokenKind::Ident(_)) => self.advance(),
                         _ => {
                             self.error_here("expected field name after '.'");
                             return self.error_node();
@@ -498,6 +499,7 @@ impl<'a> Parser<'a> {
                 }
                 // --- Index access ---
                 TokenKind::LBracket => {
+                    // TODO: This is incorrect -- this syntax is used for type annotations, not for indexed access
                     self.advance();
                     let index = self.parse_expression();
                     if !self.consume_discriminant(&TokenKind::RBracket) {
@@ -612,7 +614,7 @@ impl<'a> Parser<'a> {
     /// Parse the right-hand side of `::` (either a call or a variable).
     fn parse_type_associated_rhs(&mut self) -> NodeId {
         match self.peek_kind() {
-            TokenKind::Ident(_) => {
+            Some(TokenKind::Ident(_)) => {
                 let token = self.advance();
                 let name = self.intern_str(token.text().unwrap());
                 if self.consume_discriminant(&TokenKind::LParen) {
@@ -722,12 +724,9 @@ impl<'a> Parser<'a> {
         let token = self.advance(); // '\'
 
         let mut params = Vec::new();
-        while !self.at_end()
-            && !self.peek_is(&TokenKind::Arrow)
-            && !self.peek_is(&TokenKind::LBrace)
-        {
+        while !self.peek_is(&TokenKind::Arrow) && !self.peek_is(&TokenKind::LBrace) {
             let param_token = match self.peek_kind() {
-                TokenKind::Ident(_) => self.advance(),
+                Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected parameter name in lambda");
                     break;
@@ -748,17 +747,12 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if self.at_end() {
-            self.error_here("unexpected end of file -- expected lambda body");
-            return self.error_node();
-        }
-
         let body = match self.peek_kind() {
-            TokenKind::Arrow => {
+            Some(TokenKind::Arrow) => {
                 self.advance();
                 self.parse_expression()
             }
-            TokenKind::LBrace => self.parse_block_with_braces(),
+            Some(TokenKind::LBrace) => self.parse_block_with_braces(),
             _ => {
                 self.error_here("expected '->' or '{' after lambda parameters");
                 return self.error_node();
@@ -810,7 +804,7 @@ impl<'a> Parser<'a> {
         let token = self.advance(); // 'for'
 
         let var_token = match self.peek_kind() {
-            TokenKind::Ident(_) => self.advance(),
+            Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
                 self.error_here("expected variable name after 'for'");
                 return self.error_node();
@@ -818,14 +812,10 @@ impl<'a> Parser<'a> {
         };
         let var_name = self.intern_str(var_token.text().unwrap());
 
-        // Consume `in` keyword
-        match self.peek_kind() {
-            TokenKind::Ident(s) if s == "in" => {
-                self.advance();
-            }
-            _ => {
-                self.error_here("expected 'in' after for variable");
-            }
+        // Consume `=`
+        if !self.consume_discriminant(&TokenKind::Equal) {
+            self.error_here("expected '=' after for variable");
+            return self.error_node();
         }
 
         let iter = self.parse_expression();
@@ -851,9 +841,10 @@ impl<'a> Parser<'a> {
 
     fn parse_return(&mut self) -> NodeId {
         let t = self.advance();
-        let value = if matches!(self.peek_kind(), TokenKind::RBrace | TokenKind::Semicolon)
-            || self.at_end()
-        {
+        let value = if matches!(
+            self.peek_kind(),
+            None | Some(TokenKind::RBrace) | Some(TokenKind::Semicolon)
+        ) {
             None
         } else {
             Some(self.parse_expression())
@@ -875,16 +866,23 @@ impl<'a> Parser<'a> {
         }
 
         let mut arms = Vec::new();
-        while !self.consume_discriminant(&TokenKind::RBrace) && !self.at_end() {
+        while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
             match self.parse_match_arm() {
                 Some(arm) => {
                     arms.push(arm);
-                    self.consume_comma();
+                    if !self.consume_comma() {
+                        break;
+                    }
                 }
                 None => {
                     self.recover_to_boundary();
                 }
             }
+        }
+
+        if !self.consume_discriminant(&TokenKind::RBrace) {
+            self.error_here("expected '}' after match arms");
+            return self.error_node();
         }
 
         self.alloc(Expr::Match(Match {
@@ -895,16 +893,19 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_match_arm(&mut self) -> Option<MatchArm> {
-        let start = self.peek().span;
+        let start = match self.peek() {
+            Some(token) => token.span,
+            None => return None,
+        };
 
         // `else ...`
         if self.consume_discriminant(&TokenKind::Else) {
             let body = match self.peek_kind() {
-                TokenKind::Arrow => {
+                Some(TokenKind::Arrow) => {
                     self.advance();
                     self.parse_expression()
                 }
-                TokenKind::LBrace => self.parse_block_with_braces(),
+                Some(TokenKind::LBrace) => self.parse_block_with_braces(),
                 _ => {
                     self.error_here("expected '->' or '{' after 'else' in match arm");
                     return None;
@@ -920,11 +921,11 @@ impl<'a> Parser<'a> {
         // `none ...
         if self.consume_discriminant(&TokenKind::None) {
             let body = match self.peek_kind() {
-                TokenKind::Arrow => {
+                Some(TokenKind::Arrow) => {
                     self.advance();
                     self.parse_expression()
                 }
-                TokenKind::LBrace => self.parse_block_with_braces(),
+                Some(TokenKind::LBrace) => self.parse_block_with_braces(),
                 _ => {
                     self.error_here("expected '->' or '{' after 'none' in match arm");
                     return None;
@@ -939,13 +940,13 @@ impl<'a> Parser<'a> {
 
         // `VariantName(binding) ... or `VariantName ...
         match self.peek_kind() {
-            TokenKind::Ident(_) => {
+            Some(TokenKind::Ident(_)) => {
                 let name_token = self.advance();
                 let name = self.intern_str(name_token.text().unwrap());
 
                 let binding = if self.consume_discriminant(&TokenKind::LParen) {
                     let bind_token = match self.peek_kind() {
-                        TokenKind::Ident(_) => self.advance(),
+                        Some(TokenKind::Ident(_)) => self.advance(),
                         _ => {
                             self.error_here("expected binding name in match arm");
                             return None;
@@ -960,11 +961,11 @@ impl<'a> Parser<'a> {
                 };
 
                 let body = match self.peek_kind() {
-                    TokenKind::Arrow => {
+                    Some(TokenKind::Arrow) => {
                         self.advance();
                         self.parse_expression()
                     }
-                    TokenKind::LBrace => self.parse_block_with_braces(),
+                    Some(TokenKind::LBrace) => self.parse_block_with_braces(),
                     _ => {
                         self.error_here("expected '->' or '{' after discriminant in match arm");
                         return None;
@@ -991,8 +992,9 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RParen) {
             args.push(self.parse_expression());
-            // Comma is optional between args
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            };
         }
         args
     }
@@ -1020,7 +1022,7 @@ impl<'a> Parser<'a> {
             let stmt = self.parse_block_statement();
             match stmt {
                 Some(id) => {
-                    let is_item = matches!(
+                    let is_item_def = matches!(
                         self.arena[id],
                         Expr::FuncDef(_)
                             | Expr::StructDef(_)
@@ -1029,7 +1031,7 @@ impl<'a> Parser<'a> {
                             | Expr::ImplBlock(_)
                     );
 
-                    if is_item {
+                    if is_item_def {
                         // Item definitions: consume optional trailing
                         // semicolon but do NOT wrap in DropValue.
                         self.consume_discriminant(&TokenKind::Semicolon);
@@ -1038,7 +1040,7 @@ impl<'a> Parser<'a> {
                     }
 
                     let has_semi = self.consume_discriminant(&TokenKind::Semicolon);
-                    let at_end = matches!(self.peek_kind(), TokenKind::RBrace) || self.at_end();
+                    let at_end = matches!(self.peek_kind(), None | Some(TokenKind::RBrace));
 
                     if has_semi {
                         // Explicit semicolon → drop the value
@@ -1051,7 +1053,9 @@ impl<'a> Parser<'a> {
                         // block's value.
                         stmts.push(id);
                     } else {
-                        // Not last, no semicolon → implicit discard
+                        // Not last, no semicolon → this is illegal
+                        self.error_here("expected ';' after expression in block");
+                        // In order to continue parsing, recover here by treating this as an implicit discard
                         stmts.push(self.alloc(Expr::DropValue(DropValue {
                             span: self.span_of(id),
                             child: id,
@@ -1078,12 +1082,12 @@ impl<'a> Parser<'a> {
     fn parse_block_statement(&mut self) -> Option<NodeId> {
         // Item definitions — peek-ahead by keyword
         match self.peek_kind() {
-            TokenKind::Use => return Some(self.parse_use_stmt()),
-            TokenKind::Func => return Some(self.parse_func_def()),
-            TokenKind::Struct => return Some(self.parse_struct_def()),
-            TokenKind::Enum => return Some(self.parse_enum_def()),
-            TokenKind::Trait => return Some(self.parse_trait_def()),
-            TokenKind::Impl => return Some(self.parse_impl_block()),
+            Some(TokenKind::Use) => return Some(self.parse_use_stmt()),
+            Some(TokenKind::Func) => return Some(self.parse_func_def()),
+            Some(TokenKind::Struct) => return Some(self.parse_struct_def()),
+            Some(TokenKind::Enum) => return Some(self.parse_enum_def()),
+            Some(TokenKind::Trait) => return Some(self.parse_trait_def()),
+            Some(TokenKind::Impl) => return Some(self.parse_impl_block()),
             _ => {}
         }
 
@@ -1102,15 +1106,22 @@ impl<'a> Parser<'a> {
     // ==================================================================
 
     fn try_parse_assignment_stmt(&mut self) -> Option<NodeId> {
+        return None;
+        // TODO: The logic here is fundamentally flawed. We need to backtrack if this isn't actually an assignment
+        // Tuple unpacking: `(mut a, b) = expr`
+        if matches!(self.peek_kind(), Some(TokenKind::LParen)) {
+            return self.parse_tuple_unpack_decl();
+        }
+
         // `mut` keyword
-        if matches!(self.peek_kind(), TokenKind::Mut) {
+        if matches!(self.peek_kind(), Some(TokenKind::Mut)) {
             self.advance();
             return Some(self.parse_mut_decl());
         }
 
         // Identifier assignment: `x = ...` or `x += ...`
         // Must be an identifier followed by = or compound assign.
-        if let TokenKind::Ident(_) = self.peek_kind()
+        if let Some(TokenKind::Ident(_)) = self.peek_kind()
             && let Some(next_tok) = self.next(1)
             && (matches!(next_tok.kind, TokenKind::Equal) || compound_op(&next_tok.kind).is_some())
         {
@@ -1123,25 +1134,15 @@ impl<'a> Parser<'a> {
     fn parse_mut_decl(&mut self) -> NodeId {
         let key_span = self.previous().span;
 
-        // Tuple unpacking: `(mut a, b) = expr`
-        if matches!(self.peek_kind(), TokenKind::LParen) {
-            return self.parse_tuple_unpack_decl();
-        }
-
         // Variable name
         let var_token = match self.peek_kind() {
-            TokenKind::Ident(_) => self.advance(),
+            Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
                 self.error_here("expected variable name");
                 return self.error_node();
             }
         };
         let name = self.intern_str(var_token.text().unwrap());
-
-        // Optional type annotation: `x: Type = expr`
-        if self.consume_discriminant(&TokenKind::Colon) {
-            self.parse_type_node();
-        }
 
         // `= expr`
         if !self.consume_discriminant(&TokenKind::Equal) {
@@ -1159,7 +1160,9 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_tuple_unpack_decl(&mut self) -> NodeId {
+    fn parse_tuple_unpack_decl(&mut self) -> Option<NodeId> {
+        // TODO: This is totally borked. We need a different approach here that allows backtracking
+        // if this doesn't actually turn out to be a tuple unpack declaration
         let key_span = self.previous().span;
         self.advance(); // '(' — already confirmed by caller
 
@@ -1167,32 +1170,34 @@ impl<'a> Parser<'a> {
         while !self.consume_discriminant(&TokenKind::RParen) && !self.at_end() {
             let b_mut = self.consume_discriminant(&TokenKind::Mut);
             let t = match self.peek_kind() {
-                TokenKind::Ident(_) => self.advance(),
+                Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected variable name in tuple pattern");
-                    return self.error_node();
+                    return Some(self.error_node());
                 }
             };
             bindings.push(UnpackBinding {
                 name: self.intern_str(t.text().unwrap()),
                 is_mut: b_mut,
             });
-            self.consume_comma(); // Comma is optional between tuple unpack bindings
+            if !self.consume_comma() {
+                break;
+            }
         }
 
         // `= expr`
         if !self.consume_discriminant(&TokenKind::Equal) {
             self.error_here("expected '=' after tuple pattern");
-            return self.error_node();
+            return Some(self.error_node());
         }
 
         let source = self.parse_expression();
 
-        self.alloc(Expr::TupleUnpack(TupleUnpack {
+        Some(self.alloc(Expr::TupleUnpack(TupleUnpack {
             span: key_span.union(self.span_of(source)),
             bindings,
             source,
-        }))
+        })))
     }
 
     fn parse_identifier_assignment(&mut self) -> NodeId {
@@ -1248,60 +1253,77 @@ impl<'a> Parser<'a> {
     fn parse_use_stmt(&mut self) -> NodeId {
         let token = self.advance(); // 'use'
 
-        // `use (x: Type) from "path.js"` — JS interop
-        if self.consume_discriminant(&TokenKind::Bang) {
-            return self.parse_use_js(&token);
-        }
+        let next_token = match self.peek() {
+            Some(t) => t,
+            None => {
+                self.error_here("expected token after 'use'");
+                return self.error_node();
+            }
+        };
 
-        // `use "path.gema"` — bare module import
-        if let TokenKind::Str(_) = self.peek_kind() {
-            let path_token = self.advance();
-            let path = path_token.text().unwrap().to_string();
-            return self.alloc(Expr::Use(Use {
-                span: token.span.union(path_token.span),
-                path,
-                symbols: None,
-            }));
-        }
-
-        // `use ( sym1, sym2 ) from "path.gema"` — selective import
-        if self.consume_discriminant(&TokenKind::LParen) {
-            let mut symbols = Vec::new();
-            while !self.consume_discriminant(&TokenKind::RParen) && !self.at_end() {
-                match self.peek_kind() {
-                    TokenKind::Ident(_) => {
-                        let sym = self.advance();
-                        symbols.push(self.intern_str(sym.text().unwrap()));
-                        self.consume_comma(); // Comma is optional between use list items
-                    }
-                    _ => {
-                        self.error_here("expected symbol name in import list");
-                        break;
+        match &next_token.kind {
+            // Unsafe import (from JS)
+            TokenKind::Bang => {
+                self.advance(); // consume the `!` token
+                self.parse_use_js(&token)
+            }
+            // Bare import (import everything)
+            TokenKind::Str(path) => {
+                let expr = self.alloc(Expr::Use(Use {
+                    span: token.span.union(next_token.span),
+                    path: path.to_string(),
+                    symbols: None,
+                }));
+                self.advance(); // consume the string token
+                expr
+            }
+            // Import specific symbols
+            TokenKind::LParen => {
+                self.advance(); // consume the LParen
+                let mut symbols = Vec::new();
+                while !self.at_end() && !self.peek_is(&TokenKind::RParen) {
+                    match self.peek_kind() {
+                        Some(TokenKind::Ident(_)) => {
+                            let sym = self.advance();
+                            symbols.push(self.intern_str(sym.text().unwrap()));
+                            if !self.consume_comma() {
+                                break;
+                            }
+                        }
+                        _ => {
+                            self.error_here("expected symbol name in import list");
+                            break;
+                        }
                     }
                 }
+
+                if !self.consume_discriminant(&TokenKind::RParen) {
+                    self.error_here("expected `)` after import list");
+                }
+
+                // `from "path.gema"`
+                let path = self.parse_from_path().unwrap_or_default();
+
+                self.alloc(Expr::Use(Use {
+                    span: token.span.union(self.previous().span),
+                    path,
+                    symbols: Some(symbols),
+                }))
             }
-
-            // `from "path.gema"`
-            let path = self.parse_from_path().unwrap_or_default();
-
-            return self.alloc(Expr::Use(Use {
-                span: token.span.union(self.previous().span),
-                path,
-                symbols: Some(symbols),
-            }));
+            _ => {
+                self.error_here("expected filename or list of imports in parentheses after `use`");
+                self.error_node()
+            }
         }
-
-        self.error_here("expected filename or list of imports in parentheses after `use`");
-        self.error_node()
     }
 
     /// Parse `from "path..."` after a use declaration.
     fn parse_from_path(&mut self) -> Option<String> {
         match self.peek_kind() {
-            TokenKind::From => {
+            Some(TokenKind::From) => {
                 self.advance();
                 match self.peek_kind() {
-                    TokenKind::Str(_) => {
+                    Some(TokenKind::Str(_)) => {
                         let path_token = self.advance();
                         Some(path_token.text().unwrap().to_string())
                     }
@@ -1326,7 +1348,7 @@ impl<'a> Parser<'a> {
         let mut imports = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RParen) {
             let name_token = match self.peek_kind() {
-                TokenKind::Ident(_) => self.advance(),
+                Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected symbol name in JS import");
                     break;
@@ -1343,7 +1365,9 @@ impl<'a> Parser<'a> {
 
             imports.push(JsImportSymbol { name, type_node });
 
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            }
         }
 
         if !self.consume_discriminant(&TokenKind::RParen) {
@@ -1375,7 +1399,7 @@ impl<'a> Parser<'a> {
 
         // Function name
         let name_token = match self.peek_kind() {
-            TokenKind::Ident(_) => self.advance(),
+            Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
                 self.error_here("expected function name");
                 return self.error_node();
@@ -1417,7 +1441,7 @@ impl<'a> Parser<'a> {
         let mut params = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RParen) {
             let param_token = match self.peek_kind() {
-                TokenKind::Ident(_) => self.advance(),
+                Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected parameter name");
                     break;
@@ -1433,7 +1457,9 @@ impl<'a> Parser<'a> {
 
             params.push(Param { name, type_node });
 
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            }
         }
         params
     }
@@ -1442,7 +1468,7 @@ impl<'a> Parser<'a> {
         let token = self.advance(); // 'struct'
 
         let name_token = match self.peek_kind() {
-            TokenKind::Ident(_) => self.advance(),
+            Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
                 self.error_here("expected struct name");
                 return self.error_node();
@@ -1492,7 +1518,7 @@ impl<'a> Parser<'a> {
             }
 
             let field_token = match self.peek_kind() {
-                TokenKind::Ident(_) => self.advance(),
+                Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected field name");
                     break;
@@ -1514,7 +1540,9 @@ impl<'a> Parser<'a> {
                 is_mut,
             });
 
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            }
         }
         fields
     }
@@ -1523,7 +1551,7 @@ impl<'a> Parser<'a> {
         let token = self.advance(); // 'enum'
 
         let name_token = match self.peek_kind() {
-            TokenKind::Ident(_) => self.advance(),
+            Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
                 self.error_here("expected enum name");
                 return self.error_node();
@@ -1568,7 +1596,7 @@ impl<'a> Parser<'a> {
 
         while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
             let variant_token = match self.peek_kind() {
-                TokenKind::Ident(_) => self.advance(),
+                Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected variant name");
                     break;
@@ -1589,7 +1617,9 @@ impl<'a> Parser<'a> {
             });
             index += 1;
 
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            }
         }
 
         variants
@@ -1599,7 +1629,7 @@ impl<'a> Parser<'a> {
         let token = self.advance(); // 'trait'
 
         let name_token = match self.peek_kind() {
-            TokenKind::Ident(_) => self.advance(),
+            Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
                 self.error_here("expected trait name");
                 return self.error_node();
@@ -1630,7 +1660,7 @@ impl<'a> Parser<'a> {
         let mut funcs = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
             // Check for `Self::` prefix for type-associated functions
-            let associated_self = if matches!(self.peek_kind(), TokenKind::Ident(s) if s == "Self")
+            let associated_self = if matches!(self.peek_kind(), Some(TokenKind::Ident(s)) if s == "Self")
                 && self
                     .next(1)
                     .map(|t| matches!(t.kind, TokenKind::ColonColon))
@@ -1644,7 +1674,7 @@ impl<'a> Parser<'a> {
             };
 
             let name_token = match self.peek_kind() {
-                TokenKind::Ident(_) => self.advance(),
+                Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected function name in trait");
                     break;
@@ -1654,22 +1684,29 @@ impl<'a> Parser<'a> {
 
             // Parameters in parens
             let mut param_types = Vec::new();
-            if !self.consume_discriminant(&TokenKind::LParen) {
-                self.error_here("expected '(' after trait function name");
+            if !self.consume_discriminant(&TokenKind::LBracket) {
+                self.error_here("expected '[' after trait function name");
                 continue;
             }
-            while !self.at_end() && !self.peek_is(&TokenKind::RParen) {
+            while !self.at_end() && !self.peek_is(&TokenKind::Colon) {
                 param_types.push(self.parse_type_node());
-                self.consume_comma();
+                if !self.consume_comma() {
+                    break;
+                }
             }
 
             // Return type
             let return_type = if self.consume_discriminant(&TokenKind::Colon) {
                 self.parse_type_node()
             } else {
-                self.error_here("expected return type for trait function");
+                self.error_here("expected ':' then return type for trait function");
                 TypeNode::Null
             };
+
+            if !self.consume_discriminant(&TokenKind::RBracket) {
+                self.error_here("expected ']' after trait function parameters");
+                continue;
+            }
 
             funcs.push(TraitFuncSig {
                 name,
@@ -1678,7 +1715,9 @@ impl<'a> Parser<'a> {
                 associated_self,
             });
 
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            }
         }
         funcs
     }
@@ -1686,25 +1725,25 @@ impl<'a> Parser<'a> {
     fn parse_impl_block(&mut self) -> NodeId {
         let token = self.advance(); // 'impl'
 
+        // Parse self type
+        let self_type = self.parse_type_node();
+
+        // Consume ':'
+        if !matches!(self.peek_kind(), Some(TokenKind::Colon)) {
+            self.error_here("expected ':' after type name in impl block");
+            return self.error_node();
+        }
+        self.advance();
+
         // Parse trait name
         let name_token = match self.peek_kind() {
-            TokenKind::Ident(_) => self.advance(),
+            Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
                 self.error_here("expected trait name in impl block");
                 return self.error_node();
             }
         };
         let trait_name = self.intern_str(name_token.text().unwrap());
-
-        // Consume 'for'
-        if !matches!(self.peek_kind(), TokenKind::For) {
-            self.error_here("expected 'for' in impl block");
-            return self.error_node();
-        }
-        self.advance();
-
-        // Parse self type
-        let self_type = self.parse_type_node();
 
         // Parse { functions }
         if !self.consume_discriminant(&TokenKind::LBrace) {
@@ -1731,13 +1770,15 @@ impl<'a> Parser<'a> {
         let mut funcs = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
             // Expect 'func' keyword
-            if !matches!(self.peek_kind(), TokenKind::Func) {
+            if !matches!(self.peek_kind(), Some(TokenKind::Func)) {
                 self.error_here("expected 'func' in impl block");
                 break;
             }
             funcs.push(self.parse_func_def());
 
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            }
         }
         funcs
     }
@@ -1749,7 +1790,7 @@ impl<'a> Parser<'a> {
     /// Parse a single type node from the current token stream.
     fn parse_type_node(&mut self) -> TypeNode {
         match self.peek_kind() {
-            TokenKind::Ident(s) => {
+            Some(TokenKind::Ident(s)) => {
                 let name = s.clone();
                 self.advance(); // consume identifier
 
@@ -1842,7 +1883,9 @@ impl<'a> Parser<'a> {
                 return_type = Some(self.parse_type_node());
                 break; // Return type is expected to be last thing in type params
             }
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            }
         }
         (params, return_type)
     }
@@ -1852,7 +1895,7 @@ impl<'a> Parser<'a> {
         let mut params = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RBracket) {
             let name_token = match self.peek_kind() {
-                TokenKind::Ident(_) => self.advance(),
+                Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
                     self.error_here("expected type parameter name");
                     break;
@@ -1863,7 +1906,7 @@ impl<'a> Parser<'a> {
             // Optional trait bound: `T: Hash + Clone`
             let traits = if self.consume_discriminant(&TokenKind::Colon) {
                 let mut ts = Vec::new();
-                while let TokenKind::Ident(s) = self.peek_kind() {
+                while let Some(TokenKind::Ident(s)) = self.peek_kind() {
                     let name = s.clone();
                     let id = self.intern_str(&name);
                     ts.push(id);
@@ -1879,7 +1922,9 @@ impl<'a> Parser<'a> {
 
             params.push(TypeParam { name, traits });
 
-            self.consume_comma();
+            if !self.consume_comma() {
+                break;
+            }
         }
         params
     }
@@ -1894,7 +1939,7 @@ impl<'a> Parser<'a> {
     /// `a | \x { body }` → `DirectCall(fn, [a])`
     fn parse_pipe_rhs(&mut self, left: NodeId) -> NodeId {
         match self.peek_kind() {
-            TokenKind::Backslash => {
+            Some(TokenKind::Backslash) => {
                 let lambda = self.parse_lambda();
                 self.alloc(Expr::DirectCall(DirectCall {
                     span: self.span_of(left).union(self.span_of(lambda)),
@@ -1903,7 +1948,7 @@ impl<'a> Parser<'a> {
                     is_unsafe: false,
                 }))
             }
-            TokenKind::Ident(_) => {
+            Some(TokenKind::Ident(_)) => {
                 let token = self.advance();
                 let name = self.intern_str(token.text().unwrap());
                 let mut args = Vec::new();

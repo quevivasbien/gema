@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn parse_for_loop() {
-        let (arena, _, diags, root) = parse_one("for x in range(0i, 10i) { x }");
+        let (arena, _, diags, root) = parse_one("for x = range(0i, 10i) { x }");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "ForLoop");
     }
@@ -604,7 +604,16 @@ mod tests {
     #[test]
     fn parse_impl_block() {
         let (arena, _, diags, root) =
-            parse_one("impl Eq for MyType { func equal(a: Self, b: Self): Bool { true } }");
+            parse_one("impl MyType: Eq { func equal(a: Self, b: Self): Bool { true } }");
+        assert!(!diags.has_errors(), "errors: {:?}", diags);
+        assert_eq!(last_kind(&arena, root), "ImplBlock");
+    }
+
+    #[test]
+    fn parse_impl_block_with_multiple_functions() {
+        let (arena, _, diags, root) = parse_one(
+            "impl MyType: Eq { func equal(a: Self, b: Self): Bool { true }, func notEqual(a: Self, b: Self): Bool { false } }",
+        );
         assert!(!diags.has_errors(), "errors: {:?}", diags);
         assert_eq!(last_kind(&arena, root), "ImplBlock");
     }
