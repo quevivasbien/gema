@@ -395,6 +395,13 @@ mod tests {
 
     #[test]
     fn parse_lambda_with_block() {
+        let (arena, _, diags, root) = parse_one("\\x { out = x + 1; out }");
+        assert!(!diags.has_errors());
+        assert_eq!(last_kind(&arena, root), "AnonFunc");
+    }
+
+    #[test]
+    fn parse_lambda_with_block_and_arrow() {
         let (arena, _, diags, root) = parse_one("\\x -> { out = x + 1; out }");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "AnonFunc");
@@ -530,7 +537,15 @@ mod tests {
 
     #[test]
     fn parse_generic_func() {
-        let (arena, _, diags, root) = parse_one("func [T: Hash] id(x: T): T { hash(x) }");
+        let (arena, _, diags, root) = parse_one("func [T] id(x: T): T { x }");
+        assert!(!diags.has_errors());
+        assert_eq!(last_kind(&arena, root), "FuncDef");
+    }
+
+    #[test]
+    fn parse_generic_func_with_traits() {
+        let (arena, _, diags, root) =
+            parse_one("func [T: Hash + Clone] id(x: T) { x | clone | hash }");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "FuncDef");
     }
@@ -579,7 +594,7 @@ mod tests {
     #[test]
     fn parse_trait_def() {
         let (arena, _, diags, root) =
-            parse_one("trait Eq { equal(Self, Self): Bool, notEqual(Self, Self): Bool }");
+            parse_one("trait Eq { equal[Self, Self: Bool], notEqual[Self, Self: Bool] }");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "TraitDef");
     }
@@ -605,15 +620,14 @@ mod tests {
 
     #[test]
     fn parse_use_selective() {
-        let (arena, _, diags, root) = parse_one("use { add, sub } from \"math.gema\"");
+        let (arena, _, diags, root) = parse_one("use ( add, sub ) from \"math.gema\"");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "Use");
     }
 
     #[test]
     fn parse_use_js() {
-        // TODO: This test never completes! Need to figure out why that's happening.
-        let (arena, _, diags, root) = parse_one("use (add: Func[Num, Num: Num]) from \"math.js\"");
+        let (arena, _, diags, root) = parse_one("use! (add: Func[Num, Num: Num]) from \"math.js\"");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "UseJs");
     }
@@ -688,6 +702,6 @@ mod tests {
     fn parse_index_access() {
         let (arena, _, diags, root) = parse_one("arr(0)");
         assert!(!diags.has_errors());
-        assert_eq!(last_kind(&arena, root), "Call"); // Desugared to __get__(arr, 0)
+        assert_eq!(last_kind(&arena, root), "Call");
     }
 }

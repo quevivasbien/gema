@@ -1265,51 +1265,6 @@ No mutable shared state between passes.
 
 ---
 
-## Appendix: Migrating the Test Suite
-
-The current test suite (`tests/*.test.ts`) is comprehensive (~21 test
-files). The recommended migration order:
-
-1. **Scanner tests first** — `tests/scan_test.rs` — literal parsing,
-   number suffixes, string escapes, comments, operators
-2. **Parser tests** — `tests/parse_test.rs` — AST shape verification
-   for each language construct
-3. **Name resolution tests** — `tests/resolve_test.rs` — scope
-   lookups, shadowing, undefined names
-4. **Type inference tests** — `tests/infer_test.rs` — type checking,
-   generic instantiation, trait resolution
-5. **Full compilation tests** — `tests/codegen_test.rs` — compile
-   source, evaluate in a JS runtime, assert output. This maps 1:1 to
-   the current `testCompile()` helper.
-
-The `testCompile()` helper in TypeScript:
-
-```ts
-testCompile("1 + 2", 3);
-```
-
-becomes in Rust:
-
-```rust
-#[test]
-fn add_integers() {
-    let result = compile_and_eval("1 + 2");
-    assert_eq!(result, Value::Num(3.0));
-}
-```
-
-You'll need a JS runtime for evaluation tests. The options are:
-
-- **Boa** (pure Rust JS interpreter) — good for testing, no binary
-  dependency
-- **Deno core** (V8 bindings) — heavier but a real JS runtime
-- **Sidecar** — compile to a file, then run with `node` or `bun` in
-  a test subprocess
-
-For a hobby project, the **sidecar approach** is simplest: the test
-writes the compiled JS to a temp file, spawns `bun run temp.js`, and
-reads stdout. It's what the current tests effectively do.
-
 ## 7. Breaking changes
 
 This is a list of language features that will be changed during the rewrite.
@@ -1400,3 +1355,58 @@ match x {
     variant2 { 3 }
 }
 ```
+
+### JS interop
+
+The syntax for JS interoperation changes slightly. We require a `!` token after the `use` keyword when importing JS functions and variables:
+
+```gema
+use!(foo: Func[Num: Num]) from "foo.js"
+```
+
+---
+
+## Appendix: Migrating the Test Suite
+
+The current test suite (`tests/*.test.ts`) is comprehensive (~21 test
+files). The recommended migration order:
+
+1. **Scanner tests first** — `tests/scan_test.rs` — literal parsing,
+   number suffixes, string escapes, comments, operators
+2. **Parser tests** — `tests/parse_test.rs` — AST shape verification
+   for each language construct
+3. **Name resolution tests** — `tests/resolve_test.rs` — scope
+   lookups, shadowing, undefined names
+4. **Type inference tests** — `tests/infer_test.rs` — type checking,
+   generic instantiation, trait resolution
+5. **Full compilation tests** — `tests/codegen_test.rs` — compile
+   source, evaluate in a JS runtime, assert output. This maps 1:1 to
+   the current `testCompile()` helper.
+
+The `testCompile()` helper in TypeScript:
+
+```ts
+testCompile("1 + 2", 3);
+```
+
+becomes in Rust:
+
+```rust
+#[test]
+fn add_integers() {
+    let result = compile_and_eval("1 + 2");
+    assert_eq!(result, Value::Num(3.0));
+}
+```
+
+You'll need a JS runtime for evaluation tests. The options are:
+
+- **Boa** (pure Rust JS interpreter) — good for testing, no binary
+  dependency
+- **Deno core** (V8 bindings) — heavier but a real JS runtime
+- **Sidecar** — compile to a file, then run with `node` or `bun` in
+  a test subprocess
+
+For a hobby project, the **sidecar approach** is simplest: the test
+writes the compiled JS to a temp file, spawns `bun run temp.js`, and
+reads stdout. It's what the current tests effectively do.

@@ -57,6 +57,7 @@ pub enum TokenKind {
     ColonColon, // ::
     Semicolon,  // ;
     Pipe,       // |
+    Arrow,      // ->
 
     // ── Single-character operators ──
     Bang,      // !
@@ -82,9 +83,7 @@ pub enum TokenKind {
     // ── Assignment operators ──
     Equal, // =
 
-    // ── Sentinel ──
-    /// Used by the scanner for truly unrecognizable input.
-    Error,
+    // ── Compound assignment operators ──
     PlusEqual,           // +=
     MinusEqual,          // -=
     StarEqual,           // *=
@@ -93,6 +92,10 @@ pub enum TokenKind {
     SlashSlashEqual,     // //=
     PercentPercentEqual, // %%=
     CaretEqual,          // ^=
+
+    // ── Sentinel ──
+    /// Used by the scanner for truly unrecognizable input.
+    Error,
 }
 
 /// A single token produced by the scanner.

@@ -296,14 +296,30 @@ impl<'a> Scanner<'a> {
             return Some(self.make_token(kind));
         }
 
-        // Compound assignment for other operators: +=, -=, *=, ^=
-        if matches!(c, b'+' | b'-' | b'*' | b'^') {
+        // Special case for '-' -- it could be followed by either '=' or '>'
+        if matches!(c, b'-') {
+            let kind = match self.peek() {
+                Some(b'=') => {
+                    self.advance();
+                    TokenKind::MinusEqual
+                }
+                Some(b'>') => {
+                    self.advance();
+                    TokenKind::Arrow
+                }
+                _ => TokenKind::Minus,
+            };
+            return Some(self.make_token(kind));
+        }
+
+        // Compound assignment for other operators: +=, *=, ^=
+        // -= already handled above
+        if matches!(c, b'+' | b'*' | b'^') {
             if let Some(token) = self.try_compound_assign(c) {
                 return Some(token);
             }
             let kind = match c {
                 b'+' => TokenKind::Plus,
-                b'-' => TokenKind::Minus,
                 b'*' => TokenKind::Star,
                 b'^' => TokenKind::Caret,
                 _ => unreachable!(),
@@ -330,7 +346,7 @@ impl<'a> Scanner<'a> {
             return Some(self.make_token(kind));
         }
 
-        // Two-character disambiguation: !, >, <, =
+        // Other two-character disambiguation: !, >, <, =, :
         match c {
             b'!' => {
                 return Some(self.try_two_char(b'=', TokenKind::BangEqual, TokenKind::Bang));
@@ -344,25 +360,13 @@ impl<'a> Scanner<'a> {
             b'=' => {
                 return Some(self.try_two_char(b'=', TokenKind::EqualEqual, TokenKind::Equal));
             }
+            b'.' => {
+                return Some(self.try_two_char(b'.', TokenKind::DotDot, TokenKind::Dot));
+            }
+            b':' => {
+                return Some(self.try_two_char(b':', TokenKind::ColonColon, TokenKind::Colon));
+            }
             _ => {}
-        }
-
-        // Range operator `..`
-        if c == b'.' {
-            if self.peek() == Some(b'.') {
-                self.advance();
-                return Some(self.make_token(TokenKind::DotDot));
-            }
-            return Some(self.make_token(TokenKind::Dot));
-        }
-
-        // Namespace operator `::`
-        if c == b':' {
-            if self.peek() == Some(b':') {
-                self.advance();
-                return Some(self.make_token(TokenKind::ColonColon));
-            }
-            return Some(self.make_token(TokenKind::Colon));
         }
 
         // String literal
@@ -388,6 +392,23 @@ impl<'a> Scanner<'a> {
             format!("unexpected character '{}'", c as char),
         );
         // Emit an error token so the parser doesn't spin forever
+        // Range operator `..`
+        if c == b'.' {
+            if self.peek() == Some(b'.') {
+                self.advance();
+                return Some(self.make_token(TokenKind::DotDot));
+            }
+            return Some(self.make_token(TokenKind::Dot));
+        }
+
+        // Namespace operator `::`
+        if c == b':' {
+            if self.peek() == Some(b':') {
+                self.advance();
+                return Some(self.make_token(TokenKind::ColonColon));
+            }
+            return Some(self.make_token(TokenKind::Colon));
+        }
         Some(self.make_token(TokenKind::Error))
     }
 }
@@ -749,8 +770,8 @@ mod tests {
 
     #[test]
     fn brackets_and_punctuation() {
-        let tokens = scan_one("( ) { } [ ] , ; . .. :: | @ \\");
-        assert_eq!(tokens.len(), 14);
+        let tokens = scan_one("( ) { } [ ] , ; . .. :: | @ -> \\");
+        assert_eq!(tokens.len(), 15);
         assert_eq!(tokens[0].kind, TokenKind::LParen);
         assert_eq!(tokens[1].kind, TokenKind::RParen);
         assert_eq!(tokens[2].kind, TokenKind::LBrace);
@@ -764,7 +785,8 @@ mod tests {
         assert_eq!(tokens[10].kind, TokenKind::ColonColon);
         assert_eq!(tokens[11].kind, TokenKind::Pipe);
         assert_eq!(tokens[12].kind, TokenKind::At);
-        assert_eq!(tokens[13].kind, TokenKind::Backslash);
+        assert_eq!(tokens[13].kind, TokenKind::Arrow);
+        assert_eq!(tokens[14].kind, TokenKind::Backslash);
     }
 
     #[test]
