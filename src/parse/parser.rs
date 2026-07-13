@@ -77,48 +77,41 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            let stmt = self.parse_block_statement();
-            match stmt {
-                Some(id) => {
-                    let is_item = matches!(
-                        self.arena[id],
-                        Expr::FuncDef(_)
-                            | Expr::StructDef(_)
-                            | Expr::EnumDef(_)
-                            | Expr::TraitDef(_)
-                            | Expr::ImplBlock(_)
-                    );
+            let stmt_id = self.parse_block_statement();
+            let is_item = matches!(
+                self.arena[stmt_id],
+                Expr::FuncDef(_)
+                    | Expr::StructDef(_)
+                    | Expr::EnumDef(_)
+                    | Expr::TraitDef(_)
+                    | Expr::ImplBlock(_)
+            );
 
-                    if is_item {
-                        self.consume_discriminant(&TokenKind::Semicolon);
-                        stmts.push(id);
-                        continue;
-                    }
+            if is_item {
+                self.consume_discriminant(&TokenKind::Semicolon);
+                stmts.push(stmt_id);
+                continue;
+            }
 
-                    let has_semi = self.consume_discriminant(&TokenKind::Semicolon);
-                    let at_end = self.at_end();
+            let has_semi = self.consume_discriminant(&TokenKind::Semicolon);
+            let at_end = self.at_end();
 
-                    if has_semi || !at_end {
-                        stmts.push(self.alloc(Expr::DropValue(DropValue {
-                            span: self.span_of(id),
-                            child: id,
-                        })));
-                    } else {
-                        stmts.push(id);
-                    }
+            if has_semi || !at_end {
+                stmts.push(self.alloc(Expr::DropValue(DropValue {
+                    span: self.span_of(stmt_id),
+                    child: stmt_id,
+                })));
+            } else {
+                stmts.push(stmt_id);
+            }
 
-                    // If we got an ErrorExpr without consuming a
-                    // semicolon and we're still not at end, force-
-                    // advance to prevent an infinite loop (error
-                    // recovery may hit a boundary token it can't
-                    // advance past).
-                    if !has_semi && !at_end && matches!(self.arena[id], Expr::ErrorExpr) {
-                        self.advance();
-                    }
-                }
-                None => {
-                    self.recover_to_boundary();
-                }
+            // If we got an ErrorExpr without consuming a
+            // semicolon and we're still not at end, force-
+            // advance to prevent an infinite loop (error
+            // recovery may hit a boundary token it can't
+            // advance past).
+            if !has_semi && !at_end && matches!(self.arena[stmt_id], Expr::ErrorExpr) {
+                self.advance();
             }
         }
 
@@ -239,6 +232,14 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Add an error to the diagnostics and recover to the next boundary.
+    /// Returns an error node so the parser can continue.
+    fn error_and_recover(&mut self, msg: impl Into<String>) -> NodeId {
+        self.error_here(msg);
+        self.recover_to_boundary();
+        self.error_node()
+    }
+
     // ==================================================================
     // Pratt core loop
     // ==================================================================
@@ -274,14 +275,12 @@ impl<'a> Parser<'a> {
             // `func` keyword at expression level is invalid — it's
             // statement-level only.  Report and recover.
             TokenKind::Func => {
-                self.error_here("function definitions are not allowed in expression position");
-                self.recover_to_boundary();
-                return self.error_node();
+                return self.error_and_recover(
+                    "function definitions are not allowed in expression position",
+                );
             }
             _ => {
-                self.error_here("expected expression");
-                self.recover_to_boundary();
-                return self.error_node();
+                return self.error_and_recover("expected expression");
             }
         };
 
@@ -441,7 +440,7 @@ impl<'a> Parser<'a> {
                     self.advance(); // consume '('
                     let args = self.parse_call_args();
                     if !self.consume_discriminant(&TokenKind::RParen) {
-                        self.error_here("expected ')' after arguments");
+                        return self.error_and_recover("expected ')' after arguments");
                     }
                     let arg_span = args
                         .last()
@@ -477,8 +476,7 @@ impl<'a> Parser<'a> {
                     let field_token = match self.peek_kind() {
                         Some(TokenKind::Ident(_)) => self.advance(),
                         _ => {
-                            self.error_here("expected field name after '.'");
-                            return self.error_node();
+                            return self.error_and_recover("expected field name after '.'");
                         }
                     };
                     let field = self.intern_str(field_token.text().unwrap());
@@ -486,21 +484,6 @@ impl<'a> Parser<'a> {
                         span: self.span_of(left).union(field_token.span),
                         obj: left,
                         field,
-                    }));
-                }
-                // --- Index access ---
-                TokenKind::LBracket => {
-                    // TODO: This is incorrect -- this syntax is used for type annotations, not for indexed access
-                    self.advance();
-                    let index = self.parse_expression();
-                    if !self.consume_discriminant(&TokenKind::RBracket) {
-                        self.error_here("expected ']' after index");
-                    }
-                    let get_name = self.intern_str("__get__");
-                    left = self.alloc(Expr::Call(Call {
-                        span: self.span_of(left).union(self.span_of(index)),
-                        name: get_name,
-                        args: vec![left, index],
                     }));
                 }
                 // --- Type-associated (Foo::bar) ---
@@ -511,6 +494,7 @@ impl<'a> Parser<'a> {
                         Expr::Var(v) => (v.name, v.template_types.clone(), v.span),
                         _ => {
                             self.error_raw(self.span_of(left), "expected type name before '::'");
+                            self.recover_to_boundary();
                             return self.error_node();
                         }
                     };
@@ -595,7 +579,7 @@ impl<'a> Parser<'a> {
         let template_types = if self.consume_discriminant(&TokenKind::LBracket) {
             let (params, _return_type) = self.parse_type_params_inner();
             if !self.consume_discriminant(&TokenKind::RBracket) {
-                self.error_here("expected ']' after type parameters");
+                return self.error_and_recover("expected ']' after type parameters");
             }
             params
         } else {
@@ -618,7 +602,7 @@ impl<'a> Parser<'a> {
                 if self.consume_discriminant(&TokenKind::LParen) {
                     let args = self.parse_call_args();
                     if !self.consume_discriminant(&TokenKind::RParen) {
-                        self.error_here("expected ')' after arguments");
+                        return self.error_and_recover("expected ')' after arguments");
                     }
                     self.alloc(Expr::Call(Call {
                         span: token.span,
@@ -633,10 +617,7 @@ impl<'a> Parser<'a> {
                     }))
                 }
             }
-            _ => {
-                self.error_here("expected identifier after '::'");
-                self.error_node()
-            }
+            _ => self.error_and_recover("expected identifier after '::'"),
         }
     }
 
@@ -671,7 +652,7 @@ impl<'a> Parser<'a> {
         }
 
         if !self.consume_discriminant(&TokenKind::RParen) {
-            self.error_here("expected ')'");
+            return self.error_and_recover("expected ')'");
         }
 
         if elements.len() > 1 || comma_count > 0 {
@@ -693,7 +674,7 @@ impl<'a> Parser<'a> {
             self.consume_comma();
         }
         if !self.consume_discriminant(&TokenKind::RBracket) {
-            self.error_here("expected ']' after array elements");
+            return self.error_and_recover("expected ']' after array elements");
         }
 
         let inner_type = if self.consume_discriminant(&TokenKind::Colon) {
@@ -727,8 +708,7 @@ impl<'a> Parser<'a> {
             let param_token = match self.peek_kind() {
                 Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
-                    self.error_here("expected parameter name in lambda");
-                    break;
+                    return self.error_and_recover("expected parameter name in lambda");
                 }
             };
             let name = self.intern_str(param_token.text().unwrap());
@@ -752,10 +732,7 @@ impl<'a> Parser<'a> {
                 self.parse_expression()
             }
             Some(TokenKind::LBrace) => self.parse_block_with_braces(),
-            _ => {
-                self.error_here("expected '->' or '{' after lambda parameters");
-                return self.error_node();
-            }
+            _ => self.error_and_recover("expected '->' or '{' after lambda parameters"),
         };
 
         self.alloc(Expr::AnonFunc(AnonFunc {
@@ -805,16 +782,14 @@ impl<'a> Parser<'a> {
         let var_token = match self.peek_kind() {
             Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
-                self.error_here("expected variable name after 'for'");
-                return self.error_node();
+                return self.error_and_recover("expected variable name after 'for'");
             }
         };
         let var_name = self.intern_str(var_token.text().unwrap());
 
         // Consume `=`
         if !self.consume_discriminant(&TokenKind::Equal) {
-            self.error_here("expected '=' after for variable");
-            return self.error_node();
+            return self.error_and_recover("expected '=' after for variable");
         }
 
         let iter = self.parse_expression();
@@ -860,8 +835,7 @@ impl<'a> Parser<'a> {
         let scrutinee = self.parse_expression();
 
         if !self.consume_discriminant(&TokenKind::LBrace) {
-            self.error_here("expected '{' after match expression");
-            return self.error_node();
+            return self.error_and_recover("expected '{' after match expression");
         }
 
         let mut arms = Vec::new();
@@ -880,8 +854,7 @@ impl<'a> Parser<'a> {
         }
 
         if !self.consume_discriminant(&TokenKind::RBrace) {
-            self.error_here("expected '}' after match arms");
-            return self.error_node();
+            return self.error_and_recover("expected '}' after match arms");
         }
 
         self.alloc(Expr::Match(Match {
@@ -894,7 +867,10 @@ impl<'a> Parser<'a> {
     fn parse_match_arm(&mut self) -> Option<MatchArm> {
         let start = match self.peek() {
             Some(token) => token.span,
-            None => return None,
+            None => {
+                self.error_here("expected match arm");
+                return None;
+            }
         };
 
         // `else ...`
@@ -953,6 +929,7 @@ impl<'a> Parser<'a> {
                     };
                     if !self.consume_discriminant(&TokenKind::RParen) {
                         self.error_here("expected ')' after binding");
+                        return None;
                     }
                     Some(self.intern_str(bind_token.text().unwrap()))
                 } else {
@@ -1005,8 +982,7 @@ impl<'a> Parser<'a> {
     /// Parse a `{ stmt; stmt; expr }` block.
     fn parse_block_with_braces(&mut self) -> NodeId {
         if !self.consume_discriminant(&TokenKind::LBrace) {
-            self.error_here("expected '{'");
-            return self.error_node();
+            return self.error_and_recover("expected '{'");
         }
 
         let open_span = self.previous().span;
@@ -1018,54 +994,40 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            let stmt = self.parse_block_statement();
-            match stmt {
-                Some(id) => {
-                    let is_item_def = matches!(
-                        self.arena[id],
-                        Expr::FuncDef(_)
-                            | Expr::StructDef(_)
-                            | Expr::EnumDef(_)
-                            | Expr::TraitDef(_)
-                            | Expr::ImplBlock(_)
-                    );
+            let stmt_id = self.parse_block_statement();
+            let is_item_def = matches!(
+                self.arena[stmt_id],
+                Expr::FuncDef(_)
+                    | Expr::StructDef(_)
+                    | Expr::EnumDef(_)
+                    | Expr::TraitDef(_)
+                    | Expr::ImplBlock(_)
+            );
 
-                    if is_item_def {
-                        // Item definitions: consume optional trailing
-                        // semicolon but do NOT wrap in DropValue.
-                        self.consume_discriminant(&TokenKind::Semicolon);
-                        stmts.push(id);
-                        continue;
-                    }
+            if is_item_def {
+                // Item definitions: consume optional trailing
+                // semicolon but do NOT wrap in DropValue.
+                self.consume_discriminant(&TokenKind::Semicolon);
+                stmts.push(stmt_id);
+                continue;
+            }
 
-                    let has_semi = self.consume_discriminant(&TokenKind::Semicolon);
-                    let at_end = matches!(self.peek_kind(), None | Some(TokenKind::RBrace));
+            let has_semi = self.consume_discriminant(&TokenKind::Semicolon);
+            let at_end = matches!(self.peek_kind(), None | Some(TokenKind::RBrace));
 
-                    if has_semi {
-                        // Explicit semicolon → drop the value
-                        stmts.push(self.alloc(Expr::DropValue(DropValue {
-                            span: self.span_of(id),
-                            child: id,
-                        })));
-                    } else if at_end {
-                        // Last expression, no semicolon → this is the
-                        // block's value.
-                        stmts.push(id);
-                    } else {
-                        // Not last, no semicolon → this is illegal
-                        self.error_here("expected ';' after expression in block");
-                        // In order to continue parsing, recover here by treating this as an implicit discard
-                        stmts.push(self.alloc(Expr::DropValue(DropValue {
-                            span: self.span_of(id),
-                            child: id,
-                        })));
-                    }
-                }
-                None => {
-                    // Statement parser returned None (error recovery
-                    // already handled inside).
-                    self.recover_to_boundary();
-                }
+            if has_semi {
+                // Explicit semicolon → drop the value
+                stmts.push(self.alloc(Expr::DropValue(DropValue {
+                    span: self.span_of(stmt_id),
+                    child: stmt_id,
+                })));
+            } else if at_end {
+                // Last expression, no semicolon → this is the
+                // block's value.
+                stmts.push(stmt_id);
+            } else {
+                // Not last, no semicolon → this is illegal
+                return self.error_and_recover("expected ';' after expression in block");
             }
         }
 
@@ -1077,27 +1039,26 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a single statement inside a block.
-    /// Returns `Some(id)` on success, `None` if nothing could be parsed.
-    fn parse_block_statement(&mut self) -> Option<NodeId> {
+    fn parse_block_statement(&mut self) -> NodeId {
         // Item definitions — peek-ahead by keyword
         match self.peek_kind() {
-            Some(TokenKind::Use) => return Some(self.parse_use_stmt()),
-            Some(TokenKind::Func) => return Some(self.parse_func_def()),
-            Some(TokenKind::Struct) => return Some(self.parse_struct_def()),
-            Some(TokenKind::Enum) => return Some(self.parse_enum_def()),
-            Some(TokenKind::Trait) => return Some(self.parse_trait_def()),
-            Some(TokenKind::Impl) => return Some(self.parse_impl_block()),
+            Some(TokenKind::Use) => return self.parse_use_stmt(),
+            Some(TokenKind::Func) => return self.parse_func_def(),
+            Some(TokenKind::Struct) => return self.parse_struct_def(),
+            Some(TokenKind::Enum) => return self.parse_enum_def(),
+            Some(TokenKind::Trait) => return self.parse_trait_def(),
+            Some(TokenKind::Impl) => return self.parse_impl_block(),
             _ => {}
         }
 
         // Assignment statements: `mut x = ...`, `(a, b) = expr`,
         // `x = ...`, `x += ...`
         if let Some(assign) = self.try_parse_assignment_stmt() {
-            return Some(assign);
+            return assign;
         }
 
         // Fallthrough: any expression
-        Some(self.parse_expression())
+        self.parse_expression()
     }
 
     // ==================================================================
@@ -1152,16 +1113,14 @@ impl<'a> Parser<'a> {
         let var_token = match self.peek_kind() {
             Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
-                self.error_here("expected variable name");
-                return self.error_node();
+                return self.error_and_recover("expected variable name");
             }
         };
         let name = self.intern_str(var_token.text().unwrap());
 
         // `= expr`
         if !self.consume_discriminant(&TokenKind::Equal) {
-            self.error_here("expected '=' in assignment");
-            return self.error_node();
+            return self.error_and_recover("expected '=' in assignment");
         }
 
         let value = self.parse_expression();
@@ -1183,8 +1142,7 @@ impl<'a> Parser<'a> {
             let t = match self.peek_kind() {
                 Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
-                    self.error_here("expected variable name in tuple pattern");
-                    return self.error_node();
+                    return self.error_and_recover("expected variable name in tuple pattern");
                 }
             };
             bindings.push(UnpackBinding {
@@ -1198,14 +1156,12 @@ impl<'a> Parser<'a> {
 
         // Consume the closing `)`
         if !self.consume_discriminant(&TokenKind::RParen) {
-            self.error_here("expected ')' after tuple pattern");
-            return self.error_node();
+            return self.error_and_recover("expected ')' after tuple pattern");
         }
 
         // `= expr`
         if !self.consume_discriminant(&TokenKind::Equal) {
-            self.error_here("expected '=' after tuple pattern");
-            return self.error_node();
+            return self.error_and_recover("expected '=' after tuple pattern");
         }
 
         let source = self.parse_expression();
@@ -1228,6 +1184,7 @@ impl<'a> Parser<'a> {
             Some(t) => t,
             None => {
                 self.error_here("expected token after 'use'");
+                // Nothing to recover from — already at end.
                 return self.error_node();
             }
         };
@@ -1262,18 +1219,24 @@ impl<'a> Parser<'a> {
                             }
                         }
                         _ => {
-                            self.error_here("expected symbol name in import list");
-                            break;
+                            return self.error_and_recover("expected symbol name in import list");
                         }
                     }
                 }
 
                 if !self.consume_discriminant(&TokenKind::RParen) {
-                    self.error_here("expected `)` after import list");
+                    return self.error_and_recover("expected `)` after import list");
                 }
 
                 // `from "path.gema"`
-                let path = self.parse_from_path().unwrap_or_default();
+                let path = match self.parse_from_path() {
+                    Some(path) => path,
+                    None => {
+                        // Error diagnostic is created inside `parse_from_path`
+                        self.recover_to_boundary();
+                        return self.error_node();
+                    }
+                };
 
                 self.alloc(Expr::Use(Use {
                     span: token.span.union(self.previous().span),
@@ -1281,10 +1244,9 @@ impl<'a> Parser<'a> {
                     symbols: Some(symbols),
                 }))
             }
-            _ => {
-                self.error_here("expected filename or list of imports in parentheses after `use`");
-                self.error_node()
-            }
+            _ => self.error_and_recover(
+                "expected filename or list of imports in parentheses after `use`",
+            ),
         }
     }
 
@@ -1313,16 +1275,14 @@ impl<'a> Parser<'a> {
 
     fn parse_use_js(&mut self, use_token: &Token) -> NodeId {
         if !self.consume_discriminant(&TokenKind::LParen) {
-            self.error_here("expected '(' after 'use!'");
-            return self.error_node();
+            return self.error_and_recover("expected '(' after 'use!'");
         }
         let mut imports = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RParen) {
             let name_token = match self.peek_kind() {
                 Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
-                    self.error_here("expected symbol name in JS import");
-                    break;
+                    return self.error_and_recover("expected symbol name in JS import");
                 }
             };
             let name = self.intern_str(name_token.text().unwrap());
@@ -1330,8 +1290,7 @@ impl<'a> Parser<'a> {
             let type_node = if self.consume_discriminant(&TokenKind::Colon) {
                 self.parse_type_node()
             } else {
-                self.error_here("expected type annotation in JS import");
-                TypeNode::Null
+                return self.error_and_recover("expected type annotation in JS import");
             };
 
             imports.push(JsImportSymbol { name, type_node });
@@ -1342,7 +1301,7 @@ impl<'a> Parser<'a> {
         }
 
         if !self.consume_discriminant(&TokenKind::RParen) {
-            self.error_here("expected ')' after JS imports");
+            return self.error_and_recover("expected ')' after JS imports");
         }
 
         let path = self.parse_from_path().unwrap_or_default();
@@ -1361,7 +1320,7 @@ impl<'a> Parser<'a> {
         let type_params = if self.consume_discriminant(&TokenKind::LBracket) {
             let type_params = self.parse_generic_params_inner();
             if !self.consume_discriminant(&TokenKind::RBracket) {
-                self.error_here("expected ']' after generic parameters");
+                return self.error_and_recover("expected ']' after generic parameters");
             }
             type_params
         } else {
@@ -1372,21 +1331,18 @@ impl<'a> Parser<'a> {
         let name_token = match self.peek_kind() {
             Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
-                self.error_here("expected function name");
-                return self.error_node();
+                return self.error_and_recover("expected function name");
             }
         };
         let name = self.intern_str(name_token.text().unwrap());
 
         // Parameters
         if !self.consume_discriminant(&TokenKind::LParen) {
-            self.error_here("expected '(' after function name");
-            return self.error_node();
+            return self.error_and_recover("expected '(' after function name");
         }
         let params = self.parse_func_params_inner();
         if !self.consume_discriminant(&TokenKind::RParen) {
-            self.error_here("expected ')' after parameters");
-            return self.error_node();
+            return self.error_and_recover("expected ')' after parameters");
         }
 
         // Return type
@@ -1441,8 +1397,7 @@ impl<'a> Parser<'a> {
         let name_token = match self.peek_kind() {
             Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
-                self.error_here("expected struct name");
-                return self.error_node();
+                return self.error_and_recover("expected struct name");
             }
         };
         let name = self.intern_str(name_token.text().unwrap());
@@ -1451,8 +1406,7 @@ impl<'a> Parser<'a> {
         let type_params = if self.consume_discriminant(&TokenKind::LBracket) {
             let params = self.parse_generic_params_inner();
             if !self.consume_discriminant(&TokenKind::RBracket) {
-                self.error_here("expected ']' after generic params");
-                return self.error_node();
+                return self.error_and_recover("expected ']' after generic params");
             }
             params
         } else {
@@ -1461,15 +1415,13 @@ impl<'a> Parser<'a> {
 
         // Fields: `{ field1: Type, field2: Type }`
         if !self.consume_discriminant(&TokenKind::LBrace) {
-            self.error_here("expected '{' before struct fields");
-            return self.error_node();
+            return self.error_and_recover("expected '{' before struct fields");
         }
 
         let fields = self.parse_struct_fields_inner();
 
         if !self.consume_discriminant(&TokenKind::RBrace) {
-            self.error_here("expected '}' after struct fields");
-            return self.error_node();
+            return self.error_and_recover("expected '}' after struct fields");
         }
 
         self.alloc(Expr::StructDef(StructDef {
@@ -1524,8 +1476,7 @@ impl<'a> Parser<'a> {
         let name_token = match self.peek_kind() {
             Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
-                self.error_here("expected enum name");
-                return self.error_node();
+                return self.error_and_recover("expected enum name");
             }
         };
         let name = self.intern_str(name_token.text().unwrap());
@@ -1533,8 +1484,7 @@ impl<'a> Parser<'a> {
         let type_params = if self.consume_discriminant(&TokenKind::LBracket) {
             let type_params = self.parse_generic_params_inner();
             if !self.consume_discriminant(&TokenKind::RBracket) {
-                self.error_here("expected ']' after generic parameters");
-                return self.error_node();
+                return self.error_and_recover("expected ']' after generic parameters");
             }
             type_params
         } else {
@@ -1542,15 +1492,13 @@ impl<'a> Parser<'a> {
         };
 
         if !self.consume_discriminant(&TokenKind::LBrace) {
-            self.error_here("expected '{' before enum variants");
-            return self.error_node();
+            return self.error_and_recover("expected '{' before enum variants");
         }
 
         let variants = self.parse_enum_variants_inner();
 
         if !self.consume_discriminant(&TokenKind::RBrace) {
-            self.error_here("expected '}' after enum variants");
-            return self.error_node();
+            return self.error_and_recover("expected '}' after enum variants");
         }
 
         self.alloc(Expr::EnumDef(EnumDef {
@@ -1602,22 +1550,19 @@ impl<'a> Parser<'a> {
         let name_token = match self.peek_kind() {
             Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
-                self.error_here("expected trait name");
-                return self.error_node();
+                return self.error_and_recover("expected trait name");
             }
         };
         let name = self.intern_str(name_token.text().unwrap());
 
         if !self.consume_discriminant(&TokenKind::LBrace) {
-            self.error_here("expected '{' after trait name");
-            return self.error_node();
+            return self.error_and_recover("expected '{' after trait name");
         }
 
         let required_functions = self.parse_trait_funcs_inner();
 
         if !self.consume_discriminant(&TokenKind::RBrace) {
-            self.error_here("expected '}' after trait functions");
-            return self.error_node();
+            return self.error_and_recover("expected '}' after trait functions");
         }
 
         self.alloc(Expr::TraitDef(TraitDef {
@@ -1701,8 +1646,7 @@ impl<'a> Parser<'a> {
 
         // Consume ':'
         if !matches!(self.peek_kind(), Some(TokenKind::Colon)) {
-            self.error_here("expected ':' after type name in impl block");
-            return self.error_node();
+            return self.error_and_recover("expected ':' after type name in impl block");
         }
         self.advance();
 
@@ -1710,23 +1654,20 @@ impl<'a> Parser<'a> {
         let name_token = match self.peek_kind() {
             Some(TokenKind::Ident(_)) => self.advance(),
             _ => {
-                self.error_here("expected trait name in impl block");
-                return self.error_node();
+                return self.error_and_recover("expected trait name in impl block");
             }
         };
         let trait_name = self.intern_str(name_token.text().unwrap());
 
         // Parse { functions }
         if !self.consume_discriminant(&TokenKind::LBrace) {
-            self.error_here("expected '{' after impl block");
-            return self.error_node();
+            return self.error_and_recover("expected '{' after impl block");
         }
 
         let functions = self.parse_impl_funcs_inner();
 
         if !self.consume_discriminant(&TokenKind::RBrace) {
-            self.error_here("expected '}' after impl functions");
-            return self.error_node();
+            return self.error_and_recover("expected '}' after impl functions");
         }
 
         self.alloc(Expr::ImplBlock(ImplBlock {
