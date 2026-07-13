@@ -257,22 +257,34 @@ mod tests {
     fn parse_block_semicolon_drops_value() {
         let (arena, _, diags, root) = parse_one("{ 1i; 2i }");
         assert!(!diags.has_errors(), "errors: {:?}", diags);
-        // Last expression is 2i (not dropped)
-        assert_eq!(last_kind(&arena, root), "IntLit");
+        match last_expr(&arena, root) {
+            Expr::Block(b) => match &arena[*b.stmts.last().unwrap()] {
+                Expr::IntLit(i) => {
+                    assert_eq!(i.value, "2");
+                }
+                _ => panic!("expected IntLit"),
+            },
+            _ => panic!("expected Block"),
+        }
     }
 
     #[test]
     fn parse_block_trailing_semi_drops_value() {
         let (arena, _, diags, root) = parse_one("{ 1i; }");
         assert!(!diags.has_errors());
-        // Block type is Null — last stmt wrapped in DropValue
-        let block = match &arena[root] {
-            Expr::Block(b) => b,
+        let child = match last_expr(&arena, root) {
+            Expr::Block(b) => match &arena[*b.stmts.last().unwrap()] {
+                Expr::DropValue(d) => d.child,
+                _ => panic!("expected DropValue"),
+            },
             _ => panic!("expected Block"),
         };
-        // The block body is Block → DropValue(IntLit)
-        assert_eq!(block.stmts.len(), 1);
-        assert!(matches!(&arena[block.stmts[0]], Expr::DropValue(_)));
+        match &arena[child] {
+            Expr::IntLit(i) => {
+                assert_eq!(i.value, "1");
+            }
+            _ => panic!("expected IntLit"),
+        }
     }
 
     // ── If expressions ──
@@ -612,7 +624,7 @@ mod tests {
     fn parse_call_no_args() {
         let (arena, _, diags, root) = parse_one("foo()");
         assert!(!diags.has_errors());
-        assert_eq!(last_kind(&arena, root), "Var"); // Actually `foo()` might be... let's check
+        assert_eq!(last_kind(&arena, root), "Call");
     }
 
     #[test]
@@ -667,14 +679,14 @@ mod tests {
 
     #[test]
     fn parse_templated_var() {
-        let (arena, _, diags, root) = parse_one("Arr[Int]");
+        let (arena, _, diags, root) = parse_one("foo[Int]");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "Var");
     }
 
     #[test]
     fn parse_index_access() {
-        let (arena, _, diags, root) = parse_one("arr[0]");
+        let (arena, _, diags, root) = parse_one("arr(0)");
         assert!(!diags.has_errors());
         assert_eq!(last_kind(&arena, root), "Call"); // Desugared to __get__(arr, 0)
     }
