@@ -584,16 +584,23 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// Parse an identifier, possibly followed by `::`.
-    /// NOTE: `[` after an identifier is NOT handled here — it's
-    /// parsed as index access by the infix loop. Template types on
-    /// variable references are not currently supported (they conflict
-    /// with the `[expr]` index syntax).
+    /// Parse an identifier, possibly followed by template type args or `::`.
+    /// In Gema, `[` is used only for type annotations, so `foo[Int]` is a
+    /// variable with template type arguments, NOT index access.
     fn parse_var_or_type_associated(&mut self) -> NodeId {
         let token = self.advance();
         let name = self.intern_str(token.text().unwrap());
 
-        let template_types = Vec::new();
+        // Template types: `foo[Int, Str]`
+        let template_types = if self.consume_discriminant(&TokenKind::LBracket) {
+            let (params, _return_type) = self.parse_type_params_inner();
+            if !self.consume_discriminant(&TokenKind::RBracket) {
+                self.error_here("expected ']' after type parameters");
+            }
+            params
+        } else {
+            Vec::new()
+        };
 
         self.alloc(Expr::Var(Var {
             span: token.span,
