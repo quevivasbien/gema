@@ -78,16 +78,19 @@ impl<'a> Parser<'a> {
             }
 
             let stmt_id = self.parse_block_statement();
-            let is_item = matches!(
+            let is_special_stmt = matches!(
                 self.arena[stmt_id],
                 Expr::FuncDef(_)
                     | Expr::StructDef(_)
                     | Expr::EnumDef(_)
                     | Expr::TraitDef(_)
                     | Expr::ImplBlock(_)
+                    | Expr::Use(_)
+                    | Expr::UseJs(_)
             );
 
-            if is_item {
+            if is_special_stmt {
+                // Consume optional trailing semicolon but do not wrap in DropValue
                 self.consume_discriminant(&TokenKind::Semicolon);
                 stmts.push(stmt_id);
                 continue;
@@ -293,7 +296,7 @@ impl<'a> Parser<'a> {
     fn parse_infix_loop(&mut self, mut left: NodeId, min_prec: Precedence) -> NodeId {
         while let Some(token_kind) = self.peek_kind()
             && let Some(prec) = token_precedence(token_kind)
-            && prec >= min_prec
+            && prec > min_prec
         {
             // --- Assignment operators ---
             // `=`, `+=`, `-=`, etc. are handled at the lowest precedence
@@ -988,23 +991,25 @@ impl<'a> Parser<'a> {
         let open_span = self.previous().span;
         let mut stmts: Vec<NodeId> = Vec::new();
 
-        while !self.consume_discriminant(&TokenKind::RBrace) && !self.at_end() {
+        while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
             // Skip empty statements (stray semicolons)
             if self.consume_discriminant(&TokenKind::Semicolon) {
                 continue;
             }
 
             let stmt_id = self.parse_block_statement();
-            let is_item_def = matches!(
+            let is_special_stmt = matches!(
                 self.arena[stmt_id],
                 Expr::FuncDef(_)
                     | Expr::StructDef(_)
                     | Expr::EnumDef(_)
                     | Expr::TraitDef(_)
                     | Expr::ImplBlock(_)
+                    | Expr::Use(_)
+                    | Expr::UseJs(_)
             );
 
-            if is_item_def {
+            if is_special_stmt {
                 // Item definitions: consume optional trailing
                 // semicolon but do NOT wrap in DropValue.
                 self.consume_discriminant(&TokenKind::Semicolon);
@@ -1029,6 +1034,10 @@ impl<'a> Parser<'a> {
                 // Not last, no semicolon → this is illegal
                 return self.error_and_recover("expected ';' after expression in block");
             }
+        }
+
+        if !self.consume_discriminant(&TokenKind::RBrace) {
+            return self.error_and_recover("missing '}' to close block expression");
         }
 
         let close_span = self.previous().span;

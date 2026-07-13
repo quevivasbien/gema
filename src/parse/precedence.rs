@@ -11,7 +11,6 @@ pub enum Precedence {
     Pipe,
     Or,
     And,
-    Equality,
     Range,
     Comparison,
     Term,
@@ -41,12 +40,14 @@ pub fn token_precedence(kind: &TokenKind) -> Option<Precedence> {
         TokenKind::Or => Some(Precedence::Or),
         TokenKind::And => Some(Precedence::And),
 
-        TokenKind::EqualEqual | TokenKind::BangEqual => Some(Precedence::Equality),
         TokenKind::DotDot => Some(Precedence::Range),
 
-        TokenKind::Less | TokenKind::LessEqual | TokenKind::Greater | TokenKind::GreaterEqual => {
-            Some(Precedence::Comparison)
-        }
+        TokenKind::EqualEqual
+        | TokenKind::BangEqual
+        | TokenKind::Less
+        | TokenKind::LessEqual
+        | TokenKind::Greater
+        | TokenKind::GreaterEqual => Some(Precedence::Comparison),
 
         TokenKind::Plus | TokenKind::Minus => Some(Precedence::Term),
 
