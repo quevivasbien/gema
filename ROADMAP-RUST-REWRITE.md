@@ -1015,7 +1015,7 @@ pub enum HirExpr {
         arms: Vec<MatchArm>,
     },
 
-    /// Pipe expression: a |> f |> g
+    /// Pipe expression: a | f | g
     Pipe { chain: Vec<HirNodeId> },
 }
 ```
