@@ -16,3 +16,4 @@ pub mod parse;
 pub mod scan;
 pub mod source;
 pub mod token;
+pub mod types;
