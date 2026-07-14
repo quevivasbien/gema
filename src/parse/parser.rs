@@ -139,10 +139,6 @@ impl<'a> Parser<'a> {
         self.tokens.get(self.pos)
     }
 
-    fn next(&self, offset: usize) -> Option<&Token> {
-        self.tokens.get(self.pos + offset)
-    }
-
     fn peek_kind(&self) -> Option<&TokenKind> {
         self.peek().map(|t| &t.kind)
     }
@@ -1568,7 +1564,7 @@ impl<'a> Parser<'a> {
             return self.error_and_recover("expected '{' after trait name");
         }
 
-        let required_functions = self.parse_trait_funcs_inner();
+        let requirements = self.parse_trait_requirements();
 
         if !self.consume_discriminant(&TokenKind::RBrace) {
             return self.error_and_recover("expected '}' after trait functions");
@@ -1577,57 +1573,36 @@ impl<'a> Parser<'a> {
         self.alloc(Expr::TraitDef(TraitDef {
             span: token.span.union(self.previous().span),
             name,
-            required_functions,
+            requirements,
         }))
     }
 
-    fn parse_trait_funcs_inner(&mut self) -> Vec<TraitFuncSig> {
-        let mut funcs = Vec::new();
+    fn parse_trait_requirements(&mut self) -> Vec<TraitRequirement> {
+        let mut reqs = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
             let name_token = match self.peek_kind() {
                 Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
-                    self.error_here("expected function name in trait");
+                    self.error_here("expected name in trait requirement");
                     break;
                 }
             };
             let name = self.intern_str(name_token.text().unwrap());
 
-            let mut param_types = Vec::new();
-            if !self.consume_discriminant(&TokenKind::LBracket) {
-                self.error_here("expected '[' after trait function name");
-                continue;
-            }
-            while !self.at_end() && !self.peek_is(&TokenKind::Colon) {
-                param_types.push(self.parse_type_node());
-                if !self.consume_comma() {
-                    break;
-                }
+            if !self.consume_discriminant(&TokenKind::Colon) {
+                self.error_here("expected ':' after trait requirement name");
+                break;
             }
 
-            let return_type = if self.consume_discriminant(&TokenKind::Colon) {
-                self.parse_type_node()
-            } else {
-                self.error_here("expected ':' then return type for trait function");
-                TypeNode::Null
-            };
+            let type_node = self.parse_type_node();
 
-            if !self.consume_discriminant(&TokenKind::RBracket) {
-                self.error_here("expected ']' after trait function parameters");
-                continue;
-            }
-
-            funcs.push(TraitFuncSig {
-                name,
-                param_types,
-                return_type,
-            });
+            reqs.push(TraitRequirement { name, type_node });
 
             if !self.consume_comma() {
                 break;
             }
         }
-        funcs
+        reqs
     }
 
     fn parse_impl_block(&mut self) -> NodeId {
@@ -1656,35 +1631,42 @@ impl<'a> Parser<'a> {
             return self.error_and_recover("expected '{' after impl block");
         }
 
-        let functions = self.parse_impl_funcs_inner();
+        let members = self.parse_impl_members();
 
         if !self.consume_discriminant(&TokenKind::RBrace) {
-            return self.error_and_recover("expected '}' after impl functions");
+            return self.error_and_recover("expected '}' after impl members");
         }
 
         self.alloc(Expr::ImplBlock(ImplBlock {
             span: token.span.union(self.previous().span),
             trait_name,
             self_type,
-            functions,
+            members,
         }))
     }
 
-    fn parse_impl_funcs_inner(&mut self) -> Vec<NodeId> {
-        let mut funcs = Vec::new();
+    fn parse_impl_members(&mut self) -> Vec<NodeId> {
+        let mut members = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
-            // Expect 'func' keyword
-            if !matches!(self.peek_kind(), Some(TokenKind::Func)) {
-                self.error_here("expected 'func' in impl block");
-                break;
+            if matches!(self.peek_kind(), Some(TokenKind::Func)) {
+                members.push(self.parse_func_def());
+            } else {
+                // Parse as expression — should resolve to an Assign
+                let expr = self.parse_expression();
+                if !matches!(&self.arena[expr], Expr::Assign(_)) {
+                    self.error_raw(
+                        self.span_of(expr),
+                        "expected 'func' or assignment in impl block",
+                    );
+                }
+                members.push(expr);
             }
-            funcs.push(self.parse_func_def());
 
             if !self.consume_comma() {
                 break;
             }
         }
-        funcs
+        members
     }
 
     // ==================================================================

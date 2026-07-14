@@ -1315,7 +1315,7 @@ Instead we would just do
 
 ```gema
 trait HasZero {
-  zero[:Self]
+  zero: Func[:Self]
 }
 
 # Example of implementation
@@ -1327,6 +1327,27 @@ impl Num: HasZero {
 
 # Then we could do:
 Num::zero()  # == 0
+```
+
+### Traits can require variables (and trait requirement syntax slightly modified)
+
+Traits can now require both functions and variables, like this:
+
+```gema
+trait Foo {
+  bar: Func[Self: Self],
+  baz: Self,
+}
+
+# Example implementation
+# The impl block now functions basically like any other Block expression (though it has somewhat different rules -- it can only have assignments or func definitions)
+impl Num: Foo {
+  func bar(x: Num) { x + 1 }  # Note that `bar = \x: Num -> x + 1;` would also work here
+  baz = 0;
+}
+
+# Example usage
+Num::bar(Num::baz)  # == 1
 ```
 
 ### Lambda functions

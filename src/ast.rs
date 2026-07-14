@@ -239,12 +239,11 @@ pub struct ConditionalBranch {
     pub body: NodeId,
 }
 
-/// A function signature inside a trait definition.
+/// A single requirement inside a trait definition — `name: Type`.
 #[derive(Clone, Debug)]
-pub struct TraitFuncSig {
+pub struct TraitRequirement {
     pub name: IdentId,
-    pub param_types: Vec<TypeNode>,
-    pub return_type: TypeNode,
+    pub type_node: TypeNode,
 }
 
 /// A symbol imported from a JS module via `use (x: T) from "path.js"`.
@@ -390,7 +389,7 @@ pub struct EnumDef {
 pub struct TraitDef {
     pub span: Span,
     pub name: IdentId,
-    pub required_functions: Vec<TraitFuncSig>,
+    pub requirements: Vec<TraitRequirement>,
 }
 
 #[derive(Clone, Debug)]
@@ -398,7 +397,8 @@ pub struct ImplBlock {
     pub span: Span,
     pub trait_name: IdentId,
     pub self_type: TypeNode,
-    pub functions: Vec<NodeId>,
+    /// Both `FuncDef` and `Assign` nodes for fulfilling trait requirements.
+    pub members: Vec<NodeId>,
 }
 
 // ── Variables and assignment ──
