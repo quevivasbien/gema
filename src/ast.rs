@@ -409,6 +409,9 @@ pub struct Assign {
     pub name: IdentId,
     pub value: NodeId,
     pub is_mut: bool,
+    /// Type annotation from `x: Type = value` or `mut x: Type = value`.
+    /// `None` for plain `x = value` (type inferred from value or context).
+    pub type_annotation: Option<TypeNode>,
 }
 
 #[derive(Clone, Debug)]

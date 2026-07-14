@@ -14,7 +14,7 @@ keyword is only meaningful on a declaration — it cannot appear on a
 reassignment.
 
 The `Assign` node produced by the parser carries `is_mut: true` when `mut`
-is present.  During name resolution, if the name is **not** already
+is present. During name resolution, if the name is **not** already
 defined in the current scope, a new `Variable` symbol is registered.
 
 Using `mut` on a name that already exists in the current scope is an
@@ -32,10 +32,10 @@ y += 1            # valid — compound assignment, same rule
 ```
 
 The parser produces the same `Assign` node for both declarations and
-reassignments.  During name resolution:
+reassignments. During name resolution:
 
 1. If the name is already defined in the **current scope**, it is a
-   reassignment — no new symbol is registered.  The type checker later
+   reassignment — no new symbol is registered. The type checker later
    verifies that the variable is marked `is_mut`.
 2. If the name is already defined in an **ancestor scope** and that
    symbol is a `Variable` with `is_mut: true`, it is a reassignment of
@@ -60,7 +60,7 @@ x                 # resolves to 1
 ```
 
 Shadowing applies regardless of whether the outer variable is mutable or
-immutable.  The inner declaration is an independent variable with its own
+immutable. The inner declaration is an independent variable with its own
 type and mutability.
 
 If the intent is to **modify** an outer mutable variable rather than
@@ -88,13 +88,13 @@ y                 # resolves to 1
 
 ## Summary of rules
 
-| Pattern | Resolver behavior | Type checker |
-|---------|------------------|-------------|
-| `x = N` (name not in scope chain) | Register Variable | — |
-| `mut x = N` (name not in scope chain) | Register Variable(`is_mut`) | — |
-| `x = N` (name in current scope) | Skip (reassignment) | Error if immutable |
-| `mut x = N` (name in current scope) | **Error**: `mut` cannot be used on reassignment | — |
-| `x = N` (name in ancestor, parent `is_mut`) | Skip (reassignment of parent) | OK |
-| `x = N` (name in ancestor, parent not `is_mut`) | Register (shadow) | Independent type |
-| `mut x = N` (name in any ancestor) | Register (explicit shadow) | Independent type |
-| `func f() {}` then `f = N` | Skip (treats as reassign) | Error: cannot assign to function |
+| Pattern                                         | Resolver behavior                               | Type checker                     |
+| ----------------------------------------------- | ----------------------------------------------- | -------------------------------- |
+| `x = N` (name not in scope chain)               | Register Variable                               | —                                |
+| `mut x = N` (name not in scope chain)           | Register Variable(`is_mut`)                     | —                                |
+| `x = N` (name in current scope)                 | Skip (reassignment)                             | Error if immutable               |
+| `mut x = N` (name in current scope)             | **Error**: `mut` cannot be used on reassignment | —                                |
+| `x = N` (name in ancestor, parent `is_mut`)     | Skip (reassignment of parent)                   | OK                               |
+| `x = N` (name in ancestor, parent not `is_mut`) | Register (shadow)                               | Independent type                 |
+| `mut x = N` (name in any ancestor)              | Register (explicit shadow)                      | Independent type                 |
+| `func f() {}` then `f = N`                      | Skip (treats as reassign)                       | Error: cannot assign to function |

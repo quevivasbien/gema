@@ -311,6 +311,7 @@ impl<'a> Parser<'a> {
                                 name,
                                 value,
                                 is_mut: false,
+                                type_annotation: None,
                             }));
                         }
                         AssignResult::Field { obj, field, span } => {
@@ -351,6 +352,7 @@ impl<'a> Parser<'a> {
                                 name,
                                 value: bin,
                                 is_mut: false,
+                                type_annotation: None,
                             }));
                         }
                         AssignResult::Field { obj, field, span } => {
@@ -1098,8 +1100,12 @@ impl<'a> Parser<'a> {
             return Some(self.parse_mut_decl());
         }
 
+        // Annotated declaration: `x: Type = value`
+        if self.is_annotated_decl() {
+            return Some(self.parse_annotated_decl());
+        }
+
         // Tuple unpacking: `(mut a, b) = expr`
-        // Use scan-ahead to disambiguate from tuple expressions.
         if self.is_tuple_unpack() {
             return Some(self.parse_tuple_unpack_decl());
         }
@@ -1109,6 +1115,45 @@ impl<'a> Parser<'a> {
         // doesn't need special treatment here.
 
         None
+    }
+
+    /// Check if the next tokens match `ident :` (possible annotated decl).
+    fn is_annotated_decl(&self) -> bool {
+        matches!(self.peek_kind(), Some(TokenKind::Ident(_)))
+            && self
+                .tokens
+                .get(self.pos + 1)
+                .map(|t| matches!(&t.kind, TokenKind::Colon))
+                .unwrap_or(false)
+    }
+
+    /// Parse `x: Type = value` as a variable declaration with a type
+    /// annotation.  The caller must have already verified
+    /// `is_annotated_decl()`.
+    fn parse_annotated_decl(&mut self) -> NodeId {
+        let name_token = self.advance(); // ident
+        let name_span = name_token.span;
+        let name = self.intern_str(name_token.text().unwrap());
+
+        self.advance(); // ':'
+
+        let type_annotation = self.parse_type_node();
+
+        if !self.consume_discriminant(&TokenKind::Equal) {
+            return self.error_and_recover(
+                "expected '=' after type annotation in variable declaration",
+            );
+        }
+
+        let value = self.parse_expression();
+
+        self.alloc(Expr::Assign(Assign {
+            span: name_span.union(self.span_of(value)),
+            name,
+            value,
+            is_mut: false,
+            type_annotation: Some(type_annotation),
+        }))
     }
 
     fn parse_mut_decl(&mut self) -> NodeId {
@@ -1123,6 +1168,13 @@ impl<'a> Parser<'a> {
         };
         let name = self.intern_str(var_token.text().unwrap());
 
+        // Optional type annotation: `mut x: Type = value`
+        let type_annotation = if self.consume_discriminant(&TokenKind::Colon) {
+            Some(self.parse_type_node())
+        } else {
+            None
+        };
+
         // `= expr`
         if !self.consume_discriminant(&TokenKind::Equal) {
             return self.error_and_recover("expected '=' in assignment");
@@ -1135,6 +1187,7 @@ impl<'a> Parser<'a> {
             name,
             value,
             is_mut: true,
+            type_annotation,
         }))
     }
 

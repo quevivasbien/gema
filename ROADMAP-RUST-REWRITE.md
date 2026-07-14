@@ -1434,6 +1434,10 @@ use!(foo: Func[Num: Num]) from "foo.js"
 
 In the previous version, the syntax rules were rather lax around when commas and semicolons were required. In the new version, we always require semicolons after non-terminal expressions in a block, and we always require commas between adjacent expressions/tokens in an array, tuple, or other list-like construct.
 
+### Significant rework of type inference system
+
+The rewrite implements a more thorough Hindley-Milner type inference system. See the [type inference spec](./docs/type-system.md) for details.
+
 ---
 
 ## Appendix: Migrating the Test Suite

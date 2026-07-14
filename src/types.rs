@@ -29,8 +29,8 @@ pub enum TypeKind {
         params: Vec<TypeId>,
         ret: TypeId,
     },
-    Array(TypeId),
     Iter(TypeId),
+    Arr(TypeId),
     MutArr(TypeId),
     Tuple(Vec<TypeId>),
     Dict {
@@ -209,9 +209,9 @@ impl TypeArena {
             TypeKind::Generic { name, .. } => bindings.get(&name).copied().unwrap_or(ty),
 
             // Compound: substitute children and re-intern
-            TypeKind::Array(inner) => {
+            TypeKind::Arr(inner) => {
                 let new_inner = self.substitute(inner, bindings);
-                self.intern(TypeKind::Array(new_inner))
+                self.intern(TypeKind::Arr(new_inner))
             }
             TypeKind::Iter(inner) => {
                 let new_inner = self.substitute(inner, bindings);
@@ -296,7 +296,7 @@ impl TypeArena {
 
             TypeKind::Generic { .. } | TypeKind::InferVar { .. } => false,
 
-            TypeKind::Array(inner) => self.is_concrete(*inner),
+            TypeKind::Arr(inner) => self.is_concrete(*inner),
             TypeKind::Iter(inner) => self.is_concrete(*inner),
             TypeKind::MutArr(inner) => self.is_concrete(*inner),
             TypeKind::Set(inner) => self.is_concrete(*inner),
@@ -356,7 +356,7 @@ pub fn lower_type_node(
 
         TypeNode::Arr(inner) => {
             let inner_id = lower_type_node(inner, arena, generic_params);
-            arena.intern(TypeKind::Array(inner_id))
+            arena.intern(TypeKind::Arr(inner_id))
         }
         TypeNode::Iter(inner) => {
             let inner_id = lower_type_node(inner, arena, generic_params);
@@ -471,8 +471,8 @@ mod tests {
     fn hash_consing_compound() {
         let mut arena = TypeArena::new();
         let int = arena.intern(TypeKind::Int);
-        let arr1 = arena.intern(TypeKind::Array(int));
-        let arr2 = arena.intern(TypeKind::Array(int));
+        let arr1 = arena.intern(TypeKind::Arr(int));
+        let arr2 = arena.intern(TypeKind::Arr(int));
         assert_eq!(arr1, arr2);
     }
 
@@ -552,8 +552,8 @@ mod tests {
             name: t_name,
             bounds: vec![],
         });
-        let arr_t = arena.intern(TypeKind::Array(t_var));
-        let arr_int = arena.intern(TypeKind::Array(int));
+        let arr_t = arena.intern(TypeKind::Arr(t_var));
+        let arr_int = arena.intern(TypeKind::Arr(int));
 
         let mut bindings = FxHashMap::default();
         bindings.insert(t_name, int);
@@ -615,9 +615,9 @@ mod tests {
         });
 
         // Maybe[Array[T]] → Maybe[Array[Int]]
-        let arr_t = arena.intern(TypeKind::Array(t_var));
+        let arr_t = arena.intern(TypeKind::Arr(t_var));
         let maybe_arr_t = arena.intern(TypeKind::Maybe(arr_t));
-        let arr_int = arena.intern(TypeKind::Array(int));
+        let arr_int = arena.intern(TypeKind::Arr(int));
         let maybe_arr_int = arena.intern(TypeKind::Maybe(arr_int));
 
         let mut bindings = FxHashMap::default();
@@ -718,14 +718,14 @@ mod tests {
             name: ident(&mut interner, "T"),
             bounds: vec![],
         });
-        let arr_t = arena.intern(TypeKind::Array(t_var));
+        let arr_t = arena.intern(TypeKind::Arr(t_var));
         assert!(!arena.is_concrete(arr_t));
     }
 
     #[test]
     fn is_concrete_true_for_array_of_int() {
         let mut arena = TypeArena::new();
-        let arr_int = arena.intern(TypeKind::Array(arena.int_id()));
+        let arr_int = arena.intern(TypeKind::Arr(arena.int_id()));
         assert!(arena.is_concrete(arr_int));
     }
 
@@ -830,7 +830,7 @@ mod tests {
             &mut arena,
             &generic_params,
         );
-        let expected = arena.intern(TypeKind::Array(arena.int_id()));
+        let expected = arena.intern(TypeKind::Arr(arena.int_id()));
         assert_eq!(result, expected);
     }
 
@@ -906,7 +906,7 @@ mod tests {
             traits: vec![],
         }));
         let result = lower_type_node(&type_node, &mut arena, &generic_params);
-        let expected = arena.intern(TypeKind::Array(t_generic));
+        let expected = arena.intern(TypeKind::Arr(t_generic));
         assert_eq!(result, expected);
     }
 

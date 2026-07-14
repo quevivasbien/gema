@@ -512,6 +512,29 @@ mod tests {
         assert_eq!(last_kind(&arena, root), "TupleUnpack");
     }
 
+    #[test]
+    fn parse_annotated_assign() {
+        let (arena, root) = parse_ok("x: Int = 42");
+        assert_eq!(last_kind(&arena, root), "Assign");
+        match last_expr(&arena, root) {
+            Expr::Assign(a) => assert!(a.type_annotation.is_some()),
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn parse_mut_annotated_assign() {
+        let (arena, root) = parse_ok("mut x: Num = 3.14");
+        assert_eq!(last_kind(&arena, root), "Assign");
+        match last_expr(&arena, root) {
+            Expr::Assign(a) => {
+                assert!(a.is_mut);
+                assert!(a.type_annotation.is_some());
+            }
+            _ => panic!("expected Assign"),
+        }
+    }
+
     // ── Function definitions ──
 
     #[test]
