@@ -1044,8 +1044,8 @@ mod tests {
     }
 
     #[test]
-    fn trait_with_self_func() {
-        let (arena, root) = parse_ok("trait Default { Self::zero[:Self] }");
+    fn trait_with_self_return_type() {
+        let (arena, root) = parse_ok("trait Default { zero[:Self] }");
         let block = match &arena[root] {
             Expr::Block(b) => b,
             _ => panic!("expected Block"),
@@ -1053,10 +1053,11 @@ mod tests {
         match &arena[block.stmts[0]] {
             Expr::TraitDef(t) => {
                 assert_eq!(t.required_functions.len(), 1);
-                assert!(
-                    t.required_functions[0].associated_self,
-                    "zero should be a Self-associated function"
-                );
+                // The return type should contain SelfType
+                assert!(matches!(
+                    t.required_functions[0].return_type,
+                    TypeNode::SelfType
+                ));
             }
             _ => panic!("expected TraitDef"),
         }

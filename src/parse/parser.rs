@@ -1584,20 +1584,6 @@ impl<'a> Parser<'a> {
     fn parse_trait_funcs_inner(&mut self) -> Vec<TraitFuncSig> {
         let mut funcs = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
-            // Check for `Self::` prefix for type-associated functions
-            let associated_self = if matches!(self.peek_kind(), Some(TokenKind::Ident(s)) if s == "Self")
-                && self
-                    .next(1)
-                    .map(|t| matches!(t.kind, TokenKind::ColonColon))
-                    .unwrap_or(false)
-            {
-                self.advance(); // consume 'Self'
-                self.advance(); // consume '::'
-                true
-            } else {
-                false
-            };
-
             let name_token = match self.peek_kind() {
                 Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
@@ -1607,7 +1593,6 @@ impl<'a> Parser<'a> {
             };
             let name = self.intern_str(name_token.text().unwrap());
 
-            // Parameters in parens
             let mut param_types = Vec::new();
             if !self.consume_discriminant(&TokenKind::LBracket) {
                 self.error_here("expected '[' after trait function name");
@@ -1620,7 +1605,6 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            // Return type
             let return_type = if self.consume_discriminant(&TokenKind::Colon) {
                 self.parse_type_node()
             } else {
@@ -1637,7 +1621,6 @@ impl<'a> Parser<'a> {
                 name,
                 param_types,
                 return_type,
-                associated_self,
             });
 
             if !self.consume_comma() {

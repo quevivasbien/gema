@@ -1284,6 +1284,51 @@ impl Vec2: Add {
 }
 ```
 
+### Rework of "type-associated" functions
+
+The system for type-associated functions present in the TS implementation was extremely clunky. The new rules are these:
+
+We now only use the `Type::` syntax in one of two cases:
+
+1. As part of an enum instantation (not a change from the previous design)
+2. When referring specifically to a function that is part of a trait definition -- we can no longer use this syntax for functions that are not part of trait definitions.
+
+This means we can no longer do something like:
+
+```gema
+func Foo::bar() {
+  Foo(1, 2, 3)
+}
+```
+
+and if we see something like `Foo::bar`, and `Foo` is not an enum type, then we know `bar` must be a function associated with some trait that `Foo` satisfies. Furthermore, in this rework, the `Type::` syntax is _required_ when referring to functions that are part of trait definitions -- something like `T::foo()` says "look for `foo` in the traits implemented by `T`. Even when dealing with concrete types, as long as we're using a trait-defined function, we have to use this syntax.
+
+In trait definitions, we no longer have things like:
+
+```gema
+trait HasZero {
+  Self::zero[:Self]
+}
+```
+
+Instead we would just do
+
+```gema
+trait HasZero {
+  zero[:Self]
+}
+
+# Example of implementation
+impl Num: HasZero {
+  func zero() {
+    0
+  }
+}
+
+# Then we could do:
+Num::zero()  # == 0
+```
+
 ### Lambda functions
 
 Currently, we allow two types of anon function definitions.

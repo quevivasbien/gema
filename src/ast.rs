@@ -245,9 +245,6 @@ pub struct TraitFuncSig {
     pub name: IdentId,
     pub param_types: Vec<TypeNode>,
     pub return_type: TypeNode,
-    /// True when this is a type-associated function (`Self::foo()`) in
-    /// the trait definition.
-    pub associated_self: bool,
 }
 
 /// A symbol imported from a JS module via `use (x: T) from "path.js"`.
