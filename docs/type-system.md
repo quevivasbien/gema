@@ -25,11 +25,11 @@ the same `TypeId` (hash consing).
 | `Num`  | `Num`    | Floating-point                | `Number`              |
 | `Str`  | `Str`    | String                        | `String`              |
 | `Bool` | `Bool`   | Boolean                       | `Boolean`             |
-| `Null` | `Null`   | Void / bottom type — no value | No JS output (erased) |
+| `Void` | `Void`   | Void / bottom type — no value | No JS output (erased) |
 
-`Null` is Gema's bottom type. It is the type of expressions that do not
+`Void` is Gema's bottom type. It is the type of expressions that do not
 produce a value (e.g. a bare `return;`). It is distinct from `Maybe[T]`,
-which produces JS's `null` at runtime. When a `Null`-typed expression
+which produces JS's `null` at runtime. When a `Void`-typed expression
 appears in a context that expects a value, it unifies with any type.
 
 ### Built-in compound types

@@ -1,0 +1,1366 @@
+/// Type inference for Gema using constraint-based unification.
+///
+/// Walks the resolved AST and assigns a `TypeId` to every expression
+/// by solving equality constraints between types.  Uses a simple
+/// unification-based approach with `InferVar` type variables.
+use rustc_hash::FxHashMap;
+
+use crate::ast::*;
+use crate::diagnostics::DiagnosticsBag;
+use crate::interner::{IdentId, Interner};
+use crate::source::Span;
+use crate::symbol::{ScopeTree, SymbolKind};
+use crate::types::{TypeArena, TypeId, TypeKind};
+
+/// Run type inference on a resolved AST.
+///
+/// Returns a map from every expression node to its inferred `TypeId`.
+pub fn infer_types(
+    arena: &AstArena,
+    scope_tree: &ScopeTree,
+    type_arena: &mut TypeArena,
+    interner: &Interner,
+    root: NodeId,
+    diagnostics: &mut DiagnosticsBag,
+    file_idx: usize,
+) -> FxHashMap<NodeId, TypeId> {
+    let mut infer = Inferer::new(
+        arena,
+        scope_tree,
+        type_arena,
+        interner,
+        diagnostics,
+        file_idx,
+    );
+    infer.infer_expr(root);
+    infer.types
+}
+
+struct Inferer<'a> {
+    arena: &'a AstArena,
+    scope_tree: &'a ScopeTree,
+    type_arena: &'a mut TypeArena,
+    interner: &'a Interner,
+    diagnostics: &'a mut DiagnosticsBag,
+    file_idx: usize,
+    /// Bindings from InferVar ids to their solved types.
+    bindings: FxHashMap<u32, TypeId>,
+    /// Final types for every expression node.
+    types: FxHashMap<NodeId, TypeId>,
+    /// Inferred types for named variables (populated by assignments).
+    var_types: FxHashMap<IdentId, TypeId>,
+    /// Current function's return type (for return statements).
+    return_type: Option<TypeId>,
+}
+
+impl<'a> Inferer<'a> {
+    fn new(
+        arena: &'a AstArena,
+        scope_tree: &'a ScopeTree,
+        type_arena: &'a mut TypeArena,
+        interner: &'a Interner,
+        diagnostics: &'a mut DiagnosticsBag,
+        file_idx: usize,
+    ) -> Self {
+        Self {
+            arena,
+            scope_tree,
+            type_arena,
+            interner,
+            diagnostics,
+            file_idx,
+            bindings: FxHashMap::default(),
+            types: FxHashMap::default(),
+            var_types: FxHashMap::default(),
+            return_type: None,
+        }
+    }
+
+    fn fresh_var(&mut self) -> TypeId {
+        self.type_arena.fresh_infer_var()
+    }
+
+    // ── Resolution ──
+
+    /// Follow the binding chain of an `InferVar` to its resolved type.
+    fn resolve(&self, mut ty: TypeId) -> TypeId {
+        loop {
+            match self.type_arena.get(ty) {
+                TypeKind::InferVar { id } => match self.bindings.get(id) {
+                    Some(&bound) => ty = bound,
+                    None => return ty,
+                },
+                _ => return ty,
+            }
+        }
+    }
+
+    // ── Occurs check ──
+
+    fn occurs(&self, var_id: u32, ty: TypeId) -> bool {
+        let ty = self.resolve(ty);
+        match self.type_arena.get(ty) {
+            TypeKind::InferVar { id } => *id == var_id,
+            TypeKind::Arr(inner) => self.occurs(var_id, *inner),
+            TypeKind::Iter(inner) => self.occurs(var_id, *inner),
+            TypeKind::MutArr(inner) => self.occurs(var_id, *inner),
+            TypeKind::Set(inner) => self.occurs(var_id, *inner),
+            TypeKind::MutSet(inner) => self.occurs(var_id, *inner),
+            TypeKind::Maybe(inner) => self.occurs(var_id, *inner),
+            TypeKind::Dict { key, val } => self.occurs(var_id, *key) || self.occurs(var_id, *val),
+            TypeKind::MutDict { key, val } => {
+                self.occurs(var_id, *key) || self.occurs(var_id, *val)
+            }
+            TypeKind::Tuple(elems) => elems.iter().any(|e| self.occurs(var_id, *e)),
+            TypeKind::Func { params, ret } => {
+                params.iter().any(|p| self.occurs(var_id, *p)) || self.occurs(var_id, *ret)
+            }
+            TypeKind::Custom { args, .. } => args.iter().any(|a| self.occurs(var_id, *a)),
+            _ => false,
+        }
+    }
+
+    // ── Unification ──
+
+    /// Unify two types.  Returns the unified type.
+    fn unify(&mut self, a: TypeId, b: TypeId) -> TypeId {
+        let a = self.resolve(a);
+        let b = self.resolve(b);
+        if a == b {
+            return a;
+        }
+
+        let ak = self.type_arena.get(a).clone();
+        let bk = self.type_arena.get(b).clone();
+
+        // Numeric promotion: Int unifies with Num → Num
+        if matches!(
+            (&ak, &bk),
+            (TypeKind::Int, TypeKind::Num) | (TypeKind::Num, TypeKind::Int)
+        ) {
+            return self.type_arena.num_id();
+        }
+
+        match (&ak, &bk) {
+            // InferVar on either side → bind
+            (TypeKind::InferVar { id }, _) => self.bind_infer_var(*id, b),
+            (_, TypeKind::InferVar { id }) => self.bind_infer_var(*id, a),
+            // Void (bottom type) unifies with anything, returns the other
+            (TypeKind::Void, _) => b,
+            (_, TypeKind::Void) => a,
+            // Same primitives
+            (TypeKind::Int, TypeKind::Int)
+            | (TypeKind::Num, TypeKind::Num)
+            | (TypeKind::Str, TypeKind::Str)
+            | (TypeKind::Bool, TypeKind::Bool)
+            | (TypeKind::Unknown, _)
+            | (_, TypeKind::Unknown) => a,
+            // Arrays
+            (TypeKind::Arr(ia), TypeKind::Arr(ib)) => {
+                let inner = self.unify(*ia, *ib);
+                self.type_arena.intern(TypeKind::Arr(inner))
+            }
+            (TypeKind::Iter(ia), TypeKind::Iter(ib)) => {
+                let inner = self.unify(*ia, *ib);
+                self.type_arena.intern(TypeKind::Iter(inner))
+            }
+            (TypeKind::MutArr(ia), TypeKind::MutArr(ib)) => {
+                let inner = self.unify(*ia, *ib);
+                self.type_arena.intern(TypeKind::MutArr(inner))
+            }
+            (TypeKind::Set(ia), TypeKind::Set(ib)) => {
+                let inner = self.unify(*ia, *ib);
+                self.type_arena.intern(TypeKind::Set(inner))
+            }
+            (TypeKind::MutSet(ia), TypeKind::MutSet(ib)) => {
+                let inner = self.unify(*ia, *ib);
+                self.type_arena.intern(TypeKind::MutSet(inner))
+            }
+            (TypeKind::Maybe(ia), TypeKind::Maybe(ib)) => {
+                let inner = self.unify(*ia, *ib);
+                self.type_arena.intern(TypeKind::Maybe(inner))
+            }
+            // Dicts
+            (TypeKind::Dict { key: ka, val: va }, TypeKind::Dict { key: kb, val: vb }) => {
+                let k = self.unify(*ka, *kb);
+                let v = self.unify(*va, *vb);
+                self.type_arena.intern(TypeKind::Dict { key: k, val: v })
+            }
+            (TypeKind::MutDict { key: ka, val: va }, TypeKind::MutDict { key: kb, val: vb }) => {
+                let k = self.unify(*ka, *kb);
+                let v = self.unify(*va, *vb);
+                self.type_arena.intern(TypeKind::MutDict { key: k, val: v })
+            }
+            // Tuples (must have same length)
+            (TypeKind::Tuple(ea), TypeKind::Tuple(eb)) => {
+                if ea.len() != eb.len() {
+                    self.emit_error(
+                        self.current_span(),
+                        format!(
+                            "tuple length mismatch: expected {}, found {}",
+                            ea.len(),
+                            eb.len()
+                        ),
+                    );
+                    return self.type_arena.unknown_id();
+                }
+                let elems: Vec<_> = ea
+                    .iter()
+                    .zip(eb.iter())
+                    .map(|(a, b)| self.unify(*a, *b))
+                    .collect();
+                self.type_arena.intern(TypeKind::Tuple(elems))
+            }
+            // Functions (must have same param count)
+            (
+                TypeKind::Func {
+                    params: pa,
+                    ret: ra,
+                },
+                TypeKind::Func {
+                    params: pb,
+                    ret: rb,
+                },
+            ) => {
+                if pa.len() != pb.len() {
+                    self.emit_error(
+                        self.current_span(),
+                        format!(
+                            "function parameter count mismatch: expected {}, found {}",
+                            pa.len(),
+                            pb.len()
+                        ),
+                    );
+                    return self.type_arena.unknown_id();
+                }
+                let params: Vec<_> = pa
+                    .iter()
+                    .zip(pb.iter())
+                    .map(|(a, b)| self.unify(*a, *b))
+                    .collect();
+                let ret = self.unify(*ra, *rb);
+                self.type_arena.intern(TypeKind::Func { params, ret })
+            }
+            // Custom types with same name
+            (TypeKind::Custom { name: na, args: aa }, TypeKind::Custom { name: nb, args: ab })
+                if na == nb && aa.len() == ab.len() =>
+            {
+                let args: Vec<_> = aa
+                    .iter()
+                    .zip(ab.iter())
+                    .map(|(a, b)| self.unify(*a, *b))
+                    .collect();
+                self.type_arena.intern(TypeKind::Custom { name: *na, args })
+            }
+            // Fallthrough: type mismatch
+            _ => {
+                self.emit_type_mismatch(a, b);
+                self.type_arena.unknown_id()
+            }
+        }
+    }
+
+    /// Bind an InferVar to a type, with occurs check.
+    fn bind_infer_var(&mut self, id: u32, ty: TypeId) -> TypeId {
+        if self.occurs(id, ty) {
+            self.emit_error(
+                self.current_span(),
+                "recursive type: type contains itself".to_string(),
+            );
+            return self.type_arena.unknown_id();
+        }
+        self.bindings.insert(id, ty);
+        ty
+    }
+
+    // ── Error reporting ──
+
+    fn emit_error(&mut self, span: Span, msg: String) {
+        self.diagnostics.error(self.file_idx, span, msg);
+    }
+
+    fn emit_type_mismatch(&mut self, a: TypeId, b: TypeId) {
+        let a_str = self.fmt_type(a);
+        let b_str = self.fmt_type(b);
+        self.emit_error(
+            self.current_span(),
+            format!("mismatched types: expected '{a_str}', found '{b_str}'"),
+        );
+    }
+
+    fn fmt_type(&self, ty: TypeId) -> String {
+        let resolved = self.resolve(ty);
+        match self.type_arena.get(resolved) {
+            TypeKind::Int => "Int".into(),
+            TypeKind::Num => "Num".into(),
+            TypeKind::Str => "Str".into(),
+            TypeKind::Bool => "Bool".into(),
+            TypeKind::Void => "Void".into(),
+            TypeKind::InferVar { id } => format!("?{id}"),
+            TypeKind::Unknown => "?".into(),
+            TypeKind::Arr(inner) => format!("Arr[{}]", self.fmt_type(*inner)),
+            TypeKind::Iter(inner) => format!("Iter[{}]", self.fmt_type(*inner)),
+            TypeKind::MutArr(inner) => format!("MutArr[{}]", self.fmt_type(*inner)),
+            TypeKind::Set(inner) => format!("Set[{}]", self.fmt_type(*inner)),
+            TypeKind::MutSet(inner) => format!("MutSet[{}]", self.fmt_type(*inner)),
+            TypeKind::Maybe(inner) => format!("Maybe[{}]", self.fmt_type(*inner)),
+            TypeKind::Dict { key, val } => {
+                format!("Dict[{}, {}]", self.fmt_type(*key), self.fmt_type(*val))
+            }
+            TypeKind::MutDict { key, val } => {
+                format!("MutDict[{}, {}]", self.fmt_type(*key), self.fmt_type(*val))
+            }
+            TypeKind::Tuple(elems) => {
+                let inner: Vec<_> = elems.iter().map(|e| self.fmt_type(*e)).collect();
+                format!("Tup[{}]", inner.join(", "))
+            }
+            TypeKind::Func { params, ret } => {
+                let ps: Vec<_> = params.iter().map(|p| self.fmt_type(*p)).collect();
+                format!("Func[{}, {}]", ps.join(", "), self.fmt_type(*ret))
+            }
+            TypeKind::Custom { args, .. } => {
+                if args.is_empty() {
+                    "Custom".into()
+                } else {
+                    let inner: Vec<_> = args.iter().map(|a| self.fmt_type(*a)).collect();
+                    format!("Custom[{}]", inner.join(", "))
+                }
+            }
+            TypeKind::Generic { .. } => "generic".into(),
+            TypeKind::SelfType => "Self".into(),
+        }
+    }
+
+    fn current_span(&self) -> Span {
+        Span::empty_at(0)
+    }
+
+    // ── Main inference dispatch ──
+
+    fn infer_expr(&mut self, node: NodeId) -> TypeId {
+        let ty = match &self.arena[node] {
+            Expr::IntLit(_) => self.type_arena.int_id(),
+            Expr::NumLit(_) => self.type_arena.num_id(),
+            Expr::StrLit(_) => self.type_arena.str_id(),
+            Expr::BoolLit(_) => self.type_arena.bool_id(),
+            Expr::NoneLit(n) => self.infer_none_lit(n),
+            Expr::Var(v) => self.infer_var(node, v),
+            Expr::Call(c) => self.infer_call(node, c),
+            Expr::DirectCall(d) => self.infer_direct_call(node, d),
+            Expr::Binary(b) => self.infer_binary(b),
+            Expr::Unary(u) => self.infer_unary(u),
+            Expr::Assign(a) => self.infer_assign(node, a),
+            Expr::Block(b) => self.infer_block(b),
+            Expr::If(i) => self.infer_if(node, i),
+            Expr::Match(m) => self.infer_match(node, m),
+            Expr::FuncDef(f) => {
+                // Register the function's type so calls can find it.
+                let func_ty = self.function_type_from_def(node);
+                self.var_types.insert(f.name, func_ty);
+                self.type_arena.void_id()
+            }
+            Expr::AnonFunc(a) => self.infer_anon_func(node, a),
+            Expr::Return(r) => self.infer_return(node, r),
+            Expr::ForLoop(f) => self.infer_for_loop(f),
+            Expr::ArrLit(a) => self.infer_array(a),
+            Expr::TupleLit(t) => self.infer_tuple(t),
+            Expr::RangeIter(r) => self.infer_range(r),
+            Expr::FieldAccess(f) => self.infer_field_access(node, f),
+            Expr::TypeAssociated(t) => self.infer_type_associated(node, t),
+            Expr::TupleUnpack(t) => self.infer_tuple_unpack(node, t),
+            Expr::DropValue(d) => {
+                self.infer_expr(d.child);
+                self.type_arena.void_id()
+            }
+            Expr::FieldAssign(f) => self.infer_field_assign(node, f),
+            Expr::Use(_)
+            | Expr::UseJs(_)
+            | Expr::Continue(_)
+            | Expr::Break(_)
+            | Expr::StructDef(_)
+            | Expr::EnumDef(_)
+            | Expr::TraitDef(_)
+            | Expr::ImplBlock(_)
+            | Expr::ErrorExpr => self.type_arena.void_id(),
+        };
+        self.types.insert(node, ty);
+        ty
+    }
+
+    // ── Literals ──
+
+    fn infer_none_lit(&mut self, n: &NoneLit) -> TypeId {
+        if let Some(ref inner_type) = n.inner_type {
+            // Annotation present: `none: Int` → Maybe[Int]
+            let inner = self.lower_type_node(inner_type);
+            self.type_arena.intern(TypeKind::Maybe(inner))
+        } else {
+            // No annotation: create Maybe[α] with fresh variable
+            let inner = self.fresh_var();
+            self.type_arena.intern(TypeKind::Maybe(inner))
+        }
+    }
+
+    // ── Variables ──
+
+    fn infer_var(&mut self, node: NodeId, v: &Var) -> TypeId {
+        // Check if this variable's type has been recorded from an
+        // assignment.
+        if let Some(&tid) = self.var_types.get(&v.name) {
+            return tid;
+        }
+
+        if let Some(&sid) = self.scope_tree.resolved_refs.get(&node) {
+            let sym = &self.scope_tree.symbols[sid];
+            match &sym.kind {
+                SymbolKind::Variable { .. } => self.fresh_var(),
+                SymbolKind::Function { .. }
+                | SymbolKind::Struct { .. }
+                | SymbolKind::Enum { .. }
+                | SymbolKind::Trait { .. }
+                | SymbolKind::Impl { .. }
+                | SymbolKind::TypeParam { .. } => {
+                    let name_str = self.interner.lookup(v.name);
+                    self.emit_error(
+                        self.arena[node].span(),
+                        format!("'{name_str}' is not a value"),
+                    );
+                    self.type_arena.unknown_id()
+                }
+            }
+        } else {
+            self.type_arena.unknown_id()
+        }
+    }
+
+    // ── Call ──
+
+    fn infer_call(&mut self, node: NodeId, c: &Call) -> TypeId {
+        let arg_types: Vec<TypeId> = c.args.iter().map(|&arg| self.infer_expr(arg)).collect();
+
+        let funcs = self.scope_tree.lookup_functions(
+            self.scope_tree
+                .node_scope
+                .get(&node)
+                .copied()
+                .unwrap_or(self.scope_tree.root_scope),
+            c.name,
+        );
+
+        if funcs.is_empty() {
+            let name_str = self.interner.lookup(c.name);
+            self.emit_error(
+                self.arena[node].span(),
+                format!("undefined function '{name_str}'"),
+            );
+            return self.type_arena.unknown_id();
+        }
+
+        // For each overload, try to unify params with args.
+        // Pick the first one that succeeds.
+        for func in funcs {
+            let func_type = self.function_type_from_def(func.def_node);
+            let func_kind = self.type_arena.get(func_type).clone();
+            match func_kind {
+                TypeKind::Func { params, ret } => {
+                    if params.len() != arg_types.len() {
+                        continue;
+                    }
+                    let saved = self.bindings.clone();
+                    let mut ok = true;
+                    for (param, arg) in params.iter().zip(arg_types.iter()) {
+                        let unified = self.unify(*param, *arg);
+                        if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if !ok {
+                        self.bindings = saved;
+                        continue;
+                    }
+                    let resolved = self.resolve(ret);
+                    return resolved;
+                }
+                _ => continue,
+            }
+        }
+
+        let name_str = self.interner.lookup(c.name);
+        self.emit_error(
+            self.arena[node].span(),
+            format!("no matching function '{name_str}' for the given arguments"),
+        );
+        self.type_arena.unknown_id()
+    }
+
+    // ── Direct call ──
+
+    fn infer_direct_call(&mut self, node: NodeId, d: &DirectCall) -> TypeId {
+        let caller_ty = self.infer_expr(d.caller);
+        let arg_types: Vec<TypeId> = d.args.iter().map(|&arg| self.infer_expr(arg)).collect();
+
+        let fresh_ret = self.fresh_var();
+        let fresh_params: Vec<TypeId> = (0..arg_types.len()).map(|_| self.fresh_var()).collect();
+        let expected_func = self.type_arena.intern(TypeKind::Func {
+            params: fresh_params.clone(),
+            ret: fresh_ret,
+        });
+
+        let unified = self.unify(caller_ty, expected_func);
+        if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+            self.emit_error(
+                self.arena[node].span(),
+                "called expression is not a function".to_string(),
+            );
+            return self.type_arena.unknown_id();
+        }
+
+        // Unify param types with arg types
+        for (param, arg) in fresh_params.iter().zip(arg_types.iter()) {
+            self.unify(*param, *arg);
+        }
+
+        self.resolve(fresh_ret)
+    }
+
+    // ── Binary and Unary ──
+
+    fn infer_binary(&mut self, b: &Binary) -> TypeId {
+        let left = self.infer_expr(b.left);
+        let right = self.infer_expr(b.right);
+
+        match b.op {
+            BinaryOp::Add => self.unify(left, right),
+            BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::IntDiv
+            | BinaryOp::Mod
+            | BinaryOp::EucMod
+            | BinaryOp::Pow => self.unify(left, right),
+            BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge => {
+                self.unify(left, right);
+                self.type_arena.bool_id()
+            }
+            BinaryOp::And | BinaryOp::Or => {
+                self.unify(left, self.type_arena.bool_id());
+                self.unify(right, self.type_arena.bool_id());
+                self.type_arena.bool_id()
+            }
+        }
+    }
+
+    fn infer_unary(&mut self, u: &Unary) -> TypeId {
+        let child = self.infer_expr(u.child);
+        match u.op {
+            UnaryOp::Neg => {
+                // Must be numeric
+                child
+            }
+            UnaryOp::Not => {
+                self.unify(child, self.type_arena.bool_id());
+                self.type_arena.bool_id()
+            }
+        }
+    }
+
+    // ── Assignments ──
+
+    fn infer_assign(&mut self, _node: NodeId, a: &Assign) -> TypeId {
+        let val_ty = self.infer_expr(a.value);
+        let ty = if let Some(ref ann) = a.type_annotation {
+            let ann_ty = self.lower_type_node(ann);
+            self.unify(val_ty, ann_ty)
+        } else {
+            val_ty
+        };
+        // Record the variable's type so subsequent lookups find it.
+        self.var_types.insert(a.name, ty);
+        ty
+    }
+
+    // ── Blocks ──
+
+    fn infer_block(&mut self, b: &Block) -> TypeId {
+        let mut last_ty = self.type_arena.void_id();
+        for &stmt in &b.stmts {
+            last_ty = self.infer_expr(stmt);
+        }
+        last_ty
+    }
+
+    // ── If ──
+
+    fn infer_if(&mut self, _node: NodeId, i: &If) -> TypeId {
+        for branch in &i.branches {
+            let cond_ty = self.infer_expr(branch.condition);
+            self.unify(cond_ty, self.type_arena.bool_id());
+        }
+
+        let mut branch_types = Vec::new();
+        for branch in &i.branches {
+            branch_types.push(self.infer_expr(branch.body));
+        }
+        if let Some(else_body) = i.else_branch {
+            branch_types.push(self.infer_expr(else_body));
+        }
+
+        // All branches must unify to the same type
+        let mut result = self.type_arena.void_id();
+        for bt in &branch_types {
+            result = self.unify(result, *bt);
+        }
+        result
+    }
+
+    // ── Match ──
+
+    fn infer_match(&mut self, _node: NodeId, m: &Match) -> TypeId {
+        let _scrutinee_ty = self.infer_expr(m.scrutinee);
+
+        let mut arm_types = Vec::new();
+        for arm in &m.arms {
+            let arm_ty = self.infer_expr(arm.body);
+            arm_types.push(arm_ty);
+        }
+
+        // All arms must unify to the same type
+        let mut result = self.type_arena.void_id();
+        for at in &arm_types {
+            result = self.unify(result, *at);
+        }
+        result
+    }
+
+    // ── Anonymous functions ──
+
+    fn infer_anon_func(&mut self, _node: NodeId, a: &AnonFunc) -> TypeId {
+        let param_types: Vec<TypeId> = a
+            .params
+            .iter()
+            .map(|p| {
+                if let Some(ref tn) = p.type_node {
+                    self.lower_type_node(tn)
+                } else {
+                    self.fresh_var()
+                }
+            })
+            .collect();
+
+        let ret_type = a
+            .return_type
+            .as_ref()
+            .map(|tn| self.lower_type_node(tn))
+            .unwrap_or_else(|| self.fresh_var());
+
+        // Infer body with return type context
+        let prev_ret = self.return_type.replace(ret_type);
+        let body_ty = self.infer_expr(a.body);
+        self.unify(body_ty, ret_type);
+        self.return_type = prev_ret;
+
+        self.type_arena.intern(TypeKind::Func {
+            params: param_types,
+            ret: ret_type,
+        })
+    }
+
+    // ── Return ──
+
+    fn infer_return(&mut self, node: NodeId, r: &Return) -> TypeId {
+        if let Some(val) = r.value {
+            let val_ty = self.infer_expr(val);
+            if let Some(ret_ty) = self.return_type {
+                self.unify(val_ty, ret_ty);
+            } else {
+                self.emit_error(
+                    self.arena[node].span(),
+                    "return outside of function".to_string(),
+                );
+            }
+        }
+        self.type_arena.void_id()
+    }
+
+    // ── For loop ──
+
+    fn infer_for_loop(&mut self, f: &ForLoop) -> TypeId {
+        let iter_ty = self.infer_expr(f.iter);
+        let var_ty = self.fresh_var();
+        let expected_iter = self.type_arena.intern(TypeKind::Iter(var_ty));
+        self.unify(iter_ty, expected_iter);
+        // Register the loop variable so the body can reference it.
+        self.var_types.insert(f.var_name, var_ty);
+        self.infer_expr(f.body);
+        self.type_arena.void_id()
+    }
+
+    // ── Arrays and tuples ──
+
+    fn infer_array(&mut self, a: &ArrLit) -> TypeId {
+        let inner = if let Some(ref ann) = a.inner_type {
+            self.lower_type_node(ann)
+        } else if a.elements.is_empty() {
+            self.fresh_var()
+        } else {
+            let mut elem_ty = self.infer_expr(a.elements[0]);
+            for &elem in &a.elements[1..] {
+                let e_ty = self.infer_expr(elem);
+                elem_ty = self.unify(elem_ty, e_ty);
+            }
+            elem_ty
+        };
+        self.type_arena.intern(TypeKind::Arr(inner))
+    }
+
+    fn infer_tuple(&mut self, t: &TupleLit) -> TypeId {
+        let elems: Vec<TypeId> = t.elements.iter().map(|&e| self.infer_expr(e)).collect();
+        self.type_arena.intern(TypeKind::Tuple(elems))
+    }
+
+    fn infer_range(&mut self, r: &RangeIter) -> TypeId {
+        let start_ty = self.infer_expr(r.start);
+        if let Some(end) = r.end {
+            let end_ty = self.infer_expr(end);
+            self.unify(start_ty, end_ty);
+        }
+        self.type_arena.intern(TypeKind::Iter(start_ty))
+    }
+
+    // ── Field access ──
+
+    fn infer_field_access(&mut self, _node: NodeId, f: &FieldAccess) -> TypeId {
+        let _obj_ty = self.infer_expr(f.obj);
+        // Field access requires the object type to be known (struct or
+        // enum).  For now, return a fresh variable.
+        // TODO: resolve field access through struct definitions
+        self.fresh_var()
+    }
+
+    fn infer_field_assign(&mut self, _node: NodeId, f: &FieldAssign) -> TypeId {
+        let _obj_ty = self.infer_expr(f.obj);
+
+        self.infer_expr(f.value)
+    }
+
+    // ── Type-associated expressions ──
+
+    fn infer_type_associated(&mut self, _node: NodeId, t: &TypeAssociated) -> TypeId {
+        // Resolve the inner expression (call arguments handled within)
+        self.infer_expr(t.inner)
+    }
+
+    // ── Tuple unpack ──
+
+    fn infer_tuple_unpack(&mut self, _node: NodeId, t: &TupleUnpack) -> TypeId {
+        let source_ty = self.infer_expr(t.source);
+        let expected: Vec<TypeId> = (0..t.bindings.len()).map(|_| self.fresh_var()).collect();
+        let expected_ty = self.type_arena.intern(TypeKind::Tuple(expected));
+        self.unify(source_ty, expected_ty);
+        source_ty
+    }
+
+    /// Build a `Func` type from a function definition node.
+    /// Uses declared param types from the AST.
+    fn function_type_from_def(&mut self, def_node: NodeId) -> TypeId {
+        match &self.arena[def_node] {
+            Expr::FuncDef(f) => {
+                let params: Vec<TypeId> = f
+                    .params
+                    .iter()
+                    .map(|p| {
+                        if let Some(ref tn) = p.type_node {
+                            self.lower_type_node(tn)
+                        } else {
+                            self.fresh_var()
+                        }
+                    })
+                    .collect();
+                let ret = f
+                    .return_type
+                    .as_ref()
+                    .map(|tn| self.lower_type_node(tn))
+                    .unwrap_or_else(|| self.fresh_var());
+                self.type_arena.intern(TypeKind::Func { params, ret })
+            }
+            _ => self.type_arena.unknown_id(),
+        }
+    }
+
+    // ── Type node lowering ──
+
+    fn lower_type_node(&mut self, tn: &TypeNode) -> TypeId {
+        match tn {
+            TypeNode::Int => self.type_arena.int_id(),
+            TypeNode::Num => self.type_arena.num_id(),
+            TypeNode::Str => self.type_arena.str_id(),
+            TypeNode::Bool => self.type_arena.bool_id(),
+            TypeNode::Void => self.type_arena.void_id(),
+            TypeNode::SelfType => self.type_arena.self_id(),
+            TypeNode::TypeParamRef { name, traits } => self.type_arena.intern(TypeKind::Generic {
+                name: *name,
+                bounds: traits.clone(),
+            }),
+            TypeNode::Arr(inner) => {
+                let inner_id = self.lower_type_node(inner);
+                self.type_arena.intern(TypeKind::Arr(inner_id))
+            }
+            TypeNode::Iter(inner) => {
+                let inner_id = self.lower_type_node(inner);
+                self.type_arena.intern(TypeKind::Iter(inner_id))
+            }
+            TypeNode::MutArr(inner) => {
+                let inner_id = self.lower_type_node(inner);
+                self.type_arena.intern(TypeKind::MutArr(inner_id))
+            }
+            TypeNode::Set(inner) => {
+                let inner_id = self.lower_type_node(inner);
+                self.type_arena.intern(TypeKind::Set(inner_id))
+            }
+            TypeNode::MutSet(inner) => {
+                let inner_id = self.lower_type_node(inner);
+                self.type_arena.intern(TypeKind::MutSet(inner_id))
+            }
+            TypeNode::Maybe(inner) => {
+                let inner_id = self.lower_type_node(inner);
+                self.type_arena.intern(TypeKind::Maybe(inner_id))
+            }
+            TypeNode::Dict { key, val } => {
+                let key_id = self.lower_type_node(key);
+                let val_id = self.lower_type_node(val);
+                self.type_arena.intern(TypeKind::Dict {
+                    key: key_id,
+                    val: val_id,
+                })
+            }
+            TypeNode::MutDict { key, val } => {
+                let key_id = self.lower_type_node(key);
+                let val_id = self.lower_type_node(val);
+                self.type_arena.intern(TypeKind::MutDict {
+                    key: key_id,
+                    val: val_id,
+                })
+            }
+            TypeNode::Tup(elems) => {
+                let elem_ids: Vec<_> = elems.iter().map(|e| self.lower_type_node(e)).collect();
+                self.type_arena.intern(TypeKind::Tuple(elem_ids))
+            }
+            TypeNode::Func { params, ret } => {
+                let param_ids: Vec<_> = params.iter().map(|p| self.lower_type_node(p)).collect();
+                let ret_id = self.lower_type_node(ret);
+                self.type_arena.intern(TypeKind::Func {
+                    params: param_ids,
+                    ret: ret_id,
+                })
+            }
+            TypeNode::Named { name, params } => {
+                let arg_ids: Vec<_> = params.iter().map(|p| self.lower_type_node(p)).collect();
+                self.type_arena.intern(TypeKind::Custom {
+                    name: *name,
+                    args: arg_ids,
+                })
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Tests
+// ════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse;
+    use crate::resolve::resolve_names;
+    use crate::scan;
+    use crate::source::{SourceMap, SourceText};
+
+    /// Parse, resolve, and infer types for a source string.
+    /// Panics on scan/parse/resolve errors.
+    fn infer_types_map(
+        source: &str,
+    ) -> (
+        AstArena,
+        Interner,
+        DiagnosticsBag,
+        FxHashMap<NodeId, TypeId>,
+        TypeArena,
+        NodeId,
+    ) {
+        let src = SourceText::new("test.gema", source);
+        let (tokens, sd) = scan::scan(&src, 0);
+        let mut arena = AstArena::new();
+        let mut interner = Interner::new();
+        let mut diagnostics = DiagnosticsBag::new();
+        for d in sd.into_vec() {
+            diagnostics.push(d);
+        }
+        let root = parse::parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
+        assert!(
+            !diagnostics.has_errors(),
+            "parse errors: {:?}",
+            diagnostics.format(&SourceMap::new())
+        );
+
+        let scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
+        assert!(
+            !diagnostics.has_errors(),
+            "resolve errors: {:?}",
+            diagnostics.format(&SourceMap::new())
+        );
+
+        let mut type_arena = TypeArena::new();
+        let types = infer_types(
+            &arena,
+            &scope_tree,
+            &mut type_arena,
+            &interner,
+            root,
+            &mut diagnostics,
+            0,
+        );
+        (arena, interner, diagnostics, types, type_arena, root)
+    }
+
+    fn infer_diags(source: &str) -> DiagnosticsBag {
+        let src = SourceText::new("test.gema", source);
+        let (tokens, sd) = scan::scan(&src, 0);
+        let mut arena = AstArena::new();
+        let mut interner = Interner::new();
+        let mut diagnostics = DiagnosticsBag::new();
+        for d in sd.into_vec() {
+            diagnostics.push(d);
+        }
+        let root = parse::parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
+        if diagnostics.has_errors() {
+            return diagnostics;
+        }
+
+        let scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
+        if diagnostics.has_errors() {
+            return diagnostics;
+        }
+
+        let mut type_arena = TypeArena::new();
+        infer_types(
+            &arena,
+            &scope_tree,
+            &mut type_arena,
+            &interner,
+            root,
+            &mut diagnostics,
+            0,
+        );
+        diagnostics
+    }
+
+    /// Get the type of the last (value) expression in the top-level block.
+    fn last_expr_type<'a>(
+        arena: &AstArena,
+        root: NodeId,
+        types: &FxHashMap<NodeId, TypeId>,
+        _type_arena: &TypeArena,
+    ) -> TypeId {
+        let block = match &arena[root] {
+            Expr::Block(b) => b,
+            _ => panic!("expected Block"),
+        };
+        let last = block.stmts[block.stmts.len() - 1];
+        let last_val = if let Expr::DropValue(dv) = &arena[last] {
+            dv.child
+        } else {
+            last
+        };
+        *types.get(&last_val).expect("no type for last expression")
+    }
+
+    // ── Literals ──
+
+    #[test]
+    fn int_literal() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("42i");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn num_literal() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("3.14");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    #[test]
+    fn str_literal() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("\"hello\"");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Str);
+    }
+
+    #[test]
+    fn bool_literal_true() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("true");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Bool);
+    }
+
+    #[test]
+    fn none_literal() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("none");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert!(matches!(ta.get(ty), TypeKind::Maybe(_)));
+    }
+
+    #[test]
+    fn none_with_annotation() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("none: Int");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        match ta.get(ty) {
+            TypeKind::Maybe(inner) => assert_eq!(ta.get(*inner), &TypeKind::Int),
+            other => panic!("expected Maybe[Int], got {:?}", other),
+        }
+    }
+
+    // ── Variables ──
+
+    #[test]
+    fn variable_decl_and_lookup() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("x = 42i; x");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn variable_decl_and_lookup_in_nested_scope() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("x = 42; { x }");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    #[test]
+    fn variable_decl_and_shadowing_in_nested_scope() {
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("x = 42; { x = \"Hi\"; x }");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Str);
+    }
+
+    #[test]
+    fn reassign_immutable_variable_error() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("x = 42; x = \"Hi\"");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Str);
+    }
+
+    #[test]
+    fn annotated_decl() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("x: Num = 42i");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        // Int unifies with Num via promotion → Num
+        assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    #[test]
+    fn mutable_variable_decl_and_lookup() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("mut x = 42; x");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn mutable_variable_decl_and_reassignment() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("mut x = 0; x = 42");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    // ── Binary operations ──
+
+    #[test]
+    fn binary_add_ints() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("1i + 2i");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn binary_add_nums() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("1.5 + 2.5");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    #[test]
+    fn binary_promotion_int_to_num() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("1i + 2.5");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    #[test]
+    fn binary_comparison() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("1i == 2i");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Bool);
+    }
+
+    #[test]
+    fn binary_and_or() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("true and false or true");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Bool);
+    }
+
+    // ── Type errors ──
+
+    #[test]
+    fn add_str_to_int_error() {
+        let diags = infer_diags("\"hello\" + 1");
+        assert!(diags.has_errors(), "should produce type error");
+    }
+
+    #[test]
+    fn comparison_mismatch() {
+        let diags = infer_diags("1i == \"hello\"");
+        assert!(diags.has_errors(), "should produce type error");
+    }
+
+    #[test]
+    fn and_with_int_error() {
+        let diags = infer_diags("1i and true");
+        assert!(diags.has_errors());
+    }
+
+    #[test]
+    fn or_with_int_error() {
+        let diags = infer_diags("true or 1i");
+        assert!(diags.has_errors());
+    }
+
+    // ── Unary ──
+
+    #[test]
+    fn unary_neg() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("-42i");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn unary_not() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("!true");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Bool);
+    }
+
+    // ── Blocks ──
+
+    #[test]
+    fn block_last_expr_type() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("{ 1i; 2i; 3i }");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn block_dropped_value_is_null() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("{ 1i; }");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Void);
+    }
+
+    // ── If ──
+
+    #[test]
+    fn if_expr() {
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("if true { 1i } else { 2i }");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn if_branches_mismatch_error() {
+        let diags = infer_diags("if true { 1i } else { \"hello\" }");
+        assert!(
+            diags.has_errors(),
+            "should produce type error: if branches mismatch"
+        );
+    }
+
+    // ── Functions ──
+
+    #[test]
+    fn named_func_call() {
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("func add(x: Int, y: Int): Int { x + y }; add(1i, 2i)");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn function_definition() {
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("func add(x: Int, y: Int): Int { x + y }");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Void);
+    }
+
+    // ── Arrays ──
+
+    #[test]
+    fn array_lit() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("[1i, 2i, 3i]");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        match ta.get(ty) {
+            TypeKind::Arr(inner) => assert_eq!(ta.get(*inner), &TypeKind::Int),
+            other => panic!("expected Arr[Int], got {:?}", other),
+        }
+    }
+
+    // ── Tuples ──
+
+    #[test]
+    fn tuple_lit() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("(1i, \"hello\", true)");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        match ta.get(ty) {
+            TypeKind::Tuple(elems) => {
+                assert_eq!(elems.len(), 3);
+                assert_eq!(ta.get(elems[0]), &TypeKind::Int);
+                assert_eq!(ta.get(elems[1]), &TypeKind::Str);
+                assert_eq!(ta.get(elems[2]), &TypeKind::Bool);
+            }
+            other => panic!("expected Tup[Int, Str, Bool], got {:?}", other),
+        }
+    }
+
+    // ── Ranges ──
+
+    #[test]
+    fn range_iter() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("1i..10i");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        match ta.get(ty) {
+            TypeKind::Iter(inner) => assert_eq!(ta.get(*inner), &TypeKind::Int),
+            other => panic!("expected Iter[Int], got {:?}", other),
+        }
+    }
+
+    // ── Match ──
+
+    #[test]
+    fn match_expr() {
+        let src = "x: Maybe[Int] = none: Int; match x { some(v) -> v, none -> 0i, else -> -1i }";
+        let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    // ── Lambda ──
+
+    #[test]
+    fn lambda_infers_param_type() {
+        // When used in a call, lambda params are inferred from the
+        // function signature.  Here we just test basic lambda inference.
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("\\x -> x + 1i");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert!(matches!(ta.get(ty), TypeKind::Func { .. }));
+    }
+
+    // ── For loop ──
+
+    #[test]
+    fn for_loop() {
+        let src = "for x = 1i..10i { x }";
+        let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Void);
+    }
+}

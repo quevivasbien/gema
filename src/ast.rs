@@ -144,7 +144,7 @@ pub enum TypeNode {
     Num,
     Str,
     Bool,
-    Null,
+    Void,
     Named {
         name: IdentId,
         /// Type parameters (e.g. `Pair[Int, Str]` → two params).

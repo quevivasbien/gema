@@ -1140,9 +1140,8 @@ impl<'a> Parser<'a> {
         let type_annotation = self.parse_type_node();
 
         if !self.consume_discriminant(&TokenKind::Equal) {
-            return self.error_and_recover(
-                "expected '=' after type annotation in variable declaration",
-            );
+            return self
+                .error_and_recover("expected '=' after type annotation in variable declaration");
         }
 
         let value = self.parse_expression();
@@ -1512,7 +1511,7 @@ impl<'a> Parser<'a> {
                 self.parse_type_node()
             } else {
                 self.error_here("expected type annotation for struct field");
-                TypeNode::Null
+                TypeNode::Void
             };
 
             fields.push(StructField {
@@ -1751,7 +1750,7 @@ impl<'a> Parser<'a> {
                     "Func" if !params.is_empty() => {
                         let ret = match return_type {
                             Some(ret) => Box::new(ret),
-                            None => Box::new(TypeNode::Null),
+                            None => Box::new(TypeNode::Void),
                         };
                         TypeNode::Func { params, ret }
                     }
@@ -1795,7 +1794,7 @@ impl<'a> Parser<'a> {
                             "Num" => TypeNode::Num,
                             "Str" => TypeNode::Str,
                             "Bool" => TypeNode::Bool,
-                            "Null" => TypeNode::Null,
+                            "Void" => TypeNode::Void,
                             "Self" => TypeNode::SelfType,
                             _ => TypeNode::Named {
                                 name: self.intern_str(&name),
@@ -1807,7 +1806,7 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 self.error_here("expected type");
-                TypeNode::Null
+                TypeNode::Void
             }
         }
     }

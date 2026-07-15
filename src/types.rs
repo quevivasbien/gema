@@ -22,7 +22,7 @@ pub enum TypeKind {
     Num,
     Str,
     Bool,
-    Null,
+    Void,
 
     // ── Compound types ──
     Func {
@@ -86,7 +86,7 @@ pub struct TypeArena {
     num_id: TypeId,
     str_id: TypeId,
     bool_id: TypeId,
-    null_id: TypeId,
+    void_id: TypeId,
     self_id: TypeId,
     unknown_id: TypeId,
 }
@@ -101,7 +101,7 @@ impl TypeArena {
             num_id: TypeId(0),
             str_id: TypeId(0),
             bool_id: TypeId(0),
-            null_id: TypeId(0),
+            void_id: TypeId(0),
             self_id: TypeId(0),
             unknown_id: TypeId(0),
         };
@@ -111,7 +111,7 @@ impl TypeArena {
         arena.num_id = arena.intern_raw(TypeKind::Num);
         arena.str_id = arena.intern_raw(TypeKind::Str);
         arena.bool_id = arena.intern_raw(TypeKind::Bool);
-        arena.null_id = arena.intern_raw(TypeKind::Null);
+        arena.void_id = arena.intern_raw(TypeKind::Void);
         arena.self_id = arena.intern_raw(TypeKind::SelfType);
         arena.unknown_id = arena.intern_raw(TypeKind::Unknown);
 
@@ -132,8 +132,8 @@ impl TypeArena {
     pub fn bool_id(&self) -> TypeId {
         self.bool_id
     }
-    pub fn null_id(&self) -> TypeId {
-        self.null_id
+    pub fn void_id(&self) -> TypeId {
+        self.void_id
     }
     pub fn self_id(&self) -> TypeId {
         self.self_id
@@ -198,7 +198,7 @@ impl TypeArena {
             | TypeKind::Num
             | TypeKind::Str
             | TypeKind::Bool
-            | TypeKind::Null
+            | TypeKind::Void
             | TypeKind::SelfType
             | TypeKind::Unknown => ty,
 
@@ -290,7 +290,7 @@ impl TypeArena {
             | TypeKind::Num
             | TypeKind::Str
             | TypeKind::Bool
-            | TypeKind::Null
+            | TypeKind::Void
             | TypeKind::SelfType
             | TypeKind::Unknown => true,
 
@@ -338,7 +338,7 @@ pub fn lower_type_node(
         TypeNode::Num => arena.num_id(),
         TypeNode::Str => arena.str_id(),
         TypeNode::Bool => arena.bool_id(),
-        TypeNode::Null => arena.null_id(),
+        TypeNode::Void => arena.void_id(),
         TypeNode::SelfType => arena.self_id(),
 
         TypeNode::TypeParamRef { name, traits } => {
@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(arena.get(arena.num_id()), &TypeKind::Num);
         assert_eq!(arena.get(arena.str_id()), &TypeKind::Str);
         assert_eq!(arena.get(arena.bool_id()), &TypeKind::Bool);
-        assert_eq!(arena.get(arena.null_id()), &TypeKind::Null);
+        assert_eq!(arena.get(arena.void_id()), &TypeKind::Void);
         assert_eq!(arena.get(arena.self_id()), &TypeKind::SelfType);
         assert_eq!(arena.get(arena.unknown_id()), &TypeKind::Unknown);
     }
@@ -665,7 +665,7 @@ mod tests {
         assert!(arena.is_concrete(arena.num_id()));
         assert!(arena.is_concrete(arena.str_id()));
         assert!(arena.is_concrete(arena.bool_id()));
-        assert!(arena.is_concrete(arena.null_id()));
+        assert!(arena.is_concrete(arena.void_id()));
         assert!(arena.is_concrete(arena.self_id()));
         assert!(arena.is_concrete(arena.unknown_id()));
     }
@@ -933,7 +933,7 @@ mod tests {
     fn lower_null() {
         let mut arena = TypeArena::new();
         let generic_params = FxHashMap::default();
-        let result = lower_type_node(&TypeNode::Null, &mut arena, &generic_params);
-        assert_eq!(result, arena.null_id());
+        let result = lower_type_node(&TypeNode::Void, &mut arena, &generic_params);
+        assert_eq!(result, arena.void_id());
     }
 }

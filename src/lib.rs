@@ -11,6 +11,7 @@
 
 pub mod ast;
 pub mod diagnostics;
+pub mod infer;
 pub mod interner;
 pub mod parse;
 pub mod resolve;

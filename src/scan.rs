@@ -838,7 +838,7 @@ mod tests {
     fn token_text_none_for_error() {
         let src = SourceText::new("test.gema", "$");
         let (tokens, _) = scan(&src, 0);
-        assert!(tokens.len() >= 1);
+        assert!(!tokens.is_empty());
         assert_eq!(tokens[0].kind, TokenKind::Error);
         assert_eq!(tokens[0].text(), None);
     }

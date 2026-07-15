@@ -89,7 +89,7 @@ mod tests {
     }
 
     /// Get the last (value) expression from the top-level block.
-    fn last_expr<'a>(arena: &'a AstArena, root: NodeId) -> &'a Expr {
+    fn last_expr(arena: &AstArena, root: NodeId) -> &Expr {
         let block = match &arena[root] {
             Expr::Block(b) => b,
             _ => panic!("expected Block at root"),
