@@ -47,8 +47,12 @@ struct Inferer<'a> {
     bindings: FxHashMap<u32, TypeId>,
     /// Final types for every expression node.
     types: FxHashMap<NodeId, TypeId>,
-    /// Inferred types for named variables (populated by assignments).
-    var_types: FxHashMap<IdentId, TypeId>,
+    /// Scope stack of variable types.  Each entry corresponds to a
+    /// lexical scope (top-level, block, function body, etc.).  Variable
+    /// lookups walk the stack top-to-bottom; assignments insert into
+    /// the top frame.  The bool indicates whether the variable was
+    /// declared with `mut`.
+    var_type_stack: Vec<FxHashMap<IdentId, (TypeId, bool)>>,
     /// Current function's return type (for return statements).
     return_type: Option<TypeId>,
 }
@@ -71,12 +75,12 @@ impl<'a> Inferer<'a> {
             file_idx,
             bindings: FxHashMap::default(),
             types: FxHashMap::default(),
-            var_types: FxHashMap::default(),
+            var_type_stack: vec![FxHashMap::default()],
             return_type: None,
         }
     }
 
-    fn fresh_var(&mut self) -> TypeId {
+    fn fresh_infer_var(&mut self) -> TypeId {
         self.type_arena.fresh_infer_var()
     }
 
@@ -133,13 +137,8 @@ impl<'a> Inferer<'a> {
         let ak = self.type_arena.get(a).clone();
         let bk = self.type_arena.get(b).clone();
 
-        // Numeric promotion: Int unifies with Num → Num
-        if matches!(
-            (&ak, &bk),
-            (TypeKind::Int, TypeKind::Num) | (TypeKind::Num, TypeKind::Int)
-        ) {
-            return self.type_arena.num_id();
-        }
+        // Int and Num are separate types — no automatic promotion.
+        // Mixing them requires explicit conversion (toNum, toInt).
 
         match (&ak, &bk) {
             // InferVar on either side → bind
@@ -356,7 +355,8 @@ impl<'a> Inferer<'a> {
             Expr::FuncDef(f) => {
                 // Register the function's type so calls can find it.
                 let func_ty = self.function_type_from_def(node);
-                self.var_types.insert(f.name, func_ty);
+                let top = self.var_type_stack.len() - 1;
+                self.var_type_stack[top].insert(f.name, (func_ty, false));
                 self.type_arena.void_id()
             }
             Expr::AnonFunc(a) => self.infer_anon_func(node, a),
@@ -396,7 +396,7 @@ impl<'a> Inferer<'a> {
             self.type_arena.intern(TypeKind::Maybe(inner))
         } else {
             // No annotation: create Maybe[α] with fresh variable
-            let inner = self.fresh_var();
+            let inner = self.fresh_infer_var();
             self.type_arena.intern(TypeKind::Maybe(inner))
         }
     }
@@ -404,16 +404,17 @@ impl<'a> Inferer<'a> {
     // ── Variables ──
 
     fn infer_var(&mut self, node: NodeId, v: &Var) -> TypeId {
-        // Check if this variable's type has been recorded from an
-        // assignment.
-        if let Some(&tid) = self.var_types.get(&v.name) {
-            return tid;
+        // Walk the scope stack from top (innermost) to bottom.
+        for frame in self.var_type_stack.iter().rev() {
+            if let Some(&(tid, _)) = frame.get(&v.name) {
+                return tid;
+            }
         }
 
         if let Some(&sid) = self.scope_tree.resolved_refs.get(&node) {
             let sym = &self.scope_tree.symbols[sid];
             match &sym.kind {
-                SymbolKind::Variable { .. } => self.fresh_var(),
+                SymbolKind::Variable { .. } => self.fresh_infer_var(),
                 SymbolKind::Function { .. }
                 | SymbolKind::Struct { .. }
                 | SymbolKind::Enum { .. }
@@ -500,8 +501,10 @@ impl<'a> Inferer<'a> {
         let caller_ty = self.infer_expr(d.caller);
         let arg_types: Vec<TypeId> = d.args.iter().map(|&arg| self.infer_expr(arg)).collect();
 
-        let fresh_ret = self.fresh_var();
-        let fresh_params: Vec<TypeId> = (0..arg_types.len()).map(|_| self.fresh_var()).collect();
+        let fresh_ret = self.fresh_infer_var();
+        let fresh_params: Vec<TypeId> = (0..arg_types.len())
+            .map(|_| self.fresh_infer_var())
+            .collect();
         let expected_func = self.type_arena.intern(TypeKind::Func {
             params: fresh_params.clone(),
             ret: fresh_ret,
@@ -580,18 +583,51 @@ impl<'a> Inferer<'a> {
         } else {
             val_ty
         };
-        // Record the variable's type so subsequent lookups find it.
-        self.var_types.insert(a.name, ty);
+
+        let top = self.var_type_stack.len() - 1;
+
+        // Same-scope reassignment — name exists in top frame.
+        if let Some(&(existing, _)) = self.var_type_stack[top].get(&a.name) {
+            let unified = self.unify(existing, ty);
+            self.var_type_stack[top].insert(a.name, (unified, a.is_mut));
+            return unified;
+        }
+
+        // Check parent frames (innermost to outermost).
+        for i in (0..top).rev() {
+            if let Some(&(parent_ty, parent_mut)) = self.var_type_stack[i].get(&a.name) {
+                if a.is_mut {
+                    // Explicit shadow — new variable in current frame.
+                    self.var_type_stack[top].insert(a.name, (ty, true));
+                    return ty;
+                }
+                if parent_mut {
+                    // Reassignment of parent — type-check.
+                    let unified = self.unify(parent_ty, ty);
+                    self.var_type_stack[top].insert(a.name, (unified, false));
+                    return unified;
+                }
+                // Immutable parent — this is a shadow (the resolver
+                // registered a new symbol).  New declaration.
+                self.var_type_stack[top].insert(a.name, (ty, false));
+                return ty;
+            }
+        }
+
+        // New declaration.
+        self.var_type_stack[top].insert(a.name, (ty, a.is_mut));
         ty
     }
 
     // ── Blocks ──
 
     fn infer_block(&mut self, b: &Block) -> TypeId {
+        self.var_type_stack.push(FxHashMap::default());
         let mut last_ty = self.type_arena.void_id();
         for &stmt in &b.stmts {
             last_ty = self.infer_expr(stmt);
         }
+        self.var_type_stack.pop();
         last_ty
     }
 
@@ -603,17 +639,25 @@ impl<'a> Inferer<'a> {
             self.unify(cond_ty, self.type_arena.bool_id());
         }
 
-        let mut branch_types = Vec::new();
-        for branch in &i.branches {
-            branch_types.push(self.infer_expr(branch.body));
-        }
-        if let Some(else_body) = i.else_branch {
-            branch_types.push(self.infer_expr(else_body));
-        }
+        let else_body = match i.else_branch {
+            Some(eb) => eb,
+            None => {
+                // With no else, the expression may not produce a value.
+                for branch in &i.branches {
+                    self.infer_expr(branch.body);
+                }
+                return self.type_arena.void_id();
+            }
+        };
 
-        // All branches must unify to the same type
+        // With an else, all branches must unify to the same type.
+        let mut branch_tys = Vec::new();
+        for branch in &i.branches {
+            branch_tys.push(self.infer_expr(branch.body));
+        }
+        branch_tys.push(self.infer_expr(else_body));
         let mut result = self.type_arena.void_id();
-        for bt in &branch_types {
+        for bt in &branch_tys {
             result = self.unify(result, *bt);
         }
         result
@@ -648,7 +692,7 @@ impl<'a> Inferer<'a> {
                 if let Some(ref tn) = p.type_node {
                     self.lower_type_node(tn)
                 } else {
-                    self.fresh_var()
+                    self.fresh_infer_var()
                 }
             })
             .collect();
@@ -657,7 +701,7 @@ impl<'a> Inferer<'a> {
             .return_type
             .as_ref()
             .map(|tn| self.lower_type_node(tn))
-            .unwrap_or_else(|| self.fresh_var());
+            .unwrap_or_else(|| self.fresh_infer_var());
 
         // Infer body with return type context
         let prev_ret = self.return_type.replace(ret_type);
@@ -692,11 +736,13 @@ impl<'a> Inferer<'a> {
 
     fn infer_for_loop(&mut self, f: &ForLoop) -> TypeId {
         let iter_ty = self.infer_expr(f.iter);
-        let var_ty = self.fresh_var();
+        let var_ty = self.fresh_infer_var();
         let expected_iter = self.type_arena.intern(TypeKind::Iter(var_ty));
         self.unify(iter_ty, expected_iter);
-        // Register the loop variable so the body can reference it.
-        self.var_types.insert(f.var_name, var_ty);
+        // Register the loop variable in the current scope frame so the
+        // body can reference it.
+        let top = self.var_type_stack.len() - 1;
+        self.var_type_stack[top].insert(f.var_name, (var_ty, false));
         self.infer_expr(f.body);
         self.type_arena.void_id()
     }
@@ -707,7 +753,7 @@ impl<'a> Inferer<'a> {
         let inner = if let Some(ref ann) = a.inner_type {
             self.lower_type_node(ann)
         } else if a.elements.is_empty() {
-            self.fresh_var()
+            self.fresh_infer_var()
         } else {
             let mut elem_ty = self.infer_expr(a.elements[0]);
             for &elem in &a.elements[1..] {
@@ -740,7 +786,7 @@ impl<'a> Inferer<'a> {
         // Field access requires the object type to be known (struct or
         // enum).  For now, return a fresh variable.
         // TODO: resolve field access through struct definitions
-        self.fresh_var()
+        self.fresh_infer_var()
     }
 
     fn infer_field_assign(&mut self, _node: NodeId, f: &FieldAssign) -> TypeId {
@@ -760,7 +806,9 @@ impl<'a> Inferer<'a> {
 
     fn infer_tuple_unpack(&mut self, _node: NodeId, t: &TupleUnpack) -> TypeId {
         let source_ty = self.infer_expr(t.source);
-        let expected: Vec<TypeId> = (0..t.bindings.len()).map(|_| self.fresh_var()).collect();
+        let expected: Vec<TypeId> = (0..t.bindings.len())
+            .map(|_| self.fresh_infer_var())
+            .collect();
         let expected_ty = self.type_arena.intern(TypeKind::Tuple(expected));
         self.unify(source_ty, expected_ty);
         source_ty
@@ -778,7 +826,7 @@ impl<'a> Inferer<'a> {
                         if let Some(ref tn) = p.type_node {
                             self.lower_type_node(tn)
                         } else {
-                            self.fresh_var()
+                            self.fresh_infer_var()
                         }
                     })
                     .collect();
@@ -786,7 +834,7 @@ impl<'a> Inferer<'a> {
                     .return_type
                     .as_ref()
                     .map(|tn| self.lower_type_node(tn))
-                    .unwrap_or_else(|| self.fresh_var());
+                    .unwrap_or_else(|| self.fresh_infer_var());
                 self.type_arena.intern(TypeKind::Func { params, ret })
             }
             _ => self.type_arena.unknown_id(),
@@ -1078,23 +1126,22 @@ mod tests {
     }
 
     #[test]
-    fn reassign_immutable_variable_error() {
-        let (arena, _interner, diags, types, ta, root) = infer_types_map("x = 42; x = \"Hi\"");
+    fn reassign_immutable_variable() {
+        // Reassignment to immutable is accepted at inference level;
+        // the type checker catches it later.
+        let (_arena, _interner, diags, _types, _ta, _root) = infer_types_map("x = 42; x = 0");
         assert!(
             !diags.has_errors(),
-            "errors: {:?}",
-            diags.format(&SourceMap::new())
+            "inference should accept immutable reassignment: {:?}",
+            diags.format(&SourceMap::new()),
         );
-        let ty = last_expr_type(&arena, root, &types, &ta);
-        assert_eq!(ta.get(ty), &TypeKind::Str);
     }
 
     #[test]
     fn annotated_decl() {
-        let (arena, _interner, diags, types, ta, root) = infer_types_map("x: Num = 42i");
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("x: Num = 42");
         assert!(!diags.has_errors());
         let ty = last_expr_type(&arena, root, &types, &ta);
-        // Int unifies with Num via promotion → Num
         assert_eq!(ta.get(ty), &TypeKind::Num);
     }
 
@@ -1107,7 +1154,7 @@ mod tests {
             diags.format(&SourceMap::new())
         );
         let ty = last_expr_type(&arena, root, &types, &ta);
-        assert_eq!(ta.get(ty), &TypeKind::Int);
+        assert_eq!(ta.get(ty), &TypeKind::Num);
     }
 
     #[test]
@@ -1120,6 +1167,39 @@ mod tests {
         );
         let ty = last_expr_type(&arena, root, &types, &ta);
         assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    #[test]
+    fn reassign_mutable_variable_incompatible_type_error() {
+        let (_arena, _interner, diags, _types, _ta, _root) =
+            infer_types_map("mut x = 42; x = \"Hi\"");
+        assert!(
+            diags.has_errors(),
+            "should not be able to assign a mut variable a value with an incompatible type",
+        );
+    }
+
+    #[test]
+    fn reassign_mutable_variable_nested_scope_incompatible_type_error() {
+        let (_arena, _interner, diags, _types, _ta, _root) =
+            infer_types_map("mut x = 42; { x = \"Hi\" }");
+        assert!(
+            diags.has_errors(),
+            "should not be able to assign a mut variable a value with an incompatible type",
+        );
+    }
+
+    #[test]
+    fn mutable_variable_shadowing() {
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("mut x = 0; { mut x = \"Hi\" }");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Str);
     }
 
     // ── Binary operations ──
@@ -1135,14 +1215,6 @@ mod tests {
     #[test]
     fn binary_add_nums() {
         let (arena, _interner, diags, types, ta, root) = infer_types_map("1.5 + 2.5");
-        assert!(!diags.has_errors());
-        let ty = last_expr_type(&arena, root, &types, &ta);
-        assert_eq!(ta.get(ty), &TypeKind::Num);
-    }
-
-    #[test]
-    fn binary_promotion_int_to_num() {
-        let (arena, _interner, diags, types, ta, root) = infer_types_map("1i + 2.5");
         assert!(!diags.has_errors());
         let ty = last_expr_type(&arena, root, &types, &ta);
         assert_eq!(ta.get(ty), &TypeKind::Num);
@@ -1167,7 +1239,15 @@ mod tests {
     // ── Type errors ──
 
     #[test]
-    fn add_str_to_int_error() {
+    fn add_int_to_num_error() {
+        // Int and Num are different types — mixing them requires an
+        // explicit conversion (toNum, toInt).
+        let diags = infer_diags("1i + 2.5");
+        assert!(diags.has_errors(), "Int + Num should be a type error");
+    }
+
+    #[test]
+    fn add_str_to_num_error() {
         let diags = infer_diags("\"hello\" + 1");
         assert!(diags.has_errors(), "should produce type error");
     }
@@ -1238,12 +1318,47 @@ mod tests {
     }
 
     #[test]
+    fn if_expr_with_else_if() {
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("if true { 1 } else if false { 2 } else { 3 }");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    #[test]
     fn if_branches_mismatch_error() {
         let diags = infer_diags("if true { 1i } else { \"hello\" }");
         assert!(
             diags.has_errors(),
             "should produce type error: if branches mismatch"
         );
+    }
+
+    #[test]
+    fn if_with_else_if_branches_mismatch_error() {
+        let diags = infer_diags("if true { 1 } else if false { \"hello\" } else { 2 }");
+        assert!(
+            diags.has_errors(),
+            "should produce type error: if branches mismatch"
+        );
+    }
+
+    #[test]
+    fn if_without_else() {
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("if true { 1 }");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Void);
+    }
+
+    #[test]
+    fn if_with_else_if_without_else() {
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("if true { 1 } else if false { 2 }");
+        assert!(!diags.has_errors());
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Void);
     }
 
     // ── Functions ──
