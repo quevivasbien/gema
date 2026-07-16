@@ -6,6 +6,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::ast::*;
+use crate::builtins::BuiltinFunc;
 use crate::diagnostics::DiagnosticsBag;
 use crate::interner::{IdentId, Interner};
 use crate::source::Span;
@@ -498,7 +499,13 @@ impl<'a> Inferer<'a> {
             if let Some(result) = self.try_struct_constructor(node, c, &arg_types) {
                 return result;
             }
+            // Check if it's a builtin function.
             let name_str = self.interner.lookup(c.name);
+            if let Some(builtin) = BuiltinFunc::try_from_name(name_str)
+                && let Some(ret_ty) = builtin.infer_return_type(&arg_types, self.type_arena)
+            {
+                return ret_ty;
+            }
             self.emit_error(
                 self.arena[node].span(),
                 format!("undefined function '{name_str}'"),
