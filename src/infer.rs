@@ -353,10 +353,38 @@ impl<'a> Inferer<'a> {
             Expr::If(i) => self.infer_if(node, i),
             Expr::Match(m) => self.infer_match(node, m),
             Expr::FuncDef(f) => {
-                // Register the function's type so calls can find it.
+                // Register the function's type so calls can find it
+                // BEFORE inferring the body (enables recursion).
                 let func_ty = self.function_type_from_def(node);
+                let func_kind = self.type_arena.get(func_ty).clone();
+                let return_ty = match func_kind {
+                    TypeKind::Func { ret, .. } => ret,
+                    _ => self.fresh_infer_var(),
+                };
                 let top = self.var_type_stack.len() - 1;
                 self.var_type_stack[top].insert(f.name, (func_ty, false));
+
+                // Push a scope frame and register params.
+                self.var_type_stack.push(FxHashMap::default());
+                for param in &f.params {
+                    let param_ty = if let Some(ref tn) = param.type_node {
+                        self.lower_type_node(tn)
+                    } else {
+                        self.fresh_infer_var()
+                    };
+                    let frame = self.var_type_stack.len() - 1;
+                    self.var_type_stack[frame].insert(param.name, (param_ty, false));
+                }
+
+                // Infer the body with the declared return type as context.
+                let prev_ret = self.return_type.replace(return_ty);
+                let body_ty = self.infer_expr(f.body);
+                self.var_type_stack.pop();
+
+                // Unify body type with declared return type.
+                self.return_type = prev_ret;
+                self.unify(body_ty, return_ty);
+
                 self.type_arena.void_id()
             }
             Expr::AnonFunc(a) => self.infer_anon_func(node, a),
@@ -1415,6 +1443,25 @@ mod tests {
         *types.get(&last_val).expect("no type for last expression")
     }
 
+    /// Get the inferred type of a function at a given index within the root program block
+    fn func_body_type(
+        arena: &AstArena,
+        root: NodeId,
+        types: &FxHashMap<NodeId, TypeId>,
+        block_index: usize,
+    ) -> TypeId {
+        let block = match &arena[root] {
+            Expr::Block(b) => b,
+            _ => panic!("expected Block"),
+        };
+        let func_def = &arena[block.stmts[block_index]];
+        let body = match func_def {
+            Expr::FuncDef(f) => f.body,
+            _ => panic!("expected FuncDef"),
+        };
+        *types.get(&body).expect("no type for function body")
+    }
+
     // ── Literals ──
 
     #[test]
@@ -1773,6 +1820,63 @@ mod tests {
         );
         let ty = last_expr_type(&arena, root, &types, &ta);
         assert_eq!(ta.get(ty), &TypeKind::Void);
+    }
+
+    #[test]
+    fn function_body_type_error() {
+        let diags = infer_diags("func add(x: Int, y: Int): Int { x + \"hello\" }");
+        assert!(
+            diags.has_errors(),
+            "type error in function body should be caught"
+        );
+    }
+
+    #[test]
+    fn function_return_type_mismatch() {
+        let diags = infer_diags("func add(x: Int, y: Int): Int { \"hello\" }");
+        assert!(diags.has_errors(), "return type mismatch should be caught");
+    }
+
+    #[test]
+    fn function_inferred_return_type_no_annotation() {
+        // Without an explicit return type annotation, the return type
+        // is inferred from the body.
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("func add(x: Int, y: Int) { x + y }");
+        assert!(
+            !diags.has_errors(),
+            "inferred return type from body should not error: {:?}",
+            diags.format(&SourceMap::new()),
+        );
+        let body_ty = func_body_type(&arena, root, &types, 0);
+        assert_eq!(ta.get(body_ty), &TypeKind::Int, "body should be Int");
+    }
+
+    #[test]
+    fn function_inferred_return_type_from_return_stmt() {
+        // Return type can also be inferred from a return statement.
+        let (_arena, _interner, diags, _types, _ta, _root) =
+            infer_types_map("func five(): Int { 5i }");
+        assert!(
+            !diags.has_errors(),
+            "explicit return type matching body should not error: {:?}",
+            diags.format(&SourceMap::new()),
+        );
+    }
+
+    #[test]
+    fn function_inferred_return_type_with_shadowing_argument() {
+        // Function arg takes precedence over variable with same name in
+        // enclosing scope
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("mut x = 1i; func add(x: Num) { x }");
+        assert!(
+            !diags.has_errors(),
+            "inferred return type from body should not error: {:?}",
+            diags.format(&SourceMap::new()),
+        );
+        let body_ty = func_body_type(&arena, root, &types, 1);
+        assert_eq!(ta.get(body_ty), &TypeKind::Num, "body should be Num");
     }
 
     // ── Arrays ──
