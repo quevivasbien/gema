@@ -6,6 +6,7 @@
 use crate::ast::*;
 use crate::diagnostics::DiagnosticsBag;
 use crate::interner::{IdentId, Interner};
+use crate::source::Span;
 use crate::symbol::{ScopeId, ScopeTree, SymbolId, SymbolKind};
 
 /// Perform name resolution on a parsed AST.
@@ -295,8 +296,34 @@ impl<'a> Resolver<'a> {
         let name = a.name;
         let is_mut = a.is_mut;
 
+        // Helper: produce an error when assigning to a non-variable name.
+        let error_not_variable = |resolver: &mut Self, span: Span, name: IdentId| {
+            let name_str = resolver.interner.lookup(name);
+            resolver.diagnostics.error(
+                resolver.file_idx,
+                span,
+                format!("cannot assign to '{name_str}' — it is not a variable"),
+            );
+        };
+
         // 1. Name in current scope → reassignment.
-        if self.name_in_scope(self.current_scope, name) {
+        if let Some(ids) = self
+            .scope_tree
+            .scopes
+            .get(self.current_scope)
+            .and_then(|s| s.symbols.get(&name))
+            .filter(|ids| !ids.is_empty())
+        {
+            // If any existing symbol with this name is NOT a Variable, error.
+            if ids
+                .iter()
+                .any(|&sid| !matches!(self.scope_tree.symbols[sid].kind, SymbolKind::Variable { .. }))
+            {
+                let span = self.arena[node].span();
+                error_not_variable(self, span, name);
+                return;
+            }
+
             if is_mut {
                 let span = self.arena[node].span();
                 self.diagnostics.error(
@@ -313,6 +340,16 @@ impl<'a> Resolver<'a> {
 
         // 2. Name in an ancestor scope.
         if let Some((_ancestor_scope, sym_id)) = self.lookup_ancestor(name) {
+            let ancestor_is_variable = matches!(
+                self.scope_tree.symbols[sym_id].kind,
+                SymbolKind::Variable { .. }
+            );
+            if !ancestor_is_variable {
+                let span = self.arena[node].span();
+                error_not_variable(self, span, name);
+                return;
+            }
+
             if is_mut {
                 // mut always means explicit shadow, even if ancestor is mutable.
                 self.define(
@@ -332,7 +369,7 @@ impl<'a> Resolver<'a> {
                 if ancestor_is_mut {
                     // Reassignment of ancestor's mutable variable — skip.
                 } else {
-                    // Immutable or non-variable ancestor → shadow.
+                    // Immutable ancestor → shadow.
                     self.define(
                         name,
                         SymbolKind::Variable {
@@ -355,13 +392,6 @@ impl<'a> Resolver<'a> {
             },
             node,
         );
-    }
-
-    fn name_in_scope(&self, scope: ScopeId, name: IdentId) -> bool {
-        self.scope_tree.scopes[scope]
-            .symbols
-            .get(&name)
-            .is_some_and(|ids| !ids.is_empty())
     }
 
     /// Walk the parent chain starting from the current scope's parent
@@ -863,5 +893,71 @@ mod tests {
         let (_, _, diags, _, _) =
             resolve("trait Foo { bar: Func[Self: Self] }; impl Num: Foo { func bar(x: Num): Num { x } }");
         assert!(!diags.has_errors(), "errors: {:?}", diags);
+    }
+
+    // ── Assigning to non-variable names ──
+
+    #[test]
+    fn assign_to_function_name_error() {
+        let (_, _, diags, _, _) = resolve("func f() { 1 }; f = 2");
+        assert!(diags.has_errors(), "assigning to function name should error");
+        let formatted = diags.format(&SourceMap::new());
+        assert!(
+            formatted.contains("not a variable"),
+            "expected 'not a variable' error, got: {}",
+            formatted
+        );
+    }
+
+    #[test]
+    fn assign_to_struct_name_error() {
+        let (_, _, diags, _, _) = resolve("struct Foo {}; Foo = 3");
+        assert!(diags.has_errors(), "assigning to struct name should error");
+        let formatted = diags.format(&SourceMap::new());
+        assert!(
+            formatted.contains("not a variable"),
+            "expected 'not a variable' error, got: {}",
+            formatted
+        );
+    }
+
+    #[test]
+    fn function_overloading_still_allowed() {
+        // Overloading functions with different signatures is still OK.
+        let (_, _, diags, _, _) = resolve(
+            "func foo(x: Int): Int { x }; func foo(s: Str): Str { s }; func foo() { 1 }",
+        );
+        assert!(!diags.has_errors(), "overloading should be allowed: {:?}", diags);
+    }
+
+    #[test]
+    fn cannot_shadow_function_with_assignment() {
+        // Assigning to a name that shadows a function in an ancestor should also error.
+        let (_, _, diags, _, _) = resolve("func f() { 1 }; { f = 2 }");
+        assert!(
+            diags.has_errors(),
+            "should not be able to shadow a function with assignment: {:?}",
+            diags.format(&SourceMap::new()),
+        );
+    }
+
+    #[test]
+    fn struct_enum_same_name_error() {
+        // Cross-kind name conflicts (struct + enum, etc.) are illegal — only
+        // func + func (overloading) is allowed.
+        let (_, _, diags, _, _) = resolve("struct Foo { x: Num }; enum Foo { A, B }");
+        assert!(diags.has_errors());
+
+        let (_, _, diags2, _, _) = resolve("enum Foo { A, B }; struct Foo { x: Num }");
+        assert!(diags2.has_errors());
+    }
+
+    #[test]
+    fn struct_func_same_name_error() {
+        let (_, _, diags, _, _) = resolve("struct Foo { x: Num }; func Foo() { 1 }");
+        assert!(diags.has_errors());
+
+        let (_, _, diags2, _, _) = resolve("func Foo() { 1 }; struct Foo { x: Num }");
+        assert!(diags2.has_errors());
     }
 }

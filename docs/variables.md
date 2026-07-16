@@ -86,6 +86,24 @@ mut y = 1
 y                 # resolves to 1
 ```
 
+## Non-variable names
+
+Assignment to a name that is already defined as a non-variable (function,
+struct, enum, trait, type parameter) is always an error, regardless of
+scope:
+
+```gema
+func f() { 1 }
+f = 2;               # Error: cannot assign to 'f' — it is not a variable
+
+struct Point { x: Num }
+Point = 3;          # Error: cannot assign to 'Point' — it is not a variable
+```
+
+Function overloading (multiple function definitions with the same name
+but different type signatures) is allowed, but mixing a function and
+any other kind of symbol under the same name is not.
+
 ## Summary of rules
 
 | Pattern                                         | Resolver behavior                               | Type checker                     |
@@ -97,4 +115,7 @@ y                 # resolves to 1
 | `x = N` (name in ancestor, parent `is_mut`)     | Skip (reassignment of parent)                   | OK                               |
 | `x = N` (name in ancestor, parent not `is_mut`) | Register (shadow)                               | Independent type                 |
 | `mut x = N` (name in any ancestor)              | Register (explicit shadow)                      | Independent type                 |
-| `func f() {}` then `f = N`                      | Skip (treats as reassign)                       | Error: cannot assign to function |
+| `f = N` after `func f() {}`                     | **Error**: not a variable                       | —                                |
+| `Foo = N` after `struct Foo {}`                 | **Error**: not a variable                       | —                                |
+| `Foo = N` after `enum Foo {}`                   | **Error**: not a variable                       | —                                |
+| `Foo = N` after `trait Foo {}`                  | **Error**: not a variable                       | —                                |

@@ -980,6 +980,6 @@ mod tests {
     }
     #[test]
     fn run_for_loop_sum() {
-        assert_run("s = 0i; for x = 1i..3i { s = s + x }; s", "6");
+        assert_run("mut s = 0i; for x = 1i..3i { s = s + x }; s", "6");
     }
 }

@@ -695,7 +695,7 @@ impl<'a> Inferer<'a> {
 
     // ── Assignments ──
 
-    fn infer_assign(&mut self, _node: NodeId, a: &Assign) -> TypeId {
+    fn infer_assign(&mut self, node: NodeId, a: &Assign) -> TypeId {
         let val_ty = self.infer_expr(a.value);
         let ty = if let Some(ref ann) = a.type_annotation {
             let ann_ty = self.lower_type_node(ann);
@@ -707,7 +707,14 @@ impl<'a> Inferer<'a> {
         let top = self.var_type_stack.len() - 1;
 
         // Same-scope reassignment — name exists in top frame.
-        if let Some(&(existing, _)) = self.var_type_stack[top].get(&a.name) {
+        if let Some(&(existing, existing_mut)) = self.var_type_stack[top].get(&a.name) {
+            if !existing_mut {
+                let name_str = self.interner.lookup(a.name);
+                self.emit_error(
+                    self.arena[node].span(),
+                    format!("cannot reassign immutable variable '{name_str}'"),
+                );
+            }
             let unified = self.unify(existing, ty);
             self.var_type_stack[top].insert(a.name, (unified, a.is_mut));
             return unified;
@@ -1592,13 +1599,12 @@ mod tests {
     }
 
     #[test]
-    fn reassign_immutable_variable() {
-        // Reassignment to immutable is accepted at inference level;
-        // the type checker catches it later.
+    fn reassign_immutable_variable_error() {
+        // Reassignment to immutable is rejected at inference level.
         let (_arena, _interner, diags, _types, _ta, _root) = infer_types_map("x = 42; x = 0");
         assert!(
-            !diags.has_errors(),
-            "inference should accept immutable reassignment: {:?}",
+            diags.has_errors(),
+            "inference should reject immutable reassignment: {:?}",
             diags.format(&SourceMap::new()),
         );
     }
@@ -1666,6 +1672,21 @@ mod tests {
         );
         let ty = last_expr_type(&arena, root, &types, &ta);
         assert_eq!(ta.get(ty), &TypeKind::Str);
+    }
+
+    #[test]
+    fn reassign_mutable_parent_from_child_ok() {
+        // Reassigning a parent's mutable variable from a child scope should succeed.
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("mut x = 0; { x = 5 }; x");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new()),
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        // After reassignment in child scope, the outer x should have type Num (from 5).
+        assert_eq!(ta.get(ty), &TypeKind::Num);
     }
 
     // ── Binary operations ──
