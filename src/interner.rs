@@ -9,6 +9,14 @@ use rustc_hash::FxHashMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct IdentId(u32);
 
+impl IdentId {
+    /// Construct an `IdentId` from a raw integer index.
+    /// Only safe when the index corresponds to an interned string.
+    pub const fn from_u32(v: u32) -> Self {
+        Self(v)
+    }
+}
+
 /// Simple string interner.  Thread through the compiler as
 /// `&mut Interner`.
 #[derive(Clone, Debug, Default)]
