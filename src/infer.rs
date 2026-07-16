@@ -420,8 +420,8 @@ impl<'a> Inferer<'a> {
             | Expr::StructDef(_)
             | Expr::EnumDef(_)
             | Expr::TraitDef(_)
-            | Expr::ImplBlock(_)
             | Expr::ErrorExpr => self.type_arena.void_id(),
+            Expr::ImplBlock(i) => self.infer_impl_block(node, i),
         };
         self.types.insert(node, ty);
         ty
@@ -742,6 +742,14 @@ impl<'a> Inferer<'a> {
         }
         self.var_type_stack.pop();
         last_ty
+    }
+
+    fn infer_impl_block(&mut self, _node: NodeId, i: &ImplBlock) -> TypeId {
+        // Infer each member (FuncDef or Assign).
+        for &member in &i.members {
+            self.infer_expr(member);
+        }
+        self.type_arena.void_id()
     }
 
     // ── If ──
@@ -2205,6 +2213,17 @@ mod tests {
         }
         assert!(found_x, "x symbol not found with populated type");
         assert!(found_y, "y symbol not found with populated type");
+    }
+
+    #[test]
+    fn impl_block_type_check_members() {
+        let src = "trait HasZero { zero: Func[Self: Self] }; impl Int: HasZero { func zero(): Int { 0i } }";
+        let (_arena, _interner, diags, _types, _ta, _root) = infer_types_map(src);
+        assert!(
+            !diags.has_errors(),
+            "impl block member should type-check: {:?}",
+            diags.format(&SourceMap::new()),
+        );
     }
 
     #[test]

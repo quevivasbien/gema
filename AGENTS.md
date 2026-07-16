@@ -181,10 +181,13 @@ fn parse_expr(tokens: &[Token], span: Span) -> NodeId;
 
 ### Testing
 
+- Always start implementing new features by creating tests. You
+  should aim to be very thorough about this, so that tests cover
+  all the language features.
 - Unit tests go in the same file as the code they test, inside a
   `#[cfg(test)] mod tests { ... }` block.
 - Integration tests go in `tests/`.
-- Every scan/parse/resolve/infer function should have a test for:
+- Every function should have a test for:
   - Normal case (happy path)
   - Edge case (empty input, extreme values)
   - Error case (invalid input, expected diagnostic)

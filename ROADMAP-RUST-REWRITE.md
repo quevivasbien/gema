@@ -175,45 +175,46 @@ emits the same JS; ownership is a _static check_, not a codegen concern.
 
 ```
 gema/
-├── Cargo.toml              # workspace root (single crate is fine)
+├── Cargo.toml              # single crate
 ├── src/
-│   ├── main.rs             # CLI entry point (compile file, etc.)
-│   ├── lib.rs              # Re-exports, module declarations
+│   ├── lib.rs              # Module declarations
 │   │
 │   │   ── Phase I ──
-│   ├── source.rs            # SourceText, Span, SourceMap
-│   ├── diagnostics.rs       # Diagnostic, Severity, Error emission
-│   ├── scan.rs              # Scanner (lexer) → Vec<Token>
-│   ├── token.rs             # TokenKind, Token
-│   ├── ast.rs               # Expr enum, all AST node types
-│   ├── arena.rs             # Arena<T>, NodeId generics
-│   └── parse.rs             # Pratt parser → RootNode<Expr>
+│   ├── source.rs           # SourceText, Span, SourceMap
+│   ├── diagnostics.rs      # Diagnostic, Severity, DiagnosticsBag
+│   ├── token.rs            # TokenKind, Token
+│   ├── scan.rs             # Scanner
+│   ├── ast.rs              # Expr enum, AstArena (= Arena<Expr>), TypeNode
+│   └── parse/
+│       ├── mod.rs          # Public parse() entry point
+│       ├── parser.rs       # Pratt parser
+│       ├── precedence.rs   # Precedence table
+│       └── utils.rs        # Operator helpers
 │   │
-│   │   ── Phase II ──
-│   ├── types.rs             # TypeKind, TypeId, TypeArena
-│   ├── symbol.rs            # Symbol, SymbolTable, ScopeTree
-│   ├── resolve.rs           # Name resolution pass
-│   ├── infer.rs             # Type inference (constraint-based)
-│   ├── monomorphize.rs      # Generic instantiation pass
-│   ├── builtins.rs          # Builtin function signatures
-│   └── traits.rs            # Trait resolution (impl lookup)
+│   │   ── Phase II (implemented) ──
+│   ├── types.rs            # TypeId, TypeKind, TypeArena
+│   ├── interner.rs         # IdentId, Interner
+│   ├── symbol.rs           # Symbol, ScopeTree, ScopeData
+│   ├── resolve.rs          # Name resolution pass
+│   └── infer.rs            # Type inference (unification-based HM)
+│   │
+│   │   ── Phase II (not yet implemented) ──
+│   ├── monomorphize.rs     # Generic instantiation pass
+│   ├── builtins.rs         # Builtin function signatures
+│   └── traits.rs           # Trait resolution (impl lookup)
 │   │
 │   │   ── Phase III ──
-│   ├── lower.rs             # AST → HIR lowering
-│   ├── hir.rs               # HIR type definitions
-│   ├── codegen.rs           # HIR → JavaScript string
-│   ├── modules.rs           # ModuleGraph, linking
-│   └── tree_shake.rs        # Dead code elimination
+│   ├── lower.rs            # AST → HIR lowering
+│   ├── hir.rs              # HIR type definitions
+│   ├── codegen.rs          # HIR → JavaScript string
+│   ├── modules.rs          # ModuleGraph, linking
+│   └── tree_shake.rs       # Dead code elimination
 │
-├── tests/
-│   ├── scan_test.rs
-│   ├── parse_test.rs
-│   ├── resolve_test.rs
-│   ├── infer_test.rs
-│   ├── codegen_test.rs
-│   └── integration_test.rs  # Full compile+eval tests
+├── docs/
+│   ├── variables.md        # Variable semantics
+│   └── type-system.md      # Type system reference
 │
-└── frontend/                # Web playground (same as now)
+└── frontend/               # Web playground (TS, Bun)
 ```
 
 **Single-crate vs workspace:** Start with a single crate. You can split
@@ -627,9 +628,9 @@ pub enum TypeKind {
     Num,
     Str,
     Bool,
-    Null,
+    Void,
     Func { params: Vec<TypeId>, ret: TypeId },
-    Array(TypeId),
+    Arr(TypeId),
     Iter(TypeId),
     MutArr(TypeId),
     Tuple(Vec<TypeId>),
@@ -638,13 +639,16 @@ pub enum TypeKind {
     Set(TypeId),
     MutSet(TypeId),
     Maybe(TypeId),
-    /// User-defined or generic type reference.
-    /// - `name` is the symbol (e.g., "MyStruct", "T")
-    /// - `args` are any type arguments (e.g., `[Int, Str]` for `Pair[Int, Str]`)
-    Named { name: IdentId, args: Vec<TypeId> },
-    /// A type variable (generic parameter during inference).
-    /// `id` is a unique index, `bound` is an optional trait name.
-    InferVar { id: u32, bound: Option<IdentId> },
+    /// User-defined (structs, enums): `Pair[Int, Str]`
+    Custom { name: IdentId, args: Vec<TypeId> },
+    /// Generic type param (e.g. `T` in `func [T: Hash]`)
+    Generic { name: IdentId, bounds: Vec<IdentId> },
+    /// Unknown type — inference variable (solved by unification)
+    InferVar { id: u32 },
+    /// `Self` in trait/impl contexts
+    SelfType,
+    /// Error-recovery sentinel
+    Unknown,
 }
 ```
 
@@ -680,31 +684,30 @@ name reference to its definition.
 pub struct Symbol {
     pub name: IdentId,
     pub kind: SymbolKind,
-    pub def_node: NodeId,  // the AST node that defines this symbol
-    pub visibility: Visibility,
+    pub def_node: NodeId,
 }
 
 pub enum SymbolKind {
-    Variable { ty: TypeId, is_mut: bool },
-    Function { full_name: IdentId, is_generic: bool },
-    Struct { generics: Vec<IdentId> },
-    Enum { generics: Vec<IdentId>, variants: Vec<EnumVariant> },
-    Trait { required_funcs: Vec<FuncSig> },
-    Impl { trait_name: IdentId, self_type: TypeId },
-    // Generic type parameter
-    TypeParam { bound: Option<IdentId> },
+    Variable { type_id: Option<TypeId>, is_mut: bool },
+    Function { full_name: Option<IdentId>, is_generic: bool, param_count: usize },
+    Struct { type_params: Vec<IdentId> },
+    Enum { type_params: Vec<IdentId>, variants: Vec<EnumVariant> },
+    Trait { requirements: Vec<TraitRequirement> },
+    Impl { trait_name: IdentId, self_type: TypeNode, member_nodes: Vec<NodeId> },
+    TypeParam { bounds: Vec<IdentId> },
 }
 
 pub struct ScopeTree {
-    /// Parent-child relationships among scopes
     pub scopes: Arena<ScopeData>,
-    /// For each AST node, which scope it belongs to
-    pub node_scope: HashMap<NodeId, ScopeId>,
+    pub symbols: Arena<Symbol>,
+    pub root_scope: ScopeId,
+    pub node_scope: FxHashMap<NodeId, ScopeId>,
+    pub resolved_refs: FxHashMap<NodeId, SymbolId>,
 }
 
 pub struct ScopeData {
     pub parent: Option<ScopeId>,
-    pub symbols: FxHashMap<IdentId, SymbolId>,
+    pub symbols: FxHashMap<IdentId, Vec<SymbolId>>,
     pub children: Vec<ScopeId>,
 }
 ```
@@ -715,11 +718,13 @@ pub struct ScopeData {
 pub fn resolve_names(
     arena: &AstArena,
     root: NodeId,
+    interner: &mut Interner,
     diagnostics: &mut DiagnosticsBag,
+    file_idx: usize,
 ) -> ScopeTree {
-    let mut resolver = Resolver::new(arena, diagnostics);
-    resolver.resolve_block(root);
-    resolver.scope_tree
+    let mut resolver = Resolver::new(arena, interner, diagnostics, file_idx);
+    resolver.resolve_node(root);
+    resolver.finish()
 }
 ```
 
@@ -746,65 +751,71 @@ unconditional — it doesn't depend on types at all. Separating it means:
 
 ---
 
-### Step 7: Type inference
+### Step 7: Type inference (Unification-Based)
 
-**Goal:** Walk the resolved AST and assign a `TypeId` to every
-expression node.
+**Goal:** Assign a `TypeId` to every expression node by solving type
+constraints generated from the program structure.
 
-**Approach:** Bidirectional (bottom-up + top-down) type checking
-using the "AST typing" pattern (attribute grammar style). No type
-variables or unification is needed for a simple language like Gema
-— expressions either have known types from their sub-expressions or
-can be inferred from context.
+**Approach:** Hindley-Milner unification (Algorithm M). Each expression
+gets a fresh `InferVar`; constraints are generated and solved via
+`unify()`.  This replaces the TS compiler's ad-hoc cascade with a
+principled system.
 
 ```rust
 pub fn infer_types(
     arena: &AstArena,
-    scope_tree: &ScopeTree,
+    scope_tree: &mut ScopeTree,
     type_arena: &mut TypeArena,
+    interner: &Interner,
     root: NodeId,
     diagnostics: &mut DiagnosticsBag,
-) -> HashMap<NodeId, TypeId> {
-    let mut infer = Inferer::new(arena, scope_tree, type_arena, diagnostics);
-    infer.infer_expr(root, None);
-    infer.types
-}
+    file_idx: usize,
+) -> FxHashMap<NodeId, TypeId>;
 ```
 
-**How each expression is typed (roughly):**
+**Core algorithm:**
 
-| Expression               | Inference rule                                                 |
-| ------------------------ | -------------------------------------------------------------- |
-| `IntLit`                 | Type is always `Int`                                           |
-| `NumLit`                 | Type is always `Num`                                           |
-| `StrLit`                 | Type is always `Str`                                           |
-| `BoolLit`                | Type is always `Bool`                                          |
-| `NoneLit`                | Type is `Maybe[T]` where `T` is inferred from context          |
-| `Variable`               | Look up `Symbol.ty` from the symbol table                      |
-| `Binary(a, op, b)`       | Type-check `a` and `b`; result type from operator table        |
-| `Call(name, args)`       | Look up function signature; substitute generics if needed      |
-| `FuncDef(...)`           | Register `FuncType` in scope; type-check body with return type |
-| `Block(stmts)`           | Type is the type of the last statement                         |
-| `If(conds, else)`        | All branches must have the same type                           |
-| `Match(scrutinee, arms)` | Each arm type-checked; must unify to a single type             |
+1. **Fresh variables**: Each expression that doesn't have a fixed type
+   gets a fresh `InferVar`.
 
-**The key simplification:** Because Gema has no subtyping, no
-higher-kinded types, and no complex type inference (like Hindley-Milner
-with let-polymorphism), the inference pass can be a straightforward
-recursive walk. The only tricky part is:
+2. **Constraint generation**: Walk the AST and generate equality
+   constraints.  For example:
+   - `IntLit(42)` → type is `Int`
+   - `Binary(l + r)` → `typeof(l) = typeof(r) = Int/Num`, result is the same
+   - `Call(f, args)` → `typeof(f) = Func[typeof(args...): ret]`
+   - `If(cond, then, else)` → all branches unify to the same type
+   - `Match(scrutinee, arms)` → all arms unify
+   - `ForLoop(var, iter, body)` → `typeof(iter) = Iter[typeof(var)]`
+   - `NoneLit` → `Maybe[α]` where α is fresh (or from annotation)
+   - `ArrLit([e1, e2])` → elements unify, result is `Arr[T]`
+   - `FuncDef` → register function type, infer body, unify with return type
+   - `AnonFunc` → params get fresh variables, body constrains them
 
-1. **Lambda param type inference** — when a closure is passed to
-   `map`, `filter`, `reduce`, etc., the param types are inferred from
-   the function signature. This is the existing
-   `inferLambdaParams` logic, but now operating on the typed IR.
+3. **Unification**: `unify(a, b)` resolves `InferVar` bindings,
+   performs occurs checks, handles compound types recursively (arrays,
+   tuples, functions, etc.), and reports type mismatches.
 
-2. **`none` type inference** — `none` is `Maybe[T]` where `T` is
-   inferred from how the value is used (assigned to a variable, passed
-   to a function, etc.). This is a classic bidirectional inference
-   problem and is handled by threading an "expected type" context
-   parameter through the walk.
+4. **Type population**: After inference completes, `scope_tree` symbol
+   type fields are populated from the results so downstream passes
+   can read them.
 
-User note: it would actually be nice to have more complex type inference so we don't need to provide type annotations in some locations where they are currently required (e.g., when creating empty arrays, instantiating generic enums, or using functions as values).
+**Key inference capabilities:**
+
+| Feature | How it works |
+|---------|-------------|
+| Literals | Fixed types (`Int`, `Num`, `Str`, `Bool`) |
+| `none` | `Maybe[α]` — α unified with expected type from context |
+| Variable lookup | Scope-stack lookup (walked top-to-bottom for scoping) |
+| Assignment | New decl or reassignment; scope-stack tracks `(TypeId, is_mut)` |
+| Functions | Body inferred, return type from annotation or inferred from body |
+| Lambdas | Params get fresh variables; body constrains them |
+| Calls | Look up function type, unify param types with arg types |
+| Struct construction | Field types unified with argument types |
+| Struct field access | Field looked up from struct definition, generic params substituted |
+| Enum variants | Variant's data type looked up from enum definition, params substituted |
+| `Int`/`Num` | Separate types — no automatic promotion (explicit `toNum`/`toInt`) |
+| `if` without `else` | Type is `Void` (expression may not produce a value) |
+| Overloaded functions | Each overload tried independently via binding save/restore |
 
 ---
 
@@ -900,36 +911,31 @@ JavaScript runtime call, including any necessary wrapper code
 ### Phase II testing checkpoint
 
 ```rust
+// See src/infer.rs for the full test suite (310+ tests)
+
 #[test]
-fn type_int_literal() {
-    let program = infer("42");
-    assert_eq!(program.type_of_main_expr(), TypeId::INT);
+fn int_literal() {
+    let (_arena, _interner, diags, types, ta, root) = infer_types_map("42i");
+    assert!(!diags.has_errors());
+    let ty = last_expr_type(&_arena, root, &types, &ta);
+    assert_eq!(ta.get(ty), &TypeKind::Int);
 }
 
 #[test]
-fn type_binary_op() {
-    let program = infer("1 + 2.0");
-    assert_eq!(program.type_of_main_expr(), TypeId::NUM);
+fn binary_add_nums() {
+    let (_arena, _interner, diags, types, ta, root) = infer_types_map("1.5 + 2.5");
+    assert!(!diags.has_errors());
+    let ty = last_expr_type(&_arena, root, &types, &ta);
+    assert_eq!(ta.get(ty), &TypeKind::Num);
 }
 
 #[test]
-fn type_generic_function() {
-    let program = infer(r#"
-        func [T] id(x: T): T { x }
-        id(42)
-    "#);
-    assert_eq!(program.type_of_last_expr(), TypeId::INT);
-}
-
-#[test]
-fn monomorphize_generic() {
-    let (program, arena) = compile(r#"
-        func [T] double(x: T): T { x + x }
-        double(1) + double(2.0)
-    "#);
-    // Two concrete copies: double$Int, double$Num
-    assert!(program.has_function("double$Int"));
-    assert!(program.has_function("double$Num"));
+fn named_func_call() {
+    let (_arena, _interner, diags, types, ta, root) =
+        infer_types_map("func add(x: Int, y: Int): Int { x + y }; add(1i, 2i)");
+    assert!(!diags.has_errors());
+    let ty = last_expr_type(&_arena, root, &types, &ta);
+    assert_eq!(ta.get(ty), &TypeKind::Int);
 }
 ```
 
