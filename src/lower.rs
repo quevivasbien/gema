@@ -557,12 +557,7 @@ mod tests {
         }
     }
 
-    fn name_eq(hir: &HirExpr, expected: &str, interner: &mut Interner) -> bool {
-        match hir {
-            HirExpr::Ident(id) => interner.lookup(id.name) == expected,
-            _ => false,
-        }
-    }
+
 
     // ── Literals ──
 
@@ -686,7 +681,7 @@ mod tests {
         let hir = lower_ok("for x = 1i..10i { x }");
         let last = last_in_block(&hir);
         match last {
-            HirExpr::ForLoop(hir::ForLoop { var, .. }) => {
+            HirExpr::ForLoop(hir::ForLoop { var: _, .. }) => {
                 // var is IdentId; we just check it's present
                 assert!(true);
             }
