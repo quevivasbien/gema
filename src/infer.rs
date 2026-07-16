@@ -17,7 +17,7 @@ use crate::types::{TypeArena, TypeId, TypeKind};
 /// Returns a map from every expression node to its inferred `TypeId`.
 pub fn infer_types(
     arena: &AstArena,
-    scope_tree: &ScopeTree,
+    scope_tree: &mut ScopeTree,
     type_arena: &mut TypeArena,
     interner: &Interner,
     root: NodeId,
@@ -33,12 +33,14 @@ pub fn infer_types(
         file_idx,
     );
     infer.infer_expr(root);
-    infer.types
+    let types = std::mem::take(&mut infer.types);
+    scope_tree.populate_from_types(&types);
+    types
 }
 
 struct Inferer<'a> {
     arena: &'a AstArena,
-    scope_tree: &'a ScopeTree,
+    scope_tree: &'a mut ScopeTree,
     type_arena: &'a mut TypeArena,
     interner: &'a Interner,
     diagnostics: &'a mut DiagnosticsBag,
@@ -60,7 +62,7 @@ struct Inferer<'a> {
 impl<'a> Inferer<'a> {
     fn new(
         arena: &'a AstArena,
-        scope_tree: &'a ScopeTree,
+        scope_tree: &'a mut ScopeTree,
         type_arena: &'a mut TypeArena,
         interner: &'a Interner,
         diagnostics: &'a mut DiagnosticsBag,
@@ -467,16 +469,21 @@ impl<'a> Inferer<'a> {
     fn infer_call(&mut self, node: NodeId, c: &Call) -> TypeId {
         let arg_types: Vec<TypeId> = c.args.iter().map(|&arg| self.infer_expr(arg)).collect();
 
-        let funcs = self.scope_tree.lookup_functions(
-            self.scope_tree
-                .node_scope
-                .get(&node)
-                .copied()
-                .unwrap_or(self.scope_tree.root_scope),
-            c.name,
-        );
+        let func_defs: Vec<NodeId> = self
+            .scope_tree
+            .lookup_functions(
+                self.scope_tree
+                    .node_scope
+                    .get(&node)
+                    .copied()
+                    .unwrap_or(self.scope_tree.root_scope),
+                c.name,
+            )
+            .iter()
+            .map(|s| s.def_node)
+            .collect();
 
-        if funcs.is_empty() {
+        if func_defs.is_empty() {
             // Check if it's a struct constructor instead.
             if let Some(result) = self.try_struct_constructor(node, c, &arg_types) {
                 return result;
@@ -490,8 +497,8 @@ impl<'a> Inferer<'a> {
         }
 
         // For each overload, try to unify params with args.
-        for func in funcs {
-            let func_type = self.function_type_from_def(func.def_node);
+        for def_node in func_defs {
+            let func_type = self.function_type_from_def(def_node);
             let func_kind = self.type_arena.get(func_type).clone();
             match func_kind {
                 TypeKind::Func { params, ret } => {
@@ -1371,7 +1378,7 @@ mod tests {
             diagnostics.format(&SourceMap::new())
         );
 
-        let scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
+        let mut scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
         assert!(
             !diagnostics.has_errors(),
             "resolve errors: {:?}",
@@ -1381,7 +1388,7 @@ mod tests {
         let mut type_arena = TypeArena::new();
         let types = infer_types(
             &arena,
-            &scope_tree,
+            &mut scope_tree,
             &mut type_arena,
             &interner,
             root,
@@ -1405,7 +1412,7 @@ mod tests {
             return diagnostics;
         }
 
-        let scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
+        let mut scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
         if diagnostics.has_errors() {
             return diagnostics;
         }
@@ -1413,7 +1420,7 @@ mod tests {
         let mut type_arena = TypeArena::new();
         infer_types(
             &arena,
-            &scope_tree,
+            &mut scope_tree,
             &mut type_arena,
             &interner,
             root,
@@ -1879,6 +1886,21 @@ mod tests {
         assert_eq!(ta.get(body_ty), &TypeKind::Num, "body should be Num");
     }
 
+    #[test]
+    fn function_captures_variable_from_outer_scope() {
+        // Function arg takes precedence over variable with same name in
+        // enclosing scope
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("x = 1; func addX(y: Num) { x + y }");
+        assert!(
+            !diags.has_errors(),
+            "inferred return type from body should not error: {:?}",
+            diags.format(&SourceMap::new()),
+        );
+        let body_ty = func_body_type(&arena, root, &types, 1);
+        assert_eq!(ta.get(body_ty), &TypeKind::Num, "body should be Num");
+    }
+
     // ── Arrays ──
 
     #[test]
@@ -2094,6 +2116,66 @@ mod tests {
     }
 
     // ── Lambda ──
+
+    #[test]
+    fn variable_symbol_type_populated() {
+        let src = SourceText::new("test.gema", "x = 42i; y = \"hello\"");
+        let (tokens, sd) = scan::scan(&src, 0);
+        assert!(!sd.has_errors());
+        let mut arena = AstArena::new();
+        let mut interner = Interner::new();
+        let mut diagnostics = DiagnosticsBag::new();
+        for d in sd.into_vec() {
+            diagnostics.push(d);
+        }
+        let root = parse::parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
+        assert!(!diagnostics.has_errors());
+        let mut scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
+        assert!(!diagnostics.has_errors());
+
+        let mut type_arena = TypeArena::new();
+        let _types = infer_types(
+            &arena,
+            &mut scope_tree,
+            &mut type_arena,
+            &interner,
+            root,
+            &mut diagnostics,
+            0,
+        );
+        assert!(
+            !diagnostics.has_errors(),
+            "errors: {:?}",
+            diagnostics.format(&SourceMap::new())
+        );
+
+        // Verify symbol types are populated.
+        let mut found_x = false;
+        let mut found_y = false;
+        for (_, sym) in scope_tree.symbols.iter() {
+            match &sym.kind {
+                SymbolKind::Variable {
+                    type_id: Some(tid), ..
+                } => {
+                    let name = interner.lookup(sym.name);
+                    match name {
+                        "x" => {
+                            assert_eq!(type_arena.get(*tid), &TypeKind::Int, "x should be Int");
+                            found_x = true;
+                        }
+                        "y" => {
+                            assert_eq!(type_arena.get(*tid), &TypeKind::Str, "y should be Str");
+                            found_y = true;
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(found_x, "x symbol not found with populated type");
+        assert!(found_y, "y symbol not found with populated type");
+    }
 
     #[test]
     fn lambda_infers_param_type() {

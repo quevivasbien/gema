@@ -190,6 +190,17 @@ impl ScopeTree {
             }
         }
     }
+
+    /// Populate symbol `type_id` fields from the inference results.
+    /// Called after type inference completes.
+    pub fn populate_from_types(&mut self, types: &FxHashMap<NodeId, TypeId>) {
+        for (_, symbol) in self.symbols.iter_mut() {
+            if let SymbolKind::Variable { type_id, .. } = &mut symbol.kind
+                && let Some(&tid) = types.get(&symbol.def_node) {
+                    *type_id = Some(tid);
+                }
+        }
+    }
 }
 
 impl Default for ScopeTree {
