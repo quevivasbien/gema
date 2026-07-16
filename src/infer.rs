@@ -9,7 +9,7 @@ use crate::ast::*;
 use crate::diagnostics::DiagnosticsBag;
 use crate::interner::{IdentId, Interner};
 use crate::source::Span;
-use crate::symbol::{ScopeTree, SymbolKind};
+use crate::symbol::{ScopeId, ScopeTree, SymbolKind};
 use crate::types::{TypeArena, TypeId, TypeKind};
 
 /// Run type inference on a resolved AST.
@@ -797,9 +797,212 @@ impl<'a> Inferer<'a> {
 
     // ── Type-associated expressions ──
 
-    fn infer_type_associated(&mut self, _node: NodeId, t: &TypeAssociated) -> TypeId {
-        // Resolve the inner expression (call arguments handled within)
-        self.infer_expr(t.inner)
+    fn infer_type_associated(&mut self, node: NodeId, t: &TypeAssociated) -> TypeId {
+        // Extract the enum type name and any explicit template args.
+        let (enum_name, explicit_args) = match &t.type_node {
+            TypeNode::Named { name, params } => (*name, params.clone()),
+            _ => return self.infer_expr(t.inner),
+        };
+
+        // Find the enum definition in scope.
+        let scope = self
+            .scope_tree
+            .node_scope
+            .get(&node)
+            .copied()
+            .unwrap_or(self.scope_tree.root_scope);
+        let (variants, type_param_names) = match self.find_enum(scope, enum_name) {
+            Some(info) => info,
+            None => return self.infer_expr(t.inner),
+        };
+
+        // Build concrete type args from explicit params or fresh variables.
+        let mut generic_params = FxHashMap::default();
+        let mut concrete_args = Vec::new();
+        for (i, tp_name) in type_param_names.iter().enumerate() {
+            let tid = if i < explicit_args.len() {
+                self.lower_type_node(&explicit_args[i])
+            } else {
+                self.fresh_infer_var()
+            };
+            concrete_args.push(tid);
+            generic_params.insert(*tp_name, tid);
+        }
+
+        // Handle the right-hand side: Variant(args) or plain Variant.
+        match &self.arena[t.inner] {
+            Expr::Call(c) => {
+                let variant = variants.iter().find(|v| v.name == c.name);
+                match variant {
+                    Some(v) => {
+                        if let Some(ref data_type) = v.type_node {
+                            let lowered = self.lower_type_node_with(data_type, &generic_params);
+                            for &arg in &c.args {
+                                let arg_ty = self.infer_expr(arg);
+                                self.unify(lowered, arg_ty);
+                            }
+                        } else {
+                            for &arg in &c.args {
+                                self.infer_expr(arg);
+                            }
+                            let name_str = self.interner.lookup(v.name);
+                            self.emit_error(
+                                self.arena[node].span(),
+                                format!("'{}' does not take arguments", name_str),
+                            );
+                        }
+                    }
+                    None => {
+                        let name_str = self.interner.lookup(c.name);
+                        self.emit_error(
+                            self.arena[node].span(),
+                            format!("unknown variant '{}'", name_str),
+                        );
+                        return self.type_arena.unknown_id();
+                    }
+                }
+            }
+            Expr::Var(v) => {
+                let variant = variants.iter().find(|x| x.name == v.name);
+                if variant.is_none() {
+                    let name_str = self.interner.lookup(v.name);
+                    self.emit_error(
+                        self.arena[node].span(),
+                        format!("unknown variant '{}'", name_str),
+                    );
+                    return self.type_arena.unknown_id();
+                }
+            }
+            _ => return self.infer_expr(t.inner),
+        }
+
+        // Build result type AFTER unification so InferVars are resolved.
+        let resolved_args: Vec<TypeId> = concrete_args.iter().map(|&a| self.resolve(a)).collect();
+        self.type_arena.intern(TypeKind::Custom {
+            name: enum_name,
+            args: resolved_args,
+        })
+    }
+
+    /// Find an `Enum` symbol by name in the scope chain.
+    fn find_enum(
+        &self,
+        from: ScopeId,
+        name: IdentId,
+    ) -> Option<(Vec<crate::ast::EnumVariant>, Vec<IdentId>)> {
+        let mut current = from;
+        loop {
+            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
+                for &sid in ids.iter().rev() {
+                    if let SymbolKind::Enum {
+                            type_params,
+                            variants,
+                        } = &self.scope_tree.symbols[sid].kind { return Some((variants.clone(), type_params.clone())) }
+                }
+            }
+            match self.scope_tree.scopes[current].parent {
+                Some(p) => current = p,
+                None => return None,
+            }
+        }
+    }
+
+    /// Lower a `TypeNode` to a `TypeId`, resolving `TypeParamRef` via
+    /// an explicit generic parameter map.  Recurses into compound types.
+    fn lower_type_node_with(
+        &mut self,
+        tn: &TypeNode,
+        generic_params: &FxHashMap<IdentId, TypeId>,
+    ) -> TypeId {
+        match tn {
+            TypeNode::Int => self.type_arena.int_id(),
+            TypeNode::Num => self.type_arena.num_id(),
+            TypeNode::Str => self.type_arena.str_id(),
+            TypeNode::Bool => self.type_arena.bool_id(),
+            TypeNode::Void => self.type_arena.void_id(),
+            TypeNode::SelfType => self.type_arena.self_id(),
+            TypeNode::TypeParamRef { name, traits } => {
+                generic_params.get(name).copied().unwrap_or_else(|| {
+                    self.type_arena.intern(TypeKind::Generic {
+                        name: *name,
+                        bounds: traits.clone(),
+                    })
+                })
+            }
+            TypeNode::Arr(inner) => {
+                let inner_id = self.lower_type_node_with(inner, generic_params);
+                self.type_arena.intern(TypeKind::Arr(inner_id))
+            }
+            TypeNode::Iter(inner) => {
+                let inner_id = self.lower_type_node_with(inner, generic_params);
+                self.type_arena.intern(TypeKind::Iter(inner_id))
+            }
+            TypeNode::MutArr(inner) => {
+                let inner_id = self.lower_type_node_with(inner, generic_params);
+                self.type_arena.intern(TypeKind::MutArr(inner_id))
+            }
+            TypeNode::Set(inner) => {
+                let inner_id = self.lower_type_node_with(inner, generic_params);
+                self.type_arena.intern(TypeKind::Set(inner_id))
+            }
+            TypeNode::MutSet(inner) => {
+                let inner_id = self.lower_type_node_with(inner, generic_params);
+                self.type_arena.intern(TypeKind::MutSet(inner_id))
+            }
+            TypeNode::Maybe(inner) => {
+                let inner_id = self.lower_type_node_with(inner, generic_params);
+                self.type_arena.intern(TypeKind::Maybe(inner_id))
+            }
+            TypeNode::Dict { key, val } => {
+                let key_id = self.lower_type_node_with(key, generic_params);
+                let val_id = self.lower_type_node_with(val, generic_params);
+                self.type_arena.intern(TypeKind::Dict {
+                    key: key_id,
+                    val: val_id,
+                })
+            }
+            TypeNode::MutDict { key, val } => {
+                let key_id = self.lower_type_node_with(key, generic_params);
+                let val_id = self.lower_type_node_with(val, generic_params);
+                self.type_arena.intern(TypeKind::MutDict {
+                    key: key_id,
+                    val: val_id,
+                })
+            }
+            TypeNode::Tup(elems) => {
+                let elem_ids: Vec<_> = elems
+                    .iter()
+                    .map(|e| self.lower_type_node_with(e, generic_params))
+                    .collect();
+                self.type_arena.intern(TypeKind::Tuple(elem_ids))
+            }
+            TypeNode::Func { params, ret } => {
+                let param_ids: Vec<_> = params
+                    .iter()
+                    .map(|p| self.lower_type_node_with(p, generic_params))
+                    .collect();
+                let ret_id = self.lower_type_node_with(ret, generic_params);
+                self.type_arena.intern(TypeKind::Func {
+                    params: param_ids,
+                    ret: ret_id,
+                })
+            }
+            TypeNode::Named { name, params } => {
+                // If this name matches a generic parameter, resolve it.
+                if params.is_empty()
+                    && let Some(&tid) = generic_params.get(name) {
+                        return tid;
+                    }
+                let arg_ids: Vec<_> = params
+                    .iter()
+                    .map(|p| self.lower_type_node_with(p, generic_params))
+                    .collect();
+                self.type_arena.intern(TypeKind::Custom {
+                    name: *name,
+                    args: arg_ids,
+                })
+            }
+        }
     }
 
     // ── Tuple unpack ──
@@ -1421,6 +1624,95 @@ mod tests {
     }
 
     // ── Ranges ──
+
+    // ── Enum variants ──
+
+    #[test]
+    fn enum_variant_with_explicit_type_args() {
+        let src = "enum Option[T] { some: T, nothing }; Option[Int]::some(42i)";
+        let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
+        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        match ta.get(ty) {
+            TypeKind::Custom { args, .. } => {
+                assert_eq!(args.len(), 1);
+                assert_eq!(ta.get(args[0]), &TypeKind::Int);
+            }
+            other => panic!("expected Custom, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn enum_variant_plain_no_type_args() {
+        let src = "enum Color { red, green, blue }; Color::red";
+        let (_arena, _interner, diags, _types, _ta, _root) = infer_types_map(src);
+        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+    }
+
+    #[test]
+    fn enum_variant_inferred_type_args() {
+        let src = "enum Option[T] { some: T, nothing }; Option::some(42i)";
+        let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
+        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        match ta.get(ty) {
+            TypeKind::Custom { args, .. } => {
+                assert_eq!(args.len(), 1);
+                assert_eq!(ta.get(args[0]), &TypeKind::Int);
+            }
+            other => panic!("expected Custom, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn enum_variant_multi_type_args() {
+        let src = "enum Result[T, E] { ok: T, err: E }; Result::ok(42i)";
+        let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
+        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        match ta.get(ty) {
+            TypeKind::Custom { args, .. } => {
+                assert_eq!(args.len(), 2, "Result should have 2 type args");
+                assert_eq!(ta.get(args[0]), &TypeKind::Int);
+            }
+            other => panic!("expected Custom, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn enum_variant_multi_type_args_second() {
+        let src = "enum Result[T, E] { ok: T, err: E }; Result::err(\"oops\")";
+        let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
+        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        match ta.get(ty) {
+            TypeKind::Custom { args, .. } => {
+                assert_eq!(args.len(), 2);
+                assert_eq!(ta.get(args[1]), &TypeKind::Str);
+            }
+            other => panic!("expected Custom, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn enum_variant_unknown_name_error() {
+        let src = "enum Option[T] { some: T, nothing }; Option::missing(1)";
+        let diags = infer_diags(src);
+        assert!(
+            diags.has_errors(),
+            "unknown enum variant should produce an error"
+        );
+    }
+
+    #[test]
+    fn enum_variant_plain_called_with_args_error() {
+        let src = "enum Color { red, green, blue }; Color::red(1)";
+        let diags = infer_diags(src);
+        assert!(
+            diags.has_errors(),
+            "plain variant called with args should produce an error"
+        );
+    }
 
     #[test]
     fn range_iter() {
