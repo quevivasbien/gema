@@ -57,6 +57,11 @@ struct Inferer<'a> {
     var_type_stack: Vec<FxHashMap<IdentId, (TypeId, bool)>>,
     /// Current function's return type (for return statements).
     return_type: Option<TypeId>,
+    /// Inferred return types for function definitions, keyed by the
+    /// function's `NodeId`.  Populated during `FuncDef` inference and
+    /// used by `function_type_from_def` so call sites see the inferred
+    /// return type even without an explicit annotation.
+    function_return_types: FxHashMap<NodeId, TypeId>,
 }
 
 impl<'a> Inferer<'a> {
@@ -79,6 +84,7 @@ impl<'a> Inferer<'a> {
             types: FxHashMap::default(),
             var_type_stack: vec![FxHashMap::default()],
             return_type: None,
+            function_return_types: FxHashMap::default(),
         }
     }
 
@@ -386,6 +392,10 @@ impl<'a> Inferer<'a> {
                 // Unify body type with declared return type.
                 self.return_type = prev_ret;
                 self.unify(body_ty, return_ty);
+
+                // Store the resolved return type so callers can use it.
+                self.function_return_types
+                    .insert(node, self.resolve(return_ty));
 
                 self.type_arena.void_id()
             }
@@ -1251,10 +1261,11 @@ impl<'a> Inferer<'a> {
                         }
                     })
                     .collect();
-                let ret = f
-                    .return_type
-                    .as_ref()
-                    .map(|tn| self.lower_type_node(tn))
+                let ret = self
+                    .function_return_types
+                    .get(&def_node)
+                    .copied()
+                    .or_else(|| f.return_type.as_ref().map(|tn| self.lower_type_node(tn)))
                     .unwrap_or_else(|| self.fresh_infer_var());
                 self.type_arena.intern(TypeKind::Func { params, ret })
             }
@@ -1868,6 +1879,25 @@ mod tests {
             !diags.has_errors(),
             "explicit return type matching body should not error: {:?}",
             diags.format(&SourceMap::new()),
+        );
+    }
+
+    #[test]
+    fn call_inferred_return_type_no_annotation() {
+        // Function without explicit return type — call site should
+        // still see the inferred return type from the body.
+        let (arena, _interner, diags, types, ta, root) =
+            infer_types_map("func add(x: Int, y: Int) { x + y }; add(1i, 2i)");
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new()),
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(
+            ta.get(ty),
+            &TypeKind::Int,
+            "call site should see inferred Int return type"
         );
     }
 

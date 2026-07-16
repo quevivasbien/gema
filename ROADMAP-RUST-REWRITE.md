@@ -1438,6 +1438,10 @@ In the previous version, the syntax rules were rather lax around when commas and
 
 The rewrite implements a more thorough Hindley-Milner type inference system. See the [type inference spec](./docs/type-system.md) for details.
 
+### `Null` type is replaced by `Void`
+
+Expression that do not give values had type `Null` in the TS implementation. In the new implementation, this type is renamed to `Void`, to match the word use in other languages and avoid confusion with JS's `null` value.
+
 ---
 
 ## Appendix: Migrating the Test Suite
