@@ -15,6 +15,7 @@ pub mod diagnostics;
 pub mod hir;
 pub mod infer;
 pub mod interner;
+pub mod lower;
 pub mod parse;
 pub mod resolve;
 pub mod scan;

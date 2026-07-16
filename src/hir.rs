@@ -48,10 +48,11 @@ pub enum HirExpr {
     Binary(Binary),
     Unary(Unary),
 
-    // ── Assignment and field access ──
+    // ── Assignment, field access, and indexing ──
     Assign(Assign),
     FieldAccess(FieldAccess),
     FieldAssign(FieldAssign),
+    TupleIndex(TupleIndex),
 
     // ── Control flow ──
     Block(Block),
@@ -277,6 +278,13 @@ pub struct FieldAssign {
     pub value: Box<HirExpr>,
 }
 
+#[derive(Clone, Debug)]
+pub struct TupleIndex {
+    pub span: Span,
+    pub obj: Box<HirExpr>,
+    pub index: usize,
+}
+
 // ── Control flow ──
 
 #[derive(Clone, Debug)]
@@ -383,6 +391,7 @@ impl HirExpr {
             HirExpr::Assign(e) => e.span,
             HirExpr::FieldAccess(e) => e.span,
             HirExpr::FieldAssign(e) => e.span,
+            HirExpr::TupleIndex(e) => e.span,
             HirExpr::Block(e) => e.span,
             HirExpr::If(e) => e.span,
             HirExpr::ForLoop(e) => e.span,
@@ -474,6 +483,14 @@ pub fn hir_ident(span: Span, name: IdentId) -> HirExpr {
 
 pub fn hir_block(span: Span, stmts: Vec<HirExpr>) -> HirExpr {
     HirExpr::Block(Block { span, stmts })
+}
+
+pub fn hir_tuple_index(span: Span, obj: HirExpr, index: usize) -> HirExpr {
+    HirExpr::TupleIndex(TupleIndex {
+        span,
+        obj: Box::new(obj),
+        index,
+    })
 }
 
 pub fn hir_binary(span: Span, op: HirBinaryOp, left: HirExpr, right: HirExpr) -> HirExpr {
@@ -908,6 +925,16 @@ mod tests {
     }
 
     #[test]
+    fn tuple_index() {
+        let obj = hir_ident(Span::new(0, 5), IdentId::from_u32(0));
+        let ti = hir_tuple_index(Span::new(0, 8), obj, 0);
+        match ti {
+            HirExpr::TupleIndex(TupleIndex { index, .. }) => assert_eq!(index, 0),
+            _ => panic!("expected TupleIndex"),
+        }
+    }
+
+    #[test]
     fn field_access_and_assign() {
         let mut interner = Interner::new();
         let field = ident(&mut interner, "x");
@@ -1090,6 +1117,10 @@ mod tests {
                 Span::new(0, 6),
             ),
             (HirExpr::Error, Span::empty_at(0)),
+            (
+                hir_tuple_index(Span::new(0, 8), hir_ident(Span::new(0, 5), IdentId::from_u32(0)), 0),
+                Span::new(0, 8),
+            ),
         ];
 
         for (expr, expected) in cases {
