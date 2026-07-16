@@ -9,7 +9,7 @@ use crate::ast::*;
 use crate::diagnostics::DiagnosticsBag;
 use crate::interner::{IdentId, Interner};
 use crate::source::Span;
-use crate::symbol::{ScopeId, ScopeTree, SymbolKind};
+use crate::symbol::{ScopeId, ScopeTree, SymbolId, SymbolKind};
 use crate::types::{TypeArena, TypeId, TypeKind};
 
 /// Run type inference on a resolved AST.
@@ -449,6 +449,10 @@ impl<'a> Inferer<'a> {
         );
 
         if funcs.is_empty() {
+            // Check if it's a struct constructor instead.
+            if let Some(result) = self.try_struct_constructor(node, c, &arg_types) {
+                return result;
+            }
             let name_str = self.interner.lookup(c.name);
             self.emit_error(
                 self.arena[node].span(),
@@ -458,7 +462,6 @@ impl<'a> Inferer<'a> {
         }
 
         // For each overload, try to unify params with args.
-        // Pick the first one that succeeds.
         for func in funcs {
             let func_type = self.function_type_from_def(func.def_node);
             let func_kind = self.type_arena.get(func_type).clone();
@@ -493,6 +496,71 @@ impl<'a> Inferer<'a> {
             format!("no matching function '{name_str}' for the given arguments"),
         );
         self.type_arena.unknown_id()
+    }
+
+    /// Try to infer a struct constructor call.  Returns `Some` if the
+    /// name resolves to a `Struct` symbol and construction succeeds.
+    fn try_struct_constructor(
+        &mut self,
+        node: NodeId,
+        c: &Call,
+        arg_types: &[TypeId],
+    ) -> Option<TypeId> {
+        let scope = self
+            .scope_tree
+            .node_scope
+            .get(&node)
+            .copied()
+            .unwrap_or(self.scope_tree.root_scope);
+        let sid = self.find_struct(scope, c.name)?;
+        let def_node = self.scope_tree.symbols[sid].def_node;
+
+        // Clone struct definition data before making mutable calls.
+        let struct_data = match &self.arena[def_node] {
+            Expr::StructDef(s) => {
+                let fields: Vec<_> = s
+                    .fields
+                    .iter()
+                    .map(|f| (f.name, f.type_node.clone()))
+                    .collect();
+                let type_params: Vec<_> = s.type_params.iter().map(|tp| tp.name).collect();
+                let struct_name = s.name;
+                (fields, type_params, struct_name)
+            }
+            _ => return None,
+        };
+
+        let (fields, type_params, struct_name) = struct_data;
+        if arg_types.len() != fields.len() {
+            self.emit_error(
+                self.arena[node].span(),
+                format!(
+                    "expected {} arguments, found {}",
+                    fields.len(),
+                    arg_types.len()
+                ),
+            );
+            return Some(self.type_arena.unknown_id());
+        }
+
+        let mut generic_params = FxHashMap::default();
+        let mut fresh_args: Vec<TypeId> = Vec::new();
+        for tp_name in &type_params {
+            let fv = self.fresh_infer_var();
+            fresh_args.push(fv);
+            generic_params.insert(*tp_name, fv);
+        }
+
+        for (i, (_field_name, field_type_node)) in fields.iter().enumerate() {
+            let field_ty = self.lower_type_node_with(field_type_node, &generic_params);
+            self.unify(field_ty, arg_types[i]);
+        }
+
+        let resolved: Vec<TypeId> = fresh_args.iter().map(|&a| self.resolve(a)).collect();
+        Some(self.type_arena.intern(TypeKind::Custom {
+            name: struct_name,
+            args: resolved,
+        }))
     }
 
     // ── Direct call ──
@@ -781,18 +849,129 @@ impl<'a> Inferer<'a> {
 
     // ── Field access ──
 
-    fn infer_field_access(&mut self, _node: NodeId, f: &FieldAccess) -> TypeId {
-        let _obj_ty = self.infer_expr(f.obj);
-        // Field access requires the object type to be known (struct or
-        // enum).  For now, return a fresh variable.
-        // TODO: resolve field access through struct definitions
-        self.fresh_infer_var()
+    fn infer_field_access(&mut self, node: NodeId, f: &FieldAccess) -> TypeId {
+        let raw_ty = self.infer_expr(f.obj);
+        let obj_ty = self.resolve(raw_ty);
+
+        let struct_info = match self.type_arena.get(obj_ty) {
+            TypeKind::Custom { name, args } => Some((*name, args.clone())),
+            _ => None,
+        };
+
+        match struct_info {
+            Some((name, args)) => self.lookup_field_type(node, name, &args, f.field),
+            None => {
+                self.emit_error(
+                    self.arena[node].span(),
+                    "field access on a non-struct type".to_string(),
+                );
+                self.type_arena.unknown_id()
+            }
+        }
     }
 
-    fn infer_field_assign(&mut self, _node: NodeId, f: &FieldAssign) -> TypeId {
-        let _obj_ty = self.infer_expr(f.obj);
+    fn infer_field_assign(&mut self, node: NodeId, f: &FieldAssign) -> TypeId {
+        let raw = self.infer_expr(f.obj);
+        let obj_ty = self.resolve(raw);
+        let val_ty = self.infer_expr(f.value);
 
-        self.infer_expr(f.value)
+        let struct_info = match self.type_arena.get(obj_ty) {
+            TypeKind::Custom { name, args } => Some((*name, args.clone())),
+            _ => None,
+        };
+
+        match struct_info {
+            Some((name, args)) => {
+                let field_ty = self.lookup_field_type(node, name, &args, f.field);
+                if !matches!(self.type_arena.get(field_ty), TypeKind::Unknown) {
+                    self.unify(field_ty, val_ty);
+                }
+                val_ty
+            }
+            None => {
+                self.emit_error(
+                    self.arena[node].span(),
+                    "field assignment on a non-struct type".to_string(),
+                );
+                self.type_arena.unknown_id()
+            }
+        }
+    }
+
+    /// Look up a field's type from a struct definition, substituting
+    /// generic parameters with the concrete args.
+    fn lookup_field_type(
+        &mut self,
+        node: NodeId,
+        struct_name: IdentId,
+        concrete_args: &[TypeId],
+        field_name: IdentId,
+    ) -> TypeId {
+        let scope = self
+            .scope_tree
+            .node_scope
+            .get(&node)
+            .copied()
+            .unwrap_or(self.scope_tree.root_scope);
+        let def_node = match self.find_struct(scope, struct_name) {
+            Some(sid) => self.scope_tree.symbols[sid].def_node,
+            None => return self.fresh_infer_var(),
+        };
+
+        // Clone struct data before making mutable calls.
+        let (field_data, type_param_names): (Vec<(IdentId, TypeNode)>, Vec<IdentId>) =
+            match &self.arena[def_node] {
+                Expr::StructDef(s) => (
+                    s.fields
+                        .iter()
+                        .map(|f| (f.name, f.type_node.clone()))
+                        .collect(),
+                    s.type_params.iter().map(|tp| tp.name).collect(),
+                ),
+                _ => return self.fresh_infer_var(),
+            };
+
+        let mut generic_params = FxHashMap::default();
+        for (i, tp_name) in type_param_names.iter().enumerate() {
+            if i < concrete_args.len() {
+                generic_params.insert(*tp_name, concrete_args[i]);
+            }
+        }
+
+        for (fname, ftype) in &field_data {
+            if *fname == field_name {
+                return self.lower_type_node_with(ftype, &generic_params);
+            }
+        }
+
+        let field_str = self.interner.lookup(field_name);
+        let struct_str = self.interner.lookup(struct_name);
+        self.emit_error(
+            self.arena[node].span(),
+            format!("no field '{}' on struct '{}'", field_str, struct_str),
+        );
+        self.type_arena.unknown_id()
+    }
+
+    /// Find a `Struct` symbol by name in the scope chain.
+    fn find_struct(&self, from: ScopeId, name: IdentId) -> Option<SymbolId> {
+        let mut current = from;
+        loop {
+            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
+                for &sid in ids.iter().rev() {
+                    if matches!(
+                        &self.scope_tree.symbols[sid].kind,
+                        SymbolKind::Struct { .. }
+                    ) {
+                        return Some(sid);
+                    }
+                }
+            }
+            match self.scope_tree.scopes[current].parent {
+                Some(p) => current = p,
+                None => return None,
+            }
+        }
     }
 
     // ── Type-associated expressions ──
@@ -895,9 +1074,12 @@ impl<'a> Inferer<'a> {
             if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
                 for &sid in ids.iter().rev() {
                     if let SymbolKind::Enum {
-                            type_params,
-                            variants,
-                        } = &self.scope_tree.symbols[sid].kind { return Some((variants.clone(), type_params.clone())) }
+                        type_params,
+                        variants,
+                    } = &self.scope_tree.symbols[sid].kind
+                    {
+                        return Some((variants.clone(), type_params.clone()));
+                    }
                 }
             }
             match self.scope_tree.scopes[current].parent {
@@ -990,9 +1172,10 @@ impl<'a> Inferer<'a> {
             TypeNode::Named { name, params } => {
                 // If this name matches a generic parameter, resolve it.
                 if params.is_empty()
-                    && let Some(&tid) = generic_params.get(name) {
-                        return tid;
-                    }
+                    && let Some(&tid) = generic_params.get(name)
+                {
+                    return tid;
+                }
                 let arg_ids: Vec<_> = params
                     .iter()
                     .map(|p| self.lower_type_node_with(p, generic_params))
@@ -1631,7 +1814,11 @@ mod tests {
     fn enum_variant_with_explicit_type_args() {
         let src = "enum Option[T] { some: T, nothing }; Option[Int]::some(42i)";
         let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
-        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
         let ty = last_expr_type(&arena, root, &types, &ta);
         match ta.get(ty) {
             TypeKind::Custom { args, .. } => {
@@ -1646,14 +1833,22 @@ mod tests {
     fn enum_variant_plain_no_type_args() {
         let src = "enum Color { red, green, blue }; Color::red";
         let (_arena, _interner, diags, _types, _ta, _root) = infer_types_map(src);
-        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
     }
 
     #[test]
     fn enum_variant_inferred_type_args() {
         let src = "enum Option[T] { some: T, nothing }; Option::some(42i)";
         let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
-        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
         let ty = last_expr_type(&arena, root, &types, &ta);
         match ta.get(ty) {
             TypeKind::Custom { args, .. } => {
@@ -1668,7 +1863,11 @@ mod tests {
     fn enum_variant_multi_type_args() {
         let src = "enum Result[T, E] { ok: T, err: E }; Result::ok(42i)";
         let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
-        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
         let ty = last_expr_type(&arena, root, &types, &ta);
         match ta.get(ty) {
             TypeKind::Custom { args, .. } => {
@@ -1683,7 +1882,11 @@ mod tests {
     fn enum_variant_multi_type_args_second() {
         let src = "enum Result[T, E] { ok: T, err: E }; Result::err(\"oops\")";
         let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
-        assert!(!diags.has_errors(), "errors: {:?}", diags.format(&SourceMap::new()));
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
         let ty = last_expr_type(&arena, root, &types, &ta);
         match ta.get(ty) {
             TypeKind::Custom { args, .. } => {
@@ -1711,6 +1914,52 @@ mod tests {
         assert!(
             diags.has_errors(),
             "plain variant called with args should produce an error"
+        );
+    }
+
+    // ── Struct field access ──
+
+    #[test]
+    fn struct_field_access() {
+        let src = "struct Point { x: Num, y: Num }; p = Point(1, 2); p.x";
+        let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Num);
+    }
+
+    #[test]
+    fn struct_field_access_generic() {
+        let src = "struct Pair[T] { a: T, b: T }; p = Pair(1i, 2i); p.a";
+        let (arena, _interner, diags, types, ta, root) = infer_types_map(src);
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
+        );
+        let ty = last_expr_type(&arena, root, &types, &ta);
+        assert_eq!(ta.get(ty), &TypeKind::Int);
+    }
+
+    #[test]
+    fn struct_field_access_unknown_field() {
+        let src = "struct Point { x: Num, y: Num }; p = Point(1, 2); p.z";
+        let diags = infer_diags(src);
+        assert!(diags.has_errors(), "accessing unknown field should error");
+    }
+
+    #[test]
+    fn struct_field_assign() {
+        let src = "struct Point { mut x: Num, y: Num }; p = Point(1, 2); p.x = 5";
+        let (_arena, _interner, diags, _types, _ta, _root) = infer_types_map(src);
+        assert!(
+            !diags.has_errors(),
+            "errors: {:?}",
+            diags.format(&SourceMap::new())
         );
     }
 
