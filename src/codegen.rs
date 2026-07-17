@@ -24,6 +24,43 @@ pub fn codegen(
     w.finish()
 }
 
+/// Like `codegen`, but emits only the top-level statements without
+/// the `// PROGRAM //` banner or the outermost IIFE wrapper.
+/// If `return_last` is true, the last statement is prefixed with `return`.
+/// Used by the module system to concatenate multiple modules.
+pub fn codegen_inner(
+    hir: HirExpr,
+    arena: &crate::ast::AstArena,
+    scope_tree: &ScopeTree,
+    type_arena: &TypeArena,
+    interner: &mut Interner,
+    return_last: bool,
+) -> String {
+    let hir = monomorphize::monomorphize(hir, arena, scope_tree, type_arena, interner);
+    let stmts = match &hir {
+        HirExpr::Block(b) => &b.stmts,
+        other => {
+            let mut w = JsWriter::new(interner);
+            w.emit_expr(other, false);
+            return w.finish_inner();
+        }
+    };
+    let mut w = JsWriter::new(interner);
+    for (i, stmt) in stmts.iter().enumerate() {
+        let is_last = i == stmts.len() - 1;
+        if is_last && return_last {
+            w.emit_returned_stmt(stmt);
+        } else {
+            w.emit_expr(stmt, false);
+        }
+        if !JsWriter::stmt_ends_with_brace(stmt) {
+            w.write(";");
+        }
+        w.newline();
+    }
+    w.finish_inner()
+}
+
 struct JsWriter<'a> {
     interner: &'a Interner,
     lines: Vec<String>,
@@ -131,6 +168,34 @@ impl<'a> JsWriter<'a> {
         buf.emit_expr(expr, true);
         buf.newline();
         buf.current.trim().to_string()
+    }
+
+    /// Like `finish` but without the `// PROGRAM //` banner or
+    /// outer IIFE wrapper.  Used by the module system.
+    fn finish_inner(&mut self) -> String {
+        let trimmed = self.current.trim();
+        if !trimmed.is_empty() {
+            self.lines.push(self.current.clone());
+        }
+
+        let helpers_code = if self.needed_helpers.is_empty() {
+            String::new()
+        } else {
+            let mut h: Vec<&str> = self.needed_helpers.iter().copied().collect();
+            h.sort_unstable();
+            builtins::emit_helpers(&h)
+        };
+
+        let program = self.lines.join("\n");
+        let mut out = String::new();
+        if !helpers_code.is_empty() {
+            out.push_str(&helpers_code);
+            out.push('\n');
+        }
+        // No // PROGRAM // banner, no IIFE wrapper — just the code.
+        out.push_str(&program);
+        out.push('\n');
+        out
     }
 
     fn finish(&mut self) -> String {

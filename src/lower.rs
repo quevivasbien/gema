@@ -241,10 +241,18 @@ impl<'a> Lowerer<'a> {
             .unwrap_or(self.scope_tree.root_scope);
 
         let field_names: Vec<IdentId> = if let Some(sid) = self.find_struct(scope, c.name) {
-            let def_node = self.scope_tree.symbols[sid].def_node;
-            match &self.arena[def_node] {
-                ast::Expr::StructDef(s) => s.fields.iter().map(|f| f.name).collect(),
-                _ => Vec::new(),
+            let sym = &self.scope_tree.symbols[sid];
+            match &sym.kind {
+                SymbolKind::Struct { cached_fields: Some(fields), .. } => {
+                    fields.iter().map(|f| f.name).collect()
+                }
+                _ => {
+                    // Local struct — access via own arena.
+                    match &self.arena[sym.def_node] {
+                        ast::Expr::StructDef(s) => s.fields.iter().map(|f| f.name).collect(),
+                        _ => Vec::new(),
+                    }
+                }
             }
         } else {
             Vec::new()

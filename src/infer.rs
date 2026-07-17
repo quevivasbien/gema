@@ -494,7 +494,9 @@ impl<'a> Inferer<'a> {
     fn infer_call(&mut self, node: NodeId, c: &Call) -> TypeId {
         let arg_types: Vec<TypeId> = c.args.iter().map(|&arg| self.infer_expr(arg)).collect();
 
-        let func_defs: Vec<NodeId> = self
+        // Collect function defs and their cached signatures separately
+        // to avoid borrow conflicts with self.lower_type_node.
+        let funcs: Vec<(NodeId, Option<Box<crate::ast::TypeNode>>)> = self
             .scope_tree
             .lookup_functions(
                 self.scope_tree
@@ -505,10 +507,24 @@ impl<'a> Inferer<'a> {
                 c.name,
             )
             .iter()
-            .map(|s| s.def_node)
+            .map(|s| {
+                let sig = match &s.kind {
+                    SymbolKind::Function { cached_signature, .. } => cached_signature.clone(),
+                    _ => None,
+                };
+                (s.def_node, sig)
+            })
             .collect();
 
-        if func_defs.is_empty() {
+        let func_info: Vec<(NodeId, Option<TypeId>)> = funcs
+            .into_iter()
+            .map(|(def_node, cached_sig)| {
+                let ct = cached_sig.as_ref().map(|sig| self.lower_type_node(sig));
+                (def_node, ct)
+            })
+            .collect();
+
+        if func_info.is_empty() {
             // Check if it's a struct constructor instead.
             if let Some(result) = self.try_struct_constructor(node, c, &arg_types) {
                 return result;
@@ -532,8 +548,12 @@ impl<'a> Inferer<'a> {
         }
 
         // For each overload, try to unify params with args.
-        for def_node in func_defs {
-            let func_type = self.function_type_from_def(def_node);
+        for (def_node, cached_type) in func_info {
+            let func_type = if let Some(ct) = cached_type {
+                ct
+            } else {
+                self.function_type_from_def(def_node)
+            };
             let func_kind = self.type_arena.get(func_type).clone();
             match func_kind {
                 TypeKind::Func { params, ret } => {
@@ -703,21 +723,29 @@ impl<'a> Inferer<'a> {
             .copied()
             .unwrap_or(self.scope_tree.root_scope);
         let sid = self.find_struct(scope, c.name)?;
-        let def_node = self.scope_tree.symbols[sid].def_node;
+        let sym = &self.scope_tree.symbols[sid];
 
         // Clone struct definition data before making mutable calls.
-        let struct_data = match &self.arena[def_node] {
-            Expr::StructDef(s) => {
-                let fields: Vec<_> = s
-                    .fields
-                    .iter()
-                    .map(|f| (f.name, f.type_node.clone()))
-                    .collect();
-                let type_params: Vec<_> = s.type_params.iter().map(|tp| tp.name).collect();
-                let struct_name = s.name;
+        let struct_data = match &sym.kind {
+            SymbolKind::Struct { cached_fields: Some(fields), type_params, .. } => {
+                let fields: Vec<_> = fields.iter().map(|f| (f.name, f.type_node.clone())).collect();
+                let type_params: Vec<_> = type_params.clone();
+                let struct_name = sym.name;
                 (fields, type_params, struct_name)
             }
-            _ => return None,
+            _ => match &self.arena[sym.def_node] {
+                Expr::StructDef(s) => {
+                    let fields: Vec<_> = s
+                        .fields
+                        .iter()
+                        .map(|f| (f.name, f.type_node.clone()))
+                        .collect();
+                    let type_params: Vec<_> = s.type_params.iter().map(|tp| tp.name).collect();
+                    let struct_name = s.name;
+                    (fields, type_params, struct_name)
+                }
+                _ => return None,
+            },
         };
 
         let (fields, type_params, struct_name) = struct_data;
@@ -1118,22 +1146,28 @@ impl<'a> Inferer<'a> {
             .get(&node)
             .copied()
             .unwrap_or(self.scope_tree.root_scope);
-        let def_node = match self.find_struct(scope, struct_name) {
-            Some(sid) => self.scope_tree.symbols[sid].def_node,
+        let sym = match self.find_struct(scope, struct_name) {
+            Some(sid) => &self.scope_tree.symbols[sid],
             None => return self.fresh_infer_var(),
         };
 
         // Clone struct data before making mutable calls.
         let (field_data, type_param_names): (Vec<(IdentId, TypeNode)>, Vec<IdentId>) =
-            match &self.arena[def_node] {
-                Expr::StructDef(s) => (
-                    s.fields
-                        .iter()
-                        .map(|f| (f.name, f.type_node.clone()))
-                        .collect(),
-                    s.type_params.iter().map(|tp| tp.name).collect(),
+            match &sym.kind {
+                SymbolKind::Struct { cached_fields: Some(fields), type_params, .. } => (
+                    fields.iter().map(|f| (f.name, f.type_node.clone())).collect(),
+                    type_params.clone(),
                 ),
-                _ => return self.fresh_infer_var(),
+                _ => match &self.arena[sym.def_node] {
+                    Expr::StructDef(s) => (
+                        s.fields
+                            .iter()
+                            .map(|f| (f.name, f.type_node.clone()))
+                            .collect(),
+                        s.type_params.iter().map(|tp| tp.name).collect(),
+                    ),
+                    _ => return self.fresh_infer_var(),
+                },
             };
 
         let mut generic_params = FxHashMap::default();

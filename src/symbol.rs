@@ -44,9 +44,23 @@ pub enum SymbolKind {
         param_count: usize,
         /// Number of generic type parameters.
         type_param_count: usize,
+        /// Pre-computed function type signature (TypeNode form), set by
+        /// the linker for imported functions so inference can use it
+        /// without accessing the dependency's AST arena.
+        cached_signature: Option<Box<crate::ast::TypeNode>>,
+        /// Pre-computed type parameter list, set by the linker so
+        /// monomorphization can build descriptor args without
+        /// accessing the dependency's AST arena.
+        cached_type_params: Option<Vec<crate::ast::TypeParam>>,
     },
     /// A struct definition.
-    Struct { type_params: Vec<IdentId> },
+    Struct {
+        type_params: Vec<IdentId>,
+        /// Cached field definitions for imported structs, set by the
+        /// linker so the lowerer and inferrer can access field info
+        /// without dereferencing a cross-arena def_node.
+        cached_fields: Option<Vec<crate::ast::StructField>>,
+    },
     /// An enum definition.
     Enum {
         type_params: Vec<IdentId>,
@@ -366,6 +380,8 @@ mod tests {
                 is_generic: false,
                 param_count: 1,
                 type_param_count: 0,
+                cached_signature: None,
+                cached_type_params: None,
             },
             dummy_node(&mut arena),
         );
@@ -377,6 +393,8 @@ mod tests {
                 is_generic: false,
                 param_count: 1,
                 type_param_count: 0,
+                cached_signature: None,
+                cached_type_params: None,
             },
             dummy_node(&mut arena),
         );
@@ -411,6 +429,8 @@ mod tests {
                 is_generic: false,
                 param_count: 0,
                 type_param_count: 0,
+                cached_signature: None,
+                cached_type_params: None,
             },
             dummy_node(&mut arena),
         );

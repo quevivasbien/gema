@@ -338,9 +338,28 @@ impl<'a> Monomorphizer<'a> {
         type_param_count: usize,
         call_args: &[HirExpr],
     ) -> Vec<HirExpr> {
-        // Find the function definition in the AST to get type param info.
-        let def_node = self.find_func_def_node(func_name);
-        let type_params = def_node.and_then(|n| self.get_type_params_from_def(n));
+        // Get type params from the scope tree symbol first (for imported
+        // functions), falling back to AST access for local functions.
+        let type_params = self
+            .scope_tree
+            .symbols
+            .iter()
+            .find_map(|(_, sym)| {
+                if sym.name == func_name
+                    && let SymbolKind::Function {
+                        cached_type_params: Some(tp),
+                        ..
+                    } = &sym.kind
+                {
+                    Some(tp.clone())
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                let def_node = self.find_func_def_node(func_name)?;
+                self.get_type_params_from_def(def_node)
+            });
 
         let type_params = match type_params {
             Some(tp) if tp.len() == type_param_count => tp,

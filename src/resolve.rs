@@ -174,6 +174,8 @@ impl<'a> Resolver<'a> {
                 is_generic: !f.type_params.is_empty(),
                 param_count: f.params.len(),
                 type_param_count: f.type_params.len(),
+                cached_signature: None,
+                cached_type_params: None,
             },
             node,
         );
@@ -265,6 +267,7 @@ impl<'a> Resolver<'a> {
             s.name,
             SymbolKind::Struct {
                 type_params: s.type_params.iter().map(|tp| tp.name).collect(),
+                cached_fields: None,
             },
             node,
         );
