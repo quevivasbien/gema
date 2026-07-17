@@ -4,11 +4,21 @@ use rustc_hash::FxHashSet;
 use crate::builtins;
 use crate::hir::*;
 use crate::interner::{IdentId, Interner};
+use crate::monomorphize;
+use crate::symbol::ScopeTree;
 
-/// Compile a HIR tree to a JavaScript string.
-pub fn codegen(hir: &HirExpr, interner: &Interner) -> String {
+/// Compile a lowered HIR tree to a JavaScript string.
+///
+/// Runs monomorphization before codegen.
+pub fn codegen(
+    hir: HirExpr,
+    arena: &crate::ast::AstArena,
+    scope_tree: &ScopeTree,
+    interner: &Interner,
+) -> String {
+    let hir = monomorphize::monomorphize(hir, arena, scope_tree, interner);
     let mut w = JsWriter::new(interner);
-    w.emit_expr(hir, true);
+    w.emit_expr(&hir, true);
     w.finish()
 }
 
@@ -164,6 +174,7 @@ impl<'a> JsWriter<'a> {
             HirExpr::RangeLit(e) => self.emit_range(e),
             HirExpr::StructLit(e) => self.emit_struct_lit(e),
             HirExpr::EnumLit(e) => self.emit_enum_lit(e),
+            HirExpr::TypeDescriptor(e) => self.emit_type_descriptor(e),
             HirExpr::Binary(e) => self.emit_binary(e),
             HirExpr::Unary(e) => self.emit_unary(e),
             HirExpr::Assign(e) => self.emit_assign(e),
@@ -296,6 +307,20 @@ impl<'a> JsWriter<'a> {
             }
             self.write(" })");
         }
+    }
+
+    fn emit_type_descriptor(&mut self, e: &TypeDescriptor) {
+        self.write("{");
+        for (i, (name, func)) in e.methods.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            let fname = self.interner.lookup(*name);
+            self.write(&self.safe_name(fname));
+            self.write(": ");
+            self.emit_expr(func, true);
+        }
+        self.write("}");
     }
 
     // ── Operators ──
@@ -534,10 +559,17 @@ impl<'a> JsWriter<'a> {
         self.newline();
         self.write(&format!("let {};", val_name));
         self.newline();
-        self.write(&format!("while (({} = {}.next()) !== undefined) {{", val_name, iter_name));
+        self.write(&format!(
+            "while (({} = {}.next()) !== undefined) {{",
+            val_name, iter_name
+        ));
         self.indent_in();
         self.newline();
-        self.write(&format!("const {} = {};", self.safe_name(var_name), val_name));
+        self.write(&format!(
+            "const {} = {};",
+            self.safe_name(var_name),
+            val_name
+        ));
         self.newline();
         self.emit_expr(&e.body, false);
         self.newline();
@@ -781,7 +813,7 @@ mod tests {
         let scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
         assert!(!diagnostics.has_errors(), "resolve errors");
         let hir = lower(&arena, root, &scope_tree, &interner);
-        codegen(&hir, &interner)
+        codegen(hir, &arena, &scope_tree, &interner)
     }
 
     fn js_contains(source: &str, expected: &str) {
@@ -892,11 +924,7 @@ mod tests {
         // Split at "// PROGRAM //\n" to get helpers and program separately.
         let program = if let Some(pos) = js.find("// PROGRAM //\n") {
             let (helpers, prog) = js.split_at(pos + "// PROGRAM //\n".len());
-            format!(
-                "{}\nconsole.log(String({}));",
-                helpers.trim(),
-                prog.trim()
-            )
+            format!("{}\nconsole.log(String({}));", helpers.trim(), prog.trim())
         } else {
             // No helpers — just wrap the whole thing.
             format!("console.log(String({}));", js.trim())
@@ -908,10 +936,7 @@ mod tests {
             .expect("bun execution failed");
         let stdout = String::from_utf8(output.stdout).unwrap().trim().to_string();
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            output.status.success(),
-            "JS:\n{js}\nstderr:\n{stderr}"
-        );
+        assert!(output.status.success(), "JS:\n{js}\nstderr:\n{stderr}");
         assert_eq!(stdout, expected, "source: {source}\nJS:\n{js}");
     }
 
@@ -973,13 +998,23 @@ mod tests {
     }
     #[test]
     fn run_func_call() {
-        assert_run(
-            "func add(x: Int, y: Int): Int { x + y }; add(1i, 2i)",
-            "3",
-        );
+        assert_run("func add(x: Int, y: Int): Int { x + y }; add(1i, 2i)", "3");
     }
     #[test]
     fn run_for_loop_sum() {
         assert_run("mut s = 0i; for x = 1i..3i { s = s + x }; s", "6");
+    }
+
+    #[test]
+    fn run_generic_identity() {
+        assert_run("func [T] id(x: T): T { x }; id(42i)", "42");
+    }
+    #[test]
+    fn run_generic_identity_str() {
+        assert_run("func [T] id(x: T): T { x }; id(\"hello\")", "hello");
+    }
+    #[test]
+    fn run_generic_identity_bool() {
+        assert_run("func [T] id(x: T): T { x }; id(true)", "true");
     }
 }

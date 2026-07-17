@@ -92,7 +92,9 @@ impl<'a> Resolver<'a> {
             let first = &self.scope_tree.symbols[ids[0]];
             let is_func = matches!(&first.kind, SymbolKind::Function { .. });
             let new_is_func = matches!(&kind, SymbolKind::Function { .. });
-            if !(is_func && new_is_func) {
+            let is_tm = matches!(&first.kind, SymbolKind::TraitMethod { .. });
+            let new_is_tm = matches!(&kind, SymbolKind::TraitMethod { .. });
+            if !((is_func && new_is_func) || (is_tm && new_is_tm)) {
                 let span = self.arena[def_node].span();
                 self.diagnostics.error(
                     self.file_idx,
@@ -174,9 +176,36 @@ impl<'a> Resolver<'a> {
                 full_name: None,
                 is_generic: !f.type_params.is_empty(),
                 param_count: f.params.len(),
+                type_param_count: f.type_params.len(),
             },
             node,
         );
+
+        // Pre-compute trait method registrations while we have
+        // access to the enclosing scope, before entering the child scope.
+        let mut trait_methods: Vec<(IdentId, SymbolKind)> = Vec::new();
+        for tp in &f.type_params {
+            for trait_name in &tp.traits {
+                // Look up the trait definition in the current scope.
+                if let Some((_, ids)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
+                    for &sid in ids.iter().rev() {
+                        let sym = &self.scope_tree.symbols[sid];
+                        if let SymbolKind::Trait { requirements } = &sym.kind {
+                            for req in requirements {
+                                trait_methods.push((
+                                    req.name,
+                                    SymbolKind::TraitMethod {
+                                        trait_name: *trait_name,
+                                        type_param: tp.name,
+                                        signature: Box::new(req.type_node.clone()),
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Create a scope for the function body.
         self.with_child_scope(|resolver| {
@@ -189,6 +218,11 @@ impl<'a> Resolver<'a> {
                     },
                     node,
                 );
+            }
+
+            // Register pre-computed trait methods as callable symbols.
+            for (name, kind) in &trait_methods {
+                resolver.define(*name, kind.clone(), node);
             }
 
             // Register parameters as Variable symbols.

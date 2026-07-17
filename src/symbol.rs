@@ -40,8 +40,10 @@ pub enum SymbolKind {
         /// type inference for overload resolution.
         full_name: Option<IdentId>,
         is_generic: bool,
-        /// Number of parameters (known from AST, no types needed).
+        /// Number of value parameters.
         param_count: usize,
+        /// Number of generic type parameters.
+        type_param_count: usize,
     },
     /// A struct definition.
     Struct {
@@ -65,6 +67,17 @@ pub enum SymbolKind {
     /// A generic type parameter (e.g. `T` in `func [T: Hash]`).
     TypeParam {
         bounds: Vec<IdentId>,
+    },
+    /// A trait method callable inside a generic function body.
+    /// The resolver registers these so the call can be resolved,
+    /// and the monomorphizer routes them through the type descriptor.
+    TraitMethod {
+        /// The trait this method belongs to.
+        trait_name: IdentId,
+        /// The type parameter this method is associated with.
+        type_param: IdentId,
+        /// The type signature from the trait requirement.
+        signature: Box<crate::ast::TypeNode>,
     },
 }
 
@@ -360,6 +373,7 @@ mod tests {
                 full_name: Some(ident(&mut interner, "foo$Int")),
                 is_generic: false,
                 param_count: 1,
+                type_param_count: 0,
             },
             dummy_node(&mut arena),
         );
@@ -370,6 +384,7 @@ mod tests {
                 full_name: Some(ident(&mut interner, "foo$Str")),
                 is_generic: false,
                 param_count: 1,
+                type_param_count: 0,
             },
             dummy_node(&mut arena),
         );
@@ -403,6 +418,7 @@ mod tests {
                 full_name: None,
                 is_generic: false,
                 param_count: 0,
+                type_param_count: 0,
             },
             dummy_node(&mut arena),
         );

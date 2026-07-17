@@ -276,7 +276,7 @@ the user.
 
 When you are are wrapping up any changes:
 * Run `cargo test` to ensure all tests pass.
-* Run `cargo clippy` to catch any linting issues.
+* Run `cargo clippy` to catch any linting issues. Do not use `#[allow(...)]` tags to suppress warnings unless you have a very good justification to do so -- fix the problem instead.
 
 If at any point you are stuck, or if you need to clarify anything, or
 suggest a deviation from the existing design, stop and ask the user.

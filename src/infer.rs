@@ -373,11 +373,22 @@ impl<'a> Inferer<'a> {
                 let top = self.var_type_stack.len() - 1;
                 self.var_type_stack[top].insert(f.name, (func_ty, false));
 
+                // Collect generic type param names for this function.
+                let generic_names: Vec<IdentId> =
+                    f.type_params.iter().map(|tp| tp.name).collect();
+
                 // Push a scope frame and register params.
                 self.var_type_stack.push(FxHashMap::default());
                 for param in &f.params {
                     let param_ty = if let Some(ref tn) = param.type_node {
-                        self.lower_type_node(tn)
+                        // If the param type is a reference to a generic type param,
+                        // use an InferVar so it can unify with concrete call args.
+                        let is_generic_ref = matches!(tn, TypeNode::Named { name, params } if generic_names.contains(name) && params.is_empty());
+                        if is_generic_ref {
+                            self.fresh_infer_var()
+                        } else {
+                            self.lower_type_node(tn)
+                        }
                     } else {
                         self.fresh_infer_var()
                     };
@@ -461,7 +472,8 @@ impl<'a> Inferer<'a> {
                 | SymbolKind::Enum { .. }
                 | SymbolKind::Trait { .. }
                 | SymbolKind::Impl { .. }
-                | SymbolKind::TypeParam { .. } => {
+                | SymbolKind::TypeParam { .. }
+                | SymbolKind::TraitMethod { .. } => {
                     let name_str = self.interner.lookup(v.name);
                     self.emit_error(
                         self.arena[node].span(),
@@ -498,6 +510,10 @@ impl<'a> Inferer<'a> {
             // Check if it's a struct constructor instead.
             if let Some(result) = self.try_struct_constructor(node, c, &arg_types) {
                 return result;
+            }
+            // Check if it's a trait method call (inside a generic function body).
+            if let Some(ret_ty) = self.try_trait_method_call(node, c, &arg_types) {
+                return ret_ty;
             }
             // Check if it's a builtin function.
             let name_str = self.interner.lookup(c.name);
@@ -548,6 +564,120 @@ impl<'a> Inferer<'a> {
             format!("no matching function '{name_str}' for the given arguments"),
         );
         self.type_arena.unknown_id()
+    }
+
+    /// Try to infer a trait method call inside a generic function body.
+    /// Looks up the name in the scope chain for a `TraitMethod` symbol.
+    /// Replace `Self` in a `TypeNode` with a `TypeParamRef`.
+    /// Trait requirement signatures use `Self` to refer to the implementing
+    /// type; inside a generic function body, `Self` should be replaced with
+    /// the type parameter so the call can be properly inferred.
+    fn substitute_self_in_type_node(tn: &TypeNode, type_param: IdentId) -> TypeNode {
+        match tn {
+            TypeNode::SelfType => TypeNode::TypeParamRef {
+                name: type_param,
+                traits: vec![],
+            },
+            TypeNode::Arr(inner) => {
+                TypeNode::Arr(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
+            }
+            TypeNode::Iter(inner) => {
+                TypeNode::Iter(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
+            }
+            TypeNode::MutArr(inner) => {
+                TypeNode::MutArr(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
+            }
+            TypeNode::Set(inner) => {
+                TypeNode::Set(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
+            }
+            TypeNode::MutSet(inner) => {
+                TypeNode::MutSet(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
+            }
+            TypeNode::Maybe(inner) => {
+                TypeNode::Maybe(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
+            }
+            TypeNode::Dict { key, val } => TypeNode::Dict {
+                key: Box::new(Self::substitute_self_in_type_node(key, type_param)),
+                val: Box::new(Self::substitute_self_in_type_node(val, type_param)),
+            },
+            TypeNode::MutDict { key, val } => TypeNode::MutDict {
+                key: Box::new(Self::substitute_self_in_type_node(key, type_param)),
+                val: Box::new(Self::substitute_self_in_type_node(val, type_param)),
+            },
+            TypeNode::Tup(elems) => TypeNode::Tup(
+                elems.iter().map(|e| Self::substitute_self_in_type_node(e, type_param)).collect(),
+            ),
+            TypeNode::Func { params, ret } => TypeNode::Func {
+                params: params.iter().map(|p| Self::substitute_self_in_type_node(p, type_param)).collect(),
+                ret: Box::new(Self::substitute_self_in_type_node(ret, type_param)),
+            },
+            // Primitives, Named, TypeParamRef — no Self to substitute.
+            other => other.clone(),
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn try_trait_method_call(
+        &mut self,
+        node: NodeId,
+        c: &Call,
+        arg_types: &[TypeId],
+    ) -> Option<TypeId> {
+        // Find the TraitMethod symbol and extract its signature and type_param.
+        let mut current = self
+            .scope_tree
+            .node_scope
+            .get(&node)
+            .copied()
+            .unwrap_or(self.scope_tree.root_scope);
+        let mut info: Option<(IdentId, crate::ast::TypeNode)> = None;
+        loop {
+            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&c.name) {
+                for &sid in ids.iter().rev() {
+                    if let SymbolKind::TraitMethod {
+                        signature: sig,
+                        type_param,
+                        ..
+                    } = &self.scope_tree.symbols[sid].kind
+                    {
+                        // Substitute Self → type param in the signature.
+                        let substituted = Self::substitute_self_in_type_node(sig, *type_param);
+                        info = Some((*type_param, substituted));
+                        break;
+                    }
+                }
+                if info.is_some() {
+                    break;
+                }
+            }
+            match self.scope_tree.scopes[current].parent {
+                Some(p) => current = p,
+                None => return None,
+            }
+        }
+
+        let (_type_param, sig) = info?;
+        let func_ty = self.lower_type_node(&sig);
+        match self.type_arena.get(func_ty).clone() {
+            TypeKind::Func { params, ret } => {
+                if params.len() != arg_types.len() {
+                    return None;
+                }
+                let mut ok = true;
+                for (param, arg) in params.iter().zip(arg_types.iter()) {
+                    let unified = self.unify(*param, *arg);
+                    if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if !ok {
+                    return None;
+                }
+                Some(self.resolve(ret))
+            }
+            _ => None,
+        }
     }
 
     /// Try to infer a struct constructor call.  Returns `Some` if the
@@ -1269,15 +1399,30 @@ impl<'a> Inferer<'a> {
 
     /// Build a `Func` type from a function definition node.
     /// Uses declared param types from the AST.
+    /// For parameters whose type is a reference to a generic type param
+    /// (e.g., `x: T` inside `func [T] id(x: T)`), creates an `InferVar`
+    /// instead of a `Named`/`Custom` so that the param type can unify
+    /// with concrete call args.
     fn function_type_from_def(&mut self, def_node: NodeId) -> TypeId {
         match &self.arena[def_node] {
             Expr::FuncDef(f) => {
+                // Collect the names of generic type parameters for this function.
+                let generic_names: Vec<IdentId> =
+                    f.type_params.iter().map(|tp| tp.name).collect();
+
                 let params: Vec<TypeId> = f
                     .params
                     .iter()
                     .map(|p| {
                         if let Some(ref tn) = p.type_node {
-                            self.lower_type_node(tn)
+                            // Check if this param's type is a reference to a type param
+                            // (parsed as `TypeNode::Named { name: "T" }`).
+                            let is_generic_ref = matches!(tn, TypeNode::Named { name, params } if generic_names.contains(name) && params.is_empty());
+                            if is_generic_ref {
+                                self.fresh_infer_var()
+                            } else {
+                                self.lower_type_node(tn)
+                            }
                         } else {
                             self.fresh_infer_var()
                         }
@@ -1287,7 +1432,16 @@ impl<'a> Inferer<'a> {
                     .function_return_types
                     .get(&def_node)
                     .copied()
-                    .or_else(|| f.return_type.as_ref().map(|tn| self.lower_type_node(tn)))
+                    .or_else(|| {
+                        f.return_type.as_ref().map(|tn| {
+                            let is_generic_ref = matches!(tn, TypeNode::Named { name, params } if generic_names.contains(name) && params.is_empty());
+                            if is_generic_ref {
+                                self.fresh_infer_var()
+                            } else {
+                                self.lower_type_node(tn)
+                            }
+                        })
+                    })
                     .unwrap_or_else(|| self.fresh_infer_var());
                 self.type_arena.intern(TypeKind::Func { params, ret })
             }

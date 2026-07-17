@@ -40,9 +40,10 @@ pub enum HirExpr {
     TupleLit(TupleLit),
     RangeLit(RangeLit),
 
-    // ── Struct and enum construction ──
+    // ── Struct, enum, and type descriptor construction ──
     StructLit(StructLit),
     EnumLit(EnumLit),
+    TypeDescriptor(TypeDescriptor),
 
     // ── Operators ──
     Binary(Binary),
@@ -236,6 +237,18 @@ pub struct EnumLit {
     pub is_tagged_union: bool,
 }
 
+/// A type descriptor object constructed during monomorphization.
+/// Descriptors map trait method names to their implementations for a
+/// concrete type, and are passed as extra arguments to generic functions.
+#[derive(Clone, Debug)]
+pub struct TypeDescriptor {
+    pub span: Span,
+    /// The concrete type this descriptor is for (e.g., `Int`).
+    pub type_name: IdentId,
+    /// Trait method implementations: (method_name, implementation_expr).
+    pub methods: Vec<(IdentId, HirExpr)>,
+}
+
 // ── Operators ──
 
 #[derive(Clone, Debug)]
@@ -386,6 +399,7 @@ impl HirExpr {
             HirExpr::RangeLit(e) => e.span,
             HirExpr::StructLit(e) => e.span,
             HirExpr::EnumLit(e) => e.span,
+            HirExpr::TypeDescriptor(e) => e.span,
             HirExpr::Binary(e) => e.span,
             HirExpr::Unary(e) => e.span,
             HirExpr::Assign(e) => e.span,
@@ -483,6 +497,14 @@ pub fn hir_ident(span: Span, name: IdentId) -> HirExpr {
 
 pub fn hir_block(span: Span, stmts: Vec<HirExpr>) -> HirExpr {
     HirExpr::Block(Block { span, stmts })
+}
+
+pub fn hir_type_descriptor(span: Span, type_name: IdentId, methods: Vec<(IdentId, HirExpr)>) -> HirExpr {
+    HirExpr::TypeDescriptor(TypeDescriptor {
+        span,
+        type_name,
+        methods,
+    })
 }
 
 pub fn hir_tuple_index(span: Span, obj: HirExpr, index: usize) -> HirExpr {
@@ -935,6 +957,16 @@ mod tests {
     }
 
     #[test]
+    fn type_descriptor() {
+        let td = HirExpr::TypeDescriptor(TypeDescriptor {
+            span: Span::new(0, 5),
+            type_name: IdentId::from_u32(0),
+            methods: vec![],
+        });
+        assert_eq!(td.span(), Span::new(0, 5));
+    }
+
+    #[test]
     fn field_access_and_assign() {
         let mut interner = Interner::new();
         let field = ident(&mut interner, "x");
@@ -1120,6 +1152,14 @@ mod tests {
             (
                 hir_tuple_index(Span::new(0, 8), hir_ident(Span::new(0, 5), IdentId::from_u32(0)), 0),
                 Span::new(0, 8),
+            ),
+            (
+                HirExpr::TypeDescriptor(TypeDescriptor {
+                    span: Span::new(0, 5),
+                    type_name: IdentId::from_u32(0),
+                    methods: vec![],
+                }),
+                Span::new(0, 5),
             ),
         ];
 
