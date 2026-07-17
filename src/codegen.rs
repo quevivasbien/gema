@@ -6,6 +6,7 @@ use crate::hir::*;
 use crate::interner::{IdentId, Interner};
 use crate::monomorphize;
 use crate::symbol::ScopeTree;
+use crate::types::TypeArena;
 
 /// Compile a lowered HIR tree to a JavaScript string.
 ///
@@ -14,10 +15,11 @@ pub fn codegen(
     hir: HirExpr,
     arena: &crate::ast::AstArena,
     scope_tree: &ScopeTree,
-    interner: &Interner,
+    type_arena: &TypeArena,
+    interner: &mut Interner,
 ) -> String {
-    let hir = monomorphize::monomorphize(hir, arena, scope_tree, interner);
-    let mut w = JsWriter::new(interner);
+    let hir = monomorphize::monomorphize(hir, arena, scope_tree, type_arena, interner);
+    let mut w = JsWriter::new(&*interner);
     w.emit_expr(&hir, true);
     w.finish()
 }
@@ -810,10 +812,20 @@ mod tests {
         }
         let root = parse::parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
         assert!(!diagnostics.has_errors(), "parse errors");
-        let scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
+        let mut scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
         assert!(!diagnostics.has_errors(), "resolve errors");
+        let mut type_arena = crate::types::TypeArena::new();
+        let _types = crate::infer::infer_types(
+            &arena,
+            &mut scope_tree,
+            &mut type_arena,
+            &interner,
+            root,
+            &mut diagnostics,
+            0,
+        );
         let hir = lower(&arena, root, &scope_tree, &interner);
-        codegen(hir, &arena, &scope_tree, &interner)
+        codegen(hir, &arena, &scope_tree, &type_arena, &mut interner)
     }
 
     fn js_contains(source: &str, expected: &str) {
@@ -1016,5 +1028,17 @@ mod tests {
     #[test]
     fn run_generic_identity_bool() {
         assert_run("func [T] id(x: T): T { x }; id(true)", "true");
+    }
+    #[test]
+    fn run_generic_with_variable_arg() {
+        assert_run("func [T] id(x: T): T { x }; y = 42i; id(y)", "42");
+    }
+    #[test]
+    fn run_generic_with_variable_arg_str() {
+        assert_run("func [T] id(x: T): T { x }; y = \"hello\"; id(y)", "hello");
+    }
+    #[test]
+    fn run_generic_with_variable_arg_bool() {
+        assert_run("func [T] id(x: T): T { x }; y = true; id(y)", "true");
     }
 }

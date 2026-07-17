@@ -249,6 +249,9 @@ impl<'a> Inferer<'a> {
                 let ret = self.unify(*ra, *rb);
                 self.type_arena.intern(TypeKind::Func { params, ret })
             }
+            // Generic type parameters unify with any type
+            (TypeKind::Generic { .. }, _) => b,
+            (_, TypeKind::Generic { .. }) => a,
             // Custom types with same name
             (TypeKind::Custom { name: na, args: aa }, TypeKind::Custom { name: nb, args: ab })
                 if na == nb && aa.len() == ab.len() =>
@@ -374,8 +377,7 @@ impl<'a> Inferer<'a> {
                 self.var_type_stack[top].insert(f.name, (func_ty, false));
 
                 // Collect generic type param names for this function.
-                let generic_names: Vec<IdentId> =
-                    f.type_params.iter().map(|tp| tp.name).collect();
+                let generic_names: Vec<IdentId> = f.type_params.iter().map(|tp| tp.name).collect();
 
                 // Push a scope frame and register params.
                 self.var_type_stack.push(FxHashMap::default());
@@ -578,24 +580,24 @@ impl<'a> Inferer<'a> {
                 name: type_param,
                 traits: vec![],
             },
-            TypeNode::Arr(inner) => {
-                TypeNode::Arr(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
-            }
-            TypeNode::Iter(inner) => {
-                TypeNode::Iter(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
-            }
-            TypeNode::MutArr(inner) => {
-                TypeNode::MutArr(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
-            }
-            TypeNode::Set(inner) => {
-                TypeNode::Set(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
-            }
-            TypeNode::MutSet(inner) => {
-                TypeNode::MutSet(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
-            }
-            TypeNode::Maybe(inner) => {
-                TypeNode::Maybe(Box::new(Self::substitute_self_in_type_node(inner, type_param)))
-            }
+            TypeNode::Arr(inner) => TypeNode::Arr(Box::new(Self::substitute_self_in_type_node(
+                inner, type_param,
+            ))),
+            TypeNode::Iter(inner) => TypeNode::Iter(Box::new(Self::substitute_self_in_type_node(
+                inner, type_param,
+            ))),
+            TypeNode::MutArr(inner) => TypeNode::MutArr(Box::new(
+                Self::substitute_self_in_type_node(inner, type_param),
+            )),
+            TypeNode::Set(inner) => TypeNode::Set(Box::new(Self::substitute_self_in_type_node(
+                inner, type_param,
+            ))),
+            TypeNode::MutSet(inner) => TypeNode::MutSet(Box::new(
+                Self::substitute_self_in_type_node(inner, type_param),
+            )),
+            TypeNode::Maybe(inner) => TypeNode::Maybe(Box::new(
+                Self::substitute_self_in_type_node(inner, type_param),
+            )),
             TypeNode::Dict { key, val } => TypeNode::Dict {
                 key: Box::new(Self::substitute_self_in_type_node(key, type_param)),
                 val: Box::new(Self::substitute_self_in_type_node(val, type_param)),
@@ -605,10 +607,16 @@ impl<'a> Inferer<'a> {
                 val: Box::new(Self::substitute_self_in_type_node(val, type_param)),
             },
             TypeNode::Tup(elems) => TypeNode::Tup(
-                elems.iter().map(|e| Self::substitute_self_in_type_node(e, type_param)).collect(),
+                elems
+                    .iter()
+                    .map(|e| Self::substitute_self_in_type_node(e, type_param))
+                    .collect(),
             ),
             TypeNode::Func { params, ret } => TypeNode::Func {
-                params: params.iter().map(|p| Self::substitute_self_in_type_node(p, type_param)).collect(),
+                params: params
+                    .iter()
+                    .map(|p| Self::substitute_self_in_type_node(p, type_param))
+                    .collect(),
                 ret: Box::new(Self::substitute_self_in_type_node(ret, type_param)),
             },
             // Primitives, Named, TypeParamRef — no Self to substitute.
@@ -1407,8 +1415,7 @@ impl<'a> Inferer<'a> {
         match &self.arena[def_node] {
             Expr::FuncDef(f) => {
                 // Collect the names of generic type parameters for this function.
-                let generic_names: Vec<IdentId> =
-                    f.type_params.iter().map(|tp| tp.name).collect();
+                let generic_names: Vec<IdentId> = f.type_params.iter().map(|tp| tp.name).collect();
 
                 let params: Vec<TypeId> = f
                     .params
@@ -1831,8 +1838,7 @@ mod tests {
     #[test]
     fn reassign_mutable_parent_from_child_ok() {
         // Reassigning a parent's mutable variable from a child scope should succeed.
-        let (arena, _interner, diags, types, ta, root) =
-            infer_types_map("mut x = 0; { x = 5 }; x");
+        let (arena, _interner, diags, types, ta, root) = infer_types_map("mut x = 0; { x = 5 }; x");
         assert!(
             !diags.has_errors(),
             "errors: {:?}",

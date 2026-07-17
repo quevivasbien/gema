@@ -8,18 +8,22 @@ use crate::ast::{self, AstArena, NodeId};
 use crate::hir::*;
 use crate::interner::{IdentId, Interner};
 use crate::source::Span;
-use crate::symbol::{ScopeTree, SymbolKind};
+use crate::symbol::{ScopeId, ScopeTree, SymbolKind};
+use crate::types::{TypeArena, TypeId, TypeKind};
 
 pub fn monomorphize(
     hir: HirExpr,
     arena: &AstArena,
     scope_tree: &ScopeTree,
-    interner: &Interner,
+    type_arena: &TypeArena,
+    interner: &mut Interner,
 ) -> HirExpr {
     let mut m = Monomorphizer {
         arena,
         scope_tree,
+        type_arena,
         interner,
+        current_scope: scope_tree.root_scope,
     };
     m.monomorphize_expr(hir, &mut Vec::new())
 }
@@ -27,7 +31,9 @@ pub fn monomorphize(
 struct Monomorphizer<'a> {
     arena: &'a AstArena,
     scope_tree: &'a ScopeTree,
-    interner: &'a Interner,
+    type_arena: &'a TypeArena,
+    interner: &'a mut Interner,
+    current_scope: ScopeId,
 }
 
 struct DescriptorParam {
@@ -205,13 +211,30 @@ impl<'a> Monomorphizer<'a> {
 
     // ── Generic function definition ──
 
+    /// Find the scope created for a function's body by looking up
+    /// the function's AST def node in the scope tree.
+    fn func_body_scope(&self, name: IdentId) -> Option<ScopeId> {
+        for (_, sym) in self.scope_tree.symbols.iter() {
+            if sym.name == name && matches!(&sym.kind, SymbolKind::Function { .. }) {
+                return self.scope_tree.node_scope.get(&sym.def_node).copied();
+            }
+        }
+        None
+    }
+
     fn monomorphize_func_def(
         &mut self,
         mut f: FuncDef,
         descriptor_stack: &mut Vec<DescriptorParam>,
     ) -> HirExpr {
+        let prev_scope = self.current_scope;
+        if let Some(body_scope) = self.func_body_scope(f.name) {
+            self.current_scope = body_scope;
+        }
+
         if f.type_params.is_empty() {
             f.body = Box::new(self.monomorphize_expr(*f.body, descriptor_stack));
+            self.current_scope = prev_scope;
             return HirExpr::FuncDef(f);
         }
 
@@ -219,7 +242,7 @@ impl<'a> Monomorphizer<'a> {
         let mut new_descriptors: Vec<DescriptorParam> = Vec::new();
         for tp in &f.type_params {
             let desc_name = format!("_{}", self.interner.lookup(tp.name));
-            let desc_param_id = self.intern_arg(&desc_name);
+            let desc_param_id = self.interner.intern(&desc_name);
             let mut trait_bounds: Vec<(IdentId, Vec<IdentId>)> = Vec::new();
             for trait_name in &tp.trait_bounds {
                 let req_names = self.get_trait_requirement_names(*trait_name);
@@ -236,12 +259,14 @@ impl<'a> Monomorphizer<'a> {
         f.type_params.clear();
 
         // Push descriptors and recurse into the body.
+        let desc_count = new_descriptors.len();
         descriptor_stack.extend(new_descriptors);
         f.body = Box::new(self.monomorphize_expr(*f.body, descriptor_stack));
-        for _ in 0..f.params.len().saturating_sub(0) {
+        for _ in 0..desc_count {
             descriptor_stack.pop();
         }
 
+        self.current_scope = prev_scope;
         HirExpr::FuncDef(f)
     }
 
@@ -308,7 +333,7 @@ impl<'a> Monomorphizer<'a> {
 
     /// Build descriptor arguments for a generic function call.
     fn build_descriptor_args(
-        &self,
+        &mut self,
         func_name: IdentId,
         type_param_count: usize,
         call_args: &[HirExpr],
@@ -333,10 +358,11 @@ impl<'a> Monomorphizer<'a> {
             }
         };
 
-        type_params
-            .into_iter()
-            .map(|tp| self.build_descriptor_for_type_param(tp, call_args))
-            .collect()
+        let mut results = Vec::with_capacity(type_params.len());
+        for tp in type_params {
+            results.push(self.build_descriptor_for_type_param(tp, call_args));
+        }
+        results
     }
 
     /// Find the AST definition node for a function by name.
@@ -363,7 +389,7 @@ impl<'a> Monomorphizer<'a> {
     /// Determines the concrete type from the call args and looks up the
     /// impl blocks for each required trait.
     fn build_descriptor_for_type_param(
-        &self,
+        &mut self,
         _type_param: ast::TypeParam,
         call_args: &[HirExpr],
     ) -> HirExpr {
@@ -392,24 +418,54 @@ impl<'a> Monomorphizer<'a> {
 
     /// Try to determine the concrete type bound to a type parameter
     /// from the call's argument expressions.
-    fn concrete_type_from_arg(&self, call_args: &[HirExpr]) -> Option<IdentId> {
-        // Simple heuristic: check if any arg is a literal and match
-        // the type param position to the arg position.
+    fn concrete_type_from_arg(&mut self, call_args: &[HirExpr]) -> Option<IdentId> {
         for arg in call_args {
             match arg {
-                HirExpr::IntLit(_) => return Some(self.intern_name("Int")),
-                HirExpr::NumLit(_) => return Some(self.intern_name("Num")),
-                HirExpr::StrLit(_) => return Some(self.intern_name("Str")),
-                HirExpr::BoolLit(_) => return Some(self.intern_name("Bool")),
+                HirExpr::IntLit(_) => return Some(self.interner.intern("Int")),
+                HirExpr::NumLit(_) => return Some(self.interner.intern("Num")),
+                HirExpr::StrLit(_) => return Some(self.interner.intern("Str")),
+                HirExpr::BoolLit(_) => return Some(self.interner.intern("Bool")),
+                HirExpr::Ident(id) => {
+                    if let Some(tid) = self.lookup_variable_type(id.name) {
+                        let kind = self.type_arena.get(tid);
+                        if let Some(name) = self.type_kind_to_name(kind) {
+                            return Some(name);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
         None
     }
 
+    fn lookup_variable_type(&self, name: IdentId) -> Option<TypeId> {
+        let (_scope, ids) = self.scope_tree.lookup(self.current_scope, name)?;
+        for &sid in ids.iter().rev() {
+            if let SymbolKind::Variable {
+                type_id: Some(tid), ..
+            } = &self.scope_tree.symbols[sid].kind
+            {
+                return Some(*tid);
+            }
+        }
+        None
+    }
+
+    fn type_kind_to_name(&mut self, kind: &TypeKind) -> Option<IdentId> {
+        match kind {
+            TypeKind::Int => Some(self.interner.intern("Int")),
+            TypeKind::Num => Some(self.interner.intern("Num")),
+            TypeKind::Str => Some(self.interner.intern("Str")),
+            TypeKind::Bool => Some(self.interner.intern("Bool")),
+            TypeKind::Custom { name, .. } => Some(*name),
+            _ => None,
+        }
+    }
+
     /// Look up the implementing function name for a (type, trait, method) combination.
     fn find_impl_function_name(
-        &self,
+        &mut self,
         type_name: Option<IdentId>,
         trait_name: IdentId,
         _method_name: IdentId,
@@ -441,31 +497,22 @@ impl<'a> Monomorphizer<'a> {
     }
 
     /// Check if a `TypeNode` matches a concrete type name.
-    fn self_type_matches(&self, type_node: &ast::TypeNode, type_name: IdentId) -> bool {
+    fn self_type_matches(&mut self, type_node: &ast::TypeNode, type_name: IdentId) -> bool {
         match type_node {
             ast::TypeNode::Int => {
-                self.intern_name("Int") == type_name
+                self.interner.intern("Int") == type_name
                     || self
                         .scope_tree
                         .symbols
                         .iter()
                         .any(|(_, s)| s.name == type_name)
             }
-            ast::TypeNode::Num => self.intern_name("Num") == type_name,
-            ast::TypeNode::Str => self.intern_name("Str") == type_name,
-            ast::TypeNode::Bool => self.intern_name("Bool") == type_name,
+            ast::TypeNode::Num => self.interner.intern("Num") == type_name,
+            ast::TypeNode::Str => self.interner.intern("Str") == type_name,
+            ast::TypeNode::Bool => self.interner.intern("Bool") == type_name,
             ast::TypeNode::Named { name, .. } => *name == type_name,
             _ => false,
         }
-    }
-
-    fn intern_name(&self, s: &str) -> IdentId {
-        // Simple hash-based interner for synthetic names.
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut h = DefaultHasher::new();
-        s.hash(&mut h);
-        IdentId::from_u32(h.finish() as u32)
     }
 
     fn generic_param_count(&self, name: IdentId) -> usize {
@@ -483,23 +530,14 @@ impl<'a> Monomorphizer<'a> {
         }
         0
     }
-
-    fn intern_arg(&mut self, s: &str) -> IdentId {
-        // Use a simple interner — we don't have &mut Interner but we
-        // can create stable IDs from string hashes for the limited
-        // set of synthetic names we need.
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut h = DefaultHasher::new();
-        s.hash(&mut h);
-        IdentId::from_u32(h.finish() as u32)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::diagnostics::DiagnosticsBag;
+    use crate::infer::infer_types;
+    use crate::interner::Interner;
     use crate::lower::lower;
     use crate::parse;
     use crate::resolve::resolve_names;
@@ -517,9 +555,19 @@ mod tests {
             diags.push(d);
         }
         let root = parse::parse(&tokens, &mut arena, &mut interner, &mut diags, 0);
-        let scope_tree = resolve_names(&arena, root, &mut interner, &mut diags, 0);
+        let mut scope_tree = resolve_names(&arena, root, &mut interner, &mut diags, 0);
+        let mut type_arena = TypeArena::new();
+        let _types = infer_types(
+            &arena,
+            &mut scope_tree,
+            &mut type_arena,
+            &interner,
+            root,
+            &mut diags,
+            0,
+        );
         let hir = lower(&arena, root, &scope_tree, &interner);
-        let hir = monomorphize(hir, &arena, &scope_tree, &interner);
+        let hir = monomorphize(hir, &arena, &scope_tree, &type_arena, &mut interner);
         (hir, diags)
     }
 

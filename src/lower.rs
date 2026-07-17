@@ -378,10 +378,12 @@ impl<'a> Lowerer<'a> {
                             hir::HirMatchArmKind::Some { binding: *binding }
                         }
                         ast::MatchArmKind::None => hir::HirMatchArmKind::None,
-                        ast::MatchArmKind::Variant { name, binding } => hir::HirMatchArmKind::Variant {
-                            name: *name,
-                            binding: *binding,
-                        },
+                        ast::MatchArmKind::Variant { name, binding } => {
+                            hir::HirMatchArmKind::Variant {
+                                name: *name,
+                                binding: *binding,
+                            }
+                        }
                         ast::MatchArmKind::Else => hir::HirMatchArmKind::Else,
                     },
                     body: Box::new(self.lower_expr(arm.body)),
@@ -557,8 +559,6 @@ mod tests {
         }
     }
 
-
-
     // ── Literals ──
 
     #[test]
@@ -629,7 +629,9 @@ mod tests {
         let hir = lower_ok("x = 42i");
         let last = last_in_block(&hir);
         match last {
-            HirExpr::Assign(hir::Assign { name: _, is_mut: _, .. }) => {
+            HirExpr::Assign(hir::Assign {
+                name: _, is_mut: _, ..
+            }) => {
                 // The last expression in a block is the Assign itself
                 // (the value is not dropped since it's the last statement).
             }

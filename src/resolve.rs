@@ -99,10 +99,7 @@ impl<'a> Resolver<'a> {
                 self.diagnostics.error(
                     self.file_idx,
                     span,
-                    format!(
-                        "duplicate definition of '{}'",
-                        self.interner.lookup(name),
-                    ),
+                    format!("duplicate definition of '{}'", self.interner.lookup(name),),
                 );
             }
         }
@@ -309,9 +306,7 @@ impl<'a> Resolver<'a> {
             let self_name = resolver.interner.intern("Self");
             resolver.define(
                 self_name,
-                SymbolKind::TypeParam {
-                    bounds: Vec::new(),
-                },
+                SymbolKind::TypeParam { bounds: Vec::new() },
                 node,
             );
 
@@ -349,10 +344,12 @@ impl<'a> Resolver<'a> {
             .filter(|ids| !ids.is_empty())
         {
             // If any existing symbol with this name is NOT a Variable, error.
-            if ids
-                .iter()
-                .any(|&sid| !matches!(self.scope_tree.symbols[sid].kind, SymbolKind::Variable { .. }))
-            {
+            if ids.iter().any(|&sid| {
+                !matches!(
+                    self.scope_tree.symbols[sid].kind,
+                    SymbolKind::Variable { .. }
+                )
+            }) {
                 let span = self.arena[node].span();
                 error_not_variable(self, span, name);
                 return;
@@ -396,10 +393,7 @@ impl<'a> Resolver<'a> {
                 );
             } else {
                 let sym = &self.scope_tree.symbols[sym_id];
-                let ancestor_is_mut = matches!(
-                    sym.kind,
-                    SymbolKind::Variable { is_mut: true, .. }
-                );
+                let ancestor_is_mut = matches!(sym.kind, SymbolKind::Variable { is_mut: true, .. });
                 if ancestor_is_mut {
                     // Reassignment of ancestor's mutable variable — skip.
                 } else {
@@ -689,9 +683,9 @@ impl<'a> Resolver<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse;
     use crate::scan;
     use crate::source::{SourceMap, SourceText};
-    use crate::parse;
 
     /// Parse and resolve a source string, returning the full state.
     fn resolve(source: &str) -> (AstArena, Interner, DiagnosticsBag, ScopeTree, NodeId) {
@@ -815,30 +809,35 @@ mod tests {
         let (_, _, diags, tree, _) = resolve("struct Point { x: Num, y: Num }");
         assert!(!diags.has_errors(), "errors: {:?}", diags);
         // Verify Point is registered as a Struct symbol.
-        let name = tree.symbols.iter().find(|(_, s)| {
-            matches!(&s.kind, SymbolKind::Struct { .. })
-        });
-        assert!(name.is_some(), "Point should be registered as a Struct symbol");
+        let name = tree
+            .symbols
+            .iter()
+            .find(|(_, s)| matches!(&s.kind, SymbolKind::Struct { .. }));
+        assert!(
+            name.is_some(),
+            "Point should be registered as a Struct symbol"
+        );
     }
 
     #[test]
     fn enum_definition_registered() {
         let (_, _, diags, tree, _) = resolve("enum Option[T] { some: T, nothing }");
         assert!(!diags.has_errors(), "errors: {:?}", diags);
-        let found = tree.symbols.iter().any(|(_, s)| {
-            matches!(&s.kind, SymbolKind::Enum { .. })
-        });
+        let found = tree
+            .symbols
+            .iter()
+            .any(|(_, s)| matches!(&s.kind, SymbolKind::Enum { .. }));
         assert!(found, "Option should be registered as an Enum symbol");
     }
 
     #[test]
     fn trait_definition_registered() {
-        let (_, _, diags, tree, _) =
-            resolve("trait Eq { equal: Func[Self, Self: Bool] }");
+        let (_, _, diags, tree, _) = resolve("trait Eq { equal: Func[Self, Self: Bool] }");
         assert!(!diags.has_errors(), "errors: {:?}", diags);
-        let found = tree.symbols.iter().any(|(_, s)| {
-            matches!(&s.kind, SymbolKind::Trait { .. })
-        });
+        let found = tree
+            .symbols
+            .iter()
+            .any(|(_, s)| matches!(&s.kind, SymbolKind::Trait { .. }));
         assert!(found, "Eq should be registered as a Trait symbol");
     }
 
@@ -858,7 +857,11 @@ mod tests {
     #[test]
     fn mutable_reassignment_chained() {
         let (_, _, diags, _, _) = resolve("mut x = 1; x = 2; x = x + 1");
-        assert!(!diags.has_errors(), "mutable reassignment should work: {:?}", diags);
+        assert!(
+            !diags.has_errors(),
+            "mutable reassignment should work: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -873,13 +876,21 @@ mod tests {
         // `mut x = 2` inside block creates a new variable even though
         // the outer `x` is mutable.
         let (_, _, diags, _, _) = resolve("mut x = 1; { mut x = 2 }");
-        assert!(!diags.has_errors(), "explicit mut should shadow: {:?}", diags);
+        assert!(
+            !diags.has_errors(),
+            "explicit mut should shadow: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn explicit_mut_shadows_outer_immutable() {
         let (_, _, diags, _, _) = resolve("x = 1; { mut x = 2 }");
-        assert!(!diags.has_errors(), "explicit mut should shadow immutable: {:?}", diags);
+        assert!(
+            !diags.has_errors(),
+            "explicit mut should shadow immutable: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -898,21 +909,27 @@ mod tests {
     fn reassignment_of_immutable_is_accepted_by_resolver() {
         // Type checker will catch this; resolver should not error.
         let (_, _, diags, _, _) = resolve("x = 1; x = 2");
-        assert!(!diags.has_errors(), "resolver should accept immutable reassignment: {:?}", diags);
+        assert!(
+            !diags.has_errors(),
+            "resolver should accept immutable reassignment: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn function_overloading_no_error() {
-        let (_, _, diags, _, _) = resolve(
-            "func foo(x: Int): Int { x }; func foo(s: Str): Str { s }",
+        let (_, _, diags, _, _) =
+            resolve("func foo(x: Int): Int { x }; func foo(s: Str): Str { s }");
+        assert!(
+            !diags.has_errors(),
+            "overloading should be allowed: {:?}",
+            diags
         );
-        assert!(!diags.has_errors(), "overloading should be allowed: {:?}", diags);
     }
 
     #[test]
     fn match_arm_binding_resolved() {
-        let (_, _, diags, _, _) =
-            resolve("x = none; match x { some(v) -> { v }, none -> { 0i } }");
+        let (_, _, diags, _, _) = resolve("x = none; match x { some(v) -> { v }, none -> { 0i } }");
         assert!(!diags.has_errors(), "errors: {:?}", diags);
     }
 
@@ -924,8 +941,9 @@ mod tests {
 
     #[test]
     fn impl_block_self_resolved() {
-        let (_, _, diags, _, _) =
-            resolve("trait Foo { bar: Func[Self: Self] }; impl Num: Foo { func bar(x: Num): Num { x } }");
+        let (_, _, diags, _, _) = resolve(
+            "trait Foo { bar: Func[Self: Self] }; impl Num: Foo { func bar(x: Num): Num { x } }",
+        );
         assert!(!diags.has_errors(), "errors: {:?}", diags);
     }
 
@@ -934,7 +952,10 @@ mod tests {
     #[test]
     fn assign_to_function_name_error() {
         let (_, _, diags, _, _) = resolve("func f() { 1 }; f = 2");
-        assert!(diags.has_errors(), "assigning to function name should error");
+        assert!(
+            diags.has_errors(),
+            "assigning to function name should error"
+        );
         let formatted = diags.format(&SourceMap::new());
         assert!(
             formatted.contains("not a variable"),
@@ -958,10 +979,13 @@ mod tests {
     #[test]
     fn function_overloading_still_allowed() {
         // Overloading functions with different signatures is still OK.
-        let (_, _, diags, _, _) = resolve(
-            "func foo(x: Int): Int { x }; func foo(s: Str): Str { s }; func foo() { 1 }",
+        let (_, _, diags, _, _) =
+            resolve("func foo(x: Int): Int { x }; func foo(s: Str): Str { s }; func foo() { 1 }");
+        assert!(
+            !diags.has_errors(),
+            "overloading should be allowed: {:?}",
+            diags
         );
-        assert!(!diags.has_errors(), "overloading should be allowed: {:?}", diags);
     }
 
     #[test]

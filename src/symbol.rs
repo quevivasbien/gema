@@ -46,18 +46,14 @@ pub enum SymbolKind {
         type_param_count: usize,
     },
     /// A struct definition.
-    Struct {
-        type_params: Vec<IdentId>,
-    },
+    Struct { type_params: Vec<IdentId> },
     /// An enum definition.
     Enum {
         type_params: Vec<IdentId>,
         variants: Vec<EnumVariant>,
     },
     /// A trait definition.
-    Trait {
-        requirements: Vec<TraitRequirement>,
-    },
+    Trait { requirements: Vec<TraitRequirement> },
     /// An impl block connecting a type to a trait.
     Impl {
         trait_name: IdentId,
@@ -65,9 +61,7 @@ pub enum SymbolKind {
         member_nodes: Vec<NodeId>,
     },
     /// A generic type parameter (e.g. `T` in `func [T: Hash]`).
-    TypeParam {
-        bounds: Vec<IdentId>,
-    },
+    TypeParam { bounds: Vec<IdentId> },
     /// A trait method callable inside a generic function body.
     /// The resolver registers these so the call can be resolved,
     /// and the monomorphizer routes them through the type descriptor.
@@ -151,11 +145,7 @@ impl ScopeTree {
             kind,
             def_node,
         });
-        self.scopes[scope]
-            .symbols
-            .entry(name)
-            .or_default()
-            .push(id);
+        self.scopes[scope].symbols.entry(name).or_default().push(id);
         id
     }
 
@@ -209,9 +199,10 @@ impl ScopeTree {
     pub fn populate_from_types(&mut self, types: &FxHashMap<NodeId, TypeId>) {
         for (_, symbol) in self.symbols.iter_mut() {
             if let SymbolKind::Variable { type_id, .. } = &mut symbol.kind
-                && let Some(&tid) = types.get(&symbol.def_node) {
-                    *type_id = Some(tid);
-                }
+                && let Some(&tid) = types.get(&symbol.def_node)
+            {
+                *type_id = Some(tid);
+            }
         }
     }
 }
@@ -354,9 +345,10 @@ mod tests {
     fn undefined_name_returns_none() {
         let tree = ScopeTree::new();
         let mut interner = Interner::new();
-        assert!(tree
-            .lookup(tree.root_scope, ident(&mut interner, "x"))
-            .is_none());
+        assert!(
+            tree.lookup(tree.root_scope, ident(&mut interner, "x"))
+                .is_none()
+        );
     }
 
     #[test]

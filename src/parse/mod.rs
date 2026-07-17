@@ -605,8 +605,9 @@ mod tests {
 
     #[test]
     fn parse_trait_def() {
-        let (arena, root) =
-            parse_ok("trait Eq { equal: Func[Self, Self: Bool], notEqual: Func[Self, Self: Bool] }");
+        let (arena, root) = parse_ok(
+            "trait Eq { equal: Func[Self, Self: Bool], notEqual: Func[Self, Self: Bool] }",
+        );
         assert_eq!(last_kind(&arena, root), "TraitDef");
     }
 
@@ -1076,10 +1077,7 @@ mod tests {
         match &arena[block.stmts[0]] {
             Expr::TraitDef(t) => {
                 assert_eq!(t.requirements.len(), 1);
-                assert!(matches!(
-                    t.requirements[0].type_node,
-                    TypeNode::SelfType
-                ));
+                assert!(matches!(t.requirements[0].type_node, TypeNode::SelfType));
             }
             _ => panic!("expected TraitDef"),
         }
@@ -1087,8 +1085,7 @@ mod tests {
 
     #[test]
     fn trait_requirement_func() {
-        let (arena, root) =
-            parse_ok("trait Eq { equal: Func[Self, Self: Bool] }");
+        let (arena, root) = parse_ok("trait Eq { equal: Func[Self, Self: Bool] }");
         let block = match &arena[root] {
             Expr::Block(b) => b,
             _ => panic!("expected Block"),
@@ -1097,10 +1094,7 @@ mod tests {
             Expr::TraitDef(t) => {
                 assert_eq!(t.requirements.len(), 1);
                 // The type should be Func[...]
-                assert!(matches!(
-                    t.requirements[0].type_node,
-                    TypeNode::Func { .. }
-                ));
+                assert!(matches!(t.requirements[0].type_node, TypeNode::Func { .. }));
             }
             _ => panic!("expected TraitDef"),
         }

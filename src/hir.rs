@@ -109,9 +109,14 @@ pub enum HirUnaryOp {
 /// A pattern-match arm kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HirMatchArmKind {
-    Some { binding: IdentId },
+    Some {
+        binding: IdentId,
+    },
     None,
-    Variant { name: IdentId, binding: Option<IdentId> },
+    Variant {
+        name: IdentId,
+        binding: Option<IdentId>,
+    },
     Else,
 }
 
@@ -499,7 +504,11 @@ pub fn hir_block(span: Span, stmts: Vec<HirExpr>) -> HirExpr {
     HirExpr::Block(Block { span, stmts })
 }
 
-pub fn hir_type_descriptor(span: Span, type_name: IdentId, methods: Vec<(IdentId, HirExpr)>) -> HirExpr {
+pub fn hir_type_descriptor(
+    span: Span,
+    type_name: IdentId,
+    methods: Vec<(IdentId, HirExpr)>,
+) -> HirExpr {
     HirExpr::TypeDescriptor(TypeDescriptor {
         span,
         type_name,
@@ -543,10 +552,7 @@ mod tests {
     fn span_accessor_for_literals() {
         assert_eq!(hir_int(Span::new(0, 3), "42").span(), Span::new(0, 3));
         assert_eq!(hir_num(Span::new(0, 4), "3.14").span(), Span::new(0, 4));
-        assert_eq!(
-            hir_str(Span::new(0, 7), "hello").span(),
-            Span::new(0, 7)
-        );
+        assert_eq!(hir_str(Span::new(0, 7), "hello").span(), Span::new(0, 7));
         assert_eq!(hir_bool(Span::new(0, 4), true).span(), Span::new(0, 4));
         assert_eq!(hir_none(Span::new(0, 4)).span(), Span::new(0, 4));
     }
@@ -555,10 +561,7 @@ mod tests {
     fn span_accessor_for_ident() {
         let mut interner = Interner::new();
         let name = ident(&mut interner, "x");
-        assert_eq!(
-            hir_ident(Span::new(0, 1), name).span(),
-            Span::new(0, 1)
-        );
+        assert_eq!(hir_ident(Span::new(0, 1), name).span(), Span::new(0, 1));
     }
 
     #[test]
@@ -1125,10 +1128,7 @@ mod tests {
             (hir_str(Span::new(0, 7), "hello"), Span::new(0, 7)),
             (hir_bool(Span::new(0, 4), true), Span::new(0, 4)),
             (hir_none(Span::new(0, 4)), Span::new(0, 4)),
-            (
-                hir_ident(Span::new(0, 1), id("x")),
-                Span::new(0, 1),
-            ),
+            (hir_ident(Span::new(0, 1), id("x")), Span::new(0, 1)),
             (
                 HirExpr::Break(Break {
                     span: Span::new(0, 5),
@@ -1150,7 +1150,11 @@ mod tests {
             ),
             (HirExpr::Error, Span::empty_at(0)),
             (
-                hir_tuple_index(Span::new(0, 8), hir_ident(Span::new(0, 5), IdentId::from_u32(0)), 0),
+                hir_tuple_index(
+                    Span::new(0, 8),
+                    hir_ident(Span::new(0, 5), IdentId::from_u32(0)),
+                    0,
+                ),
                 Span::new(0, 8),
             ),
             (
