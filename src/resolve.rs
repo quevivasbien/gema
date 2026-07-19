@@ -14,6 +14,31 @@ use crate::symbol::{ScopeId, ScopeTree, SymbolId, SymbolKind};
 /// Every identifier is resolved to a `SymbolId` in the returned
 /// `ScopeTree`.  Errors (undefined names, break/continue outside
 /// loops) are pushed to `diagnostics`.
+/// Perform name resolution on a parsed AST, starting from a
+/// pre-populated scope tree (used by the module linker).
+///
+/// The `scope_tree` already contains imported symbols from dependency
+/// modules.  This function resolves the module's own definitions and
+/// name references against both imports and local definitions.
+pub fn resolve_names_in_context(
+    arena: &AstArena,
+    root: NodeId,
+    interner: &mut Interner,
+    diagnostics: &mut DiagnosticsBag,
+    file_idx: usize,
+    scope_tree: ScopeTree,
+) -> ScopeTree {
+    let mut resolver = Resolver::new_with_scope(arena, interner, diagnostics, file_idx, scope_tree);
+    resolver.current_scope = resolver.scope_tree.root_scope;
+    resolver.resolve_node(root);
+    resolver.finish()
+}
+
+/// Perform name resolution on a parsed AST.
+///
+/// Every identifier is resolved to a `SymbolId` in the returned
+/// `ScopeTree`.  Errors (undefined names, break/continue outside
+/// loops) are pushed to `diagnostics`.
 pub fn resolve_names(
     arena: &AstArena,
     root: NodeId,
@@ -45,13 +70,37 @@ impl<'a> Resolver<'a> {
         diagnostics: &'a mut DiagnosticsBag,
         file_idx: usize,
     ) -> Self {
+        let scope_tree = ScopeTree::new();
+        let root_scope = scope_tree.root_scope;
         Self {
             arena,
             interner,
             diagnostics,
             file_idx,
-            scope_tree: ScopeTree::new(),
-            current_scope: ScopeTree::new().root_scope, // placeholder, overwritten
+            scope_tree,
+            current_scope: root_scope,
+            loop_stack: Vec::new(),
+        }
+    }
+
+    /// Create a resolver with an existing (pre-populated) scope tree.
+    /// Used by the module linker to start resolution with imports
+    /// already injected into the root scope.
+    fn new_with_scope(
+        arena: &'a AstArena,
+        interner: &'a mut Interner,
+        diagnostics: &'a mut DiagnosticsBag,
+        file_idx: usize,
+        scope_tree: ScopeTree,
+    ) -> Self {
+        let current_scope = scope_tree.root_scope;
+        Self {
+            arena,
+            interner,
+            diagnostics,
+            file_idx,
+            scope_tree,
+            current_scope,
             loop_stack: Vec::new(),
         }
     }
@@ -301,6 +350,20 @@ impl<'a> Resolver<'a> {
     fn resolve_impl_block(&mut self, node: NodeId, i: &ImplBlock) {
         self.record_scope(node);
 
+        // Register an `Impl` symbol so the monomorphizer can find it
+        // via scope-tree iteration.
+        let impl_name = self.mangle_impl_name(i);
+        let impl_name_id = self.interner.intern(&impl_name);
+        self.define(
+            impl_name_id,
+            SymbolKind::Impl {
+                trait_name: i.trait_name,
+                self_type: i.self_type.clone(),
+                member_nodes: i.members.clone(),
+            },
+            node,
+        );
+
         // Create a scope for the impl's members where `Self` is bound
         // to the implementing type.
         self.with_child_scope(|resolver| {
@@ -317,6 +380,48 @@ impl<'a> Resolver<'a> {
                 resolver.resolve_node(member);
             }
         });
+    }
+
+    /// Generate a unique mangled name for an impl block to avoid
+    /// collision with the corresponding trait symbol.
+    fn mangle_impl_name(&self, i: &ImplBlock) -> String {
+        let trait_name = self.interner.lookup(i.trait_name);
+        let type_desc = self.type_node_desc(&i.self_type);
+        format!("$impl_{trait_name}_{type_desc}")
+    }
+
+    /// Produce a short type descriptor string from a TypeNode for
+    /// impl name mangling.
+    fn type_node_desc(&self, ty: &TypeNode) -> String {
+        match ty {
+            TypeNode::Int => "Int".to_string(),
+            TypeNode::Num => "Num".to_string(),
+            TypeNode::Str => "Str".to_string(),
+            TypeNode::Bool => "Bool".to_string(),
+            TypeNode::Void => "Void".to_string(),
+            TypeNode::SelfType => "Self".to_string(),
+            TypeNode::Named { name, params } => {
+                let base = self.interner.lookup(*name);
+                if params.is_empty() {
+                    base.to_string()
+                } else {
+                    let params_str: Vec<String> =
+                        params.iter().map(|p| self.type_node_desc(p)).collect();
+                    format!("{base}_{}", params_str.join("_"))
+                }
+            }
+            TypeNode::Func { .. } => "Func".to_string(),
+            TypeNode::Arr(..) => "Arr".to_string(),
+            TypeNode::Iter(..) => "Iter".to_string(),
+            TypeNode::MutArr(..) => "MutArr".to_string(),
+            TypeNode::Tup(..) => "Tup".to_string(),
+            TypeNode::Dict { .. } => "Dict".to_string(),
+            TypeNode::MutDict { .. } => "MutDict".to_string(),
+            TypeNode::Set(..) => "Set".to_string(),
+            TypeNode::MutSet(..) => "MutSet".to_string(),
+            TypeNode::Maybe(..) => "Maybe".to_string(),
+            TypeNode::TypeParamRef { name, .. } => self.interner.lookup(*name).to_string(),
+        }
     }
 
     // ── Variable definitions and assignments ──

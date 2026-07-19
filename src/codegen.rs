@@ -1,7 +1,8 @@
 /// HIR → JavaScript codegen.
+use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use crate::ast::AstArena;
+use crate::ast::{AstArena, NodeId};
 use crate::builtins;
 use crate::builtins::BuiltinFunc;
 use crate::hir::HirExpr;
@@ -22,7 +23,8 @@ pub fn codegen(
     interner: &mut Interner,
 ) -> String {
     let hir = monomorphize::monomorphize(hir, arena, scope_tree, type_arena, interner);
-    let mut w = JsWriter::new(&*interner);
+    let mut fn_names = FnNameTable::new();
+    let mut w = JsWriter::new(&*interner, &mut fn_names);
     w.emit_expr(&hir, true);
     w.finish()
 }
@@ -37,18 +39,19 @@ pub fn codegen_inner(
     scope_tree: &ScopeTree,
     type_arena: &TypeArena,
     interner: &mut Interner,
+    fn_names: &mut FnNameTable,
     return_last: bool,
 ) -> String {
     let hir = monomorphize::monomorphize(hir, arena, scope_tree, type_arena, interner);
     let stmts = match &hir {
         HirExpr::Block(b) => &b.stmts,
         other => {
-            let mut w = JsWriter::new(interner);
+            let mut w = JsWriter::new(interner, fn_names);
             w.emit_expr(other, false);
             return w.finish_inner();
         }
     };
-    let mut w = JsWriter::new(interner);
+    let mut w = JsWriter::new(interner, fn_names);
     for (i, stmt) in stmts.iter().enumerate() {
         let is_last = i == stmts.len() - 1;
         if is_last && return_last {
@@ -64,8 +67,34 @@ pub fn codegen_inner(
     w.finish_inner()
 }
 
+/// Shared function name table for cross-module machine name uniqueness.
+/// All `codegen_inner` calls in the same compilation share one instance.
+#[derive(Clone, Debug, Default)]
+pub struct FnNameTable {
+    counter: usize,
+    names: FxHashMap<NodeId, String>,
+}
+
+impl FnNameTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Get or assign a unique machine name for a function definition node.
+    pub fn name(&mut self, node_id: NodeId, fn_name: &str) -> String {
+        if let Some(name) = self.names.get(&node_id) {
+            return name.clone();
+        }
+        let name = format!("${}_{}", fn_name, self.counter);
+        self.counter += 1;
+        self.names.insert(node_id, name.clone());
+        name
+    }
+}
+
 struct JsWriter<'a> {
     interner: &'a Interner,
+    fn_names: &'a mut FnNameTable,
     lines: Vec<String>,
     current: String,
     indent: usize,
@@ -79,9 +108,10 @@ struct JsWriter<'a> {
 }
 
 impl<'a> JsWriter<'a> {
-    fn new(interner: &'a Interner) -> Self {
+    fn new(interner: &'a Interner, fn_names: &'a mut FnNameTable) -> Self {
         Self {
             interner,
+            fn_names,
             lines: Vec::new(),
             current: String::new(),
             indent: 0,
@@ -165,9 +195,9 @@ impl<'a> JsWriter<'a> {
         self.needed_helpers.insert(name);
     }
 
-    /// Render a HirExpr to a string without side effects on the writer.
-    fn expr_to_string(&self, expr: &HirExpr) -> String {
-        let mut buf = JsWriter::new(self.interner);
+    /// Render a HirExpr to a string without side effects on the main writer.
+    fn expr_to_string(&mut self, expr: &HirExpr) -> String {
+        let mut buf = JsWriter::new(self.interner, self.fn_names);
         buf.emit_expr(expr, true);
         buf.newline();
         buf.current.trim().to_string()
@@ -309,8 +339,14 @@ impl<'a> JsWriter<'a> {
     // ── Identifiers ──
 
     fn emit_ident(&mut self, e: &hir::IdentNode) {
-        let name = self.interner.lookup(e.name);
-        self.write(&self.safe_name(name));
+        if let Some(def_node) = e.def_node {
+            let name = self.interner.lookup(e.name);
+            let machine_name = self.fn_name(def_node, name);
+            self.write(&machine_name);
+        } else {
+            let name = self.interner.lookup(e.name);
+            self.write(&self.safe_name(name));
+        }
     }
 
     // ── Collections ──
@@ -669,8 +705,9 @@ impl<'a> JsWriter<'a> {
     // ── Functions ──
 
     fn emit_func_def(&mut self, e: &hir::FuncDef) {
-        let name = self.interner.lookup(e.name);
-        self.write(&format!("function {}(", self.safe_name(name)));
+        let fn_name = self.interner.lookup(e.name);
+        let machine_name = self.fn_name(e.node_id, fn_name);
+        self.write(&format!("function {}(", machine_name));
         for (i, p) in e.params.iter().enumerate() {
             if i > 0 {
                 self.write(", ");
@@ -708,6 +745,9 @@ impl<'a> JsWriter<'a> {
         self.indent_out();
         self.newline();
         self.write("}");
+    }
+    fn fn_name(&mut self, node_id: NodeId, name: &str) -> String {
+        self.fn_names.name(node_id, name)
     }
 
     fn emit_anon_func(&mut self, e: &hir::AnonFunc) {
@@ -756,7 +796,6 @@ impl<'a> JsWriter<'a> {
 
     fn emit_call(&mut self, e: &hir::Call) {
         let name = self.interner.lookup(e.name);
-        let safe = self.safe_name(name);
 
         if e.is_builtin
             && let Some(builtin) = BuiltinFunc::try_from_name(name)
@@ -770,7 +809,9 @@ impl<'a> JsWriter<'a> {
             return;
         }
 
-        self.write(&safe);
+        // Use the machine name for user-defined function calls.
+        let machine_name = self.fn_name(e.def_node, name);
+        self.write(&machine_name);
         self.write("(");
         for (i, arg) in e.args.iter().enumerate() {
             if i > 0 {
@@ -966,15 +1007,15 @@ mod tests {
     #[test]
     fn func_def() {
         let js = compile("func add(x: Int, y: Int): Int { x + y }");
-        assert!(js.contains("function add("));
+        assert!(js.contains("function $add_0("));
         assert!(js.contains("x + y"));
     }
     #[test]
     fn function_call() {
         let js = compile("func foo(x: Int): Int { x }; foo(1i)");
-        assert!(js.contains("foo(1n"));
+        assert!(js.contains("$foo_0(1n"));
     }
-    #[test]
+#[test]
     fn array_lit() {
         js_contains("[1i, 2i, 3i]", "[1n, 2n, 3n]");
     }

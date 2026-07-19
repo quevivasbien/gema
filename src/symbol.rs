@@ -23,6 +23,9 @@ pub struct Symbol {
     pub kind: SymbolKind,
     /// The AST node where this symbol was defined.
     pub def_node: NodeId,
+    /// The file_idx of the module that exported this symbol,
+    /// or `None` for local symbols.
+    pub source_module: Option<usize>,
 }
 
 /// What kind of thing a symbol represents.
@@ -112,6 +115,10 @@ pub struct ScopeTree {
     pub node_scope: FxHashMap<NodeId, ScopeId>,
     /// Maps AST nodes (Var, Call) to their resolved SymbolId.
     pub resolved_refs: FxHashMap<NodeId, SymbolId>,
+    /// Maps AST Call/TypeAssociated nodes to the `def_node` of the
+    /// overload selected by type inference. Populated during inference,
+    /// consumed during lowering.
+    pub inferred_defs: FxHashMap<NodeId, NodeId>,
 }
 
 impl ScopeTree {
@@ -129,6 +136,7 @@ impl ScopeTree {
             root_scope: root,
             node_scope: FxHashMap::default(),
             resolved_refs: FxHashMap::default(),
+            inferred_defs: FxHashMap::default(),
         }
     }
 
@@ -158,6 +166,7 @@ impl ScopeTree {
             name,
             kind,
             def_node,
+            source_module: None,
         });
         self.scopes[scope].symbols.entry(name).or_default().push(id);
         id

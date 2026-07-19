@@ -306,6 +306,7 @@ impl<'a> Monomorphizer<'a> {
                     let desc_ident = HirExpr::Ident(IdentNode {
                         span: c.span,
                         name: desc.param_name,
+                        def_node: None,
                     });
                     let field_access = HirExpr::FieldAccess(FieldAccess {
                         span: c.span,
@@ -423,6 +424,7 @@ impl<'a> Monomorphizer<'a> {
                 let func_ref = HirExpr::Ident(IdentNode {
                     span: Span::empty_at(0),
                     name: impl_func_name.unwrap_or(req_name),
+                    def_node: None,
                 });
                 methods.push((req_name, func_ref));
             }

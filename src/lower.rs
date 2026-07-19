@@ -60,18 +60,25 @@ impl<'a> Lowerer<'a> {
             }),
             ast::Expr::NoneLit(e) => HirExpr::NoneLit(hir::NoneLit { span: e.span }),
 
-            // ── Variable reference ──
-            ast::Expr::Var(v) => HirExpr::Ident(hir::IdentNode {
-                span: v.span,
-                name: v.name,
-            }),
-
+            ast::Expr::Var(v) => {
+                let def_node = if !v.template_types.is_empty() {
+                    self.scope_tree.inferred_defs.get(&node).copied()
+                } else {
+                    None
+                };
+                HirExpr::Ident(hir::IdentNode {
+                    span: v.span,
+                    name: v.name,
+                    def_node,
+                })
+            }
             // ── Collections ──
             ast::Expr::ArrLit(a) => self.lower_array(a),
             ast::Expr::TupleLit(t) => self.lower_tuple(t),
             ast::Expr::RangeIter(r) => self.lower_range(r),
 
             // ── Definitions (dropped from HIR) ──
+            // TODO: These shouldn't emit Error nodes -- that is confusing
             ast::Expr::StructDef(_)
             | ast::Expr::EnumDef(_)
             | ast::Expr::TraitDef(_)
@@ -128,7 +135,7 @@ impl<'a> Lowerer<'a> {
             }),
 
             // ── Functions ──
-            ast::Expr::FuncDef(f) => self.lower_func_def(f),
+            ast::Expr::FuncDef(f) => self.lower_func_def(f, node),
             ast::Expr::AnonFunc(a) => self.lower_anon_func(a),
 
             // ── Pattern matching ──
@@ -181,11 +188,28 @@ impl<'a> Lowerer<'a> {
         let name_str = self.interner.lookup(c.name);
         let is_builtin = BuiltinFunc::try_from_name(name_str).is_some();
 
+        // Resolve the function's def_node: prefer the overload selected
+        // by type inference, falling back to the resolver's choice.
+        let def_node = self
+            .scope_tree
+            .inferred_defs
+            .get(&node)
+            .copied()
+            .or_else(|| {
+                self.scope_tree
+                    .resolved_refs
+                    .get(&node)
+                    .and_then(|&sid| self.scope_tree.symbols.get(sid))
+                    .map(|sym| sym.def_node)
+            })
+            .unwrap_or(node);
+
         HirExpr::Call(hir::Call {
             span: c.span,
             name: c.name,
             args: c.args.iter().map(|&a| self.lower_expr(a)).collect(),
             is_builtin,
+            def_node,
         })
     }
 
@@ -196,7 +220,6 @@ impl<'a> Lowerer<'a> {
             args: d.args.iter().map(|&a| self.lower_expr(a)).collect(),
         })
     }
-
     // ── Struct constructor ──
 
     /// Check whether `name` at `node` resolves to a struct definition.
@@ -339,7 +362,7 @@ impl<'a> Lowerer<'a> {
 
     // ── Functions ──
 
-    fn lower_func_def(&mut self, f: &ast::FuncDef) -> HirExpr {
+    fn lower_func_def(&mut self, f: &ast::FuncDef, node: NodeId) -> HirExpr {
         HirExpr::FuncDef(hir::FuncDef {
             span: f.span,
             name: f.name,
@@ -357,6 +380,7 @@ impl<'a> Lowerer<'a> {
                     trait_bounds: tp.traits.clone(),
                 })
                 .collect(),
+            node_id: node,
         })
     }
 
@@ -454,10 +478,24 @@ impl<'a> Lowerer<'a> {
                 })
             }
             None => {
-                // Not an enum — lower the inner expression as-is.
-                // This handles things like `Int::zero()` where the
-                // type-associated call will be resolved by scope.
-                self.lower_expr(t.inner)
+                // Not an enum. Check if this is a function reference with
+                // a type annotation (e.g. `foo[Num]`), and if so, resolve
+                // to the machine name via inferred_defs.
+                match &self.arena[t.inner] {
+                    ast::Expr::Var(v) => {
+                        let def_node = self
+                            .scope_tree
+                            .inferred_defs
+                            .get(&node)
+                            .copied();
+                        HirExpr::Ident(hir::IdentNode {
+                            span: v.span,
+                            name: v.name,
+                            def_node,
+                        })
+                    }
+                    _ => self.lower_expr(t.inner),
+                }
             }
         }
     }

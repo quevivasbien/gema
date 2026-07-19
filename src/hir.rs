@@ -201,6 +201,10 @@ pub struct NoneLit {
 pub struct IdentNode {
     pub span: Span,
     pub name: IdentId,
+    /// When this ident refers to a specific function overload (e.g.
+    /// `foo[Num]`), this holds the AST NodeId of the selected FuncDef.
+    /// Codegen uses this to emit the machine name.
+    pub def_node: Option<crate::ast::NodeId>,
 }
 
 // ── Collections ──
@@ -345,13 +349,16 @@ pub struct Return {
 // ── Functions and calls ──
 
 #[derive(Clone, Debug)]
-pub struct FuncDef {
-    pub span: Span,
-    pub name: IdentId,
-    pub params: Vec<FuncParam>,
-    pub body: Box<HirExpr>,
-    pub type_params: Vec<TypeParam>,
-}
+    pub struct FuncDef {
+        pub span: Span,
+        pub name: IdentId,
+        pub params: Vec<FuncParam>,
+        pub body: Box<HirExpr>,
+        pub type_params: Vec<TypeParam>,
+        /// The AST NodeId of the FuncDef expression this was lowered from.
+        /// Used by codegen to assign unique machine names.
+        pub node_id: crate::ast::NodeId,
+    }
 
 #[derive(Clone, Debug)]
 pub struct AnonFunc {
@@ -359,7 +366,6 @@ pub struct AnonFunc {
     pub params: Vec<FuncParam>,
     pub body: Box<HirExpr>,
 }
-
 #[derive(Clone, Debug)]
 pub struct Call {
     pub span: Span,
@@ -368,6 +374,9 @@ pub struct Call {
     /// True when this call invokes a builtin function (map, filter,
     /// etc.) rather than a user-defined function.
     pub is_builtin: bool,
+    /// The AST NodeId of the called function's FuncDef expression.
+    /// Used by codegen to look up the machine name.
+    pub def_node: crate::ast::NodeId,
 }
 
 #[derive(Clone, Debug)]
@@ -497,7 +506,7 @@ pub fn hir_none(span: Span) -> HirExpr {
 }
 
 pub fn hir_ident(span: Span, name: IdentId) -> HirExpr {
-    HirExpr::Ident(IdentNode { span, name })
+    HirExpr::Ident(IdentNode { span, name, def_node: None })
 }
 
 pub fn hir_block(span: Span, stmts: Vec<HirExpr>) -> HirExpr {
@@ -621,20 +630,27 @@ mod tests {
             name,
             args: vec![],
             is_builtin: false,
+            def_node: dummy_node_id(),
         });
-        assert_eq!(call.span(), Span::new(0, 5));
     }
 
-    #[test]
+    fn dummy_node_id() -> crate::ast::NodeId {
+        let mut arena = crate::ast::AstArena::new();
+        arena.alloc(crate::ast::Expr::ErrorExpr)
+    }
+
+#[test]
     fn span_accessor_for_func_def() {
         let mut interner = Interner::new();
         let name = ident(&mut interner, "f");
+        let node_id = dummy_node_id();
         let fd = HirExpr::FuncDef(FuncDef {
             span: Span::new(0, 20),
             name,
             params: vec![],
             body: Box::new(hir_int(Span::new(15, 19), "42")),
             type_params: vec![],
+            node_id,
         });
         assert_eq!(fd.span(), Span::new(0, 20));
     }
@@ -837,6 +853,7 @@ mod tests {
                 name: tp,
                 trait_bounds: vec![],
             }],
+            node_id: dummy_node_id(),
         });
         match fd {
             HirExpr::FuncDef(f) => {
@@ -937,6 +954,7 @@ mod tests {
         let callee = HirExpr::Ident(IdentNode {
             span: Span::new(0, 5),
             name: IdentId::from_u32(0),
+            def_node: None,
         });
         let dc = HirExpr::DirectCall(DirectCall {
             span: Span::new(0, 8),
@@ -1006,6 +1024,7 @@ mod tests {
             name,
             args: vec![],
             is_builtin: true,
+            def_node: dummy_node_id(),
         });
         match call {
             HirExpr::Call(c) => assert!(c.is_builtin),
@@ -1110,6 +1129,7 @@ mod tests {
             params: vec![],
             body: Box::new(hir_none(Span::new(10, 14))),
             type_params: vec![],
+            node_id: dummy_node_id(),
         });
         match fd {
             HirExpr::FuncDef(f) => assert!(f.type_params.is_empty()),

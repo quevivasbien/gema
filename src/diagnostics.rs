@@ -126,6 +126,12 @@ impl DiagnosticsBag {
         self.diagnostics.len()
     }
 
+    /// Truncate the diagnostics to a given length.
+    /// Used by type inference to roll back diagnostics during overload trial.
+    pub fn truncate(&mut self, len: usize) {
+        self.diagnostics.truncate(len);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.diagnostics.is_empty()
     }

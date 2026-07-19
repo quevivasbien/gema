@@ -9,7 +9,13 @@ See [README.md](README.md) for an overview of the language syntax and features.
 You should use this as your reference for tests and implementation of the parser.
 Ask the user for clarification if you are not sure about some feature of the
 language design, or if you think there is some aspect of the design that could
-be improved.
+be improved. Be aware that some language features have intentionally be changed
+as part of the rewrite. See the end of the [`ROADMAP-RUST-REWRITE.md`](./ROADMAP-RUST-REWRITE.md)
+doc for a list of which features have changed.
+
+The `docs/` directory contains some information about some of the language design
+details and how it is implemented in the Rust rewrite. You can use this as a reference,
+and also add your own information based on what you discover and what the user tells you.
 
 **GitHub:** https://github.com/quevivasbien/gema
 
@@ -280,3 +286,7 @@ When you are are wrapping up any changes:
 
 If at any point you are stuck, or if you need to clarify anything, or
 suggest a deviation from the existing design, stop and ask the user.
+
+If you are working on something and realize that the implementation may
+require a more significant refactor than you expected, stop working
+and consult with the user.

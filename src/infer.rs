@@ -458,6 +458,43 @@ impl<'a> Inferer<'a> {
     // ── Variables ──
 
     fn infer_var(&mut self, node: NodeId, v: &Var) -> TypeId {
+        // If the variable has template type annotations (e.g. `foo[Num]`),
+        // resolve to the matching function overload.
+        if !v.template_types.is_empty() {
+            let scope = self
+                .scope_tree
+                .node_scope
+                .get(&node)
+                .copied()
+                .unwrap_or(self.scope_tree.root_scope);
+            let type_annotation = self.lower_type_node(&v.template_types[0]);
+
+            let func_def_nodes: Vec<NodeId> = self
+                .scope_tree
+                .lookup_functions(scope, v.name)
+                .iter()
+                .map(|sym| sym.def_node)
+                .collect();
+
+            for &def_node in &func_def_nodes {
+                let func_type = self.function_type_from_def(def_node);
+                if let TypeKind::Func { params, .. } =
+                    self.type_arena.get(func_type).clone()
+                {
+                    if params.is_empty() {
+                        continue;
+                    }
+                    let saved_diag_len = self.diagnostics.len();
+                    let unified = self.unify(params[0], type_annotation);
+                    if !matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                        self.scope_tree.inferred_defs.insert(node, def_node);
+                        return self.resolve(func_type);
+                    }
+                    self.diagnostics.truncate(saved_diag_len);
+                }
+            }
+        }
+
         // Walk the scope stack from top (innermost) to bottom.
         for frame in self.var_type_stack.iter().rev() {
             if let Some(&(tid, _)) = frame.get(&v.name) {
@@ -548,8 +585,6 @@ impl<'a> Inferer<'a> {
             );
             return self.type_arena.unknown_id();
         }
-
-        // For each overload, try to unify params with args.
         for (def_node, cached_type) in func_info {
             let func_type = if let Some(ct) = cached_type {
                 ct
@@ -562,7 +597,8 @@ impl<'a> Inferer<'a> {
                     if params.len() != arg_types.len() {
                         continue;
                     }
-                    let saved = self.bindings.clone();
+                    let saved_bindings = self.bindings.clone();
+                    let saved_diag_len = self.diagnostics.len();
                     let mut ok = true;
                     for (param, arg) in params.iter().zip(arg_types.iter()) {
                         let unified = self.unify(*param, *arg);
@@ -572,10 +608,13 @@ impl<'a> Inferer<'a> {
                         }
                     }
                     if !ok {
-                        self.bindings = saved;
+                        self.bindings = saved_bindings;
+                        self.diagnostics.truncate(saved_diag_len);
                         continue;
                     }
                     let resolved = self.resolve(ret);
+                    // Record which overload was selected for this call
+                    self.scope_tree.inferred_defs.insert(node, def_node);
                     return resolved;
                 }
                 _ => continue,
@@ -1235,10 +1274,14 @@ impl<'a> Inferer<'a> {
         // Extract the enum type name and any explicit template args.
         let (enum_name, explicit_args) = match &t.type_node {
             TypeNode::Named { name, params } => (*name, params.clone()),
-            _ => return self.infer_expr(t.inner),
+            _ => {
+                if let Expr::Var(v) = &self.arena[t.inner] {
+                    return self.infer_typed_function_ref(node, v, t);
+                }
+                return self.infer_expr(t.inner);
+            }
         };
 
-        // Find the enum definition in scope.
         let scope = self
             .scope_tree
             .node_scope
@@ -1247,10 +1290,15 @@ impl<'a> Inferer<'a> {
             .unwrap_or(self.scope_tree.root_scope);
         let (variants, type_param_names) = match self.find_enum(scope, enum_name) {
             Some(info) => info,
-            None => return self.infer_expr(t.inner),
+            None => {
+                if let Expr::Var(v) = &self.arena[t.inner] {
+                    eprintln!("DEBUG: TypeAssociated Var, calling infer_typed_function_ref node={:?}", node);
+                    return self.infer_typed_function_ref(node, v, t);
+                }
+                return self.infer_expr(t.inner);
+            }
         };
 
-        // Build concrete type args from explicit params or fresh variables.
         let mut generic_params = FxHashMap::default();
         let mut concrete_args = Vec::new();
         for (i, tp_name) in type_param_names.iter().enumerate() {
@@ -1263,14 +1311,14 @@ impl<'a> Inferer<'a> {
             generic_params.insert(*tp_name, tid);
         }
 
-        // Handle the right-hand side: Variant(args) or plain Variant.
         match &self.arena[t.inner] {
             Expr::Call(c) => {
                 let variant = variants.iter().find(|v| v.name == c.name);
                 match variant {
                     Some(v) => {
                         if let Some(ref data_type) = v.type_node {
-                            let lowered = self.lower_type_node_with(data_type, &generic_params);
+                            let lowered =
+                                self.lower_type_node_with(data_type, &generic_params);
                             for &arg in &c.args {
                                 let arg_ty = self.infer_expr(arg);
                                 self.unify(lowered, arg_ty);
@@ -1279,46 +1327,104 @@ impl<'a> Inferer<'a> {
                             for &arg in &c.args {
                                 self.infer_expr(arg);
                             }
-                            let name_str = self.interner.lookup(v.name);
                             self.emit_error(
                                 self.arena[node].span(),
-                                format!("'{}' does not take arguments", name_str),
+                                format!(
+                                    "'{}' does not take arguments",
+                                    self.interner.lookup(v.name)
+                                ),
                             );
                         }
+                        let resolved: Vec<TypeId> =
+                            concrete_args.iter().map(|&a| self.resolve(a)).collect();
+                        self.type_arena.intern(TypeKind::Custom {
+                            name: enum_name,
+                            args: resolved,
+                        })
                     }
                     None => {
-                        let name_str = self.interner.lookup(c.name);
                         self.emit_error(
                             self.arena[node].span(),
-                            format!("unknown variant '{}'", name_str),
+                            format!(
+                                "unknown variant '{}'",
+                                self.interner.lookup(c.name)
+                            ),
                         );
-                        return self.type_arena.unknown_id();
+                        self.type_arena.unknown_id()
                     }
                 }
             }
             Expr::Var(v) => {
                 let variant = variants.iter().find(|x| x.name == v.name);
                 if variant.is_none() {
-                    let name_str = self.interner.lookup(v.name);
                     self.emit_error(
                         self.arena[node].span(),
-                        format!("unknown variant '{}'", name_str),
+                        format!(
+                            "unknown variant '{}'",
+                            self.interner.lookup(v.name)
+                        ),
                     );
-                    return self.type_arena.unknown_id();
+                    self.type_arena.unknown_id()
+                } else {
+                    let resolved: Vec<TypeId> =
+                        concrete_args.iter().map(|&a| self.resolve(a)).collect();
+                    self.type_arena.intern(TypeKind::Custom {
+                        name: enum_name,
+                        args: resolved,
+                    })
                 }
             }
-            _ => return self.infer_expr(t.inner),
+            _ => self.infer_expr(t.inner),
         }
-
-        // Build result type AFTER unification so InferVars are resolved.
-        let resolved_args: Vec<TypeId> = concrete_args.iter().map(|&a| self.resolve(a)).collect();
-        self.type_arena.intern(TypeKind::Custom {
-            name: enum_name,
-            args: resolved_args,
-        })
     }
 
-    /// Find an `Enum` symbol by name in the scope chain.
+    /// Infer the type of a function reference with a type annotation
+    /// (e.g. `foo[Num]`). Finds the matching overload and records it
+    /// in `inferred_defs` so the lowerer can emit the machine name.
+    fn infer_typed_function_ref(
+        &mut self,
+        node: NodeId,
+        v: &crate::ast::Var,
+        t: &TypeAssociated,
+    ) -> TypeId {
+        let fn_name = v.name;
+        let type_annotation = self.lower_type_node(&t.type_node);
+
+        let scope = self
+            .scope_tree
+            .node_scope
+            .get(&node)
+            .copied()
+            .unwrap_or(self.scope_tree.root_scope);
+
+        // Collect def_nodes first to avoid borrow conflicts.
+        let func_def_nodes: Vec<NodeId> = self
+            .scope_tree
+            .lookup_functions(scope, fn_name)
+            .iter()
+            .map(|sym| sym.def_node)
+            .collect();
+
+        for &def_node in &func_def_nodes {
+            let func_type = self.function_type_from_def(def_node);
+            if let TypeKind::Func { params, .. } = self.type_arena.get(func_type).clone() {
+                if params.is_empty() {
+                    continue;
+                }
+                // Check if the first parameter type matches the annotation
+                let saved_diag_len = self.diagnostics.len();
+                let unified = self.unify(params[0], type_annotation);
+                if !matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                    self.scope_tree.inferred_defs.insert(node, def_node);
+                    return self.resolve(func_type);
+                }
+                self.diagnostics.truncate(saved_diag_len);
+            }
+        }
+
+        // No matching overload found — fall back to regular inference
+        self.infer_expr(t.inner)
+    }
     fn find_enum(
         &self,
         from: ScopeId,
@@ -1338,7 +1444,7 @@ impl<'a> Inferer<'a> {
                 }
             }
             match self.scope_tree.scopes[current].parent {
-                Some(p) => current = p,
+                Some(parent) => current = parent,
                 None => return None,
             }
         }
