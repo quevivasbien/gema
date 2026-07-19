@@ -7,17 +7,21 @@
 use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
-
+use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use crate::ast::*;
+use crate::codegen::{codegen_inner, FnNameTable};
 use crate::diagnostics::DiagnosticsBag;
+use crate::infer::infer_types;
 use crate::interner::{IdentId, Interner};
-use crate::source::{SourceMap, SourceText, Span};
-use crate::symbol::{ScopeTree, SymbolId, SymbolKind};
+use crate::lower::lower;
 use crate::parse::parse;
 use crate::resolve::resolve_names_in_context;
 use crate::scan::scan;
+use crate::source::{SourceMap, SourceText, Span};
+use crate::symbol::{ScopeTree, SymbolId, SymbolKind};
+use crate::types::TypeArena;
 
 // ---------------------------------------------------------------------------
 // Module graph types
@@ -476,10 +480,16 @@ pub fn link_modules(
         }
 
         // Collect exports (symbols defined in this module, not imported).
-        // Walk ALL scopes because the root Block creates a child scope,
-        // and top-level definitions end up in that child scope.
+        // Only include top-level definitions — symbols in scopes whose
+        // parent is the root scope (or the root scope itself when imports
+        // haven't been moved yet). This excludes function parameters.
         let mut export_set = FxHashSet::default();
-        for (_, scope) in &resolved_scope.scopes {
+        for (sid, scope) in &resolved_scope.scopes {
+            let is_top_level = sid == resolved_scope.root_scope
+                || scope.parent == Some(resolved_scope.root_scope);
+            if !is_top_level {
+                continue;
+            }
             for (name, ids) in &scope.symbols {
                 for &sid in ids {
                     if resolved_scope.symbols[sid].source_module.is_none() {
@@ -691,9 +701,140 @@ fn find_other_export(
     "<unknown>".to_string()
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+/// Lower, codegen, and concatenate all modules into a single JS string
+/// wrapped in the outer IIFE.  Runs type inference on each module
+/// (in topological order), then lowers and codegens each module,
+/// adding namespace objects for dependency modules and import
+/// bindings for the entry module.
+///
+/// `modules` must have `scope_tree` populated (from [`link_modules`]).
+pub fn codegen_modules(
+    graph: &ModuleGraph,
+    modules: &[Module],
+    arena: &AstArena,
+    interner: &mut Interner,
+    type_arena: &mut TypeArena,
+) -> String {
+    // Run type inference for each module (topo order, deps first)
+    let mut modules = modules.to_vec();
+    for &module_idx in &graph.topo_order {
+        let root = modules[module_idx].root;
+        let file_idx = modules[module_idx].file_idx;
+        let st = modules[module_idx].scope_tree.as_mut().unwrap();
+        let mut diagnostics = DiagnosticsBag::new();
+        infer_types(arena, st, type_arena, interner, root, &mut diagnostics, file_idx);
+    }
+
+    // Lower + codegen for each module
+    let mut fn_names = FnNameTable::new();
+    let mut module_js: Vec<(usize, String)> = Vec::new();
+    for &module_idx in &graph.topo_order {
+        let module = &modules[module_idx];
+        let st = module.scope_tree.as_ref().unwrap();
+        let is_entry = module_idx == graph.entry;
+        let hir = lower(arena, module.root, st, interner);
+        let js = codegen_inner(hir, arena, st, type_arena, interner, &mut fn_names, is_entry);
+        module_js.push((module_idx, js));
+    }
+
+    // Assign namespace variable names to non-entry modules
+    let mut ns_for_file: FxHashMap<usize, String> = FxHashMap::default();
+    let mut ns_id = 0usize;
+    for &module_idx in &graph.topo_order {
+        if module_idx != graph.entry {
+            let ns_name = format!("__gema_{}", ns_id);
+            ns_id += 1;
+            ns_for_file.insert(modules[module_idx].file_idx, ns_name);
+        }
+    }
+
+    // Build the combined output with namespace objects and import bindings
+    let mut out_lines: Vec<String> = Vec::new();
+    for &(module_idx, ref js) in &module_js {
+        let is_entry = module_idx == graph.entry;
+        out_lines.push(js.clone());
+
+        if is_entry {
+            // Entry module: emit import bindings before the entry code
+            let st = modules[module_idx].scope_tree.as_ref().unwrap();
+            let mut bindings: Vec<String> = Vec::new();
+            let mut seen: FxHashSet<IdentId> = FxHashSet::default();
+            for (_, scope) in &st.scopes {
+                for (name, ids) in &scope.symbols {
+                    for &sid in ids {
+                        if !seen.insert(*name) {
+                            continue;
+                        }
+                        let sym = &st.symbols[sid];
+                        if matches!(sym.kind, SymbolKind::Variable { .. }) {
+                            continue;
+                        }
+                        if let Some(src_file) = sym.source_module
+                            && let Some(ns_name) = ns_for_file.get(&src_file)
+                        {
+                            let local_name = interner.lookup(*name);
+                            let exported_name = interner.lookup(*name);
+                            bindings.push(format!(
+                                "const {} = {}.{};", local_name, ns_name, exported_name
+                            ));
+                        }
+                    }
+                }
+            }
+            if !bindings.is_empty() {
+                let idx = out_lines.len() - 1;
+                let mut with_bindings = bindings.join("\n");
+                with_bindings.push('\n');
+                with_bindings.push_str(js);
+                out_lines[idx] = with_bindings;
+            }
+        } else {
+            // Dependency module: emit namespace const after the code
+            if let Some(ns_name) = ns_for_file.get(&modules[module_idx].file_idx) {
+                let st = modules[module_idx].scope_tree.as_ref().unwrap();
+                let mut entries: Vec<String> = Vec::new();
+                let mut seen: FxHashSet<IdentId> = FxHashSet::default();
+                for &export_name in &modules[module_idx].exports {
+                    if !seen.insert(export_name) {
+                        continue;
+                    }
+                    let mut machine_name: Option<String> = None;
+                    'search: for (_, scope) in &st.scopes {
+                        if let Some(ids) = scope.symbols.get(&export_name) {
+                            for &sid in ids.iter().rev() {
+                                let sym = &st.symbols[sid];
+                                if sym.source_module.is_none() {
+                                    if let Some(mn) = fn_names.get_name(sym.def_node) {
+                                        machine_name = Some(mn.to_string());
+                                        break 'search;
+                                    } else if let SymbolKind::Variable { .. } = &sym.kind {
+                                        machine_name = Some(interner.lookup(export_name).to_string());
+                                        break 'search;
+                                    } else {
+                                        machine_name = Some(interner.lookup(export_name).to_string());
+                                        break 'search;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(mn) = machine_name {
+                        let export_str = interner.lookup(export_name);
+                        entries.push(format!(" {}: {}", export_str, mn));
+                    }
+                }
+                if !entries.is_empty() {
+                    let ns_line = format!("const {} = {{{}}};", ns_name, entries.join(","));
+                    let idx = out_lines.len() - 1;
+                    out_lines[idx] = format!("{}\n{}", js, ns_line);
+                }
+            }
+        }
+    }
+
+    let combined = out_lines.join("\n");
+    format!("(function() {{\n{combined}\n}})()")
+}
 
 #[cfg(test)]
 mod tests {

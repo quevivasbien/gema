@@ -53,6 +53,9 @@ pub fn codegen_inner(
     };
     let mut w = JsWriter::new(interner, fn_names);
     for (i, stmt) in stmts.iter().enumerate() {
+        if matches!(stmt, HirExpr::Error) {
+            continue;
+        }
         let is_last = i == stmts.len() - 1;
         if is_last && return_last {
             w.emit_returned_stmt(stmt);
@@ -89,6 +92,11 @@ impl FnNameTable {
         self.counter += 1;
         self.names.insert(node_id, name.clone());
         name
+    }
+
+    /// Look up an already-assigned machine name without creating a new one.
+    pub fn get_name(&self, node_id: NodeId) -> Option<&str> {
+        self.names.get(&node_id).map(|s| s.as_str())
     }
 }
 

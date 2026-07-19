@@ -2,7 +2,7 @@ use std::{env, process};
 
 use gema::{
     ast::AstArena,
-    codegen::{codegen, codegen_inner, FnNameTable},
+    codegen::codegen,
     diagnostics::DiagnosticsBag,
     infer::infer_types,
     interner::Interner,
@@ -103,77 +103,37 @@ fn compile(input: ParsedInput) -> Result<String, String> {
 }
 
 /// Compile a file path with module system support.
-/// If the file has no `use` statements, behavior is identical to single-file.
 fn compile_multi(entry_path: &str, show_hir: bool) -> Result<String, String> {
     let mut arena = AstArena::new();
     let mut interner = Interner::new();
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticsBag::new();
 
-    // Step 1: Build module graph (discovers and parses all transitive deps)
     let graph = modules::build_module_graph(
-        entry_path,
-        &mut arena,
-        &mut interner,
-        &mut source_map,
-        &mut diagnostics,
+        entry_path, &mut arena, &mut interner, &mut source_map, &mut diagnostics,
     )
     .map_err(|_| format!("{:#?}", diagnostics))?;
     if diagnostics.has_errors() {
         return Err(format!("{:#?}", diagnostics));
     }
 
-    // Step 2: Link modules (inject dependency exports, resolve names)
-    let mut modules = modules::link_modules(&graph, &arena, &mut interner, &mut diagnostics);
+    let modules = modules::link_modules(&graph, &arena, &mut interner, &mut diagnostics);
     if diagnostics.has_errors() {
         return Err(format!("{:#?}", diagnostics));
     }
 
-    // Step 3: Type inference for each module (topo order, deps first)
     let mut type_arena = TypeArena::new();
-    for &module_idx in &graph.topo_order {
-        let module = &mut modules[module_idx];
-        let st = module.scope_tree.as_mut().unwrap();
-        let _types = infer_types(
-            &arena,
-            st,
-            &mut type_arena,
-            &interner,
-            module.root,
-            &mut diagnostics,
-            module.file_idx,
-        );
-        if diagnostics.has_errors() {
-            return Err(format!("{:#?}", diagnostics));
-        }
-    }
+    let output = modules::codegen_modules(&graph, &modules, &arena, &mut interner, &mut type_arena);
 
-    // Step 4: Lower + codegen for each module, concatenating output
-    let mut js_parts: Vec<String> = Vec::new();
-    let mut fn_names = FnNameTable::new();
-    for &module_idx in &graph.topo_order {
-        let module = &modules[module_idx];
-        let st = module.scope_tree.as_ref().unwrap();
-        let is_entry = module_idx == graph.entry;
-
-        let hir = lower(&arena, module.root, st, &interner);
-        if show_hir {
+    if show_hir {
+        for module in &modules {
+            let st = module.scope_tree.as_ref().unwrap();
+            let hir = lower(&arena, module.root, st, &interner);
             println!("// ── {} ──\n{:#?}", module.path, hir);
         }
-        let js = codegen_inner(hir, &arena, st, &type_arena, &mut interner, &mut fn_names, is_entry);
-        if is_entry {
-            // Entry module output comes last with `return`
-            js_parts.insert(0, js);
-        } else {
-            js_parts.push(js);
-        }
     }
 
-    // Build the output: the entry module (with return) at the end
-    let combined = js_parts.join("\n");
-    Ok(format!(
-        "(function() {{\n{combined}\n}})()"
-    ))
+    Ok(output)
 }
 
 fn main() {
