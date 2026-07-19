@@ -243,9 +243,10 @@ impl<'a> Lowerer<'a> {
         let field_names: Vec<IdentId> = if let Some(sid) = self.find_struct(scope, c.name) {
             let sym = &self.scope_tree.symbols[sid];
             match &sym.kind {
-                SymbolKind::Struct { cached_fields: Some(fields), .. } => {
-                    fields.iter().map(|f| f.name).collect()
-                }
+                SymbolKind::Struct {
+                    cached_fields: Some(fields),
+                    ..
+                } => fields.iter().map(|f| f.name).collect(),
                 _ => {
                     // Local struct — access via own arena.
                     match &self.arena[sym.def_node] {
@@ -320,10 +321,10 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_if(&mut self, i: &ast::If) -> HirExpr {
-        let branches: Vec<hir::HirConditionalBranch> = i
+        let branches: Vec<hir::ConditionalBranch> = i
             .branches
             .iter()
-            .map(|b| hir::HirConditionalBranch {
+            .map(|b| hir::ConditionalBranch {
                 condition: Box::new(self.lower_expr(b.condition)),
                 body: Box::new(self.lower_expr(b.body)),
             })
@@ -345,13 +346,13 @@ impl<'a> Lowerer<'a> {
             params: f
                 .params
                 .iter()
-                .map(|p| hir::HirFuncParam { name: p.name })
+                .map(|p| hir::FuncParam { name: p.name })
                 .collect(),
             body: Box::new(self.lower_expr(f.body)),
             type_params: f
                 .type_params
                 .iter()
-                .map(|tp| hir::HirTypeParam {
+                .map(|tp| hir::TypeParam {
                     name: tp.name,
                     trait_bounds: tp.traits.clone(),
                 })
@@ -365,7 +366,7 @@ impl<'a> Lowerer<'a> {
             params: a
                 .params
                 .iter()
-                .map(|p| hir::HirFuncParam { name: p.name })
+                .map(|p| hir::FuncParam { name: p.name })
                 .collect(),
             body: Box::new(self.lower_expr(a.body)),
         })
@@ -380,7 +381,7 @@ impl<'a> Lowerer<'a> {
             arms: m
                 .arms
                 .iter()
-                .map(|arm| hir::HirMatchArm {
+                .map(|arm| hir::MatchArm {
                     kind: match &arm.kind {
                         ast::MatchArmKind::Some { binding } => {
                             hir::HirMatchArmKind::Some { binding: *binding }

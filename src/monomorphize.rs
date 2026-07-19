@@ -79,7 +79,7 @@ impl<'a> Monomorphizer<'a> {
                 branches: i
                     .branches
                     .into_iter()
-                    .map(|b| HirConditionalBranch {
+                    .map(|b| ConditionalBranch {
                         condition: Box::new(self.monomorphize_expr(*b.condition, descriptor_stack)),
                         body: Box::new(self.monomorphize_expr(*b.body, descriptor_stack)),
                     })
@@ -99,7 +99,7 @@ impl<'a> Monomorphizer<'a> {
                 let arms = m
                     .arms
                     .into_iter()
-                    .map(|a| HirMatchArm {
+                    .map(|a| MatchArm {
                         kind: a.kind,
                         body: Box::new(self.monomorphize_expr(*a.body, descriptor_stack)),
                         span: a.span,
@@ -253,7 +253,7 @@ impl<'a> Monomorphizer<'a> {
                 trait_bounds,
             });
             // Add descriptor as a function parameter.
-            f.params.push(HirFuncParam { name: tp.name });
+            f.params.push(FuncParam { name: tp.name });
         }
 
         f.type_params.clear();

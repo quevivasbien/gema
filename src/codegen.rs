@@ -1,8 +1,11 @@
 /// HIR → JavaScript codegen.
 use rustc_hash::FxHashSet;
 
+use crate::ast::AstArena;
 use crate::builtins;
-use crate::hir::*;
+use crate::builtins::BuiltinFunc;
+use crate::hir::HirExpr;
+use crate::hir::{self, HirMatchArmKind};
 use crate::interner::{IdentId, Interner};
 use crate::monomorphize;
 use crate::symbol::ScopeTree;
@@ -13,7 +16,7 @@ use crate::types::TypeArena;
 /// Runs monomorphization before codegen.
 pub fn codegen(
     hir: HirExpr,
-    arena: &crate::ast::AstArena,
+    arena: &AstArena,
     scope_tree: &ScopeTree,
     type_arena: &TypeArena,
     interner: &mut Interner,
@@ -30,7 +33,7 @@ pub fn codegen(
 /// Used by the module system to concatenate multiple modules.
 pub fn codegen_inner(
     hir: HirExpr,
-    arena: &crate::ast::AstArena,
+    arena: &AstArena,
     scope_tree: &ScopeTree,
     type_arena: &TypeArena,
     interner: &mut Interner,
@@ -265,16 +268,16 @@ impl<'a> JsWriter<'a> {
 
     // ── Literals ──
 
-    fn emit_int_lit(&mut self, e: &IntLit) {
+    fn emit_int_lit(&mut self, e: &hir::IntLit) {
         self.write(&e.value);
         self.write("n");
     }
 
-    fn emit_num_lit(&mut self, e: &NumLit) {
+    fn emit_num_lit(&mut self, e: &hir::NumLit) {
         self.write(&e.value);
     }
 
-    fn emit_str_lit(&mut self, e: &StrLit) {
+    fn emit_str_lit(&mut self, e: &hir::StrLit) {
         self.write("\"");
         let chars: Vec<char> = e.value.chars().collect();
         let mut i = 0;
@@ -299,20 +302,20 @@ impl<'a> JsWriter<'a> {
         self.write("\"");
     }
 
-    fn emit_bool_lit(&mut self, e: &BoolLit) {
+    fn emit_bool_lit(&mut self, e: &hir::BoolLit) {
         self.write(if e.value { "true" } else { "false" });
     }
 
     // ── Identifiers ──
 
-    fn emit_ident(&mut self, e: &IdentNode) {
+    fn emit_ident(&mut self, e: &hir::IdentNode) {
         let name = self.interner.lookup(e.name);
         self.write(&self.safe_name(name));
     }
 
     // ── Collections ──
 
-    fn emit_array(&mut self, e: &ArrLit) {
+    fn emit_array(&mut self, e: &hir::ArrLit) {
         self.write("[");
         for (i, el) in e.elements.iter().enumerate() {
             if i > 0 {
@@ -323,7 +326,7 @@ impl<'a> JsWriter<'a> {
         self.write("]");
     }
 
-    fn emit_tuple(&mut self, e: &TupleLit) {
+    fn emit_tuple(&mut self, e: &hir::TupleLit) {
         self.write("[");
         for (i, el) in e.elements.iter().enumerate() {
             if i > 0 {
@@ -334,7 +337,7 @@ impl<'a> JsWriter<'a> {
         self.write("]");
     }
 
-    fn emit_range(&mut self, e: &RangeLit) {
+    fn emit_range(&mut self, e: &hir::RangeLit) {
         self.require_helper("$IntRangeIterator$");
         self.write("new $IntRangeIterator$(");
         self.emit_expr(&e.start, true);
@@ -347,7 +350,7 @@ impl<'a> JsWriter<'a> {
 
     // ── Struct and enum construction ──
 
-    fn emit_struct_lit(&mut self, e: &StructLit) {
+    fn emit_struct_lit(&mut self, e: &hir::StructLit) {
         self.write("{");
         for (i, (name, val)) in e.fields.iter().enumerate() {
             if i > 0 {
@@ -361,7 +364,7 @@ impl<'a> JsWriter<'a> {
         self.write("}");
     }
 
-    fn emit_enum_lit(&mut self, e: &EnumLit) {
+    fn emit_enum_lit(&mut self, e: &hir::EnumLit) {
         if e.is_tagged_union {
             self.write("Object.freeze({ $tag: \"");
             let tag = self.interner.lookup(e.tag);
@@ -376,7 +379,7 @@ impl<'a> JsWriter<'a> {
         }
     }
 
-    fn emit_type_descriptor(&mut self, e: &TypeDescriptor) {
+    fn emit_type_descriptor(&mut self, e: &hir::TypeDescriptor) {
         self.write("{");
         for (i, (name, func)) in e.methods.iter().enumerate() {
             if i > 0 {
@@ -392,7 +395,7 @@ impl<'a> JsWriter<'a> {
 
     // ── Operators ──
 
-    fn emit_binary(&mut self, e: &Binary) {
+    fn emit_binary(&mut self, e: &hir::Binary) {
         self.write("(");
         self.emit_expr(&e.left, true);
         self.write(" ");
@@ -402,7 +405,7 @@ impl<'a> JsWriter<'a> {
         self.write(")");
     }
 
-    fn emit_unary(&mut self, e: &Unary) {
+    fn emit_unary(&mut self, e: &hir::Unary) {
         self.write(&e.op.to_string());
         self.emit_expr(&e.child, true);
     }
@@ -411,7 +414,7 @@ impl<'a> JsWriter<'a> {
     // Uses inline `let` — the `declared` set prevents duplicate `let`
     // for reassignments within the same block.
 
-    fn emit_assign(&mut self, e: &Assign) {
+    fn emit_assign(&mut self, e: &hir::Assign) {
         let name_str = self.interner.lookup(e.name);
         let safe = self.safe_name(name_str);
 
@@ -426,14 +429,14 @@ impl<'a> JsWriter<'a> {
 
     // ── Field access, assign, and tuple index ──
 
-    fn emit_field_access(&mut self, e: &FieldAccess) {
+    fn emit_field_access(&mut self, e: &hir::FieldAccess) {
         self.write("(");
         self.emit_expr(&e.obj, true);
         let field = self.interner.lookup(e.field);
         self.write(&format!(").{}", self.safe_name(field)));
     }
 
-    fn emit_field_assign(&mut self, e: &FieldAssign) {
+    fn emit_field_assign(&mut self, e: &hir::FieldAssign) {
         self.write("(");
         self.emit_expr(&e.obj, true);
         let field = self.interner.lookup(e.field);
@@ -441,7 +444,7 @@ impl<'a> JsWriter<'a> {
         self.emit_expr(&e.value, true);
     }
 
-    fn emit_tuple_index(&mut self, e: &TupleIndex) {
+    fn emit_tuple_index(&mut self, e: &hir::TupleIndex) {
         self.write("(");
         self.emit_expr(&e.obj, true);
         self.write(&format!(")[{}]", e.index));
@@ -511,11 +514,11 @@ impl<'a> JsWriter<'a> {
             self.emit_expr(body, true);
             self.write(";");
         }
-        self.newline();
         self.indent_out();
+        self.newline();
     }
 
-    fn emit_block(&mut self, e: &Block, value_used: bool) {
+    fn emit_block(&mut self, e: &hir::Block, value_used: bool) {
         let prev_declared = self.declared.clone();
 
         if value_used {
@@ -532,7 +535,6 @@ impl<'a> JsWriter<'a> {
                     if !Self::stmt_ends_with_brace(stmt) {
                         self.write(";");
                     }
-                    self.newline();
                 } else {
                     self.emit_expr(stmt, false);
                     if !Self::stmt_ends_with_brace(stmt) {
@@ -542,9 +544,14 @@ impl<'a> JsWriter<'a> {
                 }
             }
             self.indent_out();
+            self.newline();
             self.write("})()");
         } else {
-            for stmt in &e.stmts {
+            self.write("{");
+            self.indent_in();
+            self.newline();
+            let last_idx = e.stmts.len().saturating_sub(1);
+            for (i, stmt) in e.stmts.iter().enumerate() {
                 if matches!(stmt, HirExpr::Error) {
                     continue;
                 }
@@ -552,13 +559,18 @@ impl<'a> JsWriter<'a> {
                 if !Self::stmt_ends_with_brace(stmt) {
                     self.write(";");
                 }
-                self.newline();
+                if i != last_idx {
+                    self.newline();
+                }
             }
+            self.indent_out();
+            self.newline();
+            self.write("}");
         }
         self.declared = prev_declared;
     }
 
-    fn emit_if(&mut self, e: &If, value_used: bool) {
+    fn emit_if(&mut self, e: &hir::If, value_used: bool) {
         if value_used && e.else_branch.is_some() {
             self.write("(() => {");
             self.indent_in();
@@ -580,8 +592,8 @@ impl<'a> JsWriter<'a> {
             }
 
             self.write("}");
-            self.newline();
             self.indent_out();
+            self.newline();
             self.write("})()");
         } else {
             for (i, branch) in e.branches.iter().enumerate() {
@@ -594,8 +606,8 @@ impl<'a> JsWriter<'a> {
                 self.indent_in();
                 self.newline();
                 self.emit_expr(&branch.body, false);
-                self.newline();
                 self.indent_out();
+                self.newline();
             }
 
             if let Some(else_body) = &e.else_branch {
@@ -603,17 +615,16 @@ impl<'a> JsWriter<'a> {
                 self.indent_in();
                 self.newline();
                 self.emit_expr(else_body, false);
-                self.newline();
                 self.indent_out();
+                self.newline();
             }
 
             self.write("}");
         }
     }
 
-    fn emit_for_loop(&mut self, e: &ForLoop) {
+    fn emit_for_loop(&mut self, e: &hir::ForLoop) {
         let iter_name = self.unique_name("$iter");
-        let val_name = self.unique_name("$val");
         let var_name = self.interner.lookup(e.var);
 
         // Outer block scopes the iterator and value variables.
@@ -624,30 +635,30 @@ impl<'a> JsWriter<'a> {
         self.emit_expr(&e.iter, true);
         self.write(";");
         self.newline();
-        self.write(&format!("let {};", val_name));
-        self.newline();
         self.write(&format!(
-            "while (({} = {}.next()) !== undefined) {{",
-            val_name, iter_name
+            "for (let {}; {} = {}.next(); {} !== undefined) ",
+            var_name, var_name, iter_name, var_name,
         ));
-        self.indent_in();
-        self.newline();
-        self.write(&format!(
-            "const {} = {};",
-            self.safe_name(var_name),
-            val_name
-        ));
-        self.newline();
-        self.emit_expr(&e.body, false);
-        self.newline();
+        match &*e.body {
+            HirExpr::Block(_) => {
+                self.emit_expr(&e.body, false);
+            }
+            _ => {
+                self.write("{");
+                self.indent_in();
+                self.newline();
+                self.emit_expr(&e.body, false);
+                self.indent_out();
+                self.newline();
+                self.write("}");
+            }
+        }
         self.indent_out();
-        self.write("}");
         self.newline();
-        self.indent_out();
         self.write("}");
     }
 
-    fn emit_return(&mut self, e: &Return) {
+    fn emit_return(&mut self, e: &hir::Return) {
         self.write("return");
         if let Some(val) = &e.value {
             self.write(" ");
@@ -657,7 +668,7 @@ impl<'a> JsWriter<'a> {
 
     // ── Functions ──
 
-    fn emit_func_def(&mut self, e: &FuncDef) {
+    fn emit_func_def(&mut self, e: &hir::FuncDef) {
         let name = self.interner.lookup(e.name);
         self.write(&format!("function {}(", self.safe_name(name)));
         for (i, p) in e.params.iter().enumerate() {
@@ -681,7 +692,6 @@ impl<'a> JsWriter<'a> {
                     if !Self::stmt_ends_with_brace(stmt) {
                         self.write(";");
                     }
-                    self.newline();
                 } else {
                     self.emit_expr(stmt, false);
                     if !Self::stmt_ends_with_brace(stmt) {
@@ -694,13 +704,13 @@ impl<'a> JsWriter<'a> {
             self.write("return ");
             self.emit_expr(&e.body, true);
             self.write(";");
-            self.newline();
         }
-
+        self.indent_out();
+        self.newline();
         self.write("}");
     }
 
-    fn emit_anon_func(&mut self, e: &AnonFunc) {
+    fn emit_anon_func(&mut self, e: &hir::AnonFunc) {
         self.write("(");
         for (i, p) in e.params.iter().enumerate() {
             if i > 0 {
@@ -744,12 +754,12 @@ impl<'a> JsWriter<'a> {
 
     // ── Calls and builtins ──
 
-    fn emit_call(&mut self, e: &Call) {
+    fn emit_call(&mut self, e: &hir::Call) {
         let name = self.interner.lookup(e.name);
         let safe = self.safe_name(name);
 
         if e.is_builtin
-            && let Some(builtin) = crate::builtins::BuiltinFunc::try_from_name(name)
+            && let Some(builtin) = BuiltinFunc::try_from_name(name)
         {
             for helper in builtins::required_helpers(builtin) {
                 self.require_helper(helper);
@@ -771,7 +781,7 @@ impl<'a> JsWriter<'a> {
         self.write(")");
     }
 
-    fn emit_direct_call(&mut self, e: &DirectCall) {
+    fn emit_direct_call(&mut self, e: &hir::DirectCall) {
         self.emit_expr(&e.callee, true);
         self.write("(");
         for (i, arg) in e.args.iter().enumerate() {
@@ -785,7 +795,7 @@ impl<'a> JsWriter<'a> {
 
     // ── Pattern matching ──
 
-    fn emit_match(&mut self, e: &Match, value_used: bool) {
+    fn emit_match(&mut self, e: &hir::Match, value_used: bool) {
         self.write("(() => {");
         self.indent_in();
         self.newline();
@@ -811,8 +821,8 @@ impl<'a> JsWriter<'a> {
                     }
                     self.emit_expr(&arm.body, true);
                     self.write(";");
-                    self.newline();
                     self.indent_out();
+                    self.newline();
                     self.write("}");
                 }
                 HirMatchArmKind::Variant { binding, .. } => {
@@ -829,8 +839,8 @@ impl<'a> JsWriter<'a> {
                     }
                     self.emit_expr(&arm.body, true);
                     self.write(";");
-                    self.newline();
                     self.indent_out();
+                    self.newline();
                     self.write("}");
                 }
                 HirMatchArmKind::None | HirMatchArmKind::Else => {
@@ -842,8 +852,8 @@ impl<'a> JsWriter<'a> {
                     }
                     self.emit_expr(&arm.body, true);
                     self.write(";");
-                    self.newline();
                     self.indent_out();
+                    self.newline();
                     self.write("}");
                 }
             }
@@ -858,9 +868,12 @@ impl<'a> JsWriter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::AstArena;
+    use crate::diagnostics::DiagnosticsBag;
+    use crate::infer::infer_types;
     use crate::interner::Interner;
     use crate::lower::lower;
-    use crate::parse;
+    use crate::parse::parse;
     use crate::resolve::resolve_names;
     use crate::scan;
     use crate::source::SourceText;
@@ -869,18 +882,18 @@ mod tests {
         let src = SourceText::new("test.gema", source);
         let (tokens, sd) = scan::scan(&src, 0);
         assert!(!sd.has_errors(), "scan errors");
-        let mut arena = crate::ast::AstArena::new();
+        let mut arena = AstArena::new();
         let mut interner = Interner::new();
-        let mut diagnostics = crate::diagnostics::DiagnosticsBag::new();
+        let mut diagnostics = DiagnosticsBag::new();
         for d in sd.into_vec() {
             diagnostics.push(d);
         }
-        let root = parse::parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
+        let root = parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
         assert!(!diagnostics.has_errors(), "parse errors");
         let mut scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
         assert!(!diagnostics.has_errors(), "resolve errors");
-        let mut type_arena = crate::types::TypeArena::new();
-        let _types = crate::infer::infer_types(
+        let mut type_arena = TypeArena::new();
+        let _types = infer_types(
             &arena,
             &mut scope_tree,
             &mut type_arena,
@@ -947,8 +960,8 @@ mod tests {
     #[test]
     fn for_loop() {
         let js = compile("for x = 1i..10i { x }");
-        assert!(js.contains("while (("), "got: {js}");
-        assert!(js.contains(".next())"), "got: {js}");
+        assert!(js.contains("for (let x"), "got: {js}");
+        assert!(js.contains(".next()"), "got: {js}");
     }
     #[test]
     fn func_def() {

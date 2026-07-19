@@ -127,7 +127,7 @@ pub enum HirMatchArmKind {
 /// A single function parameter (name only — types are resolved before
 /// lowering).
 #[derive(Clone, Debug)]
-pub struct HirFuncParam {
+pub struct FuncParam {
     pub name: IdentId,
 }
 
@@ -137,14 +137,14 @@ pub struct HirFuncParam {
 /// functions are generic and what trait bounds their type params
 /// require.
 #[derive(Clone, Debug)]
-pub struct HirTypeParam {
+pub struct TypeParam {
     pub name: IdentId,
     pub trait_bounds: Vec<IdentId>,
 }
 
 /// A match arm.
 #[derive(Clone, Debug)]
-pub struct HirMatchArm {
+pub struct MatchArm {
     pub kind: HirMatchArmKind,
     pub body: Box<HirExpr>,
     pub span: Span,
@@ -152,7 +152,7 @@ pub struct HirMatchArm {
 
 /// A conditional branch in an if-expression.
 #[derive(Clone, Debug)]
-pub struct HirConditionalBranch {
+pub struct ConditionalBranch {
     pub condition: Box<HirExpr>,
     pub body: Box<HirExpr>,
 }
@@ -314,7 +314,7 @@ pub struct Block {
 #[derive(Clone, Debug)]
 pub struct If {
     pub span: Span,
-    pub branches: Vec<HirConditionalBranch>,
+    pub branches: Vec<ConditionalBranch>,
     pub else_branch: Option<Box<HirExpr>>,
 }
 
@@ -348,15 +348,15 @@ pub struct Return {
 pub struct FuncDef {
     pub span: Span,
     pub name: IdentId,
-    pub params: Vec<HirFuncParam>,
+    pub params: Vec<FuncParam>,
     pub body: Box<HirExpr>,
-    pub type_params: Vec<HirTypeParam>,
+    pub type_params: Vec<TypeParam>,
 }
 
 #[derive(Clone, Debug)]
 pub struct AnonFunc {
     pub span: Span,
-    pub params: Vec<HirFuncParam>,
+    pub params: Vec<FuncParam>,
     pub body: Box<HirExpr>,
 }
 
@@ -383,7 +383,7 @@ pub struct DirectCall {
 pub struct Match {
     pub span: Span,
     pub scrutinee: Box<HirExpr>,
-    pub arms: Vec<HirMatchArm>,
+    pub arms: Vec<MatchArm>,
 }
 
 // ===========================================================================
@@ -645,7 +645,7 @@ mod tests {
         let name = ident(&mut interner, "x");
         let af = HirExpr::AnonFunc(AnonFunc {
             span: Span::new(0, 10),
-            params: vec![HirFuncParam { name }],
+            params: vec![FuncParam { name }],
             body: Box::new(hir_ident(Span::new(8, 9), name)),
         });
         assert_eq!(af.span(), Span::new(0, 10));
@@ -831,9 +831,9 @@ mod tests {
         let fd = HirExpr::FuncDef(FuncDef {
             span: Span::new(0, 20),
             name,
-            params: vec![HirFuncParam { name: param }],
+            params: vec![FuncParam { name: param }],
             body: Box::new(hir_ident(Span::new(15, 16), param)),
-            type_params: vec![HirTypeParam {
+            type_params: vec![TypeParam {
                 name: tp,
                 trait_bounds: vec![],
             }],
@@ -855,12 +855,12 @@ mod tests {
             span: Span::new(0, 20),
             scrutinee: Box::new(hir_ident(Span::new(6, 7), IdentId::from_u32(0))),
             arms: vec![
-                HirMatchArm {
+                MatchArm {
                     kind: HirMatchArmKind::Some { binding },
                     body: Box::new(hir_ident(Span::new(14, 15), binding)),
                     span: Span::new(8, 15),
                 },
-                HirMatchArm {
+                MatchArm {
                     kind: HirMatchArmKind::None,
                     body: Box::new(hir_int(Span::new(17, 18), "0")),
                     span: Span::new(16, 18),
@@ -882,7 +882,7 @@ mod tests {
         let body = hir_int(Span::new(10, 12), "42");
         let if_expr = HirExpr::If(If {
             span: Span::new(0, 20),
-            branches: vec![HirConditionalBranch {
+            branches: vec![ConditionalBranch {
                 condition: Box::new(cond),
                 body: Box::new(body),
             }],
@@ -1060,7 +1060,7 @@ mod tests {
         let name = ident(&mut interner, "T");
         let hash_trait = ident(&mut interner, "Hash");
         let eq_trait = ident(&mut interner, "Eq");
-        let tp = HirTypeParam {
+        let tp = TypeParam {
             name,
             trait_bounds: vec![hash_trait, eq_trait],
         };
@@ -1175,7 +1175,7 @@ mod tests {
     #[test]
     fn hir_type_param_debug() {
         let mut interner = Interner::new();
-        let tp = HirTypeParam {
+        let tp = TypeParam {
             name: ident(&mut interner, "T"),
             trait_bounds: vec![ident(&mut interner, "Hash")],
         };
@@ -1187,7 +1187,7 @@ mod tests {
     fn if_with_else() {
         let if_expr = HirExpr::If(If {
             span: Span::new(0, 30),
-            branches: vec![HirConditionalBranch {
+            branches: vec![ConditionalBranch {
                 condition: Box::new(hir_bool(Span::new(3, 7), true)),
                 body: Box::new(hir_int(Span::new(10, 12), "1")),
             }],

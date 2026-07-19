@@ -17,7 +17,6 @@ pub mod hir;
 pub mod infer;
 pub mod interner;
 pub mod lower;
-pub mod modules;
 pub mod monomorphize;
 pub mod parse;
 pub mod resolve;

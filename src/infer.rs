@@ -509,7 +509,9 @@ impl<'a> Inferer<'a> {
             .iter()
             .map(|s| {
                 let sig = match &s.kind {
-                    SymbolKind::Function { cached_signature, .. } => cached_signature.clone(),
+                    SymbolKind::Function {
+                        cached_signature, ..
+                    } => cached_signature.clone(),
                     _ => None,
                 };
                 (s.def_node, sig)
@@ -727,8 +729,15 @@ impl<'a> Inferer<'a> {
 
         // Clone struct definition data before making mutable calls.
         let struct_data = match &sym.kind {
-            SymbolKind::Struct { cached_fields: Some(fields), type_params, .. } => {
-                let fields: Vec<_> = fields.iter().map(|f| (f.name, f.type_node.clone())).collect();
+            SymbolKind::Struct {
+                cached_fields: Some(fields),
+                type_params,
+                ..
+            } => {
+                let fields: Vec<_> = fields
+                    .iter()
+                    .map(|f| (f.name, f.type_node.clone()))
+                    .collect();
                 let type_params: Vec<_> = type_params.clone();
                 let struct_name = sym.name;
                 (fields, type_params, struct_name)
@@ -1154,8 +1163,15 @@ impl<'a> Inferer<'a> {
         // Clone struct data before making mutable calls.
         let (field_data, type_param_names): (Vec<(IdentId, TypeNode)>, Vec<IdentId>) =
             match &sym.kind {
-                SymbolKind::Struct { cached_fields: Some(fields), type_params, .. } => (
-                    fields.iter().map(|f| (f.name, f.type_node.clone())).collect(),
+                SymbolKind::Struct {
+                    cached_fields: Some(fields),
+                    type_params,
+                    ..
+                } => (
+                    fields
+                        .iter()
+                        .map(|f| (f.name, f.type_node.clone()))
+                        .collect(),
                     type_params.clone(),
                 ),
                 _ => match &self.arena[sym.def_node] {
