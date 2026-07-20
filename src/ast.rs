@@ -503,13 +503,24 @@ pub struct Match {
 
 // ── Modules ──
 
+/// A symbol imported via `use (sym) from "path.gema"`, optionally with
+/// parameter type annotations to disambiguate overloaded functions
+/// (e.g. `use (foo[Num, Str]) from "mod.gema"`).
+#[derive(Clone, Debug)]
+pub struct UseSymbol {
+    pub name: IdentId,
+    /// Parameter types for disambiguating overloaded function imports.
+    /// `None` means the import is for a non-function or a function that
+    /// is not overloaded.
+    pub param_types: Option<Vec<TypeNode>>,
+}
 #[derive(Clone, Debug)]
 pub struct Use {
     pub span: Span,
     pub path: String,
     /// `None` = bare import (import everything);
     /// `Some([...])` = selective import.
-    pub symbols: Option<Vec<IdentId>>,
+    pub symbols: Option<Vec<UseSymbol>>,
 }
 
 #[derive(Clone, Debug)]

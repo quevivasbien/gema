@@ -259,7 +259,7 @@ impl<'a> JsWriter<'a> {
             out.push_str(&helpers_code);
             out.push('\n');
         }
-        out.push_str("// PROGRAM //\n");
+        out.push_str("// PROGRAM //\nconst result = ");
         out.push_str(&program);
         out.push('\n');
         out
@@ -1023,7 +1023,7 @@ mod tests {
         let js = compile("func foo(x: Int): Int { x }; foo(1i)");
         assert!(js.contains("$foo_0(1n"));
     }
-#[test]
+    #[test]
     fn array_lit() {
         js_contains("[1i, 2i, 3i]", "[1n, 2n, 3n]");
     }
@@ -1057,17 +1057,7 @@ mod tests {
             return;
         }
         let js = compile(source);
-        // The compiled output has the form:
-        //   // BUILTIN HELPERS //\nclass ...\n// PROGRAM //\n(() => { ... })()
-        // Wrap in a console.log that captures the IIFE result.
-        // Split at "// PROGRAM //\n" to get helpers and program separately.
-        let program = if let Some(pos) = js.find("// PROGRAM //\n") {
-            let (helpers, prog) = js.split_at(pos + "// PROGRAM //\n".len());
-            format!("{}\nconsole.log(String({}));", helpers.trim(), prog.trim())
-        } else {
-            // No helpers — just wrap the whole thing.
-            format!("console.log(String({}));", js.trim())
-        };
+        let program = format!("{}\nconsole.log(String(result));", js);
         let output = std::process::Command::new("bun")
             .arg("-e")
             .arg(&program)

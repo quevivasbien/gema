@@ -1270,7 +1270,23 @@ impl<'a> Parser<'a> {
                     match self.peek_kind() {
                         Some(TokenKind::Ident(_)) => {
                             let sym = self.advance();
-                            symbols.push(self.intern_str(sym.text().unwrap()));
+                            let name = self.intern_str(sym.text().unwrap());
+
+                            // Check for optional type parameters: foo[Num, Str]
+                            let param_types = if self.consume_discriminant(&TokenKind::LBracket) {
+                                let (params, return_type) = self.parse_type_params_inner();
+                                if return_type.is_some() {
+                                    self.error_here("unexpected return type in type annotation");
+                                }
+                                if !self.consume_discriminant(&TokenKind::RBracket) {
+                                    self.error_here("expected ']' after type parameters");
+                                }
+                                Some(params)
+                            } else {
+                                None
+                            };
+
+                            symbols.push(UseSymbol { name, param_types });
                             if !self.consume_comma() {
                                 break;
                             }
@@ -1289,7 +1305,6 @@ impl<'a> Parser<'a> {
                 let path = match self.parse_from_path() {
                     Some(path) => path,
                     None => {
-                        // Error diagnostic is created inside `parse_from_path`
                         self.recover_to_boundary();
                         return self.error_node();
                     }
@@ -1698,6 +1713,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_impl_members(&mut self) -> Vec<NodeId> {
+        // TODO: Any expression should be valid in an impl block,
+        // as long as it contains the required definitions somewhere in the top-level scope
         let mut members = Vec::new();
         while !self.at_end() && !self.peek_is(&TokenKind::RBrace) {
             if matches!(self.peek_kind(), Some(TokenKind::Func)) {
