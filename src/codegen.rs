@@ -88,7 +88,7 @@ impl FnNameTable {
         if let Some(name) = self.names.get(&node_id) {
             return name.clone();
         }
-        let name = format!("${}_{}", fn_name, self.counter);
+        let name = format!("{}${}", fn_name, self.counter);
         self.counter += 1;
         self.names.insert(node_id, name.clone());
         name
@@ -410,7 +410,7 @@ impl<'a> JsWriter<'a> {
 
     fn emit_enum_lit(&mut self, e: &hir::EnumLit) {
         if e.is_tagged_union {
-            self.write("Object.freeze({ $tag: \"");
+            self.write("({ $tag: \"");
             let tag = self.interner.lookup(e.tag);
             self.write(&tag.replace('"', "\\\""));
             self.write("\", $val: ");
@@ -714,8 +714,13 @@ impl<'a> JsWriter<'a> {
 
     fn emit_func_def(&mut self, e: &hir::FuncDef) {
         let fn_name = self.interner.lookup(e.name);
-        let machine_name = self.fn_name(e.node_id, fn_name);
-        self.write(&format!("function {}(", machine_name));
+        // Generic functions don't get overload suffixes (cannot be overloaded).
+        if e.is_generic {
+            self.write(&format!("function {}(", self.safe_name(fn_name)));
+        } else {
+            let machine_name = self.fn_name(e.node_id, fn_name);
+            self.write(&format!("function {}(", machine_name));
+        }
         for (i, p) in e.params.iter().enumerate() {
             if i > 0 {
                 self.write(", ");
@@ -781,7 +786,6 @@ impl<'a> JsWriter<'a> {
                     if !Self::stmt_ends_with_brace(stmt) {
                         self.write(";");
                     }
-                    self.newline();
                 } else {
                     self.emit_expr(stmt, false);
                     if !Self::stmt_ends_with_brace(stmt) {
@@ -800,8 +804,6 @@ impl<'a> JsWriter<'a> {
         self.write("}");
     }
 
-    // ── Calls and builtins ──
-
     fn emit_call(&mut self, e: &hir::Call) {
         let name = self.interner.lookup(e.name);
 
@@ -818,8 +820,13 @@ impl<'a> JsWriter<'a> {
         }
 
         // Use the machine name for user-defined function calls.
-        let machine_name = self.fn_name(e.def_node, name);
-        self.write(&machine_name);
+        // Generic functions don't get overload suffixes.
+        if e.is_generic {
+            self.write(&self.safe_name(name));
+        } else {
+            let machine_name = self.fn_name(e.def_node, name);
+            self.write(&machine_name);
+        }
         self.write("(");
         for (i, arg) in e.args.iter().enumerate() {
             if i > 0 {
@@ -1015,13 +1022,13 @@ mod tests {
     #[test]
     fn func_def() {
         let js = compile("func add(x: Int, y: Int): Int { x + y }");
-        assert!(js.contains("function $add_0("));
+        assert!(js.contains("function add$0("));
         assert!(js.contains("x + y"));
     }
     #[test]
     fn function_call() {
         let js = compile("func foo(x: Int): Int { x }; foo(1i)");
-        assert!(js.contains("$foo_0(1n"));
+        assert!(js.contains("foo$0(1n"));
     }
     #[test]
     fn array_lit() {
@@ -1157,5 +1164,118 @@ mod tests {
     #[test]
     fn run_generic_with_variable_arg_bool() {
         assert_run("func [T] id(x: T): T { x }; y = true; id(y)", "true");
+    }
+
+    // ── Generic functions with trait bounds ──
+
+    #[test]
+    fn run_generic_with_trait_method() {
+        // Trait method calls inside generic functions use `T::method()` syntax.
+        // The call should be routed through the trait's descriptor dictionary.
+        assert_run(
+            "trait Hash { hash: Func[Self: Int] }; \
+             impl Int: Hash { func hash(x: Int): Int { x } }; \
+             func [T: Hash] id(x: T): T { T::hash(x) }; \
+             id(42i)",
+            "42",
+        );
+    }
+
+    #[test]
+    fn run_generic_with_trait_method_str() {
+        assert_run(
+            "trait Hash { hash: Func[Self: Int] }; \
+             impl Str: Hash { func hash(x: Str): Int { 42i } }; \
+             func [T: Hash] id(x: T): T { T::hash(x) }; \
+             id(\"hello\")",
+            "42",
+        );
+    }
+
+    #[test]
+    fn run_generic_with_two_traits_separate_descriptors() {
+        // Two traits with different method names should each get their own descriptor.
+        assert_run(
+            "trait Foo { foo: Func[Self: Self] }; \
+             trait Bar { bar: Func[Self: Self] }; \
+             impl Int: Foo { func foo(x: Int): Int { x + 1i } }; \
+             impl Int: Bar { func bar(x: Int): Int { x + 2i } }; \
+             func [T: Foo + Bar] add(x: T): T { T::foo(T::bar(x)) }; \
+             add(10i)",
+            "13",
+        );
+    }
+
+    #[test]
+    fn run_generic_no_traits() {
+        // Basic generic identity works with no trait requirements
+        assert_run("func [T] id(x: T): T { x }; id(42i)", "42");
+        assert_run("func [T] id(x: T): T { x }; id(\"hello\")", "hello");
+        assert_run("func [T] id(x: T): T { x }; y = 42i; id(y)", "42");
+    }
+
+    // ── Generated JS structure tests ──
+
+    #[test]
+    fn generic_func_no_overload_suffix() {
+        // Generic function names should NOT have $N overload suffixes.
+        let js = compile("func [T] id(x: T): T { x }");
+        assert!(
+            js.contains("function id("),
+            "Generic func should not have suffix, got:\n{js}"
+        );
+        assert!(
+            !js.contains("function id$"),
+            "Generic func should not have $N suffix, got:\n{js}"
+        );
+    }
+
+    #[test]
+    fn non_generic_func_has_overload_suffix() {
+        // Non-generic functions should still have $N overload suffixes.
+        let js = compile("func id(x: Int): Int { x }");
+        assert!(
+            js.contains("function id$0("),
+            "Non-generic func should have $N suffix, got:\n{js}"
+        );
+    }
+
+    #[test]
+    fn impl_block_emits_dictionary() {
+        // Impl blocks should produce dictionary objects with trait methods.
+        let js = compile(
+            "trait Hash { hash: Func[Self: Int] }; \
+             impl Int: Hash { func hash(x: Int): Int { x } }; \
+             func [T: Hash] id(x: T): T { T::hash(x) }; \
+             id(1i)",
+        );
+        // The impl block should produce a named dictionary (e.g., $impl_Int_Hash)
+        assert!(
+            js.contains("$impl_Int_Hash"),
+            "Impl block should emit a named dictionary ($impl_Int_Hash), got:\n{js}"
+        );
+        // The generic function should reference the dictionary, not inline it
+        assert!(
+            js.contains("$impl_Int_Hash"),
+            "Call site should reference the named impl dictionary, got:\n{js}"
+        );
+    }
+
+    #[test]
+    fn run_generic_nested_type_arr() {
+        // Generic type param can appear inside nested types like Arr[T].
+        assert_run(
+            "func [T] identity(arr: Arr[T]): Arr[T] { arr }; identity([10i, 20i, 30i])",
+            "10,20,30",
+        );
+    }
+    #[test]
+    fn run_generic_nested_type_first_or_default() {
+        // Generic with Arr[T] and default value — just returns the default.
+        assert_run(
+            "func [T] firstOrDefault(arr: Arr[T], fallback: T): T { fallback }; \
+             firstOrDefault([10i, 20i], 99i)",
+            "99",
+        );
     }
 }

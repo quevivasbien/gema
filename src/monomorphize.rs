@@ -253,7 +253,7 @@ impl<'a> Monomorphizer<'a> {
                 trait_bounds,
             });
             // Add descriptor as a function parameter.
-            f.params.push(FuncParam { name: tp.name });
+            f.params.push(FuncParam { name: desc_param_id });
         }
 
         f.type_params.clear();
@@ -420,11 +420,12 @@ impl<'a> Monomorphizer<'a> {
             let reqs = self.get_trait_requirement_names(*trait_name);
             for req_name in reqs {
                 // Look up the impl block for this concrete type and trait.
-                let impl_func_name = self.find_impl_function_name(type_name, *trait_name, req_name);
+                let impl_result = self.find_impl_function_name(type_name, *trait_name, req_name);
+                let (func_name, func_def_node) = impl_result.unwrap_or((req_name, None));
                 let func_ref = HirExpr::Ident(IdentNode {
                     span: Span::empty_at(0),
-                    name: impl_func_name.unwrap_or(req_name),
-                    def_node: None,
+                    name: func_name,
+                    def_node: func_def_node,
                 });
                 methods.push((req_name, func_ref));
             }
@@ -490,7 +491,7 @@ impl<'a> Monomorphizer<'a> {
         type_name: Option<IdentId>,
         trait_name: IdentId,
         _method_name: IdentId,
-    ) -> Option<IdentId> {
+    ) -> Option<(IdentId, Option<crate::ast::NodeId>)> {
         let type_name = type_name?;
         for (_, sym) in self.scope_tree.symbols.iter() {
             if let SymbolKind::Impl {
@@ -506,10 +507,10 @@ impl<'a> Monomorphizer<'a> {
                 if !self.self_type_matches(self_type, type_name) {
                     continue;
                 }
-                // Find the first member function — return its name.
+                // Find the first member function — return its name and def_node.
                 for &member_node in member_nodes {
                     if let ast::Expr::FuncDef(f) = &self.arena[member_node] {
-                        return Some(f.name);
+                        return Some((f.name, Some(member_node)));
                     }
                 }
             }
@@ -626,10 +627,11 @@ mod tests {
     fn generic_func_calls_routed_through_descriptor() {
         // A generic function that calls a trait method should have the
         // call routed through the descriptor parameter.
+        // Trait-associated functions must be prefixed by `Type::` per the spec.
         let hir = compile_ok(
             "trait Hash { hash: Func[Self: Int] }; \
              impl Int: Hash { func hash(x: Int): Int { x } }; \
-             func [T: Hash] id(x: T): T { hash(x) }",
+             func [T: Hash] id(x: T): T { T::hash(x) }",
         );
         // Find the FuncDef and check its body has a DirectCall
         // (the trait method call should be converted from Call to DirectCall).
@@ -661,6 +663,34 @@ mod tests {
             },
             _ => panic!("expected Block body"),
         }
+    }
+
+    #[test]
+    fn generic_func_with_separate_trait_descriptors() {
+        // Generic function with multiple trait bounds should produce
+        // separate descriptor params per (type_param, trait) pair,
+        // to avoid ambiguity when different traits have same-named methods.
+        let hir = compile_ok(
+            "trait Foo { foo: Func[Self: Self] }; \
+             trait Bar { bar: Func[Self: Self] }; \
+             func [T: Foo + Bar] process(x: T) { T::foo(x); T::bar(x) }",
+        );
+        let block = match &hir {
+            HirExpr::Block(b) => b,
+            _ => panic!("expected Block"),
+        };
+        // stmts: [TraitDef(Error), TraitDef(Error), FuncDef]
+        let func_def = match &block.stmts[2] {
+            HirExpr::FuncDef(f) => f,
+            _ => panic!("expected FuncDef"),
+        };
+        // With 2 trait bounds on one type param, should have 2 descriptor params (one per trait)
+        // Plus 1 value param (x) = 3 total params
+        assert_eq!(
+            func_def.params.len(),
+            3,
+            "should have value param + 2 descriptor params (one per trait)"
+        );
     }
 
     #[test]
@@ -706,16 +736,63 @@ mod tests {
 
     #[test]
     fn trait_method_resolves_inside_generic_body() {
-        // Without monomorphization checking, just ensure the pipeline
-        // doesn't error on trait method calls inside generic functions.
+        // Ensure the pipeline doesn't error on proper `T::method()` syntax
+        // for trait-associated functions inside generic function bodies.
+        // Per the spec, the `T::` prefix is required.
         let (_hir, diags) = compile_to_hir(
             "trait Hash { hash: Func[Self: Int] }; \
-             func [T: Hash] id(x: T): T { hash(x) }",
+             func [T: Hash] id(x: T): T { T::hash(x) }",
         );
         assert!(
             !diags.has_errors(),
             "trait method should resolve: {}",
             diags.format(&SourceMap::new())
+        );
+    }
+
+    fn generic_with_nested_type_param() {
+        // Generic type params can appear inside nested types like Arr[T].
+        let hir = compile_ok("func [T] identity(arr: Arr[T]): Arr[T] { arr }");
+        let block = match &hir {
+            HirExpr::Block(b) => b,
+            _ => panic!("expected Block"),
+        };
+        let func_def = match &block.stmts[0] {
+            HirExpr::FuncDef(f) => f,
+            _ => panic!("expected FuncDef"),
+        };
+        // Should have 2 params: `arr` + descriptor
+        assert_eq!(func_def.params.len(), 2);
+        assert!(func_def.type_params.is_empty());
+    }
+
+    #[test]
+    fn generic_with_multiple_args_same_type_param() {
+        // Multiple arguments can share the same type param.
+        let hir = compile_ok(
+            "func [T] firstOrDefault(arr: Arr[T], default: T): T { default }",
+        );
+        let block = match &hir {
+            HirExpr::Block(b) => b,
+            _ => panic!("expected Block"),
+        };
+        let func_def = match &block.stmts[0] {
+            HirExpr::FuncDef(f) => f,
+            _ => panic!("expected FuncDef"),
+        };
+        // Should have 3 params: `arr` + `default` + descriptor
+        assert_eq!(func_def.params.len(), 3);
+    }
+
+    #[test]
+    fn generic_type_param_unused_in_args_is_error() {
+        // Generic type params MUST be used by at least one argument.
+        let (_hir, diags) = compile_to_hir(
+            "func [T] foo(x: Int): Int { x }",
+        );
+        assert!(
+            diags.has_errors(),
+            "unused generic type param should be an error"
         );
     }
 }

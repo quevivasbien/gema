@@ -347,7 +347,6 @@ pub struct Return {
 }
 
 // ── Functions and calls ──
-
 #[derive(Clone, Debug)]
     pub struct FuncDef {
         pub span: Span,
@@ -358,14 +357,17 @@ pub struct Return {
         /// The AST NodeId of the FuncDef expression this was lowered from.
         /// Used by codegen to assign unique machine names.
         pub node_id: crate::ast::NodeId,
+        /// True when this is a generic function (has type params).
+        /// Generic function names don't get overload suffixes in codegen.
+        pub is_generic: bool,
     }
-
 #[derive(Clone, Debug)]
 pub struct AnonFunc {
     pub span: Span,
     pub params: Vec<FuncParam>,
     pub body: Box<HirExpr>,
 }
+
 #[derive(Clone, Debug)]
 pub struct Call {
     pub span: Span,
@@ -377,6 +379,9 @@ pub struct Call {
     /// The AST NodeId of the called function's FuncDef expression.
     /// Used by codegen to look up the machine name.
     pub def_node: crate::ast::NodeId,
+    /// True when this calls a generic function (has type params).
+    /// Generic function names don't get overload suffixes in codegen.
+    pub is_generic: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -631,6 +636,7 @@ mod tests {
             args: vec![],
             is_builtin: false,
             def_node: dummy_node_id(),
+            is_generic: false,
         });
     }
 
@@ -651,6 +657,7 @@ mod tests {
             body: Box::new(hir_int(Span::new(15, 19), "42")),
             type_params: vec![],
             node_id,
+            is_generic: false,
         });
         assert_eq!(fd.span(), Span::new(0, 20));
     }
@@ -854,6 +861,7 @@ mod tests {
                 trait_bounds: vec![],
             }],
             node_id: dummy_node_id(),
+            is_generic: true,
         });
         match fd {
             HirExpr::FuncDef(f) => {
@@ -1025,6 +1033,7 @@ mod tests {
             args: vec![],
             is_builtin: true,
             def_node: dummy_node_id(),
+            is_generic: false,
         });
         match call {
             HirExpr::Call(c) => assert!(c.is_builtin),
@@ -1130,6 +1139,7 @@ mod tests {
             body: Box::new(hir_none(Span::new(10, 14))),
             type_params: vec![],
             node_id: dummy_node_id(),
+            is_generic: false,
         });
         match fd {
             HirExpr::FuncDef(f) => assert!(f.type_params.is_empty()),

@@ -204,12 +204,29 @@ impl<'a> Lowerer<'a> {
             })
             .unwrap_or(node);
 
+        // Check if the called function is generic by looking up its symbol.
+        let is_generic = self
+            .scope_tree
+            .symbols
+            .iter()
+            .any(|(_, sym)| {
+                sym.def_node == def_node
+                    && matches!(
+                        &sym.kind,
+                        crate::symbol::SymbolKind::Function {
+                            is_generic: true,
+                            ..
+                        }
+                    )
+            });
+
         HirExpr::Call(hir::Call {
             span: c.span,
             name: c.name,
             args: c.args.iter().map(|&a| self.lower_expr(a)).collect(),
             is_builtin,
             def_node,
+            is_generic,
         })
     }
 
@@ -363,6 +380,15 @@ impl<'a> Lowerer<'a> {
     // ── Functions ──
 
     fn lower_func_def(&mut self, f: &ast::FuncDef, node: NodeId) -> HirExpr {
+        let type_params: Vec<hir::TypeParam> = f
+            .type_params
+            .iter()
+            .map(|tp| hir::TypeParam {
+                name: tp.name,
+                trait_bounds: tp.traits.clone(),
+            })
+            .collect();
+        let is_generic = !type_params.is_empty();
         HirExpr::FuncDef(hir::FuncDef {
             span: f.span,
             name: f.name,
@@ -372,15 +398,9 @@ impl<'a> Lowerer<'a> {
                 .map(|p| hir::FuncParam { name: p.name })
                 .collect(),
             body: Box::new(self.lower_expr(f.body)),
-            type_params: f
-                .type_params
-                .iter()
-                .map(|tp| hir::TypeParam {
-                    name: tp.name,
-                    trait_bounds: tp.traits.clone(),
-                })
-                .collect(),
+            type_params,
             node_id: node,
+            is_generic,
         })
     }
 
