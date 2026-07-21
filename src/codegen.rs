@@ -1287,14 +1287,14 @@ mod tests {
              func [T: Hash] id(x: T): T { T::hash(x) }; \
              id(1i)",
         );
-        // The impl block should produce a named dictionary (e.g., $impl_Hash_Int)
+        // The impl block should produce a named dictionary (e.g., $impl_Int_Hash)
         assert!(
-            js.contains("$impl_Hash_Int"),
-            "Impl block should emit a named dictionary ($impl_Hash_Int), got:\n{js}"
+            js.contains("$impl_Int_Hash"),
+            "Impl block should emit a named dictionary ($impl_Int_Hash), got:\n{js}"
         );
         // The generic function should reference the dictionary, not inline it
         assert!(
-            js.contains("$impl_Hash_Int"),
+            js.contains("$impl_Int_Hash"),
             "Call site should reference the named impl dictionary, got:\n{js}"
         );
     }
@@ -1314,6 +1314,32 @@ mod tests {
             "func [T] firstOrDefault(arr: Arr[T], fallback: T): T { fallback }; \
              firstOrDefault([10i, 20i], 99i)",
             "99",
+        );
+    }
+
+    #[test]
+    fn run_generic_with_trait_variable() {
+        // Trait variable access through T::bar syntax.
+        assert_run(
+            "trait Bar { bar: Self }; \
+             impl Int: Bar { bar = 42i }; \
+             func [T: Bar] get(x: T): T { T::bar }; \
+             get(1i)",
+            "42",
+        );
+    }
+
+    #[test]
+    fn run_generic_full_apply_foo_with_bar() {
+        // Full example from the docs: T::foo(x, T::bar) with two traits.
+        assert_run(
+            "trait Foo { foo: Func[Self, Self: Self] }; \
+             trait Bar { bar: Self }; \
+             impl Num: Foo { func foo(x: Num, y: Num): Num { x + y } }; \
+             impl Num: Bar { bar = 0 }; \
+             func [T: Foo + Bar] apply(x: T): T { T::foo(x, T::bar) }; \
+             apply(1)",
+            "1",
         );
     }
 }

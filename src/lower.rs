@@ -434,7 +434,7 @@ impl<'a> Lowerer<'a> {
     fn mangle_impl_name(&self, i: &ast::ImplBlock) -> String {
         let trait_name = self.interner.lookup(i.trait_name);
         let type_desc = self.type_node_desc(&i.self_type);
-        format!("$impl_{trait_name}_{type_desc}")
+        format!("$impl_{type_desc}_{trait_name}")
     }
 
     /// Produce a short type descriptor string from a TypeNode.

@@ -186,29 +186,26 @@ gema/
 │   ├── scan.rs             # Scanner
 │   ├── ast.rs              # Expr enum, AstArena (= Arena<Expr>), TypeNode
 │   └── parse/
-│       ├── mod.rs          # Public parse() entry point
-│       ├── parser.rs       # Pratt parser
-│       ├── precedence.rs   # Precedence table
-│       └── utils.rs        # Operator helpers
+│   |   ├── mod.rs          # Public parse() entry point
+│   |   ├── parser.rs       # Pratt parser
+│   |   ├── precedence.rs   # Precedence table
+│   |   └── utils.rs        # Operator helpers
 │   │
-│   │   ── Phase II (implemented) ──
+│   │   ── Phase II (all implemented) ──
 │   ├── types.rs            # TypeId, TypeKind, TypeArena
 │   ├── interner.rs         # IdentId, Interner
 │   ├── symbol.rs           # Symbol, ScopeTree, ScopeData
-│   ├── resolve.rs          # Name resolution pass
-│   └── infer.rs            # Type inference (unification-based HM)
-│   │
-│   │   ── Phase II (not yet implemented) ──
-│   ├── monomorphize.rs     # Generic instantiation pass
-│   ├── builtins.rs         # Builtin function signatures
-│   └── traits.rs           # Trait resolution (impl lookup)
+│   ├── resolve.rs          # Name resolution pass (includes trait symbol registration)
+│   ├── infer.rs            # Type inference (unification-based HM)
+│   ├── monomorphize.rs     # Generic dictionary-passing (HIR-to-HIR transform)
+│   └── builtins.rs         # Builtin function signatures + codegen templates
 │   │
 │   │   ── Phase III ──
 │   ├── lower.rs            # AST → HIR lowering
 │   ├── hir.rs              # HIR type definitions
 │   ├── codegen.rs          # HIR → JavaScript string
 │   ├── modules.rs          # ModuleGraph, linking
-│   └── tree_shake.rs       # Dead code elimination
+│   └── tree_shake.rs       # Dead code elimination (not yet implemented)
 │
 ├── docs/
 │   ├── variables.md        # Variable semantics
@@ -819,94 +816,65 @@ pub fn infer_types(
 
 ---
 
-### Step 8: Generic monomorphization
+### Step 8: Generic monomorphization (dictionary passing)
 
-**Goal:** After type inference, create concrete copies of every generic
-function/struct/enum instantiation.
+**Goal:** After type inference, transform the HIR so that generic functions
+receive trait implementation dictionaries as extra parameters, and call sites
+pass the appropriate dictionaries.
+
+**Status: Implemented.** Unlike the roadmap's original AST-cloning plan, the
+actual implementation uses **dictionary passing** (type erasure). Generic
+functions are compiled once and accept trait implementations as extra arguments.
+
+**Approach (HIR-to-HIR transform):**
 
 ```rust
 pub fn monomorphize(
-    arena: &mut AstArena,
-    type_arena: &mut TypeArena,
-    types: &HashMap<NodeId, TypeId>,
-    root: NodeId,
-    diagnostics: &mut DiagnosticsBag,
-) -> MonomorphizedProgram {
-    // ...
-}
+    hir: HirExpr,
+    arena: &AstArena,
+    scope_tree: &ScopeTree,
+    type_arena: &TypeArena,
+    interner: &mut Interner,
+) -> HirExpr
 ```
 
-**Algorithm:**
+1. **Discover generic functions.** For each `FuncDef` with non-empty
+   `type_params`, add one extra parameter per (type_param, trait) pair,
+   named e.g. `$impl_T_Hash` for `func [T: Hash] foo(x: T)`.
 
-1. **Collect instantiations.** Walk the typed AST and find every
-   `Call` to a generic function. Record `(func_symbol, [concrete_type,
-...])` pairs. Likewise, find every `Variable` reference to a generic
-   struct/enum with concrete type args.
+2. **Route trait method calls inside generic bodies.** When the body
+   contains `T::hash(x)`, the monomorphizer converts it to
+   `$impl_T_Hash.hash(x)` (a `FieldAccess` through the descriptor).
 
-2. **Deduplicate.** Use a `HashMap<(IdentId, Vec<TypeId>), NodeId>` to
-   ensure each instantiation produces exactly one copy.
+3. **Build descriptor arguments at call sites.** For each call to a
+   generic function, the monomorphizer looks up the concrete type from the
+   arguments and constructs references to the impl block's named constants
+   (e.g., `$impl_Int_Hash`).
 
-3. **Instantiate.** For each `(generic_def, concrete_types)` pair:
-   - Clone the generic definition's AST subtree
-   - Substitute all type parameters with their concrete types
-   - Re-type-check the body (it may reference other generics, creating
-     a transitive closure)
-   - Assign a mangled name: `foo$Int$Str`
+4. **Impl blocks produce dictionary IIFEs.** Each `impl` block is lowered
+   to an `ImplBlock` HIR node, emitted as:
+   ```js
+   const $impl_Int_Hash = (() => {
+       function hash$0(x) { return x; }
+       return { hash: hash$0 };
+   })();
+   ```
 
-4. **Replace call sites.** Update each `Call` node to reference the
-   monomorphized function's `NodeId` directly.
-
-The output is a `MonomorphizedProgram`: an `AstArena` where all generic
-nodes have been replaced with concrete copies, and a `Vec<(NodeId,
-IdentId)>` mapping root call-site nodes to their monomorphized
-function IDs.
-
-**Why a separate pass?** Because monomorphization creates new AST nodes
-that need their own type inference. Running monomorphization during
-type inference (as the current code does) means you're interleaving two
-recursive processes. Separating them makes the control flow simpler and
-allows caching: if `foo[Int, Str]` is called from two places, you only
-instantiate it once.
+**Key difference from AST cloning:** Dictionary passing avoids duplicating
+function bodies for each concrete type instantiation. The trade-off is that
+generic functions pay a small runtime cost for indirect method dispatch
+through the dictionary.
 
 ---
 
 ### Step 9: Builtin function resolution
 
-**Goal:** Recognize calls to builtin functions (`map`, `filter`,
-`reduce`, `push`, `pop`, `len`, etc.) and resolve them to codegen
-templates.
-
-**Approach:** Same as the current `BUILTIN_RESOLVERS` table in
-`builtin-calls.ts`, but expressed as a Rust enum + match:
-
-```rust
-pub enum BuiltinFunc {
-    Map,
-    Filter,
-    Reduce,
-    Push,
-    Pop,
-    Length,
-    // ... etc.
-}
-
-impl BuiltinFunc {
-    pub fn try_from_name(name: &str, arg_types: &[TypeId]) -> Option<BuiltinFunc>;
-    pub fn return_type(&self, arg_types: &[TypeId], type_arena: &TypeArena) -> TypeId;
-    pub fn emit(&self, args: &[NodeId], writer: &mut JsWriter);
-}
-```
-
-During type inference, after name resolution fails to find a
-user-defined function, fall through to `BuiltinFunc::try_from_name`.
-If it matches, annotate the `Call` node with a `BuiltinFunc` tag instead
-of a normal function reference.
-
-During codegen, the `BuiltinFunc::emit` method produces the
-JavaScript runtime call, including any necessary wrapper code
-(wrapping arrays in `$ArrayIterator$`, etc.).
+**Status: Implemented.** See `src/builtins.rs`. Builtins are resolved during
+type inference via `try_from_name`, and emitted via `BuiltinFunc::emit_js`
+templates during codegen.
 
 ---
+
 
 ### Phase II testing checkpoint
 
@@ -1246,14 +1214,15 @@ it's worth doing the WASM build.
  └────────────────┘
      │
      ▼
- ┌──────────────────┐
- │ Monomorphization │──── Fully concrete AST
- └──────────────────┘
-     │
-     ▼
- ┌──────────┐       Phase III
+ ┌──────────┐
  │ Lowering │──── HIR (flat codegen IR)
  └──────────┘
+     │
+     ▼
+ ┌──────────────────┐
+ │ Monomorphization │──── HIR with descriptor params
+ │ (dictionary pass)│     (HIR-to-HIR transform)
+ └──────────────────┘
      │
      ▼
  ┌────────────────┐
@@ -1269,9 +1238,42 @@ it's worth doing the WASM build.
 Each box is a pure function: `(Input) -> Result<Output, Diagnostics>`.
 No mutable shared state between passes.
 
+## 7. Remaining Work
+
+### Traits: trait-associated variable routing (`T::bar`)
+
+The `T::bar` syntax for trait-associated variables (e.g., `bar: Self` in a
+trait definition) is not yet implemented. Currently, `T::hash(x)` (function
+calls through traits) works, but standalone variable references like `T::bar`
+are not routed through the descriptor. This requires a new HIR variant or
+a mechanism for the monomorphizer to intercept `Ident` nodes from
+trait-associated expressions.
+
+### Traits: concrete type trait method calls (`Int::hash(1i)`)
+
+Calling trait methods on concrete types (e.g., `Int::hash(1i)`) is not
+yet implemented. The resolver would need to look up the concrete type's
+impl blocks and route through the named impl constant (e.g., `$impl_Int_Hash`).
+The machinery is in place (impl blocks are emitted as named constants), but
+the resolver/inference path for concrete types is missing.
+
+### Module system (partially implemented)
+
+The module linker (`src/modules.rs`) exists but has some test failures.
+Cross-module scope merging and cyclic dependency handling still need work.
+
+### Tree-shaking (not yet implemented)
+
+`src/tree_shake.rs` does not exist yet. Dead code elimination is still
+on the roadmap.
+
+### Codegen for some language features
+
+Codegen for some language features like direct calls, builtin calls, and enums doesn't yet work 100% correctly.
+
 ---
 
-## 7. Breaking changes
+## 8. Breaking changes
 
 This is a list of language features that will be changed during the rewrite.
 Anything not included in this list is intended to remain unchanged.
@@ -1449,7 +1451,6 @@ The rewrite implements a more thorough Hindley-Milner type inference system. See
 Expression that do not give values had type `Null` in the TS implementation. In the new implementation, this type is renamed to `Void`, to match the word use in other languages and avoid confusion with JS's `null` value.
 
 ---
-
 ## Appendix: Migrating the Test Suite
 
 The current test suite (`tests/*.test.ts`) is comprehensive (~21 test

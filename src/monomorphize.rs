@@ -811,4 +811,56 @@ mod tests {
             "unused generic type param should be an error"
         );
     }
+
+    #[test]
+    fn generic_with_trait_variable_routed_through_descriptor() {
+        // Trait variables (e.g., `T::bar` where `bar: Self` in a trait)
+        // should be routed through the descriptor, similar to trait method calls.
+        let hir = compile_ok(
+            "trait Bar { bar: Self }; \
+             func [T: Bar] get(x: T): T { T::bar }",
+        );
+        let block = match &hir {
+            HirExpr::Block(b) => b,
+            _ => panic!("expected Block"),
+        };
+        // stmts: [TraitDef(Error), FuncDef]
+        let body = match &block.stmts[1] {
+            HirExpr::FuncDef(f) => &f.body,
+            _ => panic!("expected FuncDef"),
+        };
+        match &**body {
+            HirExpr::Block(b) => match &b.stmts[0] {
+                HirExpr::FieldAccess(fa) => {
+                    assert!(
+                        matches!(&*fa.obj, HirExpr::Ident(_)),
+                        "descriptor should be an Ident"
+                    );
+                }
+                other => panic!("expected FieldAccess for trait variable, got: {:?}", other),
+            },
+            _ => panic!("expected Block body"),
+        }
+    }
+
+    #[test]
+    fn generic_with_trait_method_and_variable() {
+        // Full example from the docs: T::foo(x, T::bar)
+        let hir = compile_ok(
+            "trait Foo { foo: Func[Self, Self: Self] }; \
+             trait Bar { bar: Self }; \
+             func [T: Foo + Bar] process(x: T) { T::foo(x, T::bar) }",
+        );
+        let block = match &hir {
+            HirExpr::Block(b) => b,
+            _ => panic!("expected Block"),
+        };
+        // stmts: [TraitDef(Error), TraitDef(Error), FuncDef]
+        let func_def = match &block.stmts[2] {
+            HirExpr::FuncDef(f) => f,
+            _ => panic!("expected FuncDef"),
+        };
+        // Should have 3 params: x + Foo descriptor + Bar descriptor
+        assert_eq!(func_def.params.len(), 3);
+    }
 }

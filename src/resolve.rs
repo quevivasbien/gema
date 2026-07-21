@@ -288,6 +288,25 @@ impl<'a> Resolver<'a> {
             // Resolve the body.
             resolver.resolve_node(f.body);
         });
+
+        // Check that all type parameters are used in at least one function argument.
+        for tp in &f.type_params {
+            let used = f.params.iter().any(|p| {
+                p.type_node
+                    .as_ref()
+                    .map_or(false, |tn| self.type_node_refers_to_name(tn, tp.name))
+            });
+            if !used {
+                self.diagnostics.error(
+                    self.file_idx,
+                    self.arena[node].span(),
+                    format!(
+                        "type parameter '{}' is not used in any function argument",
+                        self.interner.lookup(tp.name)
+                    ),
+                );
+            }
+        }
     }
 
     fn resolve_anon_func(&mut self, node: NodeId, a: &AnonFunc) {
@@ -387,7 +406,7 @@ impl<'a> Resolver<'a> {
     fn mangle_impl_name(&self, i: &ImplBlock) -> String {
         let trait_name = self.interner.lookup(i.trait_name);
         let type_desc = self.type_node_desc(&i.self_type);
-        format!("$impl_{trait_name}_{type_desc}")
+        format!("$impl_{type_desc}_{trait_name}")
     }
 
     /// Produce a short type descriptor string from a TypeNode for
@@ -745,6 +764,33 @@ impl<'a> Resolver<'a> {
     fn resolve_unary(&mut self, node: NodeId, u: &Unary) {
         self.record_scope(node);
         self.resolve_node(u.child);
+    }
+
+    /// Check whether a `TypeNode` contains a reference to a given name,
+    /// recursively (e.g., finds `T` in `Arr[T]` or `Func[Int: T]`).
+    fn type_node_refers_to_name(&self, tn: &TypeNode, name: IdentId) -> bool {
+        match tn {
+            TypeNode::Named { name: n, params } => {
+                *n == name || params.iter().any(|p| self.type_node_refers_to_name(p, name))
+            }
+            TypeNode::Arr(inner)
+            | TypeNode::Iter(inner)
+            | TypeNode::MutArr(inner)
+            | TypeNode::Set(inner)
+            | TypeNode::MutSet(inner)
+            | TypeNode::Maybe(inner) => self.type_node_refers_to_name(inner, name),
+            TypeNode::Tup(elems) => elems.iter().any(|e| self.type_node_refers_to_name(e, name)),
+            TypeNode::Func { params, ret } => {
+                params.iter().any(|p| self.type_node_refers_to_name(p, name))
+                    || self.type_node_refers_to_name(ret, name)
+            }
+            TypeNode::Dict { key, val } | TypeNode::MutDict { key, val } => {
+                self.type_node_refers_to_name(key, name)
+                    || self.type_node_refers_to_name(val, name)
+            }
+            TypeNode::TypeParamRef { name: n, .. } => *n == name,
+            _ => false,
+        }
     }
 
     // ── Type-associated expressions ──
