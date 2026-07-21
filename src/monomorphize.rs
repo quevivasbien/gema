@@ -36,9 +36,18 @@ struct Monomorphizer<'a> {
     current_scope: ScopeId,
 }
 
+/// A descriptor param for a single (type_param, trait) pair.
+/// E.g., for `func [T: Foo + Bar] f(x: T)`, there are TWO descriptor params:
+/// one for (T, Foo) and one for (T, Bar), named `$impl_T_Foo` and `$impl_T_Bar`.
 struct DescriptorParam {
+    /// The parameter name in the generated JS (e.g., `$impl_T_Foo`).
     param_name: IdentId,
-    trait_bounds: Vec<(IdentId, Vec<IdentId>)>,
+    /// The type parameter this descriptor is for.
+    type_param: IdentId,
+    /// The trait this descriptor provides implementations for.
+    trait_name: IdentId,
+    /// The names of the trait's requirements (methods/variables).
+    requirement_names: Vec<IdentId>,
 }
 
 impl<'a> Monomorphizer<'a> {
@@ -196,7 +205,7 @@ impl<'a> Monomorphizer<'a> {
                     .map(|v| Box::new(self.monomorphize_expr(*v, descriptor_stack))),
                 is_tagged_union: e.is_tagged_union,
             }),
-            HirExpr::Error
+            HirExpr::Null
             | HirExpr::IntLit(_)
             | HirExpr::NumLit(_)
             | HirExpr::StrLit(_)
@@ -205,7 +214,8 @@ impl<'a> Monomorphizer<'a> {
             | HirExpr::Ident(_)
             | HirExpr::Break(_)
             | HirExpr::Continue(_)
-            | HirExpr::TypeDescriptor(_) => expr,
+            | HirExpr::TypeDescriptor(_)
+            | HirExpr::ImplBlock(_) => expr,
         }
     }
 
@@ -238,27 +248,31 @@ impl<'a> Monomorphizer<'a> {
             return HirExpr::FuncDef(f);
         }
 
-        // Build descriptor params for this function's type parameters.
+        // Build ONE descriptor param per (type_param, trait) pair.
         let mut new_descriptors: Vec<DescriptorParam> = Vec::new();
         for tp in &f.type_params {
-            let desc_name = format!("_{}", self.interner.lookup(tp.name));
-            let desc_param_id = self.interner.intern(&desc_name);
-            let mut trait_bounds: Vec<(IdentId, Vec<IdentId>)> = Vec::new();
             for trait_name in &tp.trait_bounds {
                 let req_names = self.get_trait_requirement_names(*trait_name);
-                trait_bounds.push((*trait_name, req_names));
+                let desc_name = format!(
+                    "$impl_{}_{}",
+                    self.interner.lookup(tp.name),
+                    self.interner.lookup(*trait_name)
+                );
+                let desc_param_id = self.interner.intern(&desc_name);
+                new_descriptors.push(DescriptorParam {
+                    param_name: desc_param_id,
+                    type_param: tp.name,
+                    trait_name: *trait_name,
+                    requirement_names: req_names,
+                });
+                f.params.push(FuncParam {
+                    name: desc_param_id,
+                });
             }
-            new_descriptors.push(DescriptorParam {
-                param_name: desc_param_id,
-                trait_bounds,
-            });
-            // Add descriptor as a function parameter.
-            f.params.push(FuncParam { name: desc_param_id });
         }
 
         f.type_params.clear();
 
-        // Push descriptors and recurse into the body.
         let desc_count = new_descriptors.len();
         descriptor_stack.extend(new_descriptors);
         f.body = Box::new(self.monomorphize_expr(*f.body, descriptor_stack));
@@ -298,45 +312,62 @@ impl<'a> Monomorphizer<'a> {
 
         // Check if this is a trait method call that should be routed
         // through a descriptor.  Look up the descriptor stack to find
-        // which descriptor provides this method name.
+        // which per-trait descriptor provides this method.
         for desc in descriptor_stack.iter().rev() {
-            for (_trait_name, req_names) in &desc.trait_bounds {
-                if req_names.contains(&c.name) {
-                    // Route through descriptor: desc.hash(x)
-                    let desc_ident = HirExpr::Ident(IdentNode {
-                        span: c.span,
-                        name: desc.param_name,
-                        def_node: None,
-                    });
-                    let field_access = HirExpr::FieldAccess(FieldAccess {
-                        span: c.span,
-                        obj: Box::new(desc_ident),
-                        field: c.name,
-                    });
-                    return HirExpr::DirectCall(DirectCall {
-                        span: c.span,
-                        callee: Box::new(field_access),
-                        args: c.args,
-                    });
-                }
+            if desc.requirement_names.contains(&c.name) {
+                // Route through descriptor: $impl_T_Foo.foo(x)
+                let desc_ident = HirExpr::Ident(IdentNode {
+                    span: c.span,
+                    name: desc.param_name,
+                    def_node: None,
+                });
+                let field_access = HirExpr::FieldAccess(FieldAccess {
+                    span: c.span,
+                    obj: Box::new(desc_ident),
+                    field: c.name,
+                });
+                return HirExpr::DirectCall(DirectCall {
+                    span: c.span,
+                    callee: Box::new(field_access),
+                    args: c.args,
+                });
             }
         }
-
-        // Check if this call targets a generic function.
-        let type_param_count = self.generic_param_count(c.name);
-        if type_param_count > 0 {
-            let desc_args = self.build_descriptor_args(c.name, type_param_count, &c.args);
+        // Check if this call targets a generic function with trait bounds.
+        let desc_count = self.descriptor_param_count(c.name);
+        if desc_count > 0 {
+            let desc_args = self.build_descriptor_args(c.name, desc_count, &c.args);
             c.args.extend(desc_args);
         }
 
         HirExpr::Call(c)
     }
 
+    /// Find the AST definition node for a function by name.
+    fn find_func_def_node(&self, name: IdentId) -> Option<NodeId> {
+        for (_, sym) in self.scope_tree.symbols.iter() {
+            if sym.name == name
+                && let SymbolKind::Function { .. } = &sym.kind
+            {
+                return Some(sym.def_node);
+            }
+        }
+        None
+    }
+
+    /// Extract type param info from a function definition AST node.
+    fn get_type_params_from_def(&self, def_node: NodeId) -> Option<Vec<ast::TypeParam>> {
+        match &self.arena[def_node] {
+            ast::Expr::FuncDef(f) => Some(f.type_params.clone()),
+            _ => None,
+        }
+    }
     /// Build descriptor arguments for a generic function call.
+    /// Creates one descriptor per (type_param, trait) pair.
     fn build_descriptor_args(
         &mut self,
         func_name: IdentId,
-        type_param_count: usize,
+        _descriptor_count: usize,
         call_args: &[HirExpr],
     ) -> Vec<HirExpr> {
         // Get type params from the scope tree symbol first (for imported
@@ -363,78 +394,69 @@ impl<'a> Monomorphizer<'a> {
             });
 
         let type_params = match type_params {
-            Some(tp) if tp.len() == type_param_count => tp,
-            _ => {
-                // Fallback: empty descriptor placeholders.
-                return (0..type_param_count)
-                    .map(|_| {
-                        HirExpr::TypeDescriptor(TypeDescriptor {
-                            span: Span::empty_at(0),
-                            type_name: IdentId::from_u32(0),
-                            methods: vec![],
-                        })
-                    })
-                    .collect();
-            }
+            Some(tp) => tp,
+            None => return Vec::new(),
         };
 
-        let mut results = Vec::with_capacity(type_params.len());
-        for tp in type_params {
-            results.push(self.build_descriptor_for_type_param(tp, call_args));
+        let mut results = Vec::new();
+        for tp in &type_params {
+            for trait_name in &tp.traits {
+                results.push(self.build_descriptor_for_trait(tp, *trait_name, call_args));
+            }
         }
         results
     }
 
-    /// Find the AST definition node for a function by name.
-    fn find_func_def_node(&self, name: IdentId) -> Option<NodeId> {
-        for (_, sym) in self.scope_tree.symbols.iter() {
-            if sym.name == name
-                && let SymbolKind::Function { .. } = &sym.kind
-            {
-                return Some(sym.def_node);
-            }
-        }
-        None
-    }
-
-    /// Extract type param info from a function definition AST node.
-    fn get_type_params_from_def(&self, def_node: NodeId) -> Option<Vec<ast::TypeParam>> {
-        match &self.arena[def_node] {
-            ast::Expr::FuncDef(f) => Some(f.type_params.clone()),
-            _ => None,
-        }
-    }
-
-    /// Build a descriptor object for a single type parameter at a call site.
-    /// Determines the concrete type from the call args and looks up the
-    /// impl blocks for each required trait.
-    fn build_descriptor_for_type_param(
+    /// Build a descriptor reference for a single (type_param, trait) pair at a call site.
+    /// Looks up the impl block's named constant (e.g., `$impl_Hash_Int`) and
+    /// returns a reference to it, instead of inlining the dictionary.
+    fn build_descriptor_for_trait(
         &mut self,
-        _type_param: ast::TypeParam,
+        _type_param: &ast::TypeParam,
+        trait_name: IdentId,
         call_args: &[HirExpr],
     ) -> HirExpr {
-        let mut methods: Vec<(IdentId, HirExpr)> = Vec::new();
         let type_name = self.concrete_type_from_arg(call_args);
-
-        for trait_name in &_type_param.traits {
-            let reqs = self.get_trait_requirement_names(*trait_name);
-            for req_name in reqs {
-                // Look up the impl block for this concrete type and trait.
-                let impl_result = self.find_impl_function_name(type_name, *trait_name, req_name);
-                let (func_name, func_def_node) = impl_result.unwrap_or((req_name, None));
-                let func_ref = HirExpr::Ident(IdentNode {
+        let type_name = match type_name {
+            Some(t) => t,
+            None => {
+                // Can't determine concrete type — return an empty placeholder.
+                return HirExpr::TypeDescriptor(TypeDescriptor {
                     span: Span::empty_at(0),
-                    name: func_name,
-                    def_node: func_def_node,
+                    type_name: IdentId::from_u32(0),
+                    methods: vec![],
                 });
-                methods.push((req_name, func_ref));
+            }
+        };
+
+        // Look up the Impl symbol by matching (type_name, trait_name).
+        for (_, sym) in self.scope_tree.symbols.iter() {
+            if let SymbolKind::Impl {
+                trait_name: tn,
+                self_type,
+                ..
+            } = &sym.kind
+            {
+                if *tn != trait_name {
+                    continue;
+                }
+                if !self.self_type_matches(self_type, type_name) {
+                    continue;
+                }
+                // Found matching impl! Use its mangled name as the reference.
+                return HirExpr::Ident(IdentNode {
+                    span: Span::empty_at(0),
+                    name: sym.name,
+                    def_node: None,
+                });
             }
         }
 
+        // No impl found — return an empty descriptor placeholder.
         HirExpr::TypeDescriptor(TypeDescriptor {
             span: Span::empty_at(0),
-            type_name: type_name.unwrap_or(IdentId::from_u32(0)),
-            methods,
+            type_name,
+            methods: vec![],
         })
     }
 
@@ -537,20 +559,21 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
-    fn generic_param_count(&self, name: IdentId) -> usize {
-        for (_, sym) in self.scope_tree.symbols.iter() {
-            if sym.name == name
-                && let SymbolKind::Function {
-                    is_generic,
-                    type_param_count,
-                    ..
-                } = &sym.kind
-                && *is_generic
-            {
-                return *type_param_count;
-            }
+    /// Count the total number of descriptor params needed for a function:
+    /// the sum of trait bounds across all type params.
+    fn descriptor_param_count(&self, name: IdentId) -> usize {
+        let def_node = match self.find_func_def_node(name) {
+            Some(n) => n,
+            None => return 0,
+        };
+        match &self.arena[def_node] {
+            ast::Expr::FuncDef(f) => f
+                .type_params
+                .iter()
+                .map(|tp| tp.traits.len())
+                .sum(),
+            _ => 0,
         }
-        0
     }
 }
 
@@ -588,7 +611,7 @@ mod tests {
             &mut diags,
             0,
         );
-        let hir = lower(&arena, root, &scope_tree, &interner);
+        let hir = lower(&arena, root, &scope_tree, &mut interner);
         let hir = monomorphize(hir, &arena, &scope_tree, &type_arena, &mut interner);
         (hir, diags)
     }
@@ -605,15 +628,15 @@ mod tests {
 
     #[test]
     fn generic_func_gets_descriptor_param() {
+        // Unbound type params (no trait bounds) don't need descriptors.
         let hir = compile_ok("func [T] id(x: T): T { x }");
-        // The function should have one extra param for the type descriptor.
         match &hir {
             HirExpr::Block(b) => match &b.stmts[0] {
                 HirExpr::FuncDef(f) => {
                     assert_eq!(
                         f.params.len(),
-                        2,
-                        "should have value param + descriptor param"
+                        1,
+                        "unbound generic should have only the value param (no descriptor)"
                     );
                     assert!(f.type_params.is_empty(), "type_params should be cleared");
                 }
@@ -714,18 +737,15 @@ mod tests {
 
     #[test]
     fn generic_func_call_gets_descriptor_arg() {
+        // Unbound type params don't need descriptor args.
         let hir = compile_ok("func [T] id(x: T): T { x }; id(42i)");
         match &hir {
             HirExpr::Block(b) => {
-                // stmts[1] should be the call to id(42i) with descriptor.
+                // stmts[1] should be the call to id(42i).
                 match &b.stmts[1] {
                     HirExpr::Call(c) => {
-                        assert_eq!(c.args.len(), 2, "should have value arg + descriptor arg");
-                        // Second arg should be a TypeDescriptor
-                        assert!(
-                            matches!(&c.args[1], HirExpr::TypeDescriptor(_)),
-                            "descriptor arg should be TypeDescriptor"
-                        );
+                        // No descriptor args for unbound type params.
+                        assert_eq!(c.args.len(), 1, "unbound generic call should have 1 arg");
                     }
                     _ => panic!("expected Call"),
                 }
@@ -769,9 +789,7 @@ mod tests {
     #[test]
     fn generic_with_multiple_args_same_type_param() {
         // Multiple arguments can share the same type param.
-        let hir = compile_ok(
-            "func [T] firstOrDefault(arr: Arr[T], default: T): T { default }",
-        );
+        let hir = compile_ok("func [T] firstOrDefault(arr: Arr[T], default: T): T { default }");
         let block = match &hir {
             HirExpr::Block(b) => b,
             _ => panic!("expected Block"),
@@ -780,16 +798,14 @@ mod tests {
             HirExpr::FuncDef(f) => f,
             _ => panic!("expected FuncDef"),
         };
-        // Should have 3 params: `arr` + `default` + descriptor
-        assert_eq!(func_def.params.len(), 3);
+        // Should have 2 params: `arr` + `default` (no descriptor for unbound T)
+        assert_eq!(func_def.params.len(), 2);
     }
 
     #[test]
     fn generic_type_param_unused_in_args_is_error() {
         // Generic type params MUST be used by at least one argument.
-        let (_hir, diags) = compile_to_hir(
-            "func [T] foo(x: Int): Int { x }",
-        );
+        let (_hir, diags) = compile_to_hir("func [T] foo(x: Int): Int { x }");
         assert!(
             diags.has_errors(),
             "unused generic type param should be an error"

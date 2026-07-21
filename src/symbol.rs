@@ -119,6 +119,11 @@ pub struct ScopeTree {
     /// overload selected by type inference. Populated during inference,
     /// consumed during lowering.
     pub inferred_defs: FxHashMap<NodeId, NodeId>,
+    /// Maps TypeAssociated call nodes to (type_param_id, trait_id) when the
+    /// call is a trait method call (e.g., `T::foo(x)` maps to the specific
+    /// trait that provides `foo` for `T`). Populated during name resolution,
+    /// consumed during monomorphization.
+    pub trait_method_refs: FxHashMap<NodeId, (IdentId, IdentId)>,
 }
 
 impl ScopeTree {
@@ -137,6 +142,7 @@ impl ScopeTree {
             node_scope: FxHashMap::default(),
             resolved_refs: FxHashMap::default(),
             inferred_defs: FxHashMap::default(),
+            trait_method_refs: FxHashMap::default(),
         }
     }
 

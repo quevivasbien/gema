@@ -69,11 +69,16 @@ pub enum HirExpr {
     Call(Call),
     DirectCall(DirectCall),
 
+    // ── Definitions ──
+    /// A lowered impl block. Emitted as an IIFE that produces a dictionary
+    /// of trait method implementations for a concrete type.
+    ImplBlock(ImplBlock),
+
     // ── Pattern matching ──
     Match(Match),
 
-    /// Error-recovery sentinel — codegen emits nothing.
-    Error,
+    /// Used as an error-recovery sentinel and for other nodes that don't emit any JS.
+    Null,
 }
 
 // ===========================================================================
@@ -347,20 +352,21 @@ pub struct Return {
 }
 
 // ── Functions and calls ──
+// TODO: Maybe concrete and anonymous function definitions should have different HIR node types, since they are handled substantially differently.
 #[derive(Clone, Debug)]
-    pub struct FuncDef {
-        pub span: Span,
-        pub name: IdentId,
-        pub params: Vec<FuncParam>,
-        pub body: Box<HirExpr>,
-        pub type_params: Vec<TypeParam>,
-        /// The AST NodeId of the FuncDef expression this was lowered from.
-        /// Used by codegen to assign unique machine names.
-        pub node_id: crate::ast::NodeId,
-        /// True when this is a generic function (has type params).
-        /// Generic function names don't get overload suffixes in codegen.
-        pub is_generic: bool,
-    }
+pub struct FuncDef {
+    pub span: Span,
+    pub name: IdentId,
+    pub params: Vec<FuncParam>,
+    pub body: Box<HirExpr>,
+    pub type_params: Vec<TypeParam>,
+    /// The AST NodeId of the FuncDef expression this was lowered from.
+    /// Used by codegen to assign unique machine names.
+    pub node_id: crate::ast::NodeId,
+    /// True when this is a generic function (has type params).
+    /// Generic function names don't get overload suffixes in codegen.
+    pub is_generic: bool,
+}
 #[derive(Clone, Debug)]
 pub struct AnonFunc {
     pub span: Span,
@@ -389,6 +395,19 @@ pub struct DirectCall {
     pub span: Span,
     pub callee: Box<HirExpr>,
     pub args: Vec<HirExpr>,
+}
+
+/// A lowered impl block that produces a trait implementation dictionary.
+#[derive(Clone, Debug)]
+pub struct ImplBlock {
+    pub span: Span,
+    /// The mangled name for this impl block (e.g., `$impl_Int_Hash`).
+    pub name: IdentId,
+    /// The lowered member definitions (FuncDef, Assign, etc.).
+    pub members: Vec<HirExpr>,
+    /// The requirement names → function reference mappings for the dictionary.
+    /// E.g., `[("hash", Ident("hash$0", def_node=...))]` → `{ hash: hash$0 }`.
+    pub method_names: Vec<(IdentId, HirExpr)>,
 }
 
 // ── Pattern matching ──
@@ -435,8 +454,9 @@ impl HirExpr {
             HirExpr::AnonFunc(e) => e.span,
             HirExpr::Call(e) => e.span,
             HirExpr::DirectCall(e) => e.span,
+            HirExpr::ImplBlock(e) => e.span,
             HirExpr::Match(e) => e.span,
-            HirExpr::Error => Span::empty_at(0),
+            HirExpr::Null => Span::empty_at(0),
         }
     }
 }
@@ -511,7 +531,11 @@ pub fn hir_none(span: Span) -> HirExpr {
 }
 
 pub fn hir_ident(span: Span, name: IdentId) -> HirExpr {
-    HirExpr::Ident(IdentNode { span, name, def_node: None })
+    HirExpr::Ident(IdentNode {
+        span,
+        name,
+        def_node: None,
+    })
 }
 
 pub fn hir_block(span: Span, stmts: Vec<HirExpr>) -> HirExpr {
@@ -597,7 +621,7 @@ mod tests {
 
     #[test]
     fn error_expr_span_is_empty() {
-        assert_eq!(HirExpr::Error.span(), Span::empty_at(0));
+        assert_eq!(HirExpr::Null.span(), Span::empty_at(0));
     }
 
     #[test]
@@ -645,7 +669,7 @@ mod tests {
         arena.alloc(crate::ast::Expr::ErrorExpr)
     }
 
-#[test]
+    #[test]
     fn span_accessor_for_func_def() {
         let mut interner = Interner::new();
         let name = ident(&mut interner, "f");
@@ -1178,7 +1202,7 @@ mod tests {
                 }),
                 Span::new(0, 6),
             ),
-            (HirExpr::Error, Span::empty_at(0)),
+            (HirExpr::Null, Span::empty_at(0)),
             (
                 hir_tuple_index(
                     Span::new(0, 8),

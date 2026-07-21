@@ -5,22 +5,20 @@
 ///   - `DropValue` → implicit (just emit the child)
 ///   - `TypeAssociated` → `EnumLit` (when the type is an enum)
 ///   - `Call` which resolves to a struct constructor → `StructLit`
-///   - `Pipe` → already desugared by the parser
-///   - `Use` / `UseJs` / `TraitDef` / `ImplBlock` → dropped (not in HIR)
+use crate::ast::{self, AstArena, NodeId};
 use crate::builtins::BuiltinFunc;
 use crate::hir;
 use crate::hir::{HirBinaryOp, HirExpr, HirUnaryOp};
 use crate::interner::{IdentId, Interner};
+use crate::source::Span;
 use crate::symbol::{ScopeId, ScopeTree, SymbolKind};
-
-use crate::ast::{self, AstArena, NodeId};
 
 /// Lower a resolved and inferred AST to a HIR tree.
 pub fn lower(
     arena: &AstArena,
     root: NodeId,
     scope_tree: &ScopeTree,
-    interner: &Interner,
+    interner: &mut Interner,
 ) -> HirExpr {
     let mut lowerer = Lowerer {
         arena,
@@ -33,7 +31,7 @@ pub fn lower(
 struct Lowerer<'a> {
     arena: &'a AstArena,
     scope_tree: &'a ScopeTree,
-    interner: &'a Interner,
+    interner: &'a mut Interner,
 }
 
 impl<'a> Lowerer<'a> {
@@ -77,14 +75,15 @@ impl<'a> Lowerer<'a> {
             ast::Expr::TupleLit(t) => self.lower_tuple(t),
             ast::Expr::RangeIter(r) => self.lower_range(r),
 
-            // ── Definitions (dropped from HIR) ──
-            // TODO: These shouldn't emit Error nodes -- that is confusing
+            // ── Definitions ──
             ast::Expr::StructDef(_)
             | ast::Expr::EnumDef(_)
             | ast::Expr::TraitDef(_)
-            | ast::Expr::ImplBlock(_)
             | ast::Expr::Use(_)
-            | ast::Expr::UseJs(_) => HirExpr::Error,
+            | ast::Expr::UseJs(_) => HirExpr::Null,
+
+            // ImplBlock: produce an ImplBlock HIR node that will be emitted
+            ast::Expr::ImplBlock(i) => self.lower_impl_block(node, i),
 
             // ── Calls ──
             ast::Expr::Call(c) => self.lower_call(node, c),
@@ -148,7 +147,7 @@ impl<'a> Lowerer<'a> {
             ast::Expr::DropValue(d) => self.lower_expr(d.child),
 
             // ── Error recovery sentinel ──
-            ast::Expr::ErrorExpr => HirExpr::Error,
+            ast::Expr::ErrorExpr => HirExpr::Null,
         }
     }
 
@@ -205,20 +204,16 @@ impl<'a> Lowerer<'a> {
             .unwrap_or(node);
 
         // Check if the called function is generic by looking up its symbol.
-        let is_generic = self
-            .scope_tree
-            .symbols
-            .iter()
-            .any(|(_, sym)| {
-                sym.def_node == def_node
-                    && matches!(
-                        &sym.kind,
-                        crate::symbol::SymbolKind::Function {
-                            is_generic: true,
-                            ..
-                        }
-                    )
-            });
+        let is_generic = self.scope_tree.symbols.iter().any(|(_, sym)| {
+            sym.def_node == def_node
+                && matches!(
+                    &sym.kind,
+                    SymbolKind::Function {
+                        is_generic: true,
+                        ..
+                    }
+                )
+        });
 
         HirExpr::Call(hir::Call {
             span: c.span,
@@ -416,6 +411,116 @@ impl<'a> Lowerer<'a> {
         })
     }
 
+    fn lower_impl_block(&mut self, node: ast::NodeId, i: &ast::ImplBlock) -> HirExpr {
+        let name = self.mangle_impl_name(i);
+        let name_id = self.interner.intern(&name);
+
+        // Lower each member definition.
+        let members: Vec<HirExpr> = i.members.iter().map(|&m| self.lower_expr(m)).collect();
+
+        // Build the method name mapping: for each trait requirement, find the
+        // corresponding member function name in the impl block.
+        let method_names = self.build_impl_method_names(i);
+
+        HirExpr::ImplBlock(hir::ImplBlock {
+            span: i.span,
+            name: name_id,
+            members,
+            method_names,
+        })
+    }
+
+    /// Generate a unique mangled name for an impl block.
+    fn mangle_impl_name(&self, i: &ast::ImplBlock) -> String {
+        let trait_name = self.interner.lookup(i.trait_name);
+        let type_desc = self.type_node_desc(&i.self_type);
+        format!("$impl_{trait_name}_{type_desc}")
+    }
+
+    /// Produce a short type descriptor string from a TypeNode.
+    fn type_node_desc(&self, ty: &ast::TypeNode) -> String {
+        match ty {
+            ast::TypeNode::Int => "Int".to_string(),
+            ast::TypeNode::Num => "Num".to_string(),
+            ast::TypeNode::Str => "Str".to_string(),
+            ast::TypeNode::Bool => "Bool".to_string(),
+            ast::TypeNode::Void => "Void".to_string(),
+            ast::TypeNode::SelfType => "Self".to_string(),
+            ast::TypeNode::Named { name, params } => {
+                let base = self.interner.lookup(*name);
+                if params.is_empty() {
+                    base.to_string()
+                } else {
+                    let params_str: Vec<String> =
+                        params.iter().map(|p| self.type_node_desc(p)).collect();
+                    format!("{base}_{}", params_str.join("_"))
+                }
+            }
+            ast::TypeNode::Func { .. } => "Func".to_string(),
+            ast::TypeNode::Arr(..) => "Arr".to_string(),
+            ast::TypeNode::Iter(..) => "Iter".to_string(),
+            ast::TypeNode::MutArr(..) => "MutArr".to_string(),
+            ast::TypeNode::Tup(..) => "Tup".to_string(),
+            ast::TypeNode::Dict { .. } => "Dict".to_string(),
+            ast::TypeNode::MutDict { .. } => "MutDict".to_string(),
+            ast::TypeNode::Set(..) => "Set".to_string(),
+            ast::TypeNode::MutSet(..) => "MutSet".to_string(),
+            ast::TypeNode::Maybe(..) => "Maybe".to_string(),
+            ast::TypeNode::TypeParamRef { name, .. } => self.interner.lookup(*name).to_string(),
+        }
+    }
+
+    /// Build the (requirement_name, function_ref) mapping for an impl block's
+    /// dictionary return. Each function reference carries the def_node so
+    /// codegen can emit the correct machine name (with overload suffix).
+    fn build_impl_method_names(&self, i: &ast::ImplBlock) -> Vec<(IdentId, HirExpr)> {
+        let mut result = Vec::new();
+        // Look up the trait definition to get requirement names.
+        let trait_reqs: Vec<(IdentId, ast::TypeNode)> = self
+            .scope_tree
+            .symbols
+            .iter()
+            .find_map(|(_, sym)| {
+                if sym.name == i.trait_name
+                    && let SymbolKind::Trait { requirements } = &sym.kind
+                {
+                    Some(
+                        requirements
+                            .iter()
+                            .map(|r| (r.name, r.type_node.clone()))
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        for (req_name, _req_type) in &trait_reqs {
+            // Find the member function that provides this requirement,
+            // and create an Ident with the proper def_node for machine name resolution.
+            let member_info =
+                i.members
+                    .iter()
+                    .find_map(|&member_node| match &self.arena[member_node] {
+                        ast::Expr::FuncDef(f) if f.name == *req_name => {
+                            Some((f.name, Some(member_node)))
+                        }
+                        ast::Expr::Assign(a) if a.name == *req_name => Some((a.name, None)),
+                        _ => None,
+                    });
+            if let Some((func_name, def_node)) = member_info {
+                let func_ref = HirExpr::Ident(hir::IdentNode {
+                    span: Span::empty_at(0),
+                    name: func_name,
+                    def_node,
+                });
+                result.push((*req_name, func_ref));
+            }
+        }
+        result
+    }
+
     // ── Match ──
 
     fn lower_match(&mut self, m: &ast::Match) -> HirExpr {
@@ -503,11 +608,7 @@ impl<'a> Lowerer<'a> {
                 // to the machine name via inferred_defs.
                 match &self.arena[t.inner] {
                     ast::Expr::Var(v) => {
-                        let def_node = self
-                            .scope_tree
-                            .inferred_defs
-                            .get(&node)
-                            .copied();
+                        let def_node = self.scope_tree.inferred_defs.get(&node).copied();
                         HirExpr::Ident(hir::IdentNode {
                             span: v.span,
                             name: v.name,
@@ -525,7 +626,7 @@ impl<'a> Lowerer<'a> {
         &self,
         from: ScopeId,
         name: IdentId,
-    ) -> Option<(Vec<crate::ast::EnumVariant>, Vec<IdentId>)> {
+    ) -> Option<(Vec<ast::EnumVariant>, Vec<IdentId>)> {
         let mut current = from;
         loop {
             if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
@@ -603,7 +704,7 @@ mod tests {
         }
         let root = parse::parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
         let scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
-        let hir = lower(&arena, root, &scope_tree, &interner);
+        let hir = lower(&arena, root, &scope_tree, &mut interner);
         (hir, diagnostics)
     }
 

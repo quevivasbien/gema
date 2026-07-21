@@ -53,7 +53,7 @@ pub fn codegen_inner(
     };
     let mut w = JsWriter::new(interner, fn_names);
     for (i, stmt) in stmts.iter().enumerate() {
-        if matches!(stmt, HirExpr::Error) {
+        if matches!(stmt, HirExpr::Null) {
             continue;
         }
         let is_last = i == stmts.len() - 1;
@@ -259,8 +259,7 @@ impl<'a> JsWriter<'a> {
             out.push_str(&helpers_code);
             out.push('\n');
         }
-        out.push_str("// PROGRAM //\nconst result = ");
-        out.push_str(&program);
+        out.push_str(&format!("// PROGRAM //\nconst result = {};", program));
         out.push('\n');
         out
     }
@@ -299,8 +298,9 @@ impl<'a> JsWriter<'a> {
             HirExpr::AnonFunc(e) => self.emit_anon_func(e),
             HirExpr::Call(e) => self.emit_call(e),
             HirExpr::DirectCall(e) => self.emit_direct_call(e),
+            HirExpr::ImplBlock(e) => self.emit_impl_block(e),
             HirExpr::Match(e) => self.emit_match(e, value_used),
-            HirExpr::Error => { /* emit nothing */ }
+            HirExpr::Null => { /* emit nothing */ }
         }
     }
 
@@ -516,7 +516,7 @@ impl<'a> JsWriter<'a> {
             HirExpr::FuncDef(f) => self.emit_func_def(f),
             HirExpr::AnonFunc(a) => self.emit_anon_func(a),
             HirExpr::ForLoop(f) => self.emit_for_loop(f),
-            HirExpr::Error => {}
+            HirExpr::Null => {}
             _ => {
                 self.write("return ");
                 self.emit_expr(stmt, true);
@@ -534,6 +534,7 @@ impl<'a> JsWriter<'a> {
                 | HirExpr::ForLoop(_)
                 | HirExpr::If(_)
                 | HirExpr::Match(_)
+                | HirExpr::ImplBlock(_)
         )
     }
 
@@ -571,7 +572,7 @@ impl<'a> JsWriter<'a> {
             self.newline();
             let last_idx = e.stmts.len().saturating_sub(1);
             for (i, stmt) in e.stmts.iter().enumerate() {
-                if matches!(stmt, HirExpr::Error) {
+                if matches!(stmt, HirExpr::Null) {
                     continue;
                 }
                 if i == last_idx {
@@ -596,7 +597,7 @@ impl<'a> JsWriter<'a> {
             self.newline();
             let last_idx = e.stmts.len().saturating_sub(1);
             for (i, stmt) in e.stmts.iter().enumerate() {
-                if matches!(stmt, HirExpr::Error) {
+                if matches!(stmt, HirExpr::Null) {
                     continue;
                 }
                 self.emit_expr(stmt, false);
@@ -734,7 +735,7 @@ impl<'a> JsWriter<'a> {
 
         if let HirExpr::Block(body) = &*e.body {
             for (i, stmt) in body.stmts.iter().enumerate() {
-                if matches!(stmt, HirExpr::Error) {
+                if matches!(stmt, HirExpr::Null) {
                     continue;
                 }
                 if i == body.stmts.len() - 1 {
@@ -763,6 +764,43 @@ impl<'a> JsWriter<'a> {
         self.fn_names.name(node_id, name)
     }
 
+    /// Emit an impl block as an IIFE that produces a trait implementation dictionary.
+    /// E.g.: const $impl_Int_Hash = (() => { function hash$0(x) { ... }; return { hash: hash$0 }; })();
+    fn emit_impl_block(&mut self, e: &hir::ImplBlock) {
+        let name = self.interner.lookup(e.name);
+        self.write(&format!("const {} = (() => {{", name));
+        self.indent_in();
+        self.newline();
+
+        // Emit member definitions (function defs, assignments, etc.)
+        for stmt in &e.members {
+            if matches!(stmt, HirExpr::Null) {
+                continue;
+            }
+            self.emit_expr(stmt, false);
+            if !Self::stmt_ends_with_brace(stmt) {
+                self.write(";");
+            }
+            self.newline();
+        }
+
+        // Emit the return statement: { method_name: function_ref, ... }
+        self.write("return {");
+        for (i, (req_name, func_ref)) in e.method_names.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            let req_str = self.interner.lookup(*req_name);
+            self.write(&format!("{}: ", self.safe_name(req_str)));
+            self.emit_expr(func_ref, true);
+        }
+
+        self.write("};");
+        self.indent_out();
+        self.newline();
+        self.write("})();");
+    }
+
     fn emit_anon_func(&mut self, e: &hir::AnonFunc) {
         self.write("(");
         for (i, p) in e.params.iter().enumerate() {
@@ -778,7 +816,7 @@ impl<'a> JsWriter<'a> {
 
         if let HirExpr::Block(body) = &*e.body {
             for (i, stmt) in body.stmts.iter().enumerate() {
-                if matches!(stmt, HirExpr::Error) {
+                if matches!(stmt, HirExpr::Null) {
                     continue;
                 }
                 if i == body.stmts.len() - 1 {
@@ -958,7 +996,7 @@ mod tests {
             &mut diagnostics,
             0,
         );
-        let hir = lower(&arena, root, &scope_tree, &interner);
+        let hir = lower(&arena, root, &scope_tree, &mut interner);
         codegen(hir, &arena, &scope_tree, &type_arena, &mut interner)
     }
 
@@ -1249,14 +1287,14 @@ mod tests {
              func [T: Hash] id(x: T): T { T::hash(x) }; \
              id(1i)",
         );
-        // The impl block should produce a named dictionary (e.g., $impl_Int_Hash)
+        // The impl block should produce a named dictionary (e.g., $impl_Hash_Int)
         assert!(
-            js.contains("$impl_Int_Hash"),
-            "Impl block should emit a named dictionary ($impl_Int_Hash), got:\n{js}"
+            js.contains("$impl_Hash_Int"),
+            "Impl block should emit a named dictionary ($impl_Hash_Int), got:\n{js}"
         );
         // The generic function should reference the dictionary, not inline it
         assert!(
-            js.contains("$impl_Int_Hash"),
+            js.contains("$impl_Hash_Int"),
             "Call site should reference the named impl dictionary, got:\n{js}"
         );
     }

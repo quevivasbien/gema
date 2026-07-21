@@ -77,6 +77,8 @@ func [T] firstOrDefault(arr: Arr[T], default: T): T {
 
 Note that any generic types listed in the `[...]` in a generic function definition _must_ be used by at least one argument of the function.
 
+### Dictionary passing
+
 Generic functions work using dictionary passing for implementations of traits required for generic types.
 
 Gema code like
@@ -131,7 +133,30 @@ const result = (() => {
 })();
 ```
 
+### Overloading generic functions is not allowed
+
 Note that it is _not_ legal to overload a generic function or to have a generic function overload an existing non-generic function. (Though it is legal to shadow a generic in an enclosing scope, and vice versa.) Because of this, when compiled to JS, generic function names aren't suffixed with overload indices like non-generic functions are.
+
+### Edge case: multiple traits have the same requirement
+
+If a type implements multiple traits which have the same requirement, it is an error to try to use that requirement. Example:
+```gema
+trait Foo {
+  f: Func[Self: Self]
+}
+trait Bar {
+  f: Func[Self: Self]
+}
+impl Num: Foo {
+  func f(x: Num) { x }
+}
+impl Num: Bar {
+  func f(x: Num) { x + 1 }
+}
+Num::f(1)  # Error -- which impl of `f` should we use? The one for `Foo` or the one for `Bar`?
+```
+
+In the future, we may add a way to disambiguate such cases.
 
 ## Anonymous functions
 

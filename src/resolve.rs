@@ -751,15 +751,116 @@ impl<'a> Resolver<'a> {
 
     fn resolve_type_associated(&mut self, node: NodeId, t: &TypeAssociated) {
         self.record_scope(node);
-        // The inner expression's name is resolved through the type on
-        // the left of `::`, not as a regular symbol — so we extract
-        // and resolve only the call arguments, if any.
-        let args: Vec<NodeId> = match &self.arena[t.inner] {
-            Expr::Call(c) => c.args.clone(),
-            _ => Vec::new(),
+        match &self.arena[t.inner] {
+            Expr::Call(c) => {
+                // Resolve argument expressions.
+                for &arg in &c.args {
+                    self.resolve_node(arg);
+                }
+                // Record a scope for the Call node so inference can find it.
+                self.record_scope(t.inner);
+
+                // Resolve the call target through the type on the left of `::`.
+                // For trait method calls (e.g., `T::foo(x)`), look up the type param
+                // and find which trait provides the method.
+                // For enum variant access (e.g., `Option::some(42i)`), the name is
+                // resolved through the enum type — handled later by inference.
+                self.resolve_trait_associated_call(node, t, c);
+            }
+            Expr::Var(_) => {
+                // For Var inner (e.g., `T::bar` or `Option::some`), the type
+                // system will resolve it — no symbol resolution needed here.
+            }
+            _ => {}
+        }
+    }
+
+    /// Try to resolve `T::foo(x)` as a trait method call.
+    /// Looks up the type on the left of `::` as a type parameter, finds its
+    /// trait bounds, and checks if exactly one trait provides the method.
+    fn resolve_trait_associated_call(
+        &mut self,
+        node: NodeId,
+        t: &TypeAssociated,
+        c: &Call,
+    ) {
+        let type_name = match &t.type_node {
+            TypeNode::Named { name, .. } => *name,
+            _ => return, // Not a named type — can't be a trait method call
         };
-        for &arg in &args {
-            self.resolve_node(arg);
+
+        // Look up the type as a generic type parameter.
+        let bounds = match self.scope_tree.lookup(self.current_scope, type_name) {
+            Some((_scope, ids)) => {
+                let mut result = None;
+                for &sid in ids.iter().rev() {
+                    if let SymbolKind::TypeParam { bounds } = &self.scope_tree.symbols[sid].kind {
+                        result = Some(bounds.clone());
+                        break;
+                    }
+                }
+                result
+            }
+            None => None,
+        };
+
+        let bounds = match bounds {
+            Some(b) => b,
+            None => return, // Not a type parameter — could be an enum, handled by inference
+        };
+
+        // Find which trait among the bounds has a requirement with the call's name.
+        let mut found_trait: Option<IdentId> = None;
+        for trait_name in &bounds {
+            if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
+                for &sid in ids.iter().rev() {
+                    if let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind
+                    {
+                        if requirements.iter().any(|r| r.name == c.name) {
+                            if found_trait.is_some() {
+                                // Multiple traits provide the same method name — ambiguous.
+                                self.diagnostics.error(
+                                    self.file_idx,
+                                self.arena[node].span(),
+                                    format!(
+                                        "ambiguous trait method '{}': multiple traits bound to '{}' provide this method",
+                                        self.interner.lookup(c.name),
+                                        self.interner.lookup(type_name),
+                                    ),
+                                );
+                                return;
+                            }
+                            found_trait = Some(*trait_name);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(trait_name) = found_trait {
+            // Record the trait method ref so monomorphization can route the
+            // call to the correct per-trait descriptor.
+            self.scope_tree
+                .trait_method_refs
+                .insert(node, (type_name, trait_name));
+
+            // Also look up the method name as a regular symbol (for
+            // resolved_refs), since the name is registered as a TraitMethod
+            // in the function body scope.
+            if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, c.name) {
+                let sid = ids[ids.len() - 1];
+                self.scope_tree.resolved_refs.insert(t.inner, sid);
+            }
+        } else {
+            self.diagnostics.error(
+                self.file_idx,
+                self.arena[node].span(),
+                format!(
+                    "trait method '{}' not found in traits bound to '{}'",
+                    self.interner.lookup(c.name),
+                    self.interner.lookup(type_name),
+                ),
+            );
         }
     }
 
