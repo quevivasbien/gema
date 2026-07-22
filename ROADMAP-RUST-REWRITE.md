@@ -1271,6 +1271,10 @@ on the roadmap.
 
 Codegen for some language features like direct calls, builtin calls, and enums doesn't yet work 100% correctly.
 
+### Builtin call resolution
+
+Resolution of builtin functions doesn't yet work correctly. Most of the infrastructure exists, but there is something missing that doesn't allow caller resolution to find builtin functions.
+
 ---
 
 ## 8. Breaking changes

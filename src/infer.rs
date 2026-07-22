@@ -357,7 +357,6 @@ impl<'a> Inferer<'a> {
             Expr::NoneLit(n) => self.infer_none_lit(n),
             Expr::Var(v) => self.infer_var(node, v),
             Expr::Call(c) => self.infer_call(node, c),
-            Expr::DirectCall(d) => self.infer_direct_call(node, d),
             Expr::Binary(b) => self.infer_binary(b),
             Expr::Unary(u) => self.infer_unary(u),
             Expr::Assign(a) => self.infer_assign(node, a),
@@ -478,9 +477,7 @@ impl<'a> Inferer<'a> {
 
             for &def_node in &func_def_nodes {
                 let func_type = self.function_type_from_def(def_node);
-                if let TypeKind::Func { params, .. } =
-                    self.type_arena.get(func_type).clone()
-                {
+                if let TypeKind::Func { params, .. } = self.type_arena.get(func_type).clone() {
                     if params.is_empty() {
                         continue;
                     }
@@ -531,6 +528,43 @@ impl<'a> Inferer<'a> {
     fn infer_call(&mut self, node: NodeId, c: &Call) -> TypeId {
         let arg_types: Vec<TypeId> = c.args.iter().map(|&arg| self.infer_expr(arg)).collect();
 
+        // Check if the callee is a named variable (name-based overload resolution).
+        if let Expr::Var(v) = &self.arena[c.callee] {
+            return self.infer_named_call(node, v.name, &arg_types);
+        }
+
+        // Expression callee — infer its type and unify with a function signature.
+        let caller_ty = self.infer_expr(c.callee);
+
+        let fresh_ret = self.fresh_infer_var();
+        let fresh_params: Vec<TypeId> = (0..arg_types.len())
+            .map(|_| self.fresh_infer_var())
+            .collect();
+        let expected_func = self.type_arena.intern(TypeKind::Func {
+            params: fresh_params.clone(),
+            ret: fresh_ret,
+        });
+
+        let unified = self.unify(caller_ty, expected_func);
+        if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+            self.emit_error(
+                self.arena[node].span(),
+                "called expression is not a function".to_string(),
+            );
+            return self.type_arena.unknown_id();
+        }
+
+        // Unify param types with arg types
+        for (param, arg) in fresh_params.iter().zip(arg_types.iter()) {
+            self.unify(*param, *arg);
+        }
+
+        self.resolve(fresh_ret)
+    }
+
+    /// Infer a call to a named function — handles overload resolution,
+    /// struct constructors, trait methods, and builtins.
+    fn infer_named_call(&mut self, node: NodeId, name: IdentId, arg_types: &[TypeId]) -> TypeId {
         // Collect function defs and their cached signatures separately
         // to avoid borrow conflicts with self.lower_type_node.
         let funcs: Vec<(NodeId, Option<Box<crate::ast::TypeNode>>)> = self
@@ -541,7 +575,7 @@ impl<'a> Inferer<'a> {
                     .get(&node)
                     .copied()
                     .unwrap_or(self.scope_tree.root_scope),
-                c.name,
+                name,
             )
             .iter()
             .map(|s| {
@@ -565,17 +599,17 @@ impl<'a> Inferer<'a> {
 
         if func_info.is_empty() {
             // Check if it's a struct constructor instead.
-            if let Some(result) = self.try_struct_constructor(node, c, &arg_types) {
+            if let Some(result) = self.try_struct_constructor(node, name, arg_types) {
                 return result;
             }
             // Check if it's a trait method call (inside a generic function body).
-            if let Some(ret_ty) = self.try_trait_method_call(node, c, &arg_types) {
+            if let Some(ret_ty) = self.try_trait_method_call(node, name, arg_types) {
                 return ret_ty;
             }
             // Check if it's a builtin function.
-            let name_str = self.interner.lookup(c.name);
+            let name_str = self.interner.lookup(name);
             if let Some(builtin) = BuiltinFunc::try_from_name(name_str)
-                && let Some(ret_ty) = builtin.infer_return_type(&arg_types, self.type_arena)
+                && let Some(ret_ty) = builtin.infer_return_type(arg_types, self.type_arena)
             {
                 return ret_ty;
             }
@@ -621,7 +655,7 @@ impl<'a> Inferer<'a> {
             }
         }
 
-        let name_str = self.interner.lookup(c.name);
+        let name_str = self.interner.lookup(name);
         self.emit_error(
             self.arena[node].span(),
             format!("no matching function '{name_str}' for the given arguments"),
@@ -689,7 +723,7 @@ impl<'a> Inferer<'a> {
     fn try_trait_method_call(
         &mut self,
         node: NodeId,
-        c: &Call,
+        name: IdentId,
         arg_types: &[TypeId],
     ) -> Option<TypeId> {
         // Find the TraitMethod symbol and extract its signature and type_param.
@@ -701,7 +735,7 @@ impl<'a> Inferer<'a> {
             .unwrap_or(self.scope_tree.root_scope);
         let mut info: Option<(IdentId, crate::ast::TypeNode)> = None;
         loop {
-            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&c.name) {
+            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
                 for &sid in ids.iter().rev() {
                     if let SymbolKind::TraitMethod {
                         signature: sig,
@@ -754,7 +788,7 @@ impl<'a> Inferer<'a> {
     fn try_struct_constructor(
         &mut self,
         node: NodeId,
-        c: &Call,
+        name: IdentId,
         arg_types: &[TypeId],
     ) -> Option<TypeId> {
         let scope = self
@@ -763,7 +797,7 @@ impl<'a> Inferer<'a> {
             .get(&node)
             .copied()
             .unwrap_or(self.scope_tree.root_scope);
-        let sid = self.find_struct(scope, c.name)?;
+        let sid = self.find_struct(scope, name)?;
         let sym = &self.scope_tree.symbols[sid];
 
         // Clone struct definition data before making mutable calls.
@@ -827,38 +861,6 @@ impl<'a> Inferer<'a> {
             name: struct_name,
             args: resolved,
         }))
-    }
-
-    // ── Direct call ──
-
-    fn infer_direct_call(&mut self, node: NodeId, d: &DirectCall) -> TypeId {
-        let caller_ty = self.infer_expr(d.caller);
-        let arg_types: Vec<TypeId> = d.args.iter().map(|&arg| self.infer_expr(arg)).collect();
-
-        let fresh_ret = self.fresh_infer_var();
-        let fresh_params: Vec<TypeId> = (0..arg_types.len())
-            .map(|_| self.fresh_infer_var())
-            .collect();
-        let expected_func = self.type_arena.intern(TypeKind::Func {
-            params: fresh_params.clone(),
-            ret: fresh_ret,
-        });
-
-        let unified = self.unify(caller_ty, expected_func);
-        if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
-            self.emit_error(
-                self.arena[node].span(),
-                "called expression is not a function".to_string(),
-            );
-            return self.type_arena.unknown_id();
-        }
-
-        // Unify param types with arg types
-        for (param, arg) in fresh_params.iter().zip(arg_types.iter()) {
-            self.unify(*param, *arg);
-        }
-
-        self.resolve(fresh_ret)
     }
 
     // ── Binary and Unary ──
@@ -1291,8 +1293,9 @@ impl<'a> Inferer<'a> {
         let (variants, type_param_names) = match self.find_enum(scope, enum_name) {
             Some(info) => info,
             None => {
+                // If this is not an enum instantiation, look it up in an impl block
+                // TODO: This doesn't yet work 100% correctly
                 if let Expr::Var(v) = &self.arena[t.inner] {
-                    eprintln!("DEBUG: TypeAssociated Var, calling infer_typed_function_ref node={:?}", node);
                     return self.infer_typed_function_ref(node, v, t);
                 }
                 return self.infer_expr(t.inner);
@@ -1313,12 +1316,15 @@ impl<'a> Inferer<'a> {
 
         match &self.arena[t.inner] {
             Expr::Call(c) => {
-                let variant = variants.iter().find(|v| v.name == c.name);
+                let call_name = match &self.arena[c.callee] {
+                    Expr::Var(v) => v.name,
+                    _ => return self.type_arena.unknown_id(),
+                };
+                let variant = variants.iter().find(|v| v.name == call_name);
                 match variant {
                     Some(v) => {
                         if let Some(ref data_type) = v.type_node {
-                            let lowered =
-                                self.lower_type_node_with(data_type, &generic_params);
+                            let lowered = self.lower_type_node_with(data_type, &generic_params);
                             for &arg in &c.args {
                                 let arg_ty = self.infer_expr(arg);
                                 self.unify(lowered, arg_ty);
@@ -1345,10 +1351,7 @@ impl<'a> Inferer<'a> {
                     None => {
                         self.emit_error(
                             self.arena[node].span(),
-                            format!(
-                                "unknown variant '{}'",
-                                self.interner.lookup(c.name)
-                            ),
+                            format!("unknown variant '{}'", self.interner.lookup(call_name)),
                         );
                         self.type_arena.unknown_id()
                     }
@@ -1359,10 +1362,7 @@ impl<'a> Inferer<'a> {
                 if variant.is_none() {
                     self.emit_error(
                         self.arena[node].span(),
-                        format!(
-                            "unknown variant '{}'",
-                            self.interner.lookup(v.name)
-                        ),
+                        format!("unknown variant '{}'", self.interner.lookup(v.name)),
                     );
                     self.type_arena.unknown_id()
                 } else {
@@ -1374,7 +1374,7 @@ impl<'a> Inferer<'a> {
                     })
                 }
             }
-            _ => self.infer_expr(t.inner),
+            _ => self.type_arena.unknown_id(),
         }
     }
 

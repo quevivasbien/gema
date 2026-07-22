@@ -297,7 +297,6 @@ impl<'a> JsWriter<'a> {
             HirExpr::FuncDef(e) => self.emit_func_def(e),
             HirExpr::AnonFunc(e) => self.emit_anon_func(e),
             HirExpr::Call(e) => self.emit_call(e),
-            HirExpr::DirectCall(e) => self.emit_direct_call(e),
             HirExpr::ImplBlock(e) => self.emit_impl_block(e),
             HirExpr::Match(e) => self.emit_match(e, value_used),
             HirExpr::Null => { /* emit nothing */ }
@@ -802,7 +801,7 @@ impl<'a> JsWriter<'a> {
     }
 
     fn emit_anon_func(&mut self, e: &hir::AnonFunc) {
-        self.write("(");
+        self.write("((");
         for (i, p) in e.params.iter().enumerate() {
             if i > 0 {
                 self.write(", ");
@@ -829,41 +828,47 @@ impl<'a> JsWriter<'a> {
                     if !Self::stmt_ends_with_brace(stmt) {
                         self.write(";");
                     }
-                    self.newline();
                 }
             }
         } else {
             self.write("return ");
             self.emit_expr(&e.body, true);
             self.write(";");
-            self.newline();
         }
 
-        self.write("}");
+        self.indent_out();
+        self.newline();
+        self.write("})");
     }
-
     fn emit_call(&mut self, e: &hir::Call) {
-        let name = self.interner.lookup(e.name);
+        // Check if callee is an Ident — name-based path for named functions.
+        if let HirExpr::Ident(ident) = &*e.callee {
+            let name = self.interner.lookup(ident.name);
 
-        if e.is_builtin
-            && let Some(builtin) = BuiltinFunc::try_from_name(name)
-        {
-            for helper in builtins::required_helpers(builtin) {
-                self.require_helper(helper);
+            if e.is_builtin
+                && let Some(builtin) = BuiltinFunc::try_from_name(name)
+            {
+                for helper in builtins::required_helpers(builtin) {
+                    self.require_helper(helper);
+                }
+                let arg_strs: Vec<String> = e.args.iter().map(|a| self.expr_to_string(a)).collect();
+                let js =
+                    builtin.emit_js(&arg_strs.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
+                self.write(&js);
+                return;
             }
-            let arg_strs: Vec<String> = e.args.iter().map(|a| self.expr_to_string(a)).collect();
-            let js = builtin.emit_js(&arg_strs.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
-            self.write(&js);
-            return;
-        }
 
-        // Use the machine name for user-defined function calls.
-        // Generic functions don't get overload suffixes.
-        if e.is_generic {
-            self.write(&self.safe_name(name));
+            // Use the machine name for user-defined function calls.
+            // Generic functions don't get overload suffixes.
+            if e.is_generic {
+                self.write(&self.safe_name(name));
+            } else {
+                let machine_name = self.fn_name(e.def_node, name);
+                self.write(&machine_name);
+            }
         } else {
-            let machine_name = self.fn_name(e.def_node, name);
-            self.write(&machine_name);
+            // Expression callee — just emit it.
+            self.emit_expr(&e.callee, true);
         }
         self.write("(");
         for (i, arg) in e.args.iter().enumerate() {
@@ -874,19 +879,6 @@ impl<'a> JsWriter<'a> {
         }
         self.write(")");
     }
-
-    fn emit_direct_call(&mut self, e: &hir::DirectCall) {
-        self.emit_expr(&e.callee, true);
-        self.write("(");
-        for (i, arg) in e.args.iter().enumerate() {
-            if i > 0 {
-                self.write(", ");
-            }
-            self.emit_expr(arg, true);
-        }
-        self.write(")");
-    }
-
     // ── Pattern matching ──
 
     fn emit_match(&mut self, e: &hir::Match, value_used: bool) {

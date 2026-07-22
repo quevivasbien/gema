@@ -87,8 +87,6 @@ impl<'a> Lowerer<'a> {
 
             // ── Calls ──
             ast::Expr::Call(c) => self.lower_call(node, c),
-            ast::Expr::DirectCall(d) => self.lower_direct_call(d),
-
             // ── Operators ──
             ast::Expr::Binary(b) => HirExpr::Binary(hir::Binary {
                 span: b.span,
@@ -178,58 +176,66 @@ impl<'a> Lowerer<'a> {
     // ── Calls ──
 
     fn lower_call(&mut self, node: NodeId, c: &ast::Call) -> HirExpr {
-        // Check if this call is a struct constructor.
-        if self.is_struct_constructor(node, c.name) {
-            return self.lower_struct_constructor(node, c);
+        // Check if callee is a named variable — name-based resolution path.
+        if let ast::Expr::Var(v) = &self.arena[c.callee] {
+            let name = v.name;
+
+            // Check if this call is a struct constructor.
+            if self.is_struct_constructor(node, name) {
+                return self.lower_struct_constructor(node, c, name);
+            }
+
+            // Check if it's a builtin call.
+            let name_str = self.interner.lookup(name);
+            let is_builtin = BuiltinFunc::try_from_name(name_str).is_some();
+
+            // Resolve the function's def_node: prefer the overload selected
+            // by type inference, falling back to the resolver's choice.
+            let def_node = self
+                .scope_tree
+                .inferred_defs
+                .get(&node)
+                .copied()
+                .or_else(|| {
+                    self.scope_tree
+                        .resolved_refs
+                        .get(&c.callee)
+                        .and_then(|&sid| self.scope_tree.symbols.get(sid))
+                        .map(|sym| sym.def_node)
+                })
+                .unwrap_or(node);
+
+            // Check if the called function is generic by looking up its symbol.
+            let is_generic = self.scope_tree.symbols.iter().any(|(_, sym)| {
+                sym.def_node == def_node
+                    && matches!(
+                        &sym.kind,
+                        SymbolKind::Function {
+                            is_generic: true,
+                            ..
+                        }
+                    )
+            });
+
+            let callee = self.lower_expr(c.callee);
+            return HirExpr::Call(hir::Call {
+                span: c.span,
+                callee: Box::new(callee),
+                args: c.args.iter().map(|&a| self.lower_expr(a)).collect(),
+                is_builtin,
+                def_node,
+                is_generic,
+            });
         }
 
-        // Check if it's a builtin call.
-        let name_str = self.interner.lookup(c.name);
-        let is_builtin = BuiltinFunc::try_from_name(name_str).is_some();
-
-        // Resolve the function's def_node: prefer the overload selected
-        // by type inference, falling back to the resolver's choice.
-        let def_node = self
-            .scope_tree
-            .inferred_defs
-            .get(&node)
-            .copied()
-            .or_else(|| {
-                self.scope_tree
-                    .resolved_refs
-                    .get(&node)
-                    .and_then(|&sid| self.scope_tree.symbols.get(sid))
-                    .map(|sym| sym.def_node)
-            })
-            .unwrap_or(node);
-
-        // Check if the called function is generic by looking up its symbol.
-        let is_generic = self.scope_tree.symbols.iter().any(|(_, sym)| {
-            sym.def_node == def_node
-                && matches!(
-                    &sym.kind,
-                    SymbolKind::Function {
-                        is_generic: true,
-                        ..
-                    }
-                )
-        });
-
+        // Expression callee — just lower callee and args, no metadata.
         HirExpr::Call(hir::Call {
             span: c.span,
-            name: c.name,
+            callee: Box::new(self.lower_expr(c.callee)),
             args: c.args.iter().map(|&a| self.lower_expr(a)).collect(),
-            is_builtin,
-            def_node,
-            is_generic,
-        })
-    }
-
-    fn lower_direct_call(&mut self, d: &ast::DirectCall) -> HirExpr {
-        HirExpr::DirectCall(hir::DirectCall {
-            span: d.span,
-            callee: Box::new(self.lower_expr(d.caller)),
-            args: d.args.iter().map(|&a| self.lower_expr(a)).collect(),
+            is_builtin: false,
+            def_node: c.callee,
+            is_generic: false,
         })
     }
     // ── Struct constructor ──
@@ -267,7 +273,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Convert a struct-constructor `Call` into a `StructLit`.
-    fn lower_struct_constructor(&mut self, node: NodeId, c: &ast::Call) -> HirExpr {
+    fn lower_struct_constructor(&mut self, node: NodeId, c: &ast::Call, name: IdentId) -> HirExpr {
         let scope = self
             .scope_tree
             .node_scope
@@ -275,7 +281,7 @@ impl<'a> Lowerer<'a> {
             .copied()
             .unwrap_or(self.scope_tree.root_scope);
 
-        let field_names: Vec<IdentId> = if let Some(sid) = self.find_struct(scope, c.name) {
+        let field_names: Vec<IdentId> = if let Some(sid) = self.find_struct(scope, name) {
             let sym = &self.scope_tree.symbols[sid];
             match &sym.kind {
                 SymbolKind::Struct {
@@ -304,7 +310,7 @@ impl<'a> Lowerer<'a> {
 
         HirExpr::StructLit(hir::StructLit {
             span: c.span,
-            name: c.name,
+            name,
             fields,
         })
     }
@@ -576,6 +582,10 @@ impl<'a> Lowerer<'a> {
                 // Determine which variant is being referenced.
                 let (tag, value) = match &self.arena[t.inner] {
                     ast::Expr::Call(c) => {
+                        let call_name = match &self.arena[c.callee] {
+                            ast::Expr::Var(v) => v.name,
+                            _ => return self.lower_expr(t.inner),
+                        };
                         let lowered_args: Vec<HirExpr> =
                             c.args.iter().map(|&a| self.lower_expr(a)).collect();
                         let val = if lowered_args.len() == 1 {
@@ -588,7 +598,7 @@ impl<'a> Lowerer<'a> {
                                 elements: lowered_args,
                             })))
                         };
-                        (c.name, val)
+                        (call_name, val)
                     }
                     ast::Expr::Var(v) => (v.name, None),
                     _ => return self.lower_expr(t.inner),
@@ -1092,16 +1102,16 @@ mod tests {
         }
     }
 
-    // ── DirectCall ──
+    // ── Calls with expression callee ──
 
     #[test]
     fn lower_direct_call() {
         let hir = lower_ok("(\\x -> x)(1i)");
-        // The last expression should be a DirectCall
+        // The last expression should be a Call with a non-Ident callee (the lambda).
         let last = last_in_block(&hir);
         match last {
-            HirExpr::DirectCall(_) => {}
-            other => panic!("expected DirectCall, got {:?}", other),
+            HirExpr::Call(_) => {}
+            other => panic!("expected Call, got {:?}", other),
         }
     }
 

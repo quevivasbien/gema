@@ -44,7 +44,6 @@ pub enum Expr {
     // ── References and calls ──
     Var(Var),
     Call(Call),
-    DirectCall(DirectCall),
 
     // ── Definitions ──
     FuncDef(FuncDef),
@@ -337,16 +336,8 @@ pub struct Var {
 #[derive(Clone, Debug)]
 pub struct Call {
     pub span: Span,
-    pub name: IdentId,
+    pub callee: NodeId,
     pub args: Vec<NodeId>,
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectCall {
-    pub span: Span,
-    pub caller: NodeId,
-    pub args: Vec<NodeId>,
-    pub is_unsafe: bool,
 }
 
 // ── Definitions ──
@@ -565,7 +556,6 @@ impl Expr {
             Expr::RangeIter(e) => e.span,
             Expr::Var(e) => e.span,
             Expr::Call(e) => e.span,
-            Expr::DirectCall(e) => e.span,
             Expr::FuncDef(e) => e.span,
             Expr::AnonFunc(e) => e.span,
             Expr::StructDef(e) => e.span,
@@ -685,18 +675,25 @@ mod tests {
     fn create_complex_expr() {
         let mut arena = AstArena::new();
         let mut interner = crate::interner::Interner::new();
-
         let name = interner.intern("foo");
+        let var = arena.alloc(Expr::Var(Var {
+            span: Span::new(0, 3),
+            name,
+            template_types: vec![],
+        }));
         let arg = int_lit(&mut arena, Span::new(5, 8), "42");
         let call = arena.alloc(Expr::Call(Call {
             span: Span::new(0, 8),
-            name,
+            callee: var,
             args: vec![arg],
         }));
 
         match &arena[call] {
             Expr::Call(c) => {
-                assert_eq!(interner.lookup(c.name), "foo");
+                match &arena[c.callee] {
+                    Expr::Var(v) => assert_eq!(interner.lookup(v.name), "foo"),
+                    _ => panic!("expected Var callee"),
+                }
                 assert_eq!(c.args.len(), 1);
             }
             _ => panic!("wrong variant"),

@@ -447,29 +447,12 @@ impl<'a> Parser<'a> {
                         .last()
                         .map(|n| self.span_of(*n))
                         .unwrap_or(self.previous().span);
-
-                    // If the callee is a bare identifier, use Call(name)
-                    // instead of DirectCall(caller).
-                    let is_named_call = matches!(&self.arena[left], Expr::Var(_));
-                    if is_named_call {
-                        // Extract data before mutable borrow.
-                        let (v_name, v_span) = match &self.arena[left] {
-                            Expr::Var(v) => (v.name, v.span),
-                            _ => unreachable!(),
-                        };
-                        left = self.alloc(Expr::Call(Call {
-                            span: v_span.union(arg_span),
-                            name: v_name,
-                            args,
-                        }));
-                    } else {
-                        left = self.alloc(Expr::DirectCall(DirectCall {
-                            span: self.span_of(left).union(arg_span),
-                            caller: left,
-                            args,
-                            is_unsafe: false,
-                        }));
-                    }
+                    // ── Function call: unified Call with callee ──
+                    left = self.alloc(Expr::Call(Call {
+                        span: self.span_of(left).union(arg_span),
+                        callee: left,
+                        args,
+                    }));
                 }
                 // --- Field access ---
                 TokenKind::Dot => {
@@ -600,6 +583,11 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Ident(_)) => {
                 let token = self.advance();
                 let name = self.intern_str(token.text().unwrap());
+                let callee = self.alloc(Expr::Var(Var {
+                    span: token.span,
+                    name,
+                    template_types: Vec::new(),
+                }));
                 if self.consume_discriminant(&TokenKind::LParen) {
                     let args = self.parse_call_args();
                     if !self.consume_discriminant(&TokenKind::RParen) {
@@ -607,15 +595,11 @@ impl<'a> Parser<'a> {
                     }
                     self.alloc(Expr::Call(Call {
                         span: token.span,
-                        name,
+                        callee,
                         args,
                     }))
                 } else {
-                    self.alloc(Expr::Var(Var {
-                        span: token.span,
-                        name,
-                        template_types: Vec::new(),
-                    }))
+                    callee
                 }
             }
             _ => self.error_and_recover("expected identifier after '::'"),
@@ -1891,16 +1875,15 @@ impl<'a> Parser<'a> {
     /// Parse the right-hand side of a pipe expression.
     /// `a | f(b, c)` → `Call(f, [b, c, a])`
     /// `a | f` → `Call(f, [a])`
-    /// `a | \x { body }` → `DirectCall(fn, [a])`
+    /// `a | \x { body }` → `Call(lambda, [a])`
     fn parse_pipe_rhs(&mut self, left: NodeId) -> NodeId {
         match self.peek_kind() {
             Some(TokenKind::Backslash) => {
                 let lambda = self.parse_lambda();
-                self.alloc(Expr::DirectCall(DirectCall {
+                self.alloc(Expr::Call(Call {
                     span: self.span_of(left).union(self.span_of(lambda)),
-                    caller: lambda,
+                    callee: lambda,
                     args: vec![left],
-                    is_unsafe: false,
                 }))
             }
             Some(TokenKind::Ident(_)) => {
@@ -1917,9 +1900,14 @@ impl<'a> Parser<'a> {
 
                 args.push(left);
 
-                self.alloc(Expr::Call(Call {
+                let var = self.alloc(Expr::Var(Var {
                     span: token.span,
                     name,
+                    template_types: vec![],
+                }));
+                self.alloc(Expr::Call(Call {
+                    span: token.span,
+                    callee: var,
                     args,
                 }))
             }

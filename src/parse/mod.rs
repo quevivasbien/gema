@@ -115,7 +115,6 @@ mod tests {
             Expr::RangeIter(_) => "RangeIter",
             Expr::Var(_) => "Var",
             Expr::Call(_) => "Call",
-            Expr::DirectCall(_) => "DirectCall",
             Expr::FuncDef(_) => "FuncDef",
             Expr::AnonFunc(_) => "AnonFunc",
             Expr::StructDef(_) => "StructDef",
@@ -437,7 +436,7 @@ mod tests {
     #[test]
     fn parse_pipe_with_lambda() {
         let (arena, root) = parse_ok("5 | \\x -> x + 1");
-        assert_eq!(last_kind(&arena, root), "DirectCall");
+        assert_eq!(last_kind(&arena, root), "Call");
     }
 
     // ── Field access ──

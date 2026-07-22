@@ -62,19 +62,6 @@ impl<'a> Monomorphizer<'a> {
         match expr {
             HirExpr::FuncDef(f) => self.monomorphize_func_def(f, descriptor_stack),
             HirExpr::Call(c) => self.monomorphize_call(c, descriptor_stack),
-            HirExpr::DirectCall(d) => {
-                let callee = Box::new(self.monomorphize_expr(*d.callee, descriptor_stack));
-                let args = d
-                    .args
-                    .into_iter()
-                    .map(|a| self.monomorphize_expr(a, descriptor_stack))
-                    .collect();
-                HirExpr::DirectCall(DirectCall {
-                    span: d.span,
-                    callee,
-                    args,
-                })
-            }
             HirExpr::Block(b) => HirExpr::Block(Block {
                 span: b.span,
                 stmts: b
@@ -205,13 +192,13 @@ impl<'a> Monomorphizer<'a> {
                     .map(|v| Box::new(self.monomorphize_expr(*v, descriptor_stack))),
                 is_tagged_union: e.is_tagged_union,
             }),
+            HirExpr::Ident(ident) => self.monomorphize_ident(ident, descriptor_stack),
             HirExpr::Null
             | HirExpr::IntLit(_)
             | HirExpr::NumLit(_)
             | HirExpr::StrLit(_)
             | HirExpr::BoolLit(_)
             | HirExpr::NoneLit(_)
-            | HirExpr::Ident(_)
             | HirExpr::Break(_)
             | HirExpr::Continue(_)
             | HirExpr::TypeDescriptor(_)
@@ -303,58 +290,53 @@ impl<'a> Monomorphizer<'a> {
         mut c: Call,
         descriptor_stack: &mut Vec<DescriptorParam>,
     ) -> HirExpr {
-        // Recurse into args first.
+        // Recurse into callee first.
+        c.callee = Box::new(self.monomorphize_expr(*c.callee, descriptor_stack));
+
+        // Recurse into args.
         c.args = c
             .args
             .into_iter()
             .map(|a| self.monomorphize_expr(a, descriptor_stack))
             .collect();
 
-        // Check if this is a trait method call that should be routed
-        // through a descriptor.  Look up the descriptor stack to find
-        // which per-trait descriptor provides this method.
-        for desc in descriptor_stack.iter().rev() {
-            if desc.requirement_names.contains(&c.name) {
-                // Route through descriptor: $impl_T_Foo.foo(x)
-                let desc_ident = HirExpr::Ident(IdentNode {
-                    span: c.span,
-                    name: desc.param_name,
-                    def_node: None,
-                });
-                let field_access = HirExpr::FieldAccess(FieldAccess {
-                    span: c.span,
-                    obj: Box::new(desc_ident),
-                    field: c.name,
-                });
-                return HirExpr::DirectCall(DirectCall {
-                    span: c.span,
-                    callee: Box::new(field_access),
-                    args: c.args,
-                });
+        // Descriptor routing only applies to named function calls.
+        if let HirExpr::Ident(ident) = &*c.callee {
+            // Check if this is a trait method call that should be routed
+            // through a descriptor.
+            for desc in descriptor_stack.iter().rev() {
+                if desc.requirement_names.contains(&ident.name) {
+                    // Route through descriptor: $impl_T_Foo.foo(x)
+                    let desc_ident = HirExpr::Ident(IdentNode {
+                        span: c.span,
+                        name: desc.param_name,
+                        def_node: None,
+                    });
+                    let field_access = HirExpr::FieldAccess(FieldAccess {
+                        span: c.span,
+                        obj: Box::new(desc_ident),
+                        field: ident.name,
+                    });
+                    return HirExpr::Call(Call {
+                        span: c.span,
+                        callee: Box::new(field_access),
+                        args: c.args,
+                        is_builtin: false,
+                        def_node: c.def_node,
+                        is_generic: false,
+                    });
+                }
             }
-        }
-        // Check if this call targets a generic function with trait bounds.
-        let desc_count = self.descriptor_param_count(c.name);
-        if desc_count > 0 {
-            let desc_args = self.build_descriptor_args(c.name, desc_count, &c.args);
-            c.args.extend(desc_args);
+            // Check if this call targets a generic function with trait bounds.
+            let desc_count = self.descriptor_param_count(ident.name);
+            if desc_count > 0 {
+                let desc_args = self.build_descriptor_args(ident.name, desc_count, &c.args);
+                c.args.extend(desc_args);
+            }
         }
 
         HirExpr::Call(c)
     }
-
-    /// Find the AST definition node for a function by name.
-    fn find_func_def_node(&self, name: IdentId) -> Option<NodeId> {
-        for (_, sym) in self.scope_tree.symbols.iter() {
-            if sym.name == name
-                && let SymbolKind::Function { .. } = &sym.kind
-            {
-                return Some(sym.def_node);
-            }
-        }
-        None
-    }
-
     /// Extract type param info from a function definition AST node.
     fn get_type_params_from_def(&self, def_node: NodeId) -> Option<Vec<ast::TypeParam>> {
         match &self.arena[def_node] {
@@ -362,8 +344,33 @@ impl<'a> Monomorphizer<'a> {
             _ => None,
         }
     }
+    /// Route trait method identifiers through descriptors when in scope.
+    fn monomorphize_ident(
+        &mut self,
+        ident: IdentNode,
+        descriptor_stack: &mut Vec<DescriptorParam>,
+    ) -> HirExpr {
+        // Check if this ident refers to a trait method that should be
+        // routed through a descriptor.
+        for desc in descriptor_stack.iter().rev() {
+            if desc.requirement_names.contains(&ident.name) {
+                // Route through descriptor: $impl_T_Foo.foo
+                let desc_ident = HirExpr::Ident(IdentNode {
+                    span: ident.span,
+                    name: desc.param_name,
+                    def_node: None,
+                });
+                return HirExpr::FieldAccess(FieldAccess {
+                    span: ident.span,
+                    obj: Box::new(desc_ident),
+                    field: ident.name,
+                });
+            }
+        }
+        HirExpr::Ident(ident)
+    }
+
     /// Build descriptor arguments for a generic function call.
-    /// Creates one descriptor per (type_param, trait) pair.
     fn build_descriptor_args(
         &mut self,
         func_name: IdentId,
@@ -559,6 +566,18 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
+    /// Find the AST definition node for a function by name.
+    fn find_func_def_node(&self, name: IdentId) -> Option<NodeId> {
+        for (_, sym) in self.scope_tree.symbols.iter() {
+            if sym.name == name
+                && let SymbolKind::Function { .. } = &sym.kind
+            {
+                return Some(sym.def_node);
+            }
+        }
+        None
+    }
+
     /// Count the total number of descriptor params needed for a function:
     /// the sum of trait bounds across all type params.
     fn descriptor_param_count(&self, name: IdentId) -> usize {
@@ -567,11 +586,7 @@ impl<'a> Monomorphizer<'a> {
             None => return 0,
         };
         match &self.arena[def_node] {
-            ast::Expr::FuncDef(f) => f
-                .type_params
-                .iter()
-                .map(|tp| tp.traits.len())
-                .sum(),
+            ast::Expr::FuncDef(f) => f.type_params.iter().map(|tp| tp.traits.len()).sum(),
             _ => 0,
         }
     }
@@ -656,8 +671,9 @@ mod tests {
              impl Int: Hash { func hash(x: Int): Int { x } }; \
              func [T: Hash] id(x: T): T { T::hash(x) }",
         );
-        // Find the FuncDef and check its body has a DirectCall
-        // (the trait method call should be converted from Call to DirectCall).
+        // Find the FuncDef and check its body has a Call with a field-access
+        // callee (the trait method call should be converted from Call
+        // with descriptor routing).
         let block = match &hir {
             HirExpr::Block(b) => b,
             _ => panic!("expected Block"),
@@ -669,20 +685,16 @@ mod tests {
         };
         match &**body {
             HirExpr::Block(b) => match &b.stmts[0] {
-                HirExpr::DirectCall(d) => {
-                    match &*d.callee {
-                        HirExpr::FieldAccess(fa) => {
-                            assert!(
-                                matches!(&*fa.obj, HirExpr::Ident(_)),
-                                "descriptor should be an Ident"
-                            );
-                            // We can't compare IdentId across interners, so check via the
-                            // full pipeline test below instead.
-                        }
-                        _ => panic!("expected FieldAccess as callee"),
+                HirExpr::Call(c) => match &*c.callee {
+                    HirExpr::FieldAccess(fa) => {
+                        assert!(
+                            matches!(&*fa.obj, HirExpr::Ident(_)),
+                            "descriptor should be an Ident"
+                        );
                     }
-                }
-                _ => panic!("expected DirectCall for trait method: {:?}", b),
+                    _ => panic!("expected FieldAccess as callee"),
+                },
+                _ => panic!("expected Call for trait method: {:?}", b),
             },
             _ => panic!("expected Block body"),
         }

@@ -67,7 +67,6 @@ pub enum HirExpr {
     FuncDef(FuncDef),
     AnonFunc(AnonFunc),
     Call(Call),
-    DirectCall(DirectCall),
 
     // ── Definitions ──
     /// A lowered impl block. Emitted as an IIFE that produces a dictionary
@@ -352,7 +351,6 @@ pub struct Return {
 }
 
 // ── Functions and calls ──
-// TODO: Maybe concrete and anonymous function definitions should have different HIR node types, since they are handled substantially differently.
 #[derive(Clone, Debug)]
 pub struct FuncDef {
     pub span: Span,
@@ -373,11 +371,10 @@ pub struct AnonFunc {
     pub params: Vec<FuncParam>,
     pub body: Box<HirExpr>,
 }
-
 #[derive(Clone, Debug)]
 pub struct Call {
     pub span: Span,
-    pub name: IdentId,
+    pub callee: Box<HirExpr>,
     pub args: Vec<HirExpr>,
     /// True when this call invokes a builtin function (map, filter,
     /// etc.) rather than a user-defined function.
@@ -388,13 +385,6 @@ pub struct Call {
     /// True when this calls a generic function (has type params).
     /// Generic function names don't get overload suffixes in codegen.
     pub is_generic: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectCall {
-    pub span: Span,
-    pub callee: Box<HirExpr>,
-    pub args: Vec<HirExpr>,
 }
 
 /// A lowered impl block that produces a trait implementation dictionary.
@@ -453,7 +443,6 @@ impl HirExpr {
             HirExpr::FuncDef(e) => e.span,
             HirExpr::AnonFunc(e) => e.span,
             HirExpr::Call(e) => e.span,
-            HirExpr::DirectCall(e) => e.span,
             HirExpr::ImplBlock(e) => e.span,
             HirExpr::Match(e) => e.span,
             HirExpr::Null => Span::empty_at(0),
@@ -654,9 +643,10 @@ mod tests {
     fn span_accesor_for_call() {
         let mut interner = Interner::new();
         let name = ident(&mut interner, "foo");
-        let call = HirExpr::Call(Call {
+        let callee = hir_ident(Span::new(0, 3), name);
+        let _call = HirExpr::Call(Call {
             span: Span::new(0, 5),
-            name,
+            callee: Box::new(callee),
             args: vec![],
             is_builtin: false,
             def_node: dummy_node_id(),
@@ -982,24 +972,6 @@ mod tests {
     }
 
     #[test]
-    fn direct_call() {
-        let callee = HirExpr::Ident(IdentNode {
-            span: Span::new(0, 5),
-            name: IdentId::from_u32(0),
-            def_node: None,
-        });
-        let dc = HirExpr::DirectCall(DirectCall {
-            span: Span::new(0, 8),
-            callee: Box::new(callee),
-            args: vec![hir_int(Span::new(6, 7), "1")],
-        });
-        match dc {
-            HirExpr::DirectCall(d) => assert_eq!(d.args.len(), 1),
-            _ => panic!("expected DirectCall"),
-        }
-    }
-
-    #[test]
     fn tuple_index() {
         let obj = hir_ident(Span::new(0, 5), IdentId::from_u32(0));
         let ti = hir_tuple_index(Span::new(0, 8), obj, 0);
@@ -1051,9 +1023,10 @@ mod tests {
     fn call_with_builtin_flag() {
         let mut interner = Interner::new();
         let name = ident(&mut interner, "map");
+        let callee = hir_ident(Span::new(0, 3), name);
         let call = HirExpr::Call(Call {
             span: Span::new(0, 10),
-            name,
+            callee: Box::new(callee),
             args: vec![],
             is_builtin: true,
             def_node: dummy_node_id(),

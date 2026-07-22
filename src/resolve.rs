@@ -177,7 +177,6 @@ impl<'a> Resolver<'a> {
             Expr::Break(b) => self.resolve_break(node, b),
             Expr::Continue(c) => self.resolve_continue(node, c),
             Expr::Return(r) => self.resolve_return(node, r),
-            Expr::DirectCall(d) => self.resolve_direct_call(node, d),
             Expr::FieldAccess(f) => self.resolve_field_access(node, f),
             Expr::FieldAssign(f) => self.resolve_field_assign(node, f),
             Expr::If(i) => self.resolve_if(node, i),
@@ -620,12 +619,20 @@ impl<'a> Resolver<'a> {
 
     fn resolve_call(&mut self, node: NodeId, c: &Call) {
         self.record_scope(node);
+        // Resolve the callee expression first (handles Var, FieldAccess, etc.)
+        self.resolve_node(c.callee);
+        // Also mirror the resolution from the callee to the call node itself,
+        // so that downstream passes (and tests) can find the resolution
+        // keyed by either node ID.
+        if let Expr::Var(_) = &self.arena[c.callee] {
+            if let Some(&sid) = self.scope_tree.resolved_refs.get(&c.callee) {
+                self.scope_tree.resolved_refs.insert(node, sid);
+            }
+        }
         // Resolve argument expressions.
         for &arg in &c.args {
             self.resolve_node(arg);
         }
-        // Resolve the function name.
-        self.resolve_name(node, c.name);
     }
 
     /// Look up a name in the scope chain and record the result in
@@ -641,17 +648,6 @@ impl<'a> Resolver<'a> {
                 span,
                 format!("undefined name '{}'", self.interner.lookup(name)),
             );
-        }
-    }
-
-    // ── Direct call ──
-
-    fn resolve_direct_call(&mut self, node: NodeId, d: &DirectCall) {
-        self.record_scope(node);
-        // Resolve the caller expression and arguments.
-        self.resolve_node(d.caller);
-        for &arg in &d.args {
-            self.resolve_node(arg);
         }
     }
 
@@ -771,7 +767,10 @@ impl<'a> Resolver<'a> {
     fn type_node_refers_to_name(&self, tn: &TypeNode, name: IdentId) -> bool {
         match tn {
             TypeNode::Named { name: n, params } => {
-                *n == name || params.iter().any(|p| self.type_node_refers_to_name(p, name))
+                *n == name
+                    || params
+                        .iter()
+                        .any(|p| self.type_node_refers_to_name(p, name))
             }
             TypeNode::Arr(inner)
             | TypeNode::Iter(inner)
@@ -781,12 +780,13 @@ impl<'a> Resolver<'a> {
             | TypeNode::Maybe(inner) => self.type_node_refers_to_name(inner, name),
             TypeNode::Tup(elems) => elems.iter().any(|e| self.type_node_refers_to_name(e, name)),
             TypeNode::Func { params, ret } => {
-                params.iter().any(|p| self.type_node_refers_to_name(p, name))
+                params
+                    .iter()
+                    .any(|p| self.type_node_refers_to_name(p, name))
                     || self.type_node_refers_to_name(ret, name)
             }
             TypeNode::Dict { key, val } | TypeNode::MutDict { key, val } => {
-                self.type_node_refers_to_name(key, name)
-                    || self.type_node_refers_to_name(val, name)
+                self.type_node_refers_to_name(key, name) || self.type_node_refers_to_name(val, name)
             }
             TypeNode::TypeParamRef { name: n, .. } => *n == name,
             _ => false,
@@ -824,21 +824,22 @@ impl<'a> Resolver<'a> {
     /// Try to resolve `T::foo(x)` as a trait method call.
     /// Looks up the type on the left of `::` as a type parameter, finds its
     /// trait bounds, and checks if exactly one trait provides the method.
-    fn resolve_trait_associated_call(
-        &mut self,
-        node: NodeId,
-        t: &TypeAssociated,
-        c: &Call,
-    ) {
+    fn resolve_trait_associated_call(&mut self, node: NodeId, t: &TypeAssociated, c: &Call) {
         let type_name = match &t.type_node {
             TypeNode::Named { name, .. } => *name,
             _ => return, // Not a named type — can't be a trait method call
         };
 
+        // Extract the method name from the call's callee.
+        let call_name = match &self.arena[c.callee] {
+            Expr::Var(v) => v.name,
+            _ => return, // Callee is not a simple name — not a trait method call
+        };
+
         // Look up the type as a generic type parameter.
         let bounds = match self.scope_tree.lookup(self.current_scope, type_name) {
             Some((_scope, ids)) => {
-                let mut result = None;
+                let mut result: Option<Vec<IdentId>> = None;
                 for &sid in ids.iter().rev() {
                     if let SymbolKind::TypeParam { bounds } = &self.scope_tree.symbols[sid].kind {
                         result = Some(bounds.clone());
@@ -860,9 +861,8 @@ impl<'a> Resolver<'a> {
         for trait_name in &bounds {
             if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
                 for &sid in ids.iter().rev() {
-                    if let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind
-                    {
-                        if requirements.iter().any(|r| r.name == c.name) {
+                    if let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind {
+                        if requirements.iter().any(|r| r.name == call_name) {
                             if found_trait.is_some() {
                                 // Multiple traits provide the same method name — ambiguous.
                                 self.diagnostics.error(
@@ -870,7 +870,7 @@ impl<'a> Resolver<'a> {
                                 self.arena[node].span(),
                                     format!(
                                         "ambiguous trait method '{}': multiple traits bound to '{}' provide this method",
-                                        self.interner.lookup(c.name),
+                                        self.interner.lookup(call_name),
                                         self.interner.lookup(type_name),
                                     ),
                                 );
@@ -893,7 +893,7 @@ impl<'a> Resolver<'a> {
             // Also look up the method name as a regular symbol (for
             // resolved_refs), since the name is registered as a TraitMethod
             // in the function body scope.
-            if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, c.name) {
+            if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, call_name) {
                 let sid = ids[ids.len() - 1];
                 self.scope_tree.resolved_refs.insert(t.inner, sid);
             }
@@ -903,7 +903,7 @@ impl<'a> Resolver<'a> {
                 self.arena[node].span(),
                 format!(
                     "trait method '{}' not found in traits bound to '{}'",
-                    self.interner.lookup(c.name),
+                    self.interner.lookup(call_name),
                     self.interner.lookup(type_name),
                 ),
             );
