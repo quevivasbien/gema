@@ -688,12 +688,42 @@ impl<'a> Parser<'a> {
     fn parse_lambda(&mut self) -> NodeId {
         let token = self.advance(); // '\'
 
-        let mut params = Vec::new();
-        while !self.peek_is(&TokenKind::Arrow) && !self.peek_is(&TokenKind::LBrace) {
+        let params = if self.consume_discriminant(&TokenKind::LParen) {
+            // Multi-param (or zero-param) lambda: params inside parentheses
+            let mut params = Vec::new();
+            while !self.peek_is(&TokenKind::RParen) {
+                let param_token = match self.peek_kind() {
+                    Some(TokenKind::Ident(_)) => self.advance(),
+                    _ => {
+                        return self
+                            .error_and_recover("expected parameter name in lambda");
+                    }
+                };
+                let name = self.intern_str(param_token.text().unwrap());
+
+                let type_node = if self.consume_discriminant(&TokenKind::Colon) {
+                    Some(self.parse_type_node())
+                } else {
+                    None
+                };
+
+                params.push(Param { name, type_node });
+
+                if !self.consume_comma() {
+                    break;
+                }
+            }
+            if !self.consume_discriminant(&TokenKind::RParen) {
+                return self.error_and_recover("expected ')' after lambda parameters");
+            }
+            params
+        } else {
+            // Single-param lambda: bare identifier
             let param_token = match self.peek_kind() {
                 Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
-                    return self.error_and_recover("expected parameter name in lambda");
+                    return self
+                        .error_and_recover("expected parameter name in lambda");
                 }
             };
             let name = self.intern_str(param_token.text().unwrap());
@@ -704,12 +734,8 @@ impl<'a> Parser<'a> {
                 None
             };
 
-            params.push(Param { name, type_node });
-
-            if !self.consume_comma() {
-                break;
-            }
-        }
+            vec![Param { name, type_node }]
+        };
 
         let body = match self.peek_kind() {
             Some(TokenKind::Arrow) => {

@@ -169,11 +169,11 @@ Anonymous functions use the following syntax:
 # Another valid syntax (if the anon function body is a block expression, the arrow is optional)
 \x: Num { x + 1 }
 
-# Anon function with multiple arguments
-\x: Num, y: Num -> x + y
+# Anon function with multiple arguments (must be in parentheses)
+\(x: Num, y: Num) -> x + y
 
 # Type annotations on arguments are optional, but if they cannot be successfully inferred from context, this is a compile-time error
-\x, y -> x + y
+\(x, y) -> x + y
 ```
 
 Anonymous functions can assigned to variables and passed to functions

@@ -527,10 +527,14 @@ impl<'a> Inferer<'a> {
 
     fn infer_call(&mut self, node: NodeId, c: &Call) -> TypeId {
         let arg_types: Vec<TypeId> = c.args.iter().map(|&arg| self.infer_expr(arg)).collect();
-
         // Check if the callee is a named variable (name-based overload resolution).
         if let Expr::Var(v) = &self.arena[c.callee] {
-            return self.infer_named_call(node, v.name, &arg_types);
+            let named_result = self.infer_named_call(node, v.name, &arg_types);
+            if !matches!(self.type_arena.get(named_result), TypeKind::Unknown) {
+                return named_result;
+            }
+            // Named lookup failed but name may exist as a variable.
+            // Fall through to expression callee path.
         }
 
         // Expression callee — infer its type and unify with a function signature.
@@ -602,10 +606,6 @@ impl<'a> Inferer<'a> {
             if let Some(result) = self.try_struct_constructor(node, name, arg_types) {
                 return result;
             }
-            // Check if it's a trait method call (inside a generic function body).
-            if let Some(ret_ty) = self.try_trait_method_call(node, name, arg_types) {
-                return ret_ty;
-            }
             // Check if it's a builtin function.
             let name_str = self.interner.lookup(name);
             if let Some(builtin) = BuiltinFunc::try_from_name(name_str)
@@ -613,9 +613,21 @@ impl<'a> Inferer<'a> {
             {
                 return ret_ty;
             }
+            // The name wasn't found as a function or builtin — check if it
+            // resolves to any symbol (variable, etc.). If so, return Unknown
+            // to let infer_call try the expression callee path.
+            let scope = self
+                .scope_tree
+                .node_scope
+                .get(&node)
+                .copied()
+                .unwrap_or(self.scope_tree.root_scope);
+            if self.scope_tree.lookup(scope, name).is_some() {
+                return self.fresh_infer_var();
+            }
             self.emit_error(
                 self.arena[node].span(),
-                format!("undefined function '{name_str}'"),
+                format!("undefined function '{}'", self.interner.lookup(name)),
             );
             return self.type_arena.unknown_id();
         }

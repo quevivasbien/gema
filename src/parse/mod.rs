@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn parse_lambda_multi_param() {
-        let (arena, root) = parse_ok("\\x, y -> x + y");
+        let (arena, root) = parse_ok("\\(x, y) -> x + y");
         assert_eq!(last_kind(&arena, root), "AnonFunc");
     }
 
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn parse_lambda_multi_typed_param() {
-        let (arena, root) = parse_ok("\\x: Num, y: Num -> x + y");
+        let (arena, root) = parse_ok("\\(x: Num, y: Num) -> x + y");
         assert_eq!(last_kind(&arena, root), "AnonFunc");
     }
 
@@ -997,7 +997,7 @@ mod tests {
 
     #[test]
     fn lambda_params_are_correct() {
-        let (arena, root) = parse_ok("\\x, y: Int -> x + y");
+        let (arena, root) = parse_ok("\\(x, y: Int) -> x + y");
         match last_expr(&arena, root) {
             Expr::AnonFunc(f) => {
                 assert_eq!(f.params.len(), 2);

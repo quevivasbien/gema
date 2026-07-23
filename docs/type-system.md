@@ -157,8 +157,8 @@ parameters and return type. Type annotations on lambda parameters are
 optional:
 
 ```gema
-\a, b { a + b }              # both params inferred
-\x: Num, y: Num { x + y }    # explicit param types
+\(a, b) { a + b }              # both params inferred
+\(x: Num, y: Num) { x + y }    # explicit param types
 \x -> x + 1                  # arrow syntax, no block
 ```
 

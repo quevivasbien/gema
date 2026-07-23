@@ -185,47 +185,59 @@ impl<'a> Lowerer<'a> {
                 return self.lower_struct_constructor(node, c, name);
             }
 
-            // Check if it's a builtin call.
+            // Check if it's a builtin call — needs special codegen.
             let name_str = self.interner.lookup(name);
             let is_builtin = BuiltinFunc::try_from_name(name_str).is_some();
 
-            // Resolve the function's def_node: prefer the overload selected
-            // by type inference, falling back to the resolver's choice.
-            let def_node = self
+            // Check if the callee resolves to a Function symbol (not a Variable
+            // or other non-callable). If not, and it's not a builtin, fall
+            // through to expression callee path.
+            let is_function_sym = self
                 .scope_tree
-                .inferred_defs
-                .get(&node)
-                .copied()
-                .or_else(|| {
-                    self.scope_tree
-                        .resolved_refs
-                        .get(&c.callee)
-                        .and_then(|&sid| self.scope_tree.symbols.get(sid))
-                        .map(|sym| sym.def_node)
-                })
-                .unwrap_or(node);
+                .resolved_refs
+                .get(&c.callee)
+                .and_then(|&sid| self.scope_tree.symbols.get(sid))
+                .is_some_and(|sym| matches!(sym.kind, SymbolKind::Function { .. }));
 
-            // Check if the called function is generic by looking up its symbol.
-            let is_generic = self.scope_tree.symbols.iter().any(|(_, sym)| {
-                sym.def_node == def_node
-                    && matches!(
-                        &sym.kind,
-                        SymbolKind::Function {
-                            is_generic: true,
-                            ..
-                        }
-                    )
-            });
+            if is_function_sym || is_builtin {
+                // Resolve the function's def_node: prefer the overload
+                // selected by type inference, falling back to the resolver's choice.
+                let def_node = self
+                    .scope_tree
+                    .inferred_defs
+                    .get(&node)
+                    .copied()
+                    .or_else(|| {
+                        self.scope_tree
+                            .resolved_refs
+                            .get(&c.callee)
+                            .and_then(|&sid| self.scope_tree.symbols.get(sid))
+                            .map(|sym| sym.def_node)
+                    })
+                    .unwrap_or(node);
 
-            let callee = self.lower_expr(c.callee);
-            return HirExpr::Call(hir::Call {
-                span: c.span,
-                callee: Box::new(callee),
-                args: c.args.iter().map(|&a| self.lower_expr(a)).collect(),
-                is_builtin,
-                def_node,
-                is_generic,
-            });
+                // Check if the called function is generic by looking up its symbol.
+                let is_generic = self.scope_tree.symbols.iter().any(|(_, sym)| {
+                    sym.def_node == def_node
+                        && matches!(
+                            &sym.kind,
+                            SymbolKind::Function {
+                                is_generic: true,
+                                ..
+                            }
+                        )
+                });
+
+                let callee = self.lower_expr(c.callee);
+                return HirExpr::Call(hir::Call {
+                    span: c.span,
+                    callee: Box::new(callee),
+                    args: c.args.iter().map(|&a| self.lower_expr(a)).collect(),
+                    is_builtin,
+                    def_node,
+                    is_generic,
+                });
+            }
         }
 
         // Expression callee — just lower callee and args, no metadata.

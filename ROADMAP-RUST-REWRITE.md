@@ -1382,13 +1382,11 @@ We will also slightly modify the syntax:
   lambda body is a block expression.
 - So the example given above would be written as `\x -> x + 1`.
 
-**No parentheses around lambda params**
+**Optional type annotations for lambdas**
 
-- Currently, if a lambda has more than one param, its params must be enclosed in parentheses.
-- In the rewrite, we will not have parentheses around lambda params.
-- So instead of `\(x, y) { ... }`, we will have `\x, y { ... }`.
+Lambdas previously could not accept type annotations on their arguments. Now, they can.
 
-Examples of things that are valid lambda functions in the new syntax:
+Examples of valid lambda syntax:
 
 ```gema
 \a { a + 1 }
@@ -1396,9 +1394,9 @@ Examples of things that are valid lambda functions in the new syntax:
 \a -> { a + 1 }
 \a: Num { a + 1 }
 \a: Num -> a + 1
-\a, b { a + b }
-\a, b -> a + b
-\a: Str, b: Str -> a + b
+\(a, b) { a + b }
+\(a, b) -> a + b
+\(a: Str, b: Str) -> a + b
 \a -> { x = a + 1; x }
 ```
 

@@ -384,6 +384,7 @@ impl<'a> JsWriter<'a> {
     }
 
     fn emit_range(&mut self, e: &hir::RangeLit) {
+        // TODO: This isn't right. If the range lit is a num range, this needs to emit a NumRangeIterator.
         self.require_helper("$IntRangeIterator$");
         self.write("new $IntRangeIterator$(");
         self.emit_expr(&e.start, true);
@@ -861,13 +862,20 @@ impl<'a> JsWriter<'a> {
                 return;
             }
 
-            // Use the machine name for user-defined function calls.
-            // Generic functions don't get overload suffixes.
-            if e.is_generic {
-                self.write(&self.safe_name(name));
+            // Only use machine name if this def_node is a registered function
+            // (not a variable or expression callee).
+            if self.fn_names.get_name(e.def_node).is_some() {
+                // Use the machine name for user-defined function calls.
+                // Generic functions don't get overload suffixes.
+                if e.is_generic {
+                    self.write(&self.safe_name(name));
+                } else {
+                    let machine_name = self.fn_name(e.def_node, name);
+                    self.write(&machine_name);
+                }
             } else {
-                let machine_name = self.fn_name(e.def_node, name);
-                self.write(&machine_name);
+                // Variable or expression callee — just emit the callee expression.
+                self.emit_expr(&e.callee, true);
             }
         } else {
             // Expression callee — just emit it.
@@ -1212,6 +1220,17 @@ mod tests {
     #[test]
     fn run_builtin_to_int() {
         assert_run("toInt(\"42\")", "42");
+    }
+
+    // ── Variable function calls ──
+
+    #[test]
+    fn run_variable_lambda_call() {
+        assert_run("f = \\x -> x + 1; f(1)", "2");
+    }
+    #[test]
+    fn run_variable_named_func_call() {
+        assert_run("func foo(x: Num): Num { x }; foo(1)", "1");
     }
 
     // ── Generic functions with trait bounds ──
