@@ -83,7 +83,7 @@ impl<'a> Lowerer<'a> {
             | ast::Expr::UseJs(_) => HirExpr::Null,
 
             // ImplBlock: produce an ImplBlock HIR node that will be emitted
-            ast::Expr::ImplBlock(i) => self.lower_impl_block(node, i),
+            ast::Expr::ImplBlock(i) => self.lower_impl_block(i),
 
             // ── Calls ──
             ast::Expr::Call(c) => self.lower_call(node, c),
@@ -417,7 +417,7 @@ impl<'a> Lowerer<'a> {
         })
     }
 
-    fn lower_impl_block(&mut self, node: ast::NodeId, i: &ast::ImplBlock) -> HirExpr {
+    fn lower_impl_block(&mut self, i: &ast::ImplBlock) -> HirExpr {
         let name = self.mangle_impl_name(i);
         let name_id = self.interner.intern(&name);
 

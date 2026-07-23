@@ -348,7 +348,7 @@ impl<'a> Monomorphizer<'a> {
     fn monomorphize_ident(
         &mut self,
         ident: IdentNode,
-        descriptor_stack: &mut Vec<DescriptorParam>,
+        descriptor_stack: &mut [DescriptorParam],
     ) -> HirExpr {
         // Check if this ident refers to a trait method that should be
         // routed through a descriptor.

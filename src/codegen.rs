@@ -208,7 +208,10 @@ impl<'a> JsWriter<'a> {
         let mut buf = JsWriter::new(self.interner, self.fn_names);
         buf.emit_expr(expr, true);
         buf.newline();
-        buf.current.trim().to_string()
+        buf.lines
+            .last()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
     }
 
     /// Like `finish` but without the `// PROGRAM //` banner or
@@ -1194,6 +1197,21 @@ mod tests {
     #[test]
     fn run_generic_with_variable_arg_bool() {
         assert_run("func [T] id(x: T): T { x }; y = true; id(y)", "true");
+    }
+
+    // ── Builtin calls ──
+
+    #[test]
+    fn run_builtin_to_str() {
+        assert_run("toStr(42i)", "42");
+    }
+    #[test]
+    fn run_builtin_isnone_some() {
+        assert_run("isnone(some(1i))", "false");
+    }
+    #[test]
+    fn run_builtin_to_int() {
+        assert_run("toInt(\"42\")", "42");
     }
 
     // ── Generic functions with trait bounds ──

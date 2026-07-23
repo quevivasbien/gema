@@ -4,6 +4,7 @@
 /// and resolves every name reference to the `SymbolId` it refers to.
 /// This pass operates solely on names — no type information is used.
 use crate::ast::*;
+use crate::builtins::BuiltinFunc;
 use crate::diagnostics::DiagnosticsBag;
 use crate::interner::{IdentId, Interner};
 use crate::source::Span;
@@ -293,7 +294,7 @@ impl<'a> Resolver<'a> {
             let used = f.params.iter().any(|p| {
                 p.type_node
                     .as_ref()
-                    .map_or(false, |tn| self.type_node_refers_to_name(tn, tp.name))
+                    .is_some_and(|tn| self.type_node_refers_to_name(tn, tp.name))
             });
             if !used {
                 self.diagnostics.error(
@@ -624,10 +625,10 @@ impl<'a> Resolver<'a> {
         // Also mirror the resolution from the callee to the call node itself,
         // so that downstream passes (and tests) can find the resolution
         // keyed by either node ID.
-        if let Expr::Var(_) = &self.arena[c.callee] {
-            if let Some(&sid) = self.scope_tree.resolved_refs.get(&c.callee) {
-                self.scope_tree.resolved_refs.insert(node, sid);
-            }
+        if let Expr::Var(_) = &self.arena[c.callee]
+            && let Some(&sid) = self.scope_tree.resolved_refs.get(&c.callee)
+        {
+            self.scope_tree.resolved_refs.insert(node, sid);
         }
         // Resolve argument expressions.
         for &arg in &c.args {
@@ -642,11 +643,17 @@ impl<'a> Resolver<'a> {
             let sid = ids[ids.len() - 1];
             self.scope_tree.resolved_refs.insert(node, sid);
         } else {
+            let name_str = self.interner.lookup(name);
+            // Skip "undefined name" for builtins — they are resolved by name
+            // during inference and codegen, not by symbol table lookup.
+            if BuiltinFunc::try_from_name(name_str).is_some() {
+                return;
+            }
             let span = self.arena[node].span();
             self.diagnostics.error(
                 self.file_idx,
                 span,
-                format!("undefined name '{}'", self.interner.lookup(name)),
+                format!("undefined name '{}'", name_str),
             );
         }
     }
@@ -861,11 +868,12 @@ impl<'a> Resolver<'a> {
         for trait_name in &bounds {
             if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
                 for &sid in ids.iter().rev() {
-                    if let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind {
-                        if requirements.iter().any(|r| r.name == call_name) {
-                            if found_trait.is_some() {
-                                // Multiple traits provide the same method name — ambiguous.
-                                self.diagnostics.error(
+                    if let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind
+                        && requirements.iter().any(|r| r.name == call_name)
+                    {
+                        if found_trait.is_some() {
+                            // Multiple traits provide the same method name — ambiguous.
+                            self.diagnostics.error(
                                     self.file_idx,
                                 self.arena[node].span(),
                                     format!(
@@ -874,10 +882,9 @@ impl<'a> Resolver<'a> {
                                         self.interner.lookup(type_name),
                                     ),
                                 );
-                                return;
-                            }
-                            found_trait = Some(*trait_name);
+                            return;
                         }
+                        found_trait = Some(*trait_name);
                     }
                 }
             }

@@ -636,7 +636,7 @@ impl BuiltinFunc {
             }
             BuiltinFunc::ToNum => format!("Number({})", a(args, 0)),
             BuiltinFunc::ToBool => format!("Boolean({})", a(args, 0)),
-            BuiltinFunc::TypeOf => args[0].to_string(),
+            BuiltinFunc::TypeOf => args[0].to_string(), // TODO: This isn't right!
 
             // ── Maybe / None ──
             BuiltinFunc::Some => args[0].to_string(),
