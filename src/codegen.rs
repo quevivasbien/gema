@@ -848,8 +848,13 @@ impl<'a> JsWriter<'a> {
         // Check if callee is an Ident — name-based path for named functions.
         if let HirExpr::Ident(ident) = &*e.callee {
             let name = self.interner.lookup(ident.name);
+            let is_registered_func = self.fn_names.get_name(e.def_node).is_some();
 
+            // Only use the builtin path if this call's def_node is NOT a
+            // registered function (i.e., it's a true builtin call, not a
+            // user-defined function shadowing a builtin name).
             if e.is_builtin
+                && !is_registered_func
                 && let Some(builtin) = BuiltinFunc::try_from_name(name)
             {
                 for helper in builtins::required_helpers(builtin) {
@@ -862,9 +867,7 @@ impl<'a> JsWriter<'a> {
                 return;
             }
 
-            // Only use machine name if this def_node is a registered function
-            // (not a variable or expression callee).
-            if self.fn_names.get_name(e.def_node).is_some() {
+            if is_registered_func {
                 // Use the machine name for user-defined function calls.
                 // Generic functions don't get overload suffixes.
                 if e.is_generic {
@@ -890,7 +893,6 @@ impl<'a> JsWriter<'a> {
         }
         self.write(")");
     }
-    // ── Pattern matching ──
 
     fn emit_match(&mut self, e: &hir::Match, value_used: bool) {
         self.write("(() => {");
@@ -1231,6 +1233,19 @@ mod tests {
     #[test]
     fn run_variable_named_func_call() {
         assert_run("func foo(x: Num): Num { x }; foo(1)", "1");
+    }
+
+    // ── Builtin shadowing ──
+
+    #[test]
+    fn run_builtin_shadowed_by_named_func() {
+        // User-defined function shadows the builtin `toStr`.
+        assert_run("func toStr(x: Num) { \"hi\" }; toStr(0)", "hi");
+    }
+    #[test]
+    fn run_builtin_shadowed_by_variable() {
+        // User variable shadows the builtin `length`.
+        assert_run("length = \\x -> 0; length([1,2,3])", "0");
     }
 
     // ── Generic functions with trait bounds ──

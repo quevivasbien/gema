@@ -185,13 +185,7 @@ impl<'a> Lowerer<'a> {
                 return self.lower_struct_constructor(node, c, name);
             }
 
-            // Check if it's a builtin call — needs special codegen.
-            let name_str = self.interner.lookup(name);
-            let is_builtin = BuiltinFunc::try_from_name(name_str).is_some();
-
-            // Check if the callee resolves to a Function symbol (not a Variable
-            // or other non-callable). If not, and it's not a builtin, fall
-            // through to expression callee path.
+            // Check if the callee resolves to a Function symbol.
             let is_function_sym = self
                 .scope_tree
                 .resolved_refs
@@ -199,9 +193,11 @@ impl<'a> Lowerer<'a> {
                 .and_then(|&sid| self.scope_tree.symbols.get(sid))
                 .is_some_and(|sym| matches!(sym.kind, SymbolKind::Function { .. }));
 
-            if is_function_sym || is_builtin {
-                // Resolve the function's def_node: prefer the overload
-                // selected by type inference, falling back to the resolver's choice.
+            if is_function_sym {
+                // Named function path — resolve def_node and is_generic.
+                let name_str = self.interner.lookup(name);
+                let is_builtin = BuiltinFunc::try_from_name(name_str).is_some();
+
                 let def_node = self
                     .scope_tree
                     .inferred_defs
@@ -216,7 +212,6 @@ impl<'a> Lowerer<'a> {
                     })
                     .unwrap_or(node);
 
-                // Check if the called function is generic by looking up its symbol.
                 let is_generic = self.scope_tree.symbols.iter().any(|(_, sym)| {
                     sym.def_node == def_node
                         && matches!(
@@ -237,6 +232,30 @@ impl<'a> Lowerer<'a> {
                     def_node,
                     is_generic,
                 });
+            }
+
+            // Not a Function symbol — check if it's a builtin (only if no
+            // user symbol shadows the name, since builtins are defaults).
+            if self.scope_tree.resolved_refs.contains_key(&c.callee) {
+                // Name resolves to a user symbol (variable, etc.) — skip
+                // builtin path. Fall through to expression callee.
+            } else {
+                let name_str = self.interner.lookup(name);
+                if !BuiltinFunc::try_from_name(name_str).is_some()
+                {
+                    // Name doesn't resolve to anything and isn't a builtin —
+                    // let the expression callee path handle the error.
+                } else {
+                    let callee = self.lower_expr(c.callee);
+                    return HirExpr::Call(hir::Call {
+                        span: c.span,
+                        callee: Box::new(callee),
+                        args: c.args.iter().map(|&a| self.lower_expr(a)).collect(),
+                        is_builtin: true,
+                        def_node: node,
+                        is_generic: false,
+                    });
+                }
             }
         }
 

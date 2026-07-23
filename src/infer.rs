@@ -606,16 +606,13 @@ impl<'a> Inferer<'a> {
             if let Some(result) = self.try_struct_constructor(node, name, arg_types) {
                 return result;
             }
-            // Check if it's a builtin function.
-            let name_str = self.interner.lookup(name);
-            if let Some(builtin) = BuiltinFunc::try_from_name(name_str)
-                && let Some(ret_ty) = builtin.infer_return_type(arg_types, self.type_arena)
-            {
+            // Check if it's a trait method call (inside a generic function body).
+            if let Some(ret_ty) = self.try_trait_method_call(node, name, arg_types) {
                 return ret_ty;
             }
-            // The name wasn't found as a function or builtin — check if it
-            // resolves to any symbol (variable, etc.). If so, return Unknown
-            // to let infer_call try the expression callee path.
+            // Check if name resolves to a non-function symbol (variable, etc.).
+            // This must come before the builtin check so user variables can
+            // shadow builtins.
             let scope = self
                 .scope_tree
                 .node_scope
@@ -624,6 +621,14 @@ impl<'a> Inferer<'a> {
                 .unwrap_or(self.scope_tree.root_scope);
             if self.scope_tree.lookup(scope, name).is_some() {
                 return self.fresh_infer_var();
+            }
+            // Check if it's a builtin function (only after confirming no
+            // user-defined symbol shadows it).
+            let name_str = self.interner.lookup(name);
+            if let Some(builtin) = BuiltinFunc::try_from_name(name_str)
+                && let Some(ret_ty) = builtin.infer_return_type(arg_types, self.type_arena)
+            {
+                return ret_ty;
             }
             self.emit_error(
                 self.arena[node].span(),
