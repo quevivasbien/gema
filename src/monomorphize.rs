@@ -822,6 +822,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn generic_with_nested_type_param() {
         // Generic type params can appear inside nested types like Arr[T].
         let hir = compile_ok("func [T] identity(arr: Arr[T]): Arr[T] { arr }");
