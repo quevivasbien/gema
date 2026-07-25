@@ -231,6 +231,7 @@ impl<'a> Lowerer<'a> {
                     is_builtin,
                     def_node,
                     is_generic,
+                    is_index: false,
                 });
             }
 
@@ -249,11 +250,12 @@ impl<'a> Lowerer<'a> {
                     let callee = self.lower_expr(c.callee);
                     return HirExpr::Call(hir::Call {
                         span: c.span,
-                        callee: Box::new(callee),
+                        callee: Box::new(self.lower_expr(c.callee)),
                         args: c.args.iter().map(|&a| self.lower_expr(a)).collect(),
                         is_builtin: true,
                         def_node: node,
                         is_generic: false,
+                        is_index: false,
                     });
                 }
             }

@@ -549,8 +549,16 @@ impl<'a> Inferer<'a> {
             ret: fresh_ret,
         });
 
+        // Save diagnostics before function unification attempt — it may emit
+        // spurious type mismatch errors if the callee isn't a function.
+        let saved_diag_len = self.diagnostics.len();
         let unified = self.unify(caller_ty, expected_func);
         if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+            self.diagnostics.truncate(saved_diag_len);
+            // Not a function — try indexed access (e.g. `arr[0]`).
+            if let Some(elem_type) = self.try_indexed_access(caller_ty, &arg_types) {
+                return elem_type;
+            }
             self.emit_error(
                 self.arena[node].span(),
                 "called expression is not a function".to_string(),
@@ -564,6 +572,61 @@ impl<'a> Inferer<'a> {
         }
 
         self.resolve(fresh_ret)
+    }
+
+    /// Try to infer an indexed access (`arr[0]`, `str[0]`) when the callee
+    /// type is a container and the argument is compatible.
+    /// Returns the element type, or `None` if the callee doesn't support indexing.
+    fn try_indexed_access(
+        &mut self,
+        caller_ty: TypeId,
+        arg_types: &[TypeId],
+    ) -> Option<TypeId> {
+        // Indexed access requires exactly one argument (the index).
+        if arg_types.len() != 1 {
+            return None;
+        }
+        let index_ty = arg_types[0];
+        let caller_kind = self.type_arena.get(caller_ty).clone();
+        match caller_kind {
+            TypeKind::Arr(inner)
+            | TypeKind::MutArr(inner)
+            | TypeKind::Iter(inner) => {
+                // Index must be Int or Num (or a yet-unknown type variable).
+                if !self.is_valid_index_type(index_ty) {
+                    return None;
+                }
+                // Return Maybe(inner) for safe indexed access.
+                let maybe_inner = self.type_arena.intern(TypeKind::Maybe(inner));
+                Some(maybe_inner)
+            }
+            TypeKind::Str => {
+                if !self.is_valid_index_type(index_ty) {
+                    return None;
+                }
+                let maybe_str = self.type_arena.intern(TypeKind::Maybe(caller_ty));
+                Some(maybe_str)
+            }
+            _ => None,
+        }
+    }
+
+    /// Check whether a type is valid as an index (Int, Num, or an InferVar
+    /// that could resolve to either). Avoids calling `unify` on concrete
+    /// type mismatches to prevent spurious diagnostics.
+    fn is_valid_index_type(&mut self, index_ty: TypeId) -> bool {
+        let resolved = self.resolve(index_ty);
+        let kind = self.type_arena.get(resolved).clone();
+        match kind {
+            TypeKind::Int | TypeKind::Num => true,
+            TypeKind::InferVar { id } => {
+                // Unknown type variable — bind to Int as the default for indexing.
+                let int_ty = self.type_arena.intern(TypeKind::Int);
+                self.bind_infer_var(id, int_ty);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Infer a call to a named function — handles overload resolution,

@@ -385,6 +385,10 @@ pub struct Call {
     /// True when this calls a generic function (has type params).
     /// Generic function names don't get overload suffixes in codegen.
     pub is_generic: bool,
+    /// True when this is an indexed access (e.g. `arr[0]`) expressed with
+    /// call syntax (e.g. `[1,2,3](0)`). Codegen emits `callee[arg]`
+    /// instead of `callee(args)`.
+    pub is_index: bool,
 }
 
 /// A lowered impl block that produces a trait implementation dictionary.
@@ -651,6 +655,7 @@ mod tests {
             is_builtin: false,
             def_node: dummy_node_id(),
             is_generic: false,
+            is_index: false,
         });
     }
 
@@ -1031,6 +1036,7 @@ mod tests {
             is_builtin: true,
             def_node: dummy_node_id(),
             is_generic: false,
+            is_index: false,
         });
         match call {
             HirExpr::Call(c) => assert!(c.is_builtin),

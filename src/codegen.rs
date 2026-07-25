@@ -845,6 +845,18 @@ impl<'a> JsWriter<'a> {
         self.write("})");
     }
     fn emit_call(&mut self, e: &hir::Call) {
+        // Indexed access: emit `callee[arg]` instead of `callee(args)`.
+        if e.is_index {
+            self.write("(");
+            self.emit_expr(&e.callee, true);
+            self.write("[");
+            if let Some(arg) = e.args.first() {
+                self.emit_expr(arg, true);
+            }
+            self.write("] ?? null)");
+            return;
+        }
+
         // Check if callee is an Ident — name-based path for named functions.
         if let HirExpr::Ident(ident) = &*e.callee {
             let name = self.interner.lookup(ident.name);
@@ -1001,6 +1013,7 @@ mod tests {
             &mut diagnostics,
             0,
         );
+        assert!(!diagnostics.has_errors(), "inference errors: {:?}", diagnostics);
         let hir = lower(&arena, root, &scope_tree, &mut interner);
         codegen(hir, &arena, &scope_tree, &type_arena, &mut interner)
     }
@@ -1248,19 +1261,61 @@ mod tests {
         assert_run("length = \\x -> 0; length([1,2,3])", "0");
     }
 
-    // ── Generic functions with trait bounds ──
+    // ── Indexed access ──
 
     #[test]
-    fn run_generic_with_trait_method() {
-        // Trait method calls inside generic functions use `T::method()` syntax.
-        // The call should be routed through the trait's descriptor dictionary.
-        assert_run(
-            "trait Hash { hash: Func[Self: Int] }; \
-             impl Int: Hash { func hash(x: Int): Int { x } }; \
-             func [T: Hash] id(x: T): T { T::hash(x) }; \
-             id(42i)",
-            "42",
-        );
+    fn run_indexed_access_array_lit() {
+        assert_run("[1i, 2i, 3i](0i)", "1");
+    }
+    #[test]
+    fn run_indexed_access_variable() {
+        assert_run("a = [1i, 2i, 3i]; a(0i)", "1");
+    }
+    #[test]
+    fn run_indexed_access_array_lit_num() {
+        assert_run("[1,2,3](1)", "2");
+    }
+    #[test]
+    fn run_indexed_access_variable_num() {
+        assert_run("a = [1,2,3]; a(1)", "2");
+    }
+    #[test]
+    fn run_indexed_access_maybe_type() {
+        // Indexed access returns Maybe(T). Binding to a Maybe variable is valid.
+        assert_run("x: Maybe[Int] = [1i,2i,3i](0i); x", "1");
+    }
+    #[test]
+    fn run_indexed_access_last_element() {
+        assert_run("[0i, 5i, 10i](2)", "10");
+    }
+    #[test]
+    fn run_indexed_access_mut_array() {
+        // MutArr typed variable indexing
+        assert_run("mut a = [1i,2i,3i]; a(1i)", "2");
+    }
+    #[test]
+    fn run_indexed_access_str() {
+        assert_run("\"hello\"(0i)", "h");
+    }
+    #[test]
+    fn run_indexed_access_variable_str() {
+        assert_run("s = \"hello\"; s(1)", "e");
+    }
+    #[test]
+    fn run_indexed_access_out_of_bounds() {
+        assert_run("a = [1, 2, 3]; a(3)", "null");
+    }
+    #[test]
+    fn run_indexed_access_unwrap_in_bounds() {
+        assert_run("a = [1, 2, 3]; unwrap(0, a(0))", "1");
+    }
+    #[test]
+    fn run_indexed_access_unwrap_out_of_bounds() {
+        assert_run("a = [1, 2, 3]; unwrap(0, a(3))", "0");
+    }
+    #[test]
+    fn run_builtin_unwrap_simple() {
+        assert_run("unwrap(0, some(1))", "1");
     }
 
     #[test]

@@ -300,6 +300,29 @@ impl<'a> Monomorphizer<'a> {
             .map(|a| self.monomorphize_expr(a, descriptor_stack))
             .collect();
 
+        // Detect indexed access on container types.
+        // Check literal containers (ArrLit, TupleLit, StrLit) by structure.
+        if matches!(&*c.callee, HirExpr::ArrLit(_) | HirExpr::TupleLit(_) | HirExpr::StrLit(_)) {
+            c.is_index = true;
+            return HirExpr::Call(c);
+        }
+        // Check variable references (Ident) by looking up their type.
+        // Use c.def_node to find the correct scope for this expression.
+        if let HirExpr::Ident(ident) = &*c.callee {
+            let scope = self
+                .scope_tree
+                .node_scope
+                .get(&c.def_node)
+                .copied()
+                .unwrap_or(self.current_scope);
+            if let Some(tid) = self.lookup_variable_type_from(ident.name, scope) {
+                if self.type_is_indexable(tid) {
+                    c.is_index = true;
+                    return HirExpr::Call(c);
+                }
+            }
+        }
+
         // Descriptor routing only applies to named function calls.
         if let HirExpr::Ident(ident) = &*c.callee {
             // Check if this is a trait method call that should be routed
@@ -324,6 +347,7 @@ impl<'a> Monomorphizer<'a> {
                         is_builtin: false,
                         def_node: c.def_node,
                         is_generic: false,
+                        is_index: false,
                     });
                 }
             }
@@ -487,11 +511,27 @@ impl<'a> Monomorphizer<'a> {
                 _ => {}
             }
         }
+
         None
     }
 
+    /// Check whether a type supports indexed access (e.g. `arr[0]`).
+    fn type_is_indexable(&self, tid: TypeId) -> bool {
+        matches!(
+            self.type_arena.get(tid),
+            TypeKind::Arr(_)
+                | TypeKind::MutArr(_)
+                | TypeKind::Iter(_)
+                | TypeKind::Str
+        )
+    }
+
     fn lookup_variable_type(&self, name: IdentId) -> Option<TypeId> {
-        let (_scope, ids) = self.scope_tree.lookup(self.current_scope, name)?;
+        self.lookup_variable_type_from(name, self.current_scope)
+    }
+
+    fn lookup_variable_type_from(&self, name: IdentId, scope: ScopeId) -> Option<TypeId> {
+        let (_scope, ids) = self.scope_tree.lookup(scope, name)?;
         for &sid in ids.iter().rev() {
             if let SymbolKind::Variable {
                 type_id: Some(tid), ..
