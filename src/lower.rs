@@ -237,17 +237,9 @@ impl<'a> Lowerer<'a> {
 
             // Not a Function symbol — check if it's a builtin (only if no
             // user symbol shadows the name, since builtins are defaults).
-            if self.scope_tree.resolved_refs.contains_key(&c.callee) {
-                // Name resolves to a user symbol (variable, etc.) — skip
-                // builtin path. Fall through to expression callee.
-            } else {
+            if !self.scope_tree.resolved_refs.contains_key(&c.callee) {
                 let name_str = self.interner.lookup(name);
-                if !BuiltinFunc::try_from_name(name_str).is_some()
-                {
-                    // Name doesn't resolve to anything and isn't a builtin —
-                    // let the expression callee path handle the error.
-                } else {
-                    let callee = self.lower_expr(c.callee);
+                if BuiltinFunc::try_from_name(name_str).is_some() {
                     return HirExpr::Call(hir::Call {
                         span: c.span,
                         callee: Box::new(self.lower_expr(c.callee)),
@@ -269,6 +261,7 @@ impl<'a> Lowerer<'a> {
             is_builtin: false,
             def_node: c.callee,
             is_generic: false,
+            is_index: false,
         })
     }
     // ── Struct constructor ──

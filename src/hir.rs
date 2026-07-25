@@ -390,7 +390,6 @@ pub struct Call {
     /// instead of `callee(args)`.
     pub is_index: bool,
 }
-
 /// A lowered impl block that produces a trait implementation dictionary.
 #[derive(Clone, Debug)]
 pub struct ImplBlock {

@@ -695,8 +695,7 @@ impl<'a> Parser<'a> {
                 let param_token = match self.peek_kind() {
                     Some(TokenKind::Ident(_)) => self.advance(),
                     _ => {
-                        return self
-                            .error_and_recover("expected parameter name in lambda");
+                        return self.error_and_recover("expected parameter name in lambda");
                     }
                 };
                 let name = self.intern_str(param_token.text().unwrap());
@@ -722,8 +721,7 @@ impl<'a> Parser<'a> {
             let param_token = match self.peek_kind() {
                 Some(TokenKind::Ident(_)) => self.advance(),
                 _ => {
-                    return self
-                        .error_and_recover("expected parameter name in lambda");
+                    return self.error_and_recover("expected parameter name in lambda");
                 }
             };
             let name = self.intern_str(param_token.text().unwrap());

@@ -42,10 +42,6 @@ struct Monomorphizer<'a> {
 struct DescriptorParam {
     /// The parameter name in the generated JS (e.g., `$impl_T_Foo`).
     param_name: IdentId,
-    /// The type parameter this descriptor is for.
-    type_param: IdentId,
-    /// The trait this descriptor provides implementations for.
-    trait_name: IdentId,
     /// The names of the trait's requirements (methods/variables).
     requirement_names: Vec<IdentId>,
 }
@@ -248,8 +244,6 @@ impl<'a> Monomorphizer<'a> {
                 let desc_param_id = self.interner.intern(&desc_name);
                 new_descriptors.push(DescriptorParam {
                     param_name: desc_param_id,
-                    type_param: tp.name,
-                    trait_name: *trait_name,
                     requirement_names: req_names,
                 });
                 f.params.push(FuncParam {
@@ -302,7 +296,10 @@ impl<'a> Monomorphizer<'a> {
 
         // Detect indexed access on container types.
         // Check literal containers (ArrLit, TupleLit, StrLit) by structure.
-        if matches!(&*c.callee, HirExpr::ArrLit(_) | HirExpr::TupleLit(_) | HirExpr::StrLit(_)) {
+        if matches!(
+            &*c.callee,
+            HirExpr::ArrLit(_) | HirExpr::TupleLit(_) | HirExpr::StrLit(_)
+        ) {
             c.is_index = true;
             return HirExpr::Call(c);
         }
@@ -519,10 +516,7 @@ impl<'a> Monomorphizer<'a> {
     fn type_is_indexable(&self, tid: TypeId) -> bool {
         matches!(
             self.type_arena.get(tid),
-            TypeKind::Arr(_)
-                | TypeKind::MutArr(_)
-                | TypeKind::Iter(_)
-                | TypeKind::Str
+            TypeKind::Arr(_) | TypeKind::MutArr(_) | TypeKind::Iter(_) | TypeKind::Str
         )
     }
 
@@ -542,7 +536,6 @@ impl<'a> Monomorphizer<'a> {
         }
         None
     }
-
     fn type_kind_to_name(&mut self, kind: &TypeKind) -> Option<IdentId> {
         match kind {
             TypeKind::Int => Some(self.interner.intern("Int")),
@@ -552,39 +545,6 @@ impl<'a> Monomorphizer<'a> {
             TypeKind::Custom { name, .. } => Some(*name),
             _ => None,
         }
-    }
-
-    /// Look up the implementing function name for a (type, trait, method) combination.
-    fn find_impl_function_name(
-        &mut self,
-        type_name: Option<IdentId>,
-        trait_name: IdentId,
-        _method_name: IdentId,
-    ) -> Option<(IdentId, Option<crate::ast::NodeId>)> {
-        let type_name = type_name?;
-        for (_, sym) in self.scope_tree.symbols.iter() {
-            if let SymbolKind::Impl {
-                trait_name: tn,
-                self_type,
-                member_nodes,
-            } = &sym.kind
-            {
-                if *tn != trait_name {
-                    continue;
-                }
-                // Check if self_type matches the concrete type.
-                if !self.self_type_matches(self_type, type_name) {
-                    continue;
-                }
-                // Find the first member function — return its name and def_node.
-                for &member_node in member_nodes {
-                    if let ast::Expr::FuncDef(f) = &self.arena[member_node] {
-                        return Some((f.name, Some(member_node)));
-                    }
-                }
-            }
-        }
-        None
     }
 
     /// Check if a `TypeNode` matches a concrete type name.

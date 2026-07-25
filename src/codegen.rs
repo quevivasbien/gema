@@ -905,7 +905,6 @@ impl<'a> JsWriter<'a> {
         }
         self.write(")");
     }
-
     fn emit_match(&mut self, e: &hir::Match, value_used: bool) {
         self.write("(() => {");
         self.indent_in();

@@ -63,6 +63,8 @@ struct Inferer<'a> {
     /// used by `function_type_from_def` so call sites see the inferred
     /// return type even without an explicit annotation.
     function_return_types: FxHashMap<NodeId, TypeId>,
+    /// Trail for snapshot/rollback of bindings during overload resolution
+    trail: Vec<(u32, Option<TypeId>)>,
 }
 
 impl<'a> Inferer<'a> {
@@ -86,11 +88,28 @@ impl<'a> Inferer<'a> {
             var_type_stack: vec![FxHashMap::default()],
             return_type: None,
             function_return_types: FxHashMap::default(),
+            trail: Vec::new(),
         }
     }
 
     fn fresh_infer_var(&mut self) -> TypeId {
         self.type_arena.fresh_infer_var()
+    }
+
+    /// Get current length of bindings trail
+    fn snapshot(&self) -> usize {
+        self.trail.len()
+    }
+
+    /// Roll back the bindings to a given snapshot point
+    fn rollback(&mut self, saved: usize) {
+        while self.trail.len() > saved {
+            let (id, old) = self.trail.pop().unwrap();
+            match old {
+                Some(old_ty) => self.bindings.insert(id, old_ty),
+                None => self.bindings.remove(&id),
+            };
+        }
     }
 
     // ── Resolution ──
@@ -280,6 +299,8 @@ impl<'a> Inferer<'a> {
             );
             return self.type_arena.unknown_id();
         }
+        // Record old value (or absence) on the trail, so we are able to roll this back later
+        self.trail.push((id, self.bindings.get(&id).copied()));
         self.bindings.insert(id, ty);
         ty
     }
@@ -481,13 +502,18 @@ impl<'a> Inferer<'a> {
                     if params.is_empty() {
                         continue;
                     }
+                    let snapshot = self.snapshot();
                     let saved_diag_len = self.diagnostics.len();
                     let unified = self.unify(params[0], type_annotation);
-                    if !matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                    if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                        // If we failed to unify the type params, roll back changes,
+                        // and try the next possible function match
+                        self.rollback(snapshot);
+                        self.diagnostics.truncate(saved_diag_len);
+                    } else {
                         self.scope_tree.inferred_defs.insert(node, def_node);
                         return self.resolve(func_type);
                     }
-                    self.diagnostics.truncate(saved_diag_len);
                 }
             }
         }
@@ -536,7 +562,6 @@ impl<'a> Inferer<'a> {
             // Named lookup failed but name may exist as a variable.
             // Fall through to expression callee path.
         }
-
         // Expression callee — infer its type and unify with a function signature.
         let caller_ty = self.infer_expr(c.callee);
 
@@ -577,11 +602,7 @@ impl<'a> Inferer<'a> {
     /// Try to infer an indexed access (`arr[0]`, `str[0]`) when the callee
     /// type is a container and the argument is compatible.
     /// Returns the element type, or `None` if the callee doesn't support indexing.
-    fn try_indexed_access(
-        &mut self,
-        caller_ty: TypeId,
-        arg_types: &[TypeId],
-    ) -> Option<TypeId> {
+    fn try_indexed_access(&mut self, caller_ty: TypeId, arg_types: &[TypeId]) -> Option<TypeId> {
         // Indexed access requires exactly one argument (the index).
         if arg_types.len() != 1 {
             return None;
@@ -589,9 +610,7 @@ impl<'a> Inferer<'a> {
         let index_ty = arg_types[0];
         let caller_kind = self.type_arena.get(caller_ty).clone();
         match caller_kind {
-            TypeKind::Arr(inner)
-            | TypeKind::MutArr(inner)
-            | TypeKind::Iter(inner) => {
+            TypeKind::Arr(inner) | TypeKind::MutArr(inner) | TypeKind::Iter(inner) => {
                 // Index must be Int or Num (or a yet-unknown type variable).
                 if !self.is_valid_index_type(index_ty) {
                     return None;
@@ -632,10 +651,10 @@ impl<'a> Inferer<'a> {
     /// Infer a call to a named function — handles overload resolution,
     /// struct constructors, trait methods, and builtins.
     fn infer_named_call(&mut self, node: NodeId, name: IdentId, arg_types: &[TypeId]) -> TypeId {
-        // Collect function defs and their cached signatures separately
-        // to avoid borrow conflicts with self.lower_type_node.
-        let funcs: Vec<(NodeId, Option<Box<crate::ast::TypeNode>>)> = self
+        // Get signatures for potential function matches
+        let funcs: Vec<(NodeId, Option<Box<TypeNode>>)> = self
             .scope_tree
+            // Look up functions with a matching name
             .lookup_functions(
                 self.scope_tree
                     .node_scope
@@ -645,6 +664,8 @@ impl<'a> Inferer<'a> {
                 name,
             )
             .iter()
+            // Get the AST node where each function was defined,
+            // and the type signature of the function
             .map(|s| {
                 let sig = match &s.kind {
                     SymbolKind::Function {
@@ -656,10 +677,12 @@ impl<'a> Inferer<'a> {
             })
             .collect();
 
+        // Lower each type in the function type signatures to their type IDs
+        // Need a separate iterator here to avoid multiple mutable borrows of `self`
         let func_info: Vec<(NodeId, Option<TypeId>)> = funcs
             .into_iter()
             .map(|(def_node, cached_sig)| {
-                let ct = cached_sig.as_ref().map(|sig| self.lower_type_node(sig));
+                let ct = cached_sig.map(|sig| self.lower_type_node(&sig));
                 (def_node, ct)
             })
             .collect();
@@ -670,6 +693,7 @@ impl<'a> Inferer<'a> {
                 return result;
             }
             // Check if it's a trait method call (inside a generic function body).
+            // TODO: I don't think we should check this unless this is a type-associated call
             if let Some(ret_ty) = self.try_trait_method_call(node, name, arg_types) {
                 return ret_ty;
             }
@@ -699,40 +723,41 @@ impl<'a> Inferer<'a> {
             );
             return self.type_arena.unknown_id();
         }
+
+        // Check each of the function definitions with matching names,
+        // looking for one with a compatible type signature
         for (def_node, cached_type) in func_info {
             let func_type = if let Some(ct) = cached_type {
                 ct
             } else {
                 self.function_type_from_def(def_node)
             };
-            let func_kind = self.type_arena.get(func_type).clone();
-            match func_kind {
-                TypeKind::Func { params, ret } => {
-                    if params.len() != arg_types.len() {
-                        continue;
-                    }
-                    let saved_bindings = self.bindings.clone();
-                    let saved_diag_len = self.diagnostics.len();
-                    let mut ok = true;
-                    for (param, arg) in params.iter().zip(arg_types.iter()) {
-                        let unified = self.unify(*param, *arg);
-                        if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
-                            ok = false;
-                            break;
-                        }
-                    }
-                    if !ok {
-                        self.bindings = saved_bindings;
-                        self.diagnostics.truncate(saved_diag_len);
-                        continue;
-                    }
-                    let resolved = self.resolve(ret);
-                    // Record which overload was selected for this call
-                    self.scope_tree.inferred_defs.insert(node, def_node);
-                    return resolved;
-                }
+            let (param_ids, ret_id) = match self.type_arena.get(func_type) {
+                TypeKind::Func { params, ret } => (params.clone(), *ret),
                 _ => continue,
+            };
+            if param_ids.len() != arg_types.len() {
+                continue;
             }
+            let snapshot = self.snapshot();
+            let saved_diag_len = self.diagnostics.len();
+            let mut ok = true;
+            for (param, arg) in param_ids.iter().zip(arg_types.iter()) {
+                let unified = self.unify(*param, *arg);
+                if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                    ok = false;
+                    break;
+                }
+            }
+            if !ok {
+                self.rollback(snapshot);
+                self.diagnostics.truncate(saved_diag_len);
+                continue;
+            }
+            let resolved = self.resolve(ret_id);
+            // Record which overload was selected for this call
+            self.scope_tree.inferred_defs.insert(node, def_node);
+            return resolved;
         }
 
         let name_str = self.interner.lookup(name);
@@ -1492,13 +1517,16 @@ impl<'a> Inferer<'a> {
                     continue;
                 }
                 // Check if the first parameter type matches the annotation
+                let snapshot = self.snapshot();
                 let saved_diag_len = self.diagnostics.len();
                 let unified = self.unify(params[0], type_annotation);
-                if !matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
+                    self.rollback(snapshot);
+                    self.diagnostics.truncate(saved_diag_len);
+                } else {
                     self.scope_tree.inferred_defs.insert(node, def_node);
                     return self.resolve(func_type);
                 }
-                self.diagnostics.truncate(saved_diag_len);
             }
         }
 

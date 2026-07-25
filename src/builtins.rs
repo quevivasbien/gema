@@ -83,7 +83,7 @@ pub enum BuiltinFunc {
 }
 
 impl BuiltinFunc {
-    /// Try to match a function name (and optionally the arg-count) to
+    /// Try to match a function name to
     /// a builtin.  Returns `None` if the name is not a builtin.
     pub fn try_from_name(name: &str) -> Option<BuiltinFunc> {
         match name {
