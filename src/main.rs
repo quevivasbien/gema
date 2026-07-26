@@ -7,7 +7,7 @@ use gema::{
     infer::infer_types,
     interner::Interner,
     lower::lower,
-    modules,
+    modules::{build_module_graph, codegen_modules, link_modules},
     parse::parse,
     resolve::resolve_names,
     scan::scan,
@@ -40,7 +40,10 @@ fn parse_input(args: &[String]) -> Result<ParsedInput, &'static str> {
     }
 
     match program {
-        Some(p) => Ok(ParsedInput { show_hir, program: p }),
+        Some(p) => Ok(ParsedInput {
+            show_hir,
+            program: p,
+        }),
         None => Err("Missing required argument [PROGRAM]"),
     }
 }
@@ -57,25 +60,15 @@ fn print_help() {
 }
 
 /// Compile a single source code string (no module support).
-fn compile(input: ParsedInput) -> Result<String, String> {
+fn compile(input: ParsedInput) -> Result<String, DiagnosticsBag> {
     let src = SourceText::new("test.gema", input.program);
-    let (tokens, sd) = scan(&src, 0);
-    if sd.has_errors() {
-        return Err(format!("Scan errors: {:#?}", sd));
-    }
+    let (tokens, mut diagnostics) = scan(&src, 0);
     let mut arena = AstArena::new();
     let mut interner = Interner::new();
-    let mut diagnostics = DiagnosticsBag::new();
     let mut source_map = SourceMap::new();
     source_map.add(src);
-    for d in sd.into_vec() {
-        diagnostics.push(d);
-    }
     let root = parse(&tokens, &mut arena, &mut interner, &mut diagnostics, 0);
     let mut scope_tree = resolve_names(&arena, root, &mut interner, &mut diagnostics, 0);
-    if diagnostics.has_errors() {
-        return Err(format!("{:#?}", diagnostics));
-    }
     let mut type_arena = TypeArena::new();
     let _types = infer_types(
         &arena,
@@ -86,12 +79,12 @@ fn compile(input: ParsedInput) -> Result<String, String> {
         &mut diagnostics,
         0,
     );
-    if diagnostics.has_errors() {
-        return Err(format!("{:#?}", diagnostics));
-    }
-    let hir = lower(&arena, root, &scope_tree, &interner);
+    let hir = lower(&arena, root, &scope_tree, &mut interner);
     if input.show_hir {
         println!("{:#?}", hir);
+    }
+    if diagnostics.has_errors() {
+        return Err(diagnostics);
     }
     Ok(codegen(
         hir,
@@ -103,34 +96,46 @@ fn compile(input: ParsedInput) -> Result<String, String> {
 }
 
 /// Compile a file path with module system support.
-fn compile_multi(entry_path: &str, show_hir: bool) -> Result<String, String> {
+fn compile_multi(entry_path: &str, show_hir: bool) -> Result<String, DiagnosticsBag> {
     let mut arena = AstArena::new();
     let mut interner = Interner::new();
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticsBag::new();
 
-    let graph = modules::build_module_graph(
-        entry_path, &mut arena, &mut interner, &mut source_map, &mut diagnostics,
+    let graph = build_module_graph(
+        entry_path,
+        &mut arena,
+        &mut interner,
+        &mut source_map,
+        &mut diagnostics,
     )
-    .map_err(|_| format!("{:#?}", diagnostics))?;
-    if diagnostics.has_errors() {
-        return Err(format!("{:#?}", diagnostics));
+    .map_err(|_| diagnostics.clone())?;
+    eprintln!("graph modules: {}", graph.modules.len());
+    for (i, m) in graph.modules.iter().enumerate() {
+        eprintln!("  [{}]: path={:?}, deps={:?}", i, m.path, m.dependency_ids);
     }
-
-    let modules = modules::link_modules(&graph, &arena, &mut interner, &mut diagnostics);
-    if diagnostics.has_errors() {
-        return Err(format!("{:#?}", diagnostics));
-    }
-
+    eprintln!("topo_order: {:?}", graph.topo_order);
+    let mut modules = link_modules(&graph, &arena, &mut interner, &mut diagnostics);
     let mut type_arena = TypeArena::new();
-    let output = modules::codegen_modules(&graph, &modules, &arena, &mut interner, &mut type_arena);
+    let output = codegen_modules(
+        &graph,
+        &mut modules,
+        &arena,
+        &mut interner,
+        &mut type_arena,
+        &mut diagnostics,
+    );
 
     if show_hir {
         for module in &modules {
             let st = module.scope_tree.as_ref().unwrap();
-            let hir = lower(&arena, module.root, st, &interner);
+            let hir = lower(&arena, module.root, st, &mut interner);
             println!("// ── {} ──\n{:#?}", module.path, hir);
         }
+    }
+
+    if diagnostics.has_errors() {
+        return Err(diagnostics);
     }
 
     Ok(output)
@@ -146,14 +151,29 @@ fn main() {
 
     // If the argument looks like a .gema file path, route to compile_multi
     // This allows the test suite to continue passing inline sources.
-    let result = if input.program.ends_with(".gema") && std::path::Path::new(&input.program).exists() {
-        compile_multi(&input.program, input.show_hir)
-    } else {
-        compile(input)
-    };
+    let result =
+        if input.program.ends_with(".gema") && std::path::Path::new(&input.program).exists() {
+            compile_multi(&input.program, input.show_hir)
+        } else {
+            compile(input)
+        };
 
     match result {
         Ok(compiled) => println!("{}", compiled),
-        Err(e) => eprintln!("{}", e),
+        Err(e) => eprintln!("{:#?}", e),
     };
 }
+
+// #[cfg(test)]
+// mod test {
+//     use super::compile_multi;
+
+//     #[test]
+//     fn test_file() {
+//         let result = compile_multi("test.gema", false);
+//         match result {
+//             Ok(compiled) => println!("{}", compiled),
+//             Err(e) => eprintln!("{}", e),
+//         };
+//     }
+// }

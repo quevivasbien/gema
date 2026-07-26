@@ -1,3 +1,5 @@
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 /// Module system for Gema — discovers, parses, links, and resolves
 /// dependencies between module files.
 ///
@@ -7,11 +9,9 @@
 use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
-use rustc_hash::FxHashMap;
-use rustc_hash::FxHashSet;
 
 use crate::ast::*;
-use crate::codegen::{codegen_inner, FnNameTable};
+use crate::codegen::{FnNameTable, codegen_inner};
 use crate::diagnostics::DiagnosticsBag;
 use crate::infer::infer_types;
 use crate::interner::{IdentId, Interner};
@@ -20,7 +20,7 @@ use crate::parse::parse;
 use crate::resolve::resolve_names_in_context;
 use crate::scan::scan;
 use crate::source::{SourceMap, SourceText, Span};
-use crate::symbol::{ScopeTree, SymbolId, SymbolKind};
+use crate::symbol::{ScopeTree, Symbol, SymbolId, SymbolKind};
 use crate::types::TypeArena;
 
 // ---------------------------------------------------------------------------
@@ -65,12 +65,49 @@ pub struct ModuleGraph {
 // Graph construction
 // ---------------------------------------------------------------------------
 
+/// Helper to resolve dependency_paths to dependency_ids for every module
+fn resolve_dependency_paths(
+    graph: &mut ModuleGraph,
+    path_to_idx: &FxHashMap<String, usize>,
+    diagnostics: &mut DiagnosticsBag,
+) {
+    for i in 0..graph.modules.len() {
+        let importing_path = &graph.modules[i].path;
+        let mut any_unresolved = false;
+        let resolved: Vec<ModuleId> = graph.modules[i]
+            .dependency_paths
+            .iter()
+            .filter_map(|dep_path| {
+                let resolved_dep = resolve_path(importing_path, dep_path);
+                let canonical = canonicalize_path(&resolved_dep);
+                match path_to_idx.get(&canonical).copied() {
+                    Some(id) => Some(id),
+                    None => {
+                        if !any_unresolved {
+                            any_unresolved = true;
+                            diagnostics.error(
+                                graph.modules[i].file_idx,
+                                Span::new(0, 0),
+                                format!(
+                                    "module not found: '{}' (imported by '{}')",
+                                    dep_path, importing_path
+                                ),
+                            );
+                        }
+                        None
+                    }
+                }
+            })
+            .collect();
+        graph.modules[i].dependency_ids = resolved;
+    }
+}
+
 /// Starting from `entry_path`, discover and parse all transitive module
 /// dependencies from the filesystem. Returns the module graph (shared arena).
 ///
 /// All modules share one `AstArena` and `Interner`. Each gets a unique
 /// `file_idx` in the `SourceMap`.
-#[allow(clippy::result_unit_err)]
 pub fn build_module_graph(
     entry_path: &str,
     arena: &mut AstArena,
@@ -97,7 +134,7 @@ pub fn build_module_graph(
     };
 
     // Path -> ModuleId cache for dedup
-    let mut path_to_idx: std::collections::HashMap<String, ModuleId> = std::collections::HashMap::new();
+    let mut path_to_idx: FxHashMap<String, ModuleId> = FxHashMap::default();
 
     // BFS to discover all modules
     let mut queue: VecDeque<(String, String)> = VecDeque::new();
@@ -106,7 +143,12 @@ pub fn build_module_graph(
     // Process the entry file
     let entry_name = entry_path.to_string();
     match process_source_file(
-        &entry_name, &source, arena, interner, source_map, diagnostics,
+        &entry_name,
+        &source,
+        arena,
+        interner,
+        source_map,
+        diagnostics,
     ) {
         Some(module) => {
             let idx = graph.modules.len();
@@ -146,7 +188,12 @@ pub fn build_module_graph(
         };
 
         match process_source_file(
-            &resolved_path, &dep_source, arena, interner, source_map, diagnostics,
+            &resolved_path,
+            &dep_source,
+            arena,
+            interner,
+            source_map,
+            diagnostics,
         ) {
             Some(module) => {
                 let idx = graph.modules.len();
@@ -163,41 +210,15 @@ pub fn build_module_graph(
         }
     }
 
-    // Resolve dependency_paths to dependency_ids for every module
-    for i in 0..graph.modules.len() {
-        let importing_path = &graph.modules[i].path;
-        let mut any_unresolved = false;
-        let resolved: Vec<ModuleId> = graph.modules[i]
-            .dependency_paths
-            .iter()
-            .filter_map(|dep_path| {
-                let resolved_dep = resolve_path(importing_path, dep_path);
-                let canonical = canonicalize_path(&resolved_dep);
-                match path_to_idx.get(&canonical).copied() {
-                    Some(id) => Some(id),
-                    None => {
-                        if !any_unresolved {
-                            any_unresolved = true;
-                            diagnostics.error(
-                                graph.modules[i].file_idx,
-                                Span::new(0, 0),
-                                format!("module not found: '{}' (imported by '{}')",
-                                    dep_path, importing_path),
-                            );
-                        }
-                        None
-                    }
-                }
-            })
-            .collect();
-        graph.modules[i].dependency_ids = resolved;
-    }
+    resolve_dependency_paths(&mut graph, &path_to_idx, diagnostics);
     if diagnostics.has_errors() {
         return Err(());
     }
 
     // Detect cycles via DFS coloring
-    detect_cycles(&graph, diagnostics)?;
+    if detect_cycles(&graph, diagnostics) {
+        return Err(());
+    };
 
     // Topological sort
     graph.topo_order = topological_sort(&graph);
@@ -207,7 +228,6 @@ pub fn build_module_graph(
 
 /// Like `build_module_graph` but accepts in-memory source text (for tests).
 /// `files` is `[(path, source)]` — the entry is the first entry.
-#[allow(clippy::result_unit_err)]
 pub fn build_module_graph_from_sources(
     files: &[(String, String)],
     arena: &mut AstArena,
@@ -227,7 +247,7 @@ pub fn build_module_graph_from_sources(
     };
 
     // Path -> ModuleId cache
-    let mut path_to_idx: std::collections::HashMap<String, ModuleId> = std::collections::HashMap::new();
+    let mut path_to_idx: FxHashMap<String, ModuleId> = FxHashMap::default();
 
     // Process all provided files (first is the entry)
     for (path, source) in files {
@@ -236,9 +256,7 @@ pub fn build_module_graph_from_sources(
             continue;
         }
 
-        match process_source_file(
-            path, source, arena, interner, source_map, diagnostics,
-        ) {
+        match process_source_file(path, source, arena, interner, source_map, diagnostics) {
             Some(module) => {
                 let idx = graph.modules.len();
                 path_to_idx.insert(canonical, idx);
@@ -248,41 +266,15 @@ pub fn build_module_graph_from_sources(
         }
     }
 
-    // Resolve dependency_paths to dependency_ids
-    for i in 0..graph.modules.len() {
-        let importing_path = &graph.modules[i].path;
-        let mut any_unresolved = false;
-        let resolved: Vec<ModuleId> = graph.modules[i]
-            .dependency_paths
-            .iter()
-            .filter_map(|dep_path| {
-                let resolved_dep = resolve_path(importing_path, dep_path);
-                let canonical = canonicalize_path(&resolved_dep);
-                match path_to_idx.get(&canonical).copied() {
-                    Some(id) => Some(id),
-                    None => {
-                        if !any_unresolved {
-                            any_unresolved = true;
-                            diagnostics.error(
-                                graph.modules[i].file_idx,
-                                Span::new(0, 0),
-                                format!("module not found: '{}' (imported by '{}')",
-                                    dep_path, importing_path),
-                            );
-                        }
-                        None
-                    }
-                }
-            })
-            .collect();
-        graph.modules[i].dependency_ids = resolved;
-    }
+    resolve_dependency_paths(&mut graph, &path_to_idx, diagnostics);
     if diagnostics.has_errors() {
         return Err(());
     }
 
     // Detect cycles
-    detect_cycles(&graph, diagnostics)?;
+    if detect_cycles(&graph, diagnostics) {
+        return Err(());
+    };
 
     // Topological sort
     graph.topo_order = topological_sort(&graph);
@@ -296,7 +288,6 @@ pub fn build_module_graph_from_sources(
 /// For each module in topological order, build its scope tree with imports
 /// injected from dependencies. Returns the module list with scope trees
 /// populated.
-#[allow(clippy::collapsible_if)]
 pub fn link_modules(
     graph: &ModuleGraph,
     arena: &AstArena,
@@ -338,15 +329,14 @@ pub fn link_modules(
                 }
 
                 // Check for collision in current module's root scope
-                let has_existing = scope_tree
-                    .scopes[scope_tree.root_scope]
+                let has_existing = scope_tree.scopes[scope_tree.root_scope]
                     .symbols
                     .get(&export_name)
                     .is_some_and(|ids| !ids.is_empty());
 
                 if has_existing {
-                    let existing_ids = &scope_tree.scopes[scope_tree.root_scope]
-                        .symbols[&export_name];
+                    let existing_ids =
+                        &scope_tree.scopes[scope_tree.root_scope].symbols[&export_name];
                     let first = &scope_tree.symbols[existing_ids[0]];
                     let first_is_func = matches!(&first.kind, SymbolKind::Function { .. });
                     let first_is_tm = matches!(&first.kind, SymbolKind::TraitMethod { .. });
@@ -381,21 +371,23 @@ pub fn link_modules(
                     // For imported functions, extract the signature and type params
                     // from the FuncDef AST node so inference and monomorphization
                     // can use them without accessing the dep's scope tree.
-                    if let SymbolKind::Function { cached_signature, cached_type_params, .. } = &mut sym.kind {
-                        if let Expr::FuncDef(func_def) = &arena[dep_sym.def_node] {
-                            let param_types: Vec<TypeNode> = func_def
-                                .params
-                                .iter()
-                                .filter_map(|p| p.type_node.clone())
-                                .collect();
-                            *cached_signature = Some(Box::new(TypeNode::Func {
-                                params: param_types,
-                                ret: Box::new(
-                                    func_def.return_type.clone().unwrap_or(TypeNode::Void),
-                                ),
-                            }));
-                            *cached_type_params = Some(func_def.type_params.clone());
-                        }
+                    if let SymbolKind::Function {
+                        cached_signature,
+                        cached_type_params,
+                        ..
+                    } = &mut sym.kind
+                        && let Expr::FuncDef(func_def) = &arena[dep_sym.def_node]
+                    {
+                        let param_types: Vec<TypeNode> = func_def
+                            .params
+                            .iter()
+                            .filter_map(|p| p.type_node.clone())
+                            .collect();
+                        *cached_signature = Some(Box::new(TypeNode::Func {
+                            params: param_types,
+                            ret: Box::new(func_def.return_type.clone().unwrap_or(TypeNode::Void)),
+                        }));
+                        *cached_type_params = Some(func_def.type_params.clone());
                     }
 
                     let sid = scope_tree.symbols.alloc(sym);
@@ -412,22 +404,53 @@ pub fn link_modules(
         let module_node = &arena[modules[module_idx].root];
         if let Expr::Block(block) = module_node {
             for &stmt in &block.stmts {
-                if let Expr::Use(use_node) = &arena[stmt] {
-                    if let Some(symbols) = &use_node.symbols {
-                        // Selective import: only keep symbols in the list
-                        let allowed: FxHashSet<IdentId> = symbols.iter().copied().collect();
-                        let current_keys: Vec<IdentId> = scope_tree
-                            .scopes[scope_tree.root_scope]
-                            .symbols
-                            .keys()
-                            .copied()
-                            .collect();
-                        for name in &current_keys {
-                            if !allowed.contains(name) {
-                                scope_tree
-                                    .scopes[scope_tree.root_scope]
+                if let Expr::Use(use_node) = &arena[stmt]
+                    && let Some(symbols) = &use_node.symbols
+                {
+                    // Collect allowed names and any type annotations
+                    let allowed: FxHashSet<IdentId> = symbols.iter().map(|s| s.name).collect();
+                    let typed_imports: FxHashMap<IdentId, Option<Vec<TypeNode>>> = symbols
+                        .iter()
+                        .map(|s| (s.name, s.param_types.clone()))
+                        .collect();
+
+                    // First pass: remove names not in the allowed set
+                    let current_keys: Vec<IdentId> = scope_tree.scopes[scope_tree.root_scope]
+                        .symbols
+                        .keys()
+                        .copied()
+                        .collect();
+                    for name in &current_keys {
+                        if !allowed.contains(name) {
+                            scope_tree.scopes[scope_tree.root_scope]
+                                .symbols
+                                .remove(name);
+                        }
+                    }
+
+                    // Second pass: for typed imports, remove symbols that don't
+                    // match the specified parameter types.
+                    for (name, param_types) in &typed_imports {
+                        if let Some(param_types) = param_types
+                            && let Some(ids) =
+                                scope_tree.scopes[scope_tree.root_scope].symbols.get(name)
+                        {
+                            let filtered: Vec<SymbolId> = ids
+                                .iter()
+                                .filter(|&&sid| {
+                                    let sym = &scope_tree.symbols[sid];
+                                    matches_function_types(sym, param_types, arena, interner)
+                                })
+                                .copied()
+                                .collect();
+                            if filtered.is_empty() {
+                                scope_tree.scopes[scope_tree.root_scope]
                                     .symbols
                                     .remove(name);
+                            } else {
+                                scope_tree.scopes[scope_tree.root_scope]
+                                    .symbols
+                                    .insert(*name, filtered);
                             }
                         }
                     }
@@ -485,8 +508,8 @@ pub fn link_modules(
         // haven't been moved yet). This excludes function parameters.
         let mut export_set = FxHashSet::default();
         for (sid, scope) in &resolved_scope.scopes {
-            let is_top_level = sid == resolved_scope.root_scope
-                || scope.parent == Some(resolved_scope.root_scope);
+            let is_top_level =
+                sid == resolved_scope.root_scope || scope.parent == Some(resolved_scope.root_scope);
             if !is_top_level {
                 continue;
             }
@@ -626,9 +649,8 @@ fn collect_dependency_paths(arena: &AstArena, root: NodeId) -> Vec<String> {
     paths
 }
 
-/// DFS cycle detection. Returns `Err(())` if a cycle is found.
-#[allow(clippy::result_unit_err, clippy::collapsible_if)]
-fn detect_cycles(graph: &ModuleGraph, diagnostics: &mut DiagnosticsBag) -> Result<(), ()> {
+/// DFS cycle detection. Returns true if a cycle is found.
+fn detect_cycles(graph: &ModuleGraph, diagnostics: &mut DiagnosticsBag) -> bool {
     let n = graph.modules.len();
     let mut color = vec![0u8; n]; // 0=white, 1=gray, 2=black
 
@@ -646,10 +668,10 @@ fn detect_cycles(graph: &ModuleGraph, diagnostics: &mut DiagnosticsBag) -> Resul
                 let cycle: Vec<ModuleId> = path[cycle_start..].to_vec();
                 return Some(cycle);
             }
-            if color[dep] == 0 {
-                if let Some(cycle) = dfs(dep, graph, color, path) {
-                    return Some(cycle);
-                }
+            if color[dep] == 0
+                && let Some(cycle) = dfs(dep, graph, color, path)
+            {
+                return Some(cycle);
             }
         }
         path.pop();
@@ -659,24 +681,142 @@ fn detect_cycles(graph: &ModuleGraph, diagnostics: &mut DiagnosticsBag) -> Resul
 
     let mut path = Vec::new();
     for i in 0..n {
-        if color[i] == 0 {
-            if let Some(cycle) = dfs(i, graph, &mut color, &mut path) {
-                let cycle_names: Vec<String> = cycle
-                    .iter()
-                    .map(|&mid| graph.modules[mid].path.clone())
-                    .collect();
-                if let Some(&first) = cycle.first() {
-                    diagnostics.error(
-                        graph.modules[first].file_idx,
-                        Span::new(0, 0),
-                        format!("circular dependency: {}", cycle_names.join(" → ")),
-                    );
-                }
-                return Err(());
+        if color[i] == 0
+            && let Some(cycle) = dfs(i, graph, &mut color, &mut path)
+        {
+            let cycle_names: Vec<String> = cycle
+                .iter()
+                .map(|&mid| graph.modules[mid].path.clone())
+                .collect();
+            if let Some(&first) = cycle.first() {
+                diagnostics.error(
+                    graph.modules[first].file_idx,
+                    Span::new(0, 0),
+                    format!("circular dependency: {}", cycle_names.join(" → ")),
+                );
             }
+            return true;
         }
     }
-    Ok(())
+    false
+}
+
+/// Check whether a function symbol's parameter types match the given
+/// type annotations from a typed import (e.g. `foo[Num, Str]`).
+fn matches_function_types(
+    sym: &Symbol,
+    param_types: &[TypeNode],
+    arena: &AstArena,
+    interner: &Interner,
+) -> bool {
+    let func_def = match &arena[sym.def_node] {
+        Expr::FuncDef(f) => f,
+        _ => return false,
+    };
+
+    if func_def.params.len() != param_types.len() {
+        return false;
+    }
+
+    for (param, annotation) in func_def.params.iter().zip(param_types.iter()) {
+        match (&param.type_node, annotation) {
+            (Some(pt), ann) => {
+                if !type_nodes_match(pt, ann, interner) {
+                    return false;
+                }
+            }
+            (None, _) => return false,
+        }
+    }
+    true
+}
+
+/// Check if two `TypeNode` values are structurally equal (for import
+/// type matching). Handles the case where the parser produces
+/// `TypeNode::Named { name }` for a type annotation, while the
+/// function parameter has `TypeNode::Num` (the primitive variant).
+// TODO: We need to just modify the parser to handle this correctly instead of doing something wacky here
+fn type_nodes_match(a: &TypeNode, b: &TypeNode, interner: &Interner) -> bool {
+    match (a, b) {
+        (TypeNode::Int, TypeNode::Int) => true,
+        (TypeNode::Num, TypeNode::Num) => true,
+        (TypeNode::Str, TypeNode::Str) => true,
+        (TypeNode::Bool, TypeNode::Bool) => true,
+        (TypeNode::Void, TypeNode::Void) => true,
+        (TypeNode::SelfType, TypeNode::SelfType) => true,
+        // Handle primitive vs Named equivalence: `Num` == `Named("Num")`
+        // TODO: Why would this ever happen? Seems like the right fix is to avoid this in the first place
+        (TypeNode::Num, TypeNode::Named { name, params })
+        | (TypeNode::Named { name, params }, TypeNode::Num) => {
+            params.is_empty() && interner.lookup(*name) == "Num"
+        }
+        (TypeNode::Int, TypeNode::Named { name, params })
+        | (TypeNode::Named { name, params }, TypeNode::Int) => {
+            params.is_empty() && interner.lookup(*name) == "Int"
+        }
+        (TypeNode::Str, TypeNode::Named { name, params })
+        | (TypeNode::Named { name, params }, TypeNode::Str) => {
+            params.is_empty() && interner.lookup(*name) == "Str"
+        }
+        (TypeNode::Bool, TypeNode::Named { name, params })
+        | (TypeNode::Named { name, params }, TypeNode::Bool) => {
+            params.is_empty() && interner.lookup(*name) == "Bool"
+        }
+        (
+            TypeNode::Named {
+                name: na,
+                params: pa,
+            },
+            TypeNode::Named {
+                name: nb,
+                params: pb,
+            },
+        ) => {
+            na == nb
+                && pa.len() == pb.len()
+                && pa
+                    .iter()
+                    .zip(pb.iter())
+                    .all(|(a, b)| type_nodes_match(a, b, interner))
+        }
+        (TypeNode::Arr(a), TypeNode::Arr(b))
+        | (TypeNode::Iter(a), TypeNode::Iter(b))
+        | (TypeNode::MutArr(a), TypeNode::MutArr(b))
+        | (TypeNode::Maybe(a), TypeNode::Maybe(b))
+        | (TypeNode::Set(a), TypeNode::Set(b))
+        | (TypeNode::MutSet(a), TypeNode::MutSet(b)) => type_nodes_match(a, b, interner),
+        (TypeNode::Tup(a), TypeNode::Tup(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b.iter())
+                    .all(|(a, b)| type_nodes_match(a, b, interner))
+        }
+        (
+            TypeNode::Func {
+                params: pa,
+                ret: ra,
+            },
+            TypeNode::Func {
+                params: pb,
+                ret: rb,
+            },
+        ) => {
+            pa.len() == pb.len()
+                && pa
+                    .iter()
+                    .zip(pb.iter())
+                    .all(|(a, b)| type_nodes_match(a, b, interner))
+                && type_nodes_match(ra, rb, interner)
+        }
+        (TypeNode::Dict { key: ka, val: va }, TypeNode::Dict { key: kb, val: vb })
+        | (TypeNode::MutDict { key: ka, val: va }, TypeNode::MutDict { key: kb, val: vb }) => {
+            type_nodes_match(ka, kb, interner) && type_nodes_match(va, vb, interner)
+        }
+        (TypeNode::TypeParamRef { name: na, .. }, TypeNode::TypeParamRef { name: nb, .. }) => {
+            na == nb
+        }
+        _ => false,
+    }
 }
 
 /// Find another dependency of `module_idx` (other than `exclude`) that also
@@ -701,6 +841,104 @@ fn find_other_export(
     "<unknown>".to_string()
 }
 
+/// Build import binding lines for a module by scanning its scope tree
+/// for symbols whose `source_module` matches a dependency.
+///
+/// Returns lines like `const { foo$1, bar$0 } = $mod_0;`.
+fn build_import_lines(
+    module_idx: usize,
+    modules: &[Module],
+    namespace_for_file: &FxHashMap<usize, String>,
+    fn_names: &FnNameTable,
+    interner: &Interner,
+) -> Vec<String> {
+    let st = match modules[module_idx].scope_tree.as_ref() {
+        Some(st) => st,
+        None => return Vec::new(),
+    };
+
+    // Group imported machine names by source file_idx
+    let mut by_file: FxHashMap<usize, Vec<String>> = FxHashMap::default();
+    let mut seen: FxHashSet<String> = FxHashSet::default();
+
+    for (_, scope) in &st.scopes {
+        for ids in scope.symbols.values() {
+            for &sid in ids {
+                let sym = &st.symbols[sid];
+                let file_idx = match sym.source_module {
+                    Some(f) => f,
+                    None => continue,
+                };
+                let machine_name = if matches!(sym.kind, SymbolKind::Function { .. }) {
+                    match fn_names.get_name(sym.def_node) {
+                        Some(mn) => mn.to_string(),
+                        None => interner.lookup(sym.name).to_string(),
+                    }
+                } else {
+                    interner.lookup(sym.name).to_string()
+                };
+                if seen.insert(machine_name.clone()) {
+                    by_file.entry(file_idx).or_default().push(machine_name);
+                }
+            }
+        }
+    }
+
+    let mut lines = Vec::new();
+    for (file_idx, names) in &by_file {
+        if let Some(ns_name) = namespace_for_file.get(file_idx) {
+            let bindings = names.join(", ");
+            lines.push(format!("const {{{}}} = {};", bindings, ns_name));
+        }
+    }
+    lines
+}
+
+/// Build export entries for a module (all locally-defined top-level
+/// symbols).  Returns strings like `"foo$0"`, `"x"` for use in
+/// `return { foo$0, x };`.
+fn build_export_entries(
+    module_idx: usize,
+    modules: &[Module],
+    fn_names: &FnNameTable,
+    interner: &Interner,
+) -> Vec<String> {
+    let st = match modules[module_idx].scope_tree.as_ref() {
+        Some(st) => st,
+        None => return Vec::new(),
+    };
+
+    let mut entries = Vec::new();
+    let mut seen: FxHashSet<String> = FxHashSet::default();
+
+    for (scope_id, scope) in &st.scopes {
+        let is_top_level = scope_id == st.root_scope || scope.parent == Some(st.root_scope);
+        if !is_top_level {
+            continue;
+        }
+        for ids in scope.symbols.values() {
+            for &sid in ids {
+                let sym = &st.symbols[sid];
+                if sym.source_module.is_some() {
+                    continue; // imported — not a local export
+                }
+                let machine_name = if matches!(sym.kind, SymbolKind::Function { .. }) {
+                    match fn_names.get_name(sym.def_node) {
+                        Some(mn) => mn.to_string(),
+                        None => interner.lookup(sym.name).to_string(),
+                    }
+                } else {
+                    interner.lookup(sym.name).to_string()
+                };
+                if seen.insert(machine_name.clone()) {
+                    entries.push(machine_name);
+                }
+            }
+        }
+    }
+    entries
+}
+
 /// Lower, codegen, and concatenate all modules into a single JS string
 /// wrapped in the outer IIFE.  Runs type inference on each module
 /// (in topological order), then lowers and codegens each module,
@@ -710,130 +948,106 @@ fn find_other_export(
 /// `modules` must have `scope_tree` populated (from [`link_modules`]).
 pub fn codegen_modules(
     graph: &ModuleGraph,
-    modules: &[Module],
+    modules: &mut [Module],
     arena: &AstArena,
     interner: &mut Interner,
     type_arena: &mut TypeArena,
+    diagnostics: &mut DiagnosticsBag,
 ) -> String {
-    // Run type inference for each module (topo order, deps first)
-    let mut modules = modules.to_vec();
+    // Run type inference for each module (in topological order with dependencies first)
     for &module_idx in &graph.topo_order {
         let root = modules[module_idx].root;
         let file_idx = modules[module_idx].file_idx;
-        let st = modules[module_idx].scope_tree.as_mut().unwrap();
-        let mut diagnostics = DiagnosticsBag::new();
-        infer_types(arena, st, type_arena, interner, root, &mut diagnostics, file_idx);
+        let scope_tree = modules[module_idx]
+            .scope_tree
+            .as_mut()
+            .expect("Missing scope tree in module");
+        infer_types(
+            arena,
+            scope_tree,
+            type_arena,
+            interner,
+            root,
+            diagnostics,
+            file_idx,
+        );
     }
 
-    // Lower + codegen for each module
+    // Lower & codegen for each module, using a shared function name table
     let mut fn_names = FnNameTable::new();
-    let mut module_js: Vec<(usize, String)> = Vec::new();
+    let mut module_js = vec![String::new(); graph.modules.len()];
     for &module_idx in &graph.topo_order {
         let module = &modules[module_idx];
-        let st = module.scope_tree.as_ref().unwrap();
+        let scope_tree = module
+            .scope_tree
+            .as_ref()
+            .expect("Missing scope tree in module");
         let is_entry = module_idx == graph.entry;
-        let hir = lower(arena, module.root, st, interner);
-        let js = codegen_inner(hir, arena, st, type_arena, interner, &mut fn_names, is_entry);
-        module_js.push((module_idx, js));
+        let hir = lower(arena, module.root, scope_tree, interner);
+        module_js[module_idx] = codegen_inner(
+            hir,
+            arena,
+            scope_tree,
+            type_arena,
+            interner,
+            &mut fn_names,
+            is_entry, // determines whether or not to emit exports or program result
+        );
     }
 
     // Assign namespace variable names to non-entry modules
-    let mut ns_for_file: FxHashMap<usize, String> = FxHashMap::default();
-    let mut ns_id = 0usize;
-    for &module_idx in &graph.topo_order {
+    // These are the names modules will use to refer to their imported modules
+    let mut namespace_for_file = FxHashMap::default();
+    for (namespace_id, &module_idx) in graph.topo_order.iter().enumerate() {
         if module_idx != graph.entry {
-            let ns_name = format!("__gema_{}", ns_id);
-            ns_id += 1;
-            ns_for_file.insert(modules[module_idx].file_idx, ns_name);
+            let namespace_name = format!("$mod_{}", namespace_id);
+            namespace_for_file.insert(modules[module_idx].file_idx, namespace_name);
         }
     }
 
-    // Build the combined output with namespace objects and import bindings
-    let mut out_lines: Vec<String> = Vec::new();
-    for &(module_idx, ref js) in &module_js {
+    // Build the combined output
+    let mut out_lines = Vec::new();
+    for &module_idx in &graph.topo_order {
         let is_entry = module_idx == graph.entry;
-        out_lines.push(js.clone());
+        let body_js = &module_js[module_idx];
+
+        let import_lines = build_import_lines(
+            module_idx,
+            modules,
+            &namespace_for_file,
+            &fn_names,
+            interner,
+        );
 
         if is_entry {
-            // Entry module: emit import bindings before the entry code
-            let st = modules[module_idx].scope_tree.as_ref().unwrap();
-            let mut bindings: Vec<String> = Vec::new();
-            let mut seen: FxHashSet<IdentId> = FxHashSet::default();
-            for (_, scope) in &st.scopes {
-                for (name, ids) in &scope.symbols {
-                    for &sid in ids {
-                        if !seen.insert(*name) {
-                            continue;
-                        }
-                        let sym = &st.symbols[sid];
-                        if matches!(sym.kind, SymbolKind::Variable { .. }) {
-                            continue;
-                        }
-                        if let Some(src_file) = sym.source_module
-                            && let Some(ns_name) = ns_for_file.get(&src_file)
-                        {
-                            let local_name = interner.lookup(*name);
-                            let exported_name = interner.lookup(*name);
-                            bindings.push(format!(
-                                "const {} = {}.{};", local_name, ns_name, exported_name
-                            ));
-                        }
-                    }
-                }
+            // Entry module: just emit imports, then body.
+            // Body should already return program result at end
+            let mut combined = String::new();
+            for line in &import_lines {
+                combined.push_str(line);
+                combined.push('\n');
             }
-            if !bindings.is_empty() {
-                let idx = out_lines.len() - 1;
-                let mut with_bindings = bindings.join("\n");
-                with_bindings.push('\n');
-                with_bindings.push_str(js);
-                out_lines[idx] = with_bindings;
-            }
+            combined.push_str(body_js);
+            out_lines.push(combined);
         } else {
-            // Dependency module: emit namespace const after the code
-            if let Some(ns_name) = ns_for_file.get(&modules[module_idx].file_idx) {
-                let st = modules[module_idx].scope_tree.as_ref().unwrap();
-                let mut entries: Vec<String> = Vec::new();
-                let mut seen: FxHashSet<IdentId> = FxHashSet::default();
-                for &export_name in &modules[module_idx].exports {
-                    if !seen.insert(export_name) {
-                        continue;
-                    }
-                    let mut machine_name: Option<String> = None;
-                    'search: for (_, scope) in &st.scopes {
-                        if let Some(ids) = scope.symbols.get(&export_name) {
-                            for &sid in ids.iter().rev() {
-                                let sym = &st.symbols[sid];
-                                if sym.source_module.is_none() {
-                                    if let Some(mn) = fn_names.get_name(sym.def_node) {
-                                        machine_name = Some(mn.to_string());
-                                        break 'search;
-                                    } else if let SymbolKind::Variable { .. } = &sym.kind {
-                                        machine_name = Some(interner.lookup(export_name).to_string());
-                                        break 'search;
-                                    } else {
-                                        machine_name = Some(interner.lookup(export_name).to_string());
-                                        break 'search;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if let Some(mn) = machine_name {
-                        let export_str = interner.lookup(export_name);
-                        entries.push(format!(" {}: {}", export_str, mn));
-                    }
-                }
-                if !entries.is_empty() {
-                    let ns_line = format!("const {} = {{{}}};", ns_name, entries.join(","));
-                    let idx = out_lines.len() - 1;
-                    out_lines[idx] = format!("{}\n{}", js, ns_line);
-                }
+            // Dependency module: wrap in IIFE -- imports, then body, then return exports
+            let namespace_name = namespace_for_file
+                .get(&modules[module_idx].file_idx)
+                .expect("Missing namespace name for module");
+            let export_entries = build_export_entries(module_idx, modules, &fn_names, interner);
+            let mut module_out = format!("const {} = (() => {{\n", namespace_name);
+            for line in &import_lines {
+                module_out.push_str(line);
+                module_out.push('\n');
             }
+            module_out.push_str(body_js);
+            module_out.push_str(&format!("return {{{}}}\n", export_entries.join(", ")));
+            module_out.push_str("})();");
+            out_lines.push(module_out);
         }
     }
 
-    let combined = out_lines.join("\n");
-    format!("(function() {{\n{combined}\n}})()")
+    format!("const result = (() => {{\n{}\n}})()", out_lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -977,9 +1191,7 @@ mod tests {
         assert_eq!(modules.len(), 1);
         assert!(modules[0].scope_tree.is_some());
         assert!(
-            modules[0]
-                .exports
-                .contains(&interner.intern("answer")),
+            modules[0].exports.contains(&interner.intern("answer")),
             "exports should contain 'answer'"
         );
     }

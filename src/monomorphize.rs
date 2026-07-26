@@ -312,11 +312,11 @@ impl<'a> Monomorphizer<'a> {
                 .get(&c.def_node)
                 .copied()
                 .unwrap_or(self.current_scope);
-            if let Some(tid) = self.lookup_variable_type_from(ident.name, scope) {
-                if self.type_is_indexable(tid) {
-                    c.is_index = true;
-                    return HirExpr::Call(c);
-                }
+            if let Some(tid) = self.lookup_variable_type_from(ident.name, scope)
+                && self.type_is_indexable(tid)
+            {
+                c.is_index = true;
+                return HirExpr::Call(c);
             }
         }
 
