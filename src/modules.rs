@@ -402,56 +402,93 @@ pub fn link_modules(
 
         // Handle selective imports: check Use nodes for symbol filtering
         let module_node = &arena[modules[module_idx].root];
-        if let Expr::Block(block) = module_node {
-            for &stmt in &block.stmts {
-                if let Expr::Use(use_node) = &arena[stmt]
-                    && let Some(symbols) = &use_node.symbols
-                {
-                    // Collect allowed names and any type annotations
-                    let allowed: FxHashSet<IdentId> = symbols.iter().map(|s| s.name).collect();
-                    let typed_imports: FxHashMap<IdentId, Option<Vec<TypeNode>>> = symbols
-                        .iter()
-                        .map(|s| (s.name, s.param_types.clone()))
-                        .collect();
+        let block = match module_node {
+            Expr::Block(block) => block,
+            _ => panic!("Module node should be a block!"),
+        };
+        for &stmt in &block.stmts {
+            if let Expr::Use(use_node) = &arena[stmt]
+                && let Some(symbols) = &use_node.symbols
+            {
+                // Find which dependency this Use node targets by matching
+                // the resolved path against each dependency's canonical path
+                let dep_file_idx = modules[module_idx]
+                    .dependency_ids
+                    .iter()
+                    .find_map(|&dep_id| {
+                        let dep = &modules[dep_id];
+                        let resolved = resolve_path(&modules[module_idx].path, &use_node.path);
+                        if canonicalize_path(&resolved) == canonicalize_path(&dep.path) {
+                            Some(dep.file_idx)
+                        } else {
+                            None
+                        }
+                    })
+                    .expect("Missing dependency");
 
-                    // First pass: remove names not in the allowed set
-                    let current_keys: Vec<IdentId> = scope_tree.scopes[scope_tree.root_scope]
-                        .symbols
-                        .keys()
-                        .copied()
-                        .collect();
-                    for name in &current_keys {
-                        if !allowed.contains(name) {
+                // Collect allowed names and type annotations
+                let allowed: FxHashSet<_> = symbols.iter().map(|s| s.name).collect();
+                let typed_imports: FxHashMap<_, _> = symbols
+                    .iter()
+                    .map(|s| (s.name, s.param_types.clone()))
+                    .collect();
+
+                // First pass: remove names from this dependency that aren't in the allowed set.
+                let current_keys: Vec<_> = scope_tree.scopes[scope_tree.root_scope]
+                    .symbols
+                    .keys()
+                    .copied()
+                    .collect();
+                for name in &current_keys {
+                    if !allowed.contains(name)
+                        && let Some(ids) =
+                            scope_tree.scopes[scope_tree.root_scope].symbols.get(name)
+                    {
+                        let from_other: Vec<_> = ids
+                            .iter()
+                            .filter(|&&sid| {
+                                scope_tree.symbols[sid].source_module != Some(dep_file_idx)
+                            })
+                            .copied()
+                            .collect();
+                        if from_other.is_empty() {
                             scope_tree.scopes[scope_tree.root_scope]
                                 .symbols
                                 .remove(name);
+                        } else {
+                            scope_tree.scopes[scope_tree.root_scope]
+                                .symbols
+                                .insert(*name, from_other);
                         }
                     }
+                }
 
-                    // Second pass: for typed imports, remove symbols that don't
-                    // match the specified parameter types.
-                    for (name, param_types) in &typed_imports {
-                        if let Some(param_types) = param_types
-                            && let Some(ids) =
-                                scope_tree.scopes[scope_tree.root_scope].symbols.get(name)
-                        {
-                            let filtered: Vec<SymbolId> = ids
-                                .iter()
-                                .filter(|&&sid| {
-                                    let sym = &scope_tree.symbols[sid];
-                                    matches_function_types(sym, param_types, arena, interner)
-                                })
-                                .copied()
-                                .collect();
-                            if filtered.is_empty() {
-                                scope_tree.scopes[scope_tree.root_scope]
-                                    .symbols
-                                    .remove(name);
-                            } else {
-                                scope_tree.scopes[scope_tree.root_scope]
-                                    .symbols
-                                    .insert(*name, filtered);
-                            }
+                // Second pass: for typed imports, only filter symbols from this dependency
+                for (name, param_types) in &typed_imports {
+                    if let Some(param_types) = param_types
+                        && let Some(ids) =
+                            scope_tree.scopes[scope_tree.root_scope].symbols.get(name)
+                    {
+                        let filtered: Vec<_> = ids
+                            .iter()
+                            .filter(|&&sid| {
+                                let symbol = &scope_tree.symbols[sid];
+                                if symbol.source_module == Some(dep_file_idx) {
+                                    matches_function_types(symbol, param_types, arena, interner)
+                                } else {
+                                    true // Keep symbols from other dependencies
+                                }
+                            })
+                            .copied()
+                            .collect();
+                        if filtered.is_empty() {
+                            scope_tree.scopes[scope_tree.root_scope]
+                                .symbols
+                                .remove(name);
+                        } else {
+                            scope_tree.scopes[scope_tree.root_scope]
+                                .symbols
+                                .insert(*name, filtered);
                         }
                     }
                 }

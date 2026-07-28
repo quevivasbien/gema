@@ -3,7 +3,7 @@ mod utils;
 use utils::{assert_compile_error, assert_run_multi};
 
 #[test]
-fn test_basic_module_import() {
+fn basic_module_import() {
     assert_run_multi(
         &[
             ("main.gema".into(), "use \"math.gema\"\nadd(3, 4)".into()),
@@ -17,7 +17,7 @@ fn test_basic_module_import() {
 }
 
 #[test]
-fn test_selective_import() {
+fn selective_import() {
     assert_run_multi(
         &[
             (
@@ -34,7 +34,7 @@ fn test_selective_import() {
     );
 }
 #[test]
-fn test_chained_modules() {
+fn chained_modules() {
     assert_run_multi(&[
         (
             "main.gema".into(),
@@ -53,7 +53,7 @@ fn test_chained_modules() {
 }
 
 #[test]
-fn test_circular_dependency() {
+fn circular_dependency() {
     assert_compile_error(&[
         ("main.gema".into(), "use \"a.gema\"".into()),
         ("a.gema".into(), "use \"b.gema\"".into()),
@@ -62,17 +62,17 @@ fn test_circular_dependency() {
 }
 
 #[test]
-fn test_missing_module() {
+fn missing_module() {
     assert_compile_error(&[("main.gema".into(), "use \"nonexistent.gema\"".into())]);
 }
 
 #[test]
-fn test_single_file_no_use() {
+fn single_file_no_use() {
     assert_run_multi(&[("main.gema".into(), "42".into())], "42");
 }
 
 #[test]
-fn test_variable_import() {
+fn variable_import() {
     assert_run_multi(
         &[
             ("main.gema".into(), "use \"config.gema\"\nconfig".into()),
@@ -83,7 +83,7 @@ fn test_variable_import() {
 }
 
 #[test]
-fn test_cross_module_function_call() {
+fn cross_module_function_call() {
     assert_run_multi(
         &[
             ("main.gema".into(), "use \"math.gema\"\nfoo(3)".into()),
@@ -94,7 +94,7 @@ fn test_cross_module_function_call() {
 }
 
 #[test]
-fn test_imported_overloaded_functions() {
+fn imported_overloaded_functions() {
     assert_run_multi(
         &[
             ("main.gema".into(), "use \"lib.gema\"\nid(42)".into()),
@@ -108,7 +108,7 @@ fn test_imported_overloaded_functions() {
 }
 
 #[test]
-fn test_typed_import_selects_correct_overload() {
+fn typed_import_selects_correct_overload() {
     assert_run_multi(
         &[
             (
@@ -122,4 +122,27 @@ fn test_typed_import_selects_correct_overload() {
         ],
         "4",
     );
+}
+
+#[test]
+fn forked_dependency_graph() {
+    assert_run_multi(
+        &[
+            (
+                "main.gema".into(),
+                "use (foo[Num]) from \"module1.gema\"\n\
+                 use (bar[Num]) from \"module2.gema\"\n\
+                 [foo(1), bar(1)]"
+                    .into(),
+            ),
+            (
+                "module1.gema".into(),
+                "use (bar[Num]) from \"module2.gema\"\n\
+                 func foo(x: Num) { bar(x + 1) }"
+                    .into(),
+            ),
+            ("module2.gema".into(), "func bar(x: Num) { x }".into()),
+        ],
+        "2,1",
+    )
 }
