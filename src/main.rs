@@ -110,11 +110,6 @@ fn compile_multi(entry_path: &str, show_hir: bool) -> Result<String, Diagnostics
         &mut diagnostics,
     )
     .map_err(|_| diagnostics.clone())?;
-    eprintln!("graph modules: {}", graph.modules.len());
-    for (i, m) in graph.modules.iter().enumerate() {
-        eprintln!("  [{}]: path={:?}, deps={:?}", i, m.path, m.dependency_ids);
-    }
-    eprintln!("topo_order: {:?}", graph.topo_order);
     let mut modules = link_modules(&graph, &arena, &mut interner, &mut diagnostics);
     let mut type_arena = TypeArena::new();
     let output = codegen_modules(

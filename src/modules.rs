@@ -1059,12 +1059,14 @@ pub fn codegen_modules(
         if is_entry {
             // Entry module: just emit imports, then body.
             // Body should already return program result at end
-            let mut combined = String::new();
+            let mut combined = String::from("const result = (() => {\n");
             for line in &import_lines {
+                combined.push_str("  ");
                 combined.push_str(line);
                 combined.push('\n');
             }
             combined.push_str(body_js);
+            combined.push_str("\n})();");
             out_lines.push(combined);
         } else {
             // Dependency module: wrap in IIFE -- imports, then body, then return exports
@@ -1074,17 +1076,18 @@ pub fn codegen_modules(
             let export_entries = build_export_entries(module_idx, modules, &fn_names, interner);
             let mut module_out = format!("const {} = (() => {{\n", namespace_name);
             for line in &import_lines {
+                module_out.push_str("  ");
                 module_out.push_str(line);
                 module_out.push('\n');
             }
             module_out.push_str(body_js);
-            module_out.push_str(&format!("return {{{}}}\n", export_entries.join(", ")));
+            module_out.push_str(&format!("\n  return {{{}}};\n", export_entries.join(", ")));
             module_out.push_str("})();");
             out_lines.push(module_out);
         }
     }
 
-    format!("const result = (() => {{\n{}\n}})()", out_lines.join("\n"))
+    out_lines.join("\n")
 }
 
 #[cfg(test)]

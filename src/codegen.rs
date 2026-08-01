@@ -52,6 +52,8 @@ pub fn codegen_inner(
         }
     };
     let mut w = JsWriter::new(interner, fn_names);
+    w.write("  ");
+    w.indent_in();
     for (i, stmt) in stmts.iter().enumerate() {
         if matches!(stmt, HirExpr::Null) {
             continue;
@@ -137,7 +139,7 @@ impl<'a> JsWriter<'a> {
 
     fn newline(&mut self) {
         self.lines.push(self.current.clone());
-        self.current = "    ".repeat(self.indent);
+        self.current = "  ".repeat(self.indent);
     }
 
     fn write(&mut self, s: &str) {
@@ -238,7 +240,6 @@ impl<'a> JsWriter<'a> {
         }
         // No // PROGRAM // banner, no IIFE wrapper — just the code.
         out.push_str(&program);
-        out.push('\n');
         out
     }
 
