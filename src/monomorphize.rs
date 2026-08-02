@@ -525,14 +525,12 @@ impl<'a> Monomorphizer<'a> {
     }
 
     fn lookup_variable_type_from(&self, name: IdentId, scope: ScopeId) -> Option<TypeId> {
-        let (_scope, ids) = self.scope_tree.lookup(scope, name)?;
-        for &sid in ids.iter().rev() {
-            if let SymbolKind::Variable {
-                type_id: Some(tid), ..
-            } = &self.scope_tree.symbols[sid].kind
-            {
-                return Some(*tid);
-            }
+        let (_scope, sid) = self.scope_tree.lookup(scope, name)?;
+        if let SymbolKind::Variable {
+            type_id: Some(tid), ..
+        } = &self.scope_tree.symbols[sid].kind
+        {
+            return Some(*tid);
         }
         None
     }
@@ -794,8 +792,8 @@ mod tests {
             HirExpr::FuncDef(f) => f,
             _ => panic!("expected FuncDef"),
         };
-        // Should have 2 params: `arr` + descriptor
-        assert_eq!(func_def.params.len(), 2);
+        // Should have 1 param since no trait is required
+        assert_eq!(func_def.params.len(), 1);
         assert!(func_def.type_params.is_empty());
     }
 

@@ -6,7 +6,7 @@
 use id_arena::{Arena, Id};
 use rustc_hash::FxHashMap;
 
-use crate::ast::{EnumVariant, NodeId, TraitRequirement, TypeNode};
+use crate::ast::{EnumVariant, NodeId, StructField, TraitRequirement, TypeNode, TypeParam};
 use crate::interner::IdentId;
 use crate::types::TypeId;
 
@@ -50,11 +50,11 @@ pub enum SymbolKind {
         /// Pre-computed function type signature (TypeNode form), set by
         /// the linker for imported functions so inference can use it
         /// without accessing the dependency's AST arena.
-        cached_signature: Option<Box<crate::ast::TypeNode>>,
+        cached_signature: Option<Box<TypeNode>>,
         /// Pre-computed type parameter list, set by the linker so
         /// monomorphization can build descriptor args without
         /// accessing the dependency's AST arena.
-        cached_type_params: Option<Vec<crate::ast::TypeParam>>,
+        cached_type_params: Option<Vec<TypeParam>>,
     },
     /// A struct definition.
     Struct {
@@ -62,7 +62,7 @@ pub enum SymbolKind {
         /// Cached field definitions for imported structs, set by the
         /// linker so the lowerer and inferrer can access field info
         /// without dereferencing a cross-arena def_node.
-        cached_fields: Option<Vec<crate::ast::StructField>>,
+        cached_fields: Option<Vec<StructField>>,
     },
     /// An enum definition.
     Enum {
@@ -88,7 +88,7 @@ pub enum SymbolKind {
         /// The type parameter this method is associated with.
         type_param: IdentId,
         /// The type signature from the trait requirement.
-        signature: Box<crate::ast::TypeNode>,
+        signature: Box<TypeNode>,
     },
 }
 
@@ -99,9 +99,7 @@ pub enum SymbolKind {
 pub struct ScopeData {
     pub parent: Option<ScopeId>,
     /// Symbols defined in this scope, keyed by name.
-    /// For overloaded functions, multiple symbols may share the same
-    /// name.  The vec is kept in insertion order.
-    pub symbols: FxHashMap<IdentId, Vec<SymbolId>>,
+    pub symbols: FxHashMap<IdentId, SymbolId>,
     pub children: Vec<ScopeId>,
 }
 
@@ -118,6 +116,7 @@ pub struct ScopeTree {
     /// Maps AST Call/TypeAssociated nodes to the `def_node` of the
     /// overload selected by type inference. Populated during inference,
     /// consumed during lowering.
+    /// TODO: Overloads aren't supported anymore, so this should be removed
     pub inferred_defs: FxHashMap<NodeId, NodeId>,
     /// Maps TypeAssociated call nodes to (type_param_id, trait_id) when the
     /// call is a trait method call (e.g., `T::foo(x)` maps to the specific
@@ -174,51 +173,24 @@ impl ScopeTree {
             def_node,
             source_module: None,
         });
-        self.scopes[scope].symbols.entry(name).or_default().push(id);
+        self.scopes[scope].symbols.entry(name).insert_entry(id);
         id
     }
 
     /// Look up a name in the scope chain.
     ///
     /// Searches `from` first, then walks parent scopes.  Returns the
-    /// scope where the name was found and the list of symbol IDs for
-    /// that name (multiple entries = function overloading).
-    pub fn lookup(&self, from: ScopeId, name: IdentId) -> Option<(ScopeId, &[SymbolId])> {
+    /// scope where the name was found and the symbol ID for
+    /// that name.
+    pub fn lookup(&self, from: ScopeId, name: IdentId) -> Option<(ScopeId, SymbolId)> {
         let mut current = from;
         loop {
-            if let Some(ids) = self.scopes[current].symbols.get(&name)
-                && !ids.is_empty()
-            {
-                return Some((current, ids.as_slice()));
+            if let Some(id) = self.scopes[current].symbols.get(&name) {
+                return Some((current, *id));
             }
             match self.scopes[current].parent {
                 Some(parent) => current = parent,
                 None => return None,
-            }
-        }
-    }
-
-    /// Look up all function symbols with `name` in the scope chain.
-    ///
-    /// Returns only entries where `SymbolKind::Function`.
-    pub fn lookup_functions(&self, from: ScopeId, name: IdentId) -> Vec<&Symbol> {
-        let mut result = Vec::new();
-        let mut current = from;
-        loop {
-            if let Some(ids) = self.scopes[current].symbols.get(&name) {
-                for &sid in ids {
-                    let sym = &self.symbols[sid];
-                    if matches!(sym.kind, SymbolKind::Function { .. }) {
-                        result.push(sym);
-                    }
-                }
-                if !result.is_empty() {
-                    return result;
-                }
-            }
-            match self.scopes[current].parent {
-                Some(parent) => current = parent,
-                None => return result,
             }
         }
     }
@@ -292,11 +264,10 @@ mod tests {
 
         let result = tree.lookup(tree.root_scope, name);
         assert!(result.is_some());
-        let (found_scope, ids) = result.unwrap();
+        let (found_scope, id) = result.unwrap();
         assert_eq!(found_scope, tree.root_scope);
-        assert_eq!(ids.len(), 1);
         assert!(matches!(
-            tree.symbols[ids[0]].kind,
+            tree.symbols[id].kind,
             SymbolKind::Variable { is_mut: false, .. }
         ));
     }
@@ -331,10 +302,10 @@ mod tests {
 
         let result = tree.lookup(inner, name);
         assert!(result.is_some());
-        let (found_scope, ids) = result.unwrap();
+        let (found_scope, id) = result.unwrap();
         assert_eq!(found_scope, inner);
         assert!(matches!(
-            tree.symbols[ids[0]].kind,
+            tree.symbols[id].kind,
             SymbolKind::Variable { is_mut: true, .. }
         ));
 
@@ -381,81 +352,6 @@ mod tests {
     }
 
     #[test]
-    fn function_overloading_allowed() {
-        let mut arena = AstArena::new();
-        let mut tree = ScopeTree::new();
-        let mut interner = Interner::new();
-        let name = ident(&mut interner, "foo");
-
-        tree.define(
-            tree.root_scope,
-            name,
-            SymbolKind::Function {
-                full_name: Some(ident(&mut interner, "foo$Int")),
-                is_generic: false,
-                param_count: 1,
-                type_param_count: 0,
-                cached_signature: None,
-                cached_type_params: None,
-            },
-            dummy_node(&mut arena),
-        );
-        tree.define(
-            tree.root_scope,
-            name,
-            SymbolKind::Function {
-                full_name: Some(ident(&mut interner, "foo$Str")),
-                is_generic: false,
-                param_count: 1,
-                type_param_count: 0,
-                cached_signature: None,
-                cached_type_params: None,
-            },
-            dummy_node(&mut arena),
-        );
-
-        let result = tree.lookup(tree.root_scope, name);
-        assert!(result.is_some());
-        let (_, ids) = result.unwrap();
-        assert_eq!(ids.len(), 2);
-    }
-
-    #[test]
-    fn lookup_functions_returns_only_functions() {
-        let mut arena = AstArena::new();
-        let mut tree = ScopeTree::new();
-        let mut interner = Interner::new();
-        let name = ident(&mut interner, "bar");
-
-        tree.define(
-            tree.root_scope,
-            name,
-            SymbolKind::Variable {
-                type_id: None,
-                is_mut: false,
-            },
-            dummy_node(&mut arena),
-        );
-        tree.define(
-            tree.root_scope,
-            name,
-            SymbolKind::Function {
-                full_name: None,
-                is_generic: false,
-                param_count: 0,
-                type_param_count: 0,
-                cached_signature: None,
-                cached_type_params: None,
-            },
-            dummy_node(&mut arena),
-        );
-
-        let funcs = tree.lookup_functions(tree.root_scope, name);
-        assert_eq!(funcs.len(), 1);
-        assert!(matches!(funcs[0].kind, SymbolKind::Function { .. }));
-    }
-
-    #[test]
     fn define_in_child_does_not_affect_parent() {
         let mut arena = AstArena::new();
         let mut tree = ScopeTree::new();
@@ -475,35 +371,5 @@ mod tests {
 
         assert!(tree.lookup(child, name).is_some());
         assert!(tree.lookup(tree.root_scope, name).is_none());
-    }
-
-    #[test]
-    fn define_twice_same_name_both_stored() {
-        let mut arena = AstArena::new();
-        let mut tree = ScopeTree::new();
-        let mut interner = Interner::new();
-        let name = ident(&mut interner, "x");
-
-        tree.define(
-            tree.root_scope,
-            name,
-            SymbolKind::Variable {
-                type_id: None,
-                is_mut: false,
-            },
-            dummy_node(&mut arena),
-        );
-        tree.define(
-            tree.root_scope,
-            name,
-            SymbolKind::Variable {
-                type_id: None,
-                is_mut: true,
-            },
-            dummy_node(&mut arena),
-        );
-
-        let (_, ids) = tree.lookup(tree.root_scope, name).unwrap();
-        assert_eq!(ids.len(), 2);
     }
 }

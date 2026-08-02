@@ -10,6 +10,7 @@ use crate::builtins::BuiltinFunc;
 use crate::diagnostics::DiagnosticsBag;
 use crate::interner::{IdentId, Interner};
 use crate::source::Span;
+use crate::symbol::SymbolKind::Variable;
 use crate::symbol::{ScopeId, ScopeTree, SymbolId, SymbolKind};
 use crate::types::{TypeArena, TypeId, TypeKind};
 
@@ -478,46 +479,6 @@ impl<'a> Inferer<'a> {
     // ── Variables ──
 
     fn infer_var(&mut self, node: NodeId, v: &Var) -> TypeId {
-        // If the variable has template type annotations (e.g. `foo[Num]`),
-        // resolve to the matching function overload.
-        if !v.template_types.is_empty() {
-            let scope = self
-                .scope_tree
-                .node_scope
-                .get(&node)
-                .copied()
-                .unwrap_or(self.scope_tree.root_scope);
-            let type_annotation = self.lower_type_node(&v.template_types[0]);
-
-            let func_def_nodes: Vec<NodeId> = self
-                .scope_tree
-                .lookup_functions(scope, v.name)
-                .iter()
-                .map(|sym| sym.def_node)
-                .collect();
-
-            for &def_node in &func_def_nodes {
-                let func_type = self.function_type_from_def(def_node);
-                if let TypeKind::Func { params, .. } = self.type_arena.get(func_type).clone() {
-                    if params.is_empty() {
-                        continue;
-                    }
-                    let snapshot = self.snapshot();
-                    let saved_diag_len = self.diagnostics.len();
-                    let unified = self.unify(params[0], type_annotation);
-                    if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
-                        // If we failed to unify the type params, roll back changes,
-                        // and try the next possible function match
-                        self.rollback(snapshot);
-                        self.diagnostics.truncate(saved_diag_len);
-                    } else {
-                        self.scope_tree.inferred_defs.insert(node, def_node);
-                        return self.resolve(func_type);
-                    }
-                }
-            }
-        }
-
         // Walk the scope stack from top (innermost) to bottom.
         for frame in self.var_type_stack.iter().rev() {
             if let Some(&(tid, _)) = frame.get(&v.name) {
@@ -648,124 +609,131 @@ impl<'a> Inferer<'a> {
         }
     }
 
-    /// Infer a call to a named function — handles overload resolution,
-    /// struct constructors, trait methods, and builtins.
+    /// Infer a call to a named callable object (named function, struct constructor, callable variable, etc.)
     fn infer_named_call(&mut self, node: NodeId, name: IdentId, arg_types: &[TypeId]) -> TypeId {
         // Get signatures for potential function matches
-        let funcs: Vec<(NodeId, Option<Box<TypeNode>>)> = self
-            .scope_tree
-            // Look up functions with a matching name
-            .lookup_functions(
-                self.scope_tree
-                    .node_scope
-                    .get(&node)
-                    .copied()
-                    .unwrap_or(self.scope_tree.root_scope),
-                name,
-            )
-            .iter()
-            // Get the AST node where each function was defined,
-            // and the type signature of the function
-            .map(|s| {
-                let sig = match &s.kind {
-                    SymbolKind::Function {
-                        cached_signature, ..
-                    } => cached_signature.clone(),
-                    _ => None,
-                };
-                (s.def_node, sig)
-            })
-            .collect();
-
-        // Lower each type in the function type signatures to their type IDs
-        // Need a separate iterator here to avoid multiple mutable borrows of `self`
-        let func_info: Vec<(NodeId, Option<TypeId>)> = funcs
-            .into_iter()
-            .map(|(def_node, cached_sig)| {
-                let ct = cached_sig.map(|sig| self.lower_type_node(&sig));
-                (def_node, ct)
-            })
-            .collect();
-
-        if func_info.is_empty() {
-            // Check if it's a struct constructor instead.
-            if let Some(result) = self.try_struct_constructor(node, name, arg_types) {
-                return result;
-            }
-            // Check if it's a trait method call (inside a generic function body).
-            // TODO: I don't think we should check this unless this is a type-associated call
-            if let Some(ret_ty) = self.try_trait_method_call(node, name, arg_types) {
-                return ret_ty;
-            }
-            // Check if name resolves to a non-function symbol (variable, etc.).
-            // This must come before the builtin check so user variables can
-            // shadow builtins.
-            let scope = self
-                .scope_tree
+        let (_, caller_symbol_id) = match self.scope_tree.lookup(
+            self.scope_tree
                 .node_scope
                 .get(&node)
                 .copied()
-                .unwrap_or(self.scope_tree.root_scope);
-            if self.scope_tree.lookup(scope, name).is_some() {
-                return self.fresh_infer_var();
+                .unwrap_or(self.scope_tree.root_scope),
+            name,
+        ) {
+            Some(caller) => caller,
+            None => {
+                // TODO: Look for builtins here
+                return self.type_arena.unknown_id();
             }
-            // Check if it's a builtin function (only after confirming no
-            // user-defined symbol shadows it).
-            let name_str = self.interner.lookup(name);
-            if let Some(builtin) = BuiltinFunc::try_from_name(name_str)
-                && let Some(ret_ty) = builtin.infer_return_type(arg_types, self.type_arena)
-            {
-                return ret_ty;
-            }
-            self.emit_error(
-                self.arena[node].span(),
-                format!("undefined function '{}'", self.interner.lookup(name)),
-            );
-            return self.type_arena.unknown_id();
-        }
+        };
 
-        // Check each of the function definitions with matching names,
-        // looking for one with a compatible type signature
-        for (def_node, cached_type) in func_info {
-            let func_type = if let Some(ct) = cached_type {
-                ct
-            } else {
-                self.function_type_from_def(def_node)
-            };
-            let (param_ids, ret_id) = match self.type_arena.get(func_type) {
-                TypeKind::Func { params, ret } => (params.clone(), *ret),
-                _ => continue,
-            };
-            if param_ids.len() != arg_types.len() {
-                continue;
-            }
-            let snapshot = self.snapshot();
-            let saved_diag_len = self.diagnostics.len();
-            let mut ok = true;
-            for (param, arg) in param_ids.iter().zip(arg_types.iter()) {
-                let unified = self.unify(*param, *arg);
-                if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
-                    ok = false;
-                    break;
+        let caller_symbol = self.scope_tree.symbols[caller_symbol_id].clone();
+        match caller_symbol.kind {
+            SymbolKind::Function {
+                cached_signature, ..
+            } => {
+                let func_type = if let Some(sig) = cached_signature {
+                    self.lower_type_node(&sig)
+                } else {
+                    self.function_type_from_def(caller_symbol.def_node)
+                };
+                let (param_ids, ret_id) = match self.type_arena.get(func_type) {
+                    TypeKind::Func { params, ret } => (params.clone(), *ret),
+                    _ => unreachable!("Type kind of a function type should be a Func"),
+                };
+                if param_ids.len() != arg_types.len() {
+                    self.emit_error(
+                        self.arena[node].span(),
+                        format!(
+                            "expected {} arguments, found {}",
+                            param_ids.len(),
+                            arg_types.len()
+                        ),
+                    );
+                    return self.type_arena.unknown_id();
                 }
+                for (param, arg) in param_ids.iter().zip(arg_types.iter()) {
+                    let unified = self.unify(*param, *arg);
+                    let unified_type = self.type_arena.get(unified);
+                    if matches!(unified_type, TypeKind::Unknown) {
+                        self.emit_error(
+                            self.arena[node].span(),
+                            "unable to infer type of argument".into(),
+                        );
+                        return self.type_arena.unknown_id();
+                    }
+                }
+                // Record which overload was selected for this call
+                // TODO: Overloads aren't supported anymore, so this should be removed
+                self.scope_tree
+                    .inferred_defs
+                    .insert(node, caller_symbol.def_node);
+                self.resolve(ret_id)
             }
-            if !ok {
-                self.rollback(snapshot);
-                self.diagnostics.truncate(saved_diag_len);
-                continue;
-            }
-            let resolved = self.resolve(ret_id);
-            // Record which overload was selected for this call
-            self.scope_tree.inferred_defs.insert(node, def_node);
-            return resolved;
-        }
+            SymbolKind::Struct {
+                type_params,
+                cached_fields,
+            } => {
+                let fields = if let Some(fields) = &cached_fields {
+                    fields
+                } else {
+                    match &self.arena[caller_symbol.def_node] {
+                        Expr::StructDef(sd) => &sd.fields,
+                        _ => unreachable!(
+                            "Definition associated with struct field should be a StructDef"
+                        ),
+                    }
+                };
 
-        let name_str = self.interner.lookup(name);
-        self.emit_error(
-            self.arena[node].span(),
-            format!("no matching function '{name_str}' for the given arguments"),
-        );
-        self.type_arena.unknown_id()
+                if fields.len() != arg_types.len() {
+                    self.emit_error(
+                        self.arena[node].span(),
+                        format!(
+                            "expected {} arguments, found {}",
+                            fields.len(),
+                            arg_types.len()
+                        ),
+                    );
+                    return self.type_arena.unknown_id();
+                }
+
+                let mut generic_params = FxHashMap::default();
+                let mut fresh_args = Vec::new();
+
+                for tp_name in type_params {
+                    let fresh_var = self.fresh_infer_var();
+                    fresh_args.push(fresh_var);
+                    generic_params.insert(tp_name, fresh_var);
+                }
+
+                for (field, arg_ty) in fields.iter().zip(arg_types.iter()) {
+                    let field_ty = self.lower_type_node_with(&field.type_node, &generic_params);
+                    let unified = self.unify(field_ty, *arg_ty);
+                    let unified_type = self.type_arena.get(unified);
+                    if matches!(unified_type, TypeKind::Unknown) {
+                        self.emit_error(
+                            self.arena[node].span(),
+                            "unable to infer type of argument".into(),
+                        );
+                        return self.type_arena.unknown_id();
+                    }
+                }
+
+                let resolved = fresh_args.iter().map(|&a| self.resolve(a)).collect();
+                self.type_arena.intern(TypeKind::Custom {
+                    name: caller_symbol.name,
+                    args: resolved,
+                })
+            }
+            SymbolKind::Variable { type_id, .. } => {
+                // TODO
+                self.type_arena.unknown_id()
+            }
+            _ => {
+                self.emit_error(self.arena[node].span(), "not a callable type".into());
+                self.type_arena.unknown_id()
+            }
+        }
     }
 
     /// Try to infer a trait method call inside a generic function body.
@@ -824,7 +792,6 @@ impl<'a> Inferer<'a> {
         }
     }
 
-    #[allow(unused_variables)]
     fn try_trait_method_call(
         &mut self,
         node: NodeId,
@@ -840,19 +807,16 @@ impl<'a> Inferer<'a> {
             .unwrap_or(self.scope_tree.root_scope);
         let mut info: Option<(IdentId, crate::ast::TypeNode)> = None;
         loop {
-            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
-                for &sid in ids.iter().rev() {
-                    if let SymbolKind::TraitMethod {
-                        signature: sig,
-                        type_param,
-                        ..
-                    } = &self.scope_tree.symbols[sid].kind
-                    {
-                        // Substitute Self → type param in the signature.
-                        let substituted = Self::substitute_self_in_type_node(sig, *type_param);
-                        info = Some((*type_param, substituted));
-                        break;
-                    }
+            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name) {
+                if let SymbolKind::TraitMethod {
+                    signature: sig,
+                    type_param,
+                    ..
+                } = &self.scope_tree.symbols[sid].kind
+                {
+                    // Substitute Self → type param in the signature.
+                    let substituted = Self::substitute_self_in_type_node(sig, *type_param);
+                    info = Some((*type_param, substituted));
                 }
                 if info.is_some() {
                     break;
@@ -1358,14 +1322,12 @@ impl<'a> Inferer<'a> {
     fn find_struct(&self, from: ScopeId, name: IdentId) -> Option<SymbolId> {
         let mut current = from;
         loop {
-            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
-                for &sid in ids.iter().rev() {
-                    if matches!(
-                        &self.scope_tree.symbols[sid].kind,
-                        SymbolKind::Struct { .. }
-                    ) {
-                        return Some(sid);
-                    }
+            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name) {
+                if matches!(
+                    &self.scope_tree.symbols[sid].kind,
+                    SymbolKind::Struct { .. }
+                ) {
+                    return Some(sid);
                 }
             }
             match self.scope_tree.scopes[current].parent {
@@ -1383,7 +1345,7 @@ impl<'a> Inferer<'a> {
             TypeNode::Named { name, params } => (*name, params.clone()),
             _ => {
                 if let Expr::Var(v) = &self.arena[t.inner] {
-                    return self.infer_typed_function_ref(node, v, t);
+                    todo!()
                 }
                 return self.infer_expr(t.inner);
             }
@@ -1401,7 +1363,7 @@ impl<'a> Inferer<'a> {
                 // If this is not an enum instantiation, look it up in an impl block
                 // TODO: This doesn't yet work 100% correctly
                 if let Expr::Var(v) = &self.arena[t.inner] {
-                    return self.infer_typed_function_ref(node, v, t);
+                    todo!()
                 }
                 return self.infer_expr(t.inner);
             }
@@ -1482,57 +1444,6 @@ impl<'a> Inferer<'a> {
             _ => self.type_arena.unknown_id(),
         }
     }
-
-    /// Infer the type of a function reference with a type annotation
-    /// (e.g. `foo[Num]`). Finds the matching overload and records it
-    /// in `inferred_defs` so the lowerer can emit the machine name.
-    fn infer_typed_function_ref(
-        &mut self,
-        node: NodeId,
-        v: &crate::ast::Var,
-        t: &TypeAssociated,
-    ) -> TypeId {
-        let fn_name = v.name;
-        let type_annotation = self.lower_type_node(&t.type_node);
-
-        let scope = self
-            .scope_tree
-            .node_scope
-            .get(&node)
-            .copied()
-            .unwrap_or(self.scope_tree.root_scope);
-
-        // Collect def_nodes first to avoid borrow conflicts.
-        let func_def_nodes: Vec<NodeId> = self
-            .scope_tree
-            .lookup_functions(scope, fn_name)
-            .iter()
-            .map(|sym| sym.def_node)
-            .collect();
-
-        for &def_node in &func_def_nodes {
-            let func_type = self.function_type_from_def(def_node);
-            if let TypeKind::Func { params, .. } = self.type_arena.get(func_type).clone() {
-                if params.is_empty() {
-                    continue;
-                }
-                // Check if the first parameter type matches the annotation
-                let snapshot = self.snapshot();
-                let saved_diag_len = self.diagnostics.len();
-                let unified = self.unify(params[0], type_annotation);
-                if matches!(self.type_arena.get(unified), TypeKind::Unknown) {
-                    self.rollback(snapshot);
-                    self.diagnostics.truncate(saved_diag_len);
-                } else {
-                    self.scope_tree.inferred_defs.insert(node, def_node);
-                    return self.resolve(func_type);
-                }
-            }
-        }
-
-        // No matching overload found — fall back to regular inference
-        self.infer_expr(t.inner)
-    }
     fn find_enum(
         &self,
         from: ScopeId,
@@ -1540,15 +1451,13 @@ impl<'a> Inferer<'a> {
     ) -> Option<(Vec<crate::ast::EnumVariant>, Vec<IdentId>)> {
         let mut current = from;
         loop {
-            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
-                for &sid in ids.iter().rev() {
-                    if let SymbolKind::Enum {
-                        type_params,
-                        variants,
-                    } = &self.scope_tree.symbols[sid].kind
-                    {
-                        return Some((variants.clone(), type_params.clone()));
-                    }
+            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name) {
+                if let SymbolKind::Enum {
+                    type_params,
+                    variants,
+                } = &self.scope_tree.symbols[sid].kind
+                {
+                    return Some((variants.clone(), type_params.clone()));
                 }
             }
             match self.scope_tree.scopes[current].parent {

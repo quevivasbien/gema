@@ -316,13 +316,7 @@ pub fn link_modules(
                 let dep_sym_ids: Vec<SymbolId> = dep_scope_tree
                     .scopes
                     .iter()
-                    .flat_map(|(_, scope)| {
-                        scope
-                            .symbols
-                            .get(&export_name)
-                            .into_iter()
-                            .flat_map(|ids| ids.iter().copied())
-                    })
+                    .flat_map(|(_, scope)| scope.symbols.get(&export_name).into_iter().copied())
                     .collect();
                 if dep_sym_ids.is_empty() {
                     continue;
@@ -332,12 +326,12 @@ pub fn link_modules(
                 let has_existing = scope_tree.scopes[scope_tree.root_scope]
                     .symbols
                     .get(&export_name)
-                    .is_some_and(|ids| !ids.is_empty());
+                    .is_some();
 
                 if has_existing {
-                    let existing_ids =
-                        &scope_tree.scopes[scope_tree.root_scope].symbols[&export_name];
-                    let first = &scope_tree.symbols[existing_ids[0]];
+                    let existing_id =
+                        scope_tree.scopes[scope_tree.root_scope].symbols[&export_name];
+                    let first = &scope_tree.symbols[existing_id];
                     let first_is_func = matches!(&first.kind, SymbolKind::Function { .. });
                     let first_is_tm = matches!(&first.kind, SymbolKind::TraitMethod { .. });
 
@@ -394,8 +388,7 @@ pub fn link_modules(
                     scope_tree.scopes[scope_tree.root_scope]
                         .symbols
                         .entry(export_name)
-                        .or_default()
-                        .push(sid);
+                        .insert_entry(sid);
                 }
             }
         }
@@ -441,24 +434,19 @@ pub fn link_modules(
                     .collect();
                 for name in &current_keys {
                     if !allowed.contains(name)
-                        && let Some(ids) =
+                        && let Some(&sid) =
                             scope_tree.scopes[scope_tree.root_scope].symbols.get(name)
                     {
-                        let from_other: Vec<_> = ids
-                            .iter()
-                            .filter(|&&sid| {
-                                scope_tree.symbols[sid].source_module != Some(dep_file_idx)
-                            })
-                            .copied()
-                            .collect();
-                        if from_other.is_empty() {
+                        let from_other =
+                            scope_tree.symbols[sid].source_module != Some(dep_file_idx);
+                        if from_other {
                             scope_tree.scopes[scope_tree.root_scope]
                                 .symbols
-                                .remove(name);
+                                .insert(*name, sid);
                         } else {
                             scope_tree.scopes[scope_tree.root_scope]
                                 .symbols
-                                .insert(*name, from_other);
+                                .remove(name);
                         }
                     }
                 }
@@ -466,29 +454,25 @@ pub fn link_modules(
                 // Second pass: for typed imports, only filter symbols from this dependency
                 for (name, param_types) in &typed_imports {
                     if let Some(param_types) = param_types
-                        && let Some(ids) =
+                        && let Some(&sid) =
                             scope_tree.scopes[scope_tree.root_scope].symbols.get(name)
                     {
-                        let filtered: Vec<_> = ids
-                            .iter()
-                            .filter(|&&sid| {
-                                let symbol = &scope_tree.symbols[sid];
-                                if symbol.source_module == Some(dep_file_idx) {
-                                    matches_function_types(symbol, param_types, arena, interner)
-                                } else {
-                                    true // Keep symbols from other dependencies
-                                }
-                            })
-                            .copied()
-                            .collect();
-                        if filtered.is_empty() {
+                        let belongs = {
+                            let symbol = &scope_tree.symbols[sid];
+                            if symbol.source_module == Some(dep_file_idx) {
+                                matches_function_types(symbol, param_types, arena, interner)
+                            } else {
+                                true // Keep symbols from other dependencies
+                            }
+                        };
+                        if belongs {
                             scope_tree.scopes[scope_tree.root_scope]
                                 .symbols
-                                .remove(name);
+                                .insert(*name, sid);
                         } else {
                             scope_tree.scopes[scope_tree.root_scope]
                                 .symbols
-                                .insert(*name, filtered);
+                                .remove(name);
                         }
                     }
                 }
@@ -515,26 +499,17 @@ pub fn link_modules(
             let root_syms = resolved_scope.scopes[resolved_scope.root_scope]
                 .symbols
                 .clone();
-            for (name, ids) in root_syms {
-                let mut imported_ids: Vec<SymbolId> = Vec::new();
-                for &sid in &ids {
-                    if resolved_scope.symbols[sid].source_module.is_some() {
-                        imported_ids.push(sid);
-                    }
-                }
-                if !imported_ids.is_empty() {
+            for (name, sid) in root_syms {
+                if resolved_scope.symbols[sid].source_module.is_some() {
                     // Add to block scope
                     resolved_scope.scopes[block_scope]
                         .symbols
                         .entry(name)
-                        .or_default()
-                        .extend(imported_ids);
+                        .insert_entry(sid);
                     // Remove from root scope
                     resolved_scope.scopes[resolved_scope.root_scope]
                         .symbols
-                        .entry(name)
-                        .or_default()
-                        .retain(|&sid| resolved_scope.symbols[sid].source_module.is_none());
+                        .remove_entry(&name);
                 }
             }
         }
@@ -550,11 +525,9 @@ pub fn link_modules(
             if !is_top_level {
                 continue;
             }
-            for (name, ids) in &scope.symbols {
-                for &sid in ids {
-                    if resolved_scope.symbols[sid].source_module.is_none() {
-                        export_set.insert(*name);
-                    }
+            for (name, &sid) in &scope.symbols {
+                if resolved_scope.symbols[sid].source_module.is_none() {
+                    export_set.insert(*name);
                 }
             }
         }
@@ -899,24 +872,22 @@ fn build_import_lines(
     let mut seen: FxHashSet<String> = FxHashSet::default();
 
     for (_, scope) in &st.scopes {
-        for ids in scope.symbols.values() {
-            for &sid in ids {
-                let sym = &st.symbols[sid];
-                let file_idx = match sym.source_module {
-                    Some(f) => f,
-                    None => continue,
-                };
-                let machine_name = if matches!(sym.kind, SymbolKind::Function { .. }) {
-                    match fn_names.get_name(sym.def_node) {
-                        Some(mn) => mn.to_string(),
-                        None => interner.lookup(sym.name).to_string(),
-                    }
-                } else {
-                    interner.lookup(sym.name).to_string()
-                };
-                if seen.insert(machine_name.clone()) {
-                    by_file.entry(file_idx).or_default().push(machine_name);
+        for &sid in scope.symbols.values() {
+            let sym = &st.symbols[sid];
+            let file_idx = match sym.source_module {
+                Some(f) => f,
+                None => continue,
+            };
+            let machine_name = if matches!(sym.kind, SymbolKind::Function { .. }) {
+                match fn_names.get_name(sym.def_node) {
+                    Some(mn) => mn.to_string(),
+                    None => interner.lookup(sym.name).to_string(),
                 }
+            } else {
+                interner.lookup(sym.name).to_string()
+            };
+            if seen.insert(machine_name.clone()) {
+                by_file.entry(file_idx).or_default().push(machine_name);
             }
         }
     }
@@ -953,23 +924,21 @@ fn build_export_entries(
         if !is_top_level {
             continue;
         }
-        for ids in scope.symbols.values() {
-            for &sid in ids {
-                let sym = &st.symbols[sid];
-                if sym.source_module.is_some() {
-                    continue; // imported — not a local export
+        for &sid in scope.symbols.values() {
+            let sym = &st.symbols[sid];
+            if sym.source_module.is_some() {
+                continue; // imported — not a local export
+            }
+            let machine_name = if matches!(sym.kind, SymbolKind::Function { .. }) {
+                match fn_names.get_name(sym.def_node) {
+                    Some(mn) => mn.to_string(),
+                    None => interner.lookup(sym.name).to_string(),
                 }
-                let machine_name = if matches!(sym.kind, SymbolKind::Function { .. }) {
-                    match fn_names.get_name(sym.def_node) {
-                        Some(mn) => mn.to_string(),
-                        None => interner.lookup(sym.name).to_string(),
-                    }
-                } else {
-                    interner.lookup(sym.name).to_string()
-                };
-                if seen.insert(machine_name.clone()) {
-                    entries.push(machine_name);
-                }
+            } else {
+                interner.lookup(sym.name).to_string()
+            };
+            if seen.insert(machine_name.clone()) {
+                entries.push(machine_name);
             }
         }
     }

@@ -281,14 +281,12 @@ impl<'a> Lowerer<'a> {
     fn find_struct(&self, from: ScopeId, name: IdentId) -> Option<crate::symbol::SymbolId> {
         let mut current = from;
         loop {
-            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
-                for &sid in ids.iter().rev() {
-                    if matches!(
-                        &self.scope_tree.symbols[sid].kind,
-                        SymbolKind::Struct { .. }
-                    ) {
-                        return Some(sid);
-                    }
+            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name) {
+                if matches!(
+                    &self.scope_tree.symbols[sid].kind,
+                    SymbolKind::Struct { .. }
+                ) {
+                    return Some(sid);
                 }
             }
             match self.scope_tree.scopes[current].parent {
@@ -665,15 +663,13 @@ impl<'a> Lowerer<'a> {
     ) -> Option<(Vec<ast::EnumVariant>, Vec<IdentId>)> {
         let mut current = from;
         loop {
-            if let Some(ids) = self.scope_tree.scopes[current].symbols.get(&name) {
-                for &sid in ids.iter().rev() {
-                    if let SymbolKind::Enum {
-                        type_params,
-                        variants,
-                    } = &self.scope_tree.symbols[sid].kind
-                    {
-                        return Some((variants.clone(), type_params.clone()));
-                    }
+            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name) {
+                if let SymbolKind::Enum {
+                    type_params,
+                    variants,
+                } = &self.scope_tree.symbols[sid].kind
+                {
+                    return Some((variants.clone(), type_params.clone()));
                 }
             }
             match self.scope_tree.scopes[current].parent {

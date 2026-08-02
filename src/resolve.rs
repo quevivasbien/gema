@@ -134,24 +134,17 @@ impl<'a> Resolver<'a> {
         // Only check for duplicates in the CURRENT scope, not parents
         // (parent scopes may have the same name — that's shadowing, not
         // a duplicate).
-        if let Some(ids) = self.scope_tree.scopes[self.current_scope]
+        if self.scope_tree.scopes[self.current_scope]
             .symbols
             .get(&name)
-            && !ids.is_empty()
+            .is_some()
         {
-            let first = &self.scope_tree.symbols[ids[0]];
-            let is_func = matches!(&first.kind, SymbolKind::Function { .. });
-            let new_is_func = matches!(&kind, SymbolKind::Function { .. });
-            let is_tm = matches!(&first.kind, SymbolKind::TraitMethod { .. });
-            let new_is_tm = matches!(&kind, SymbolKind::TraitMethod { .. });
-            if !((is_func && new_is_func) || (is_tm && new_is_tm)) {
-                let span = self.arena[def_node].span();
-                self.diagnostics.error(
-                    self.file_idx,
-                    span,
-                    format!("duplicate definition of '{}'", self.interner.lookup(name),),
-                );
-            }
+            let span = self.arena[def_node].span();
+            self.diagnostics.error(
+                self.file_idx,
+                span,
+                format!("duplicate definition of '{}'", self.interner.lookup(name)),
+            );
         }
 
         self.scope_tree
@@ -235,20 +228,18 @@ impl<'a> Resolver<'a> {
         for tp in &f.type_params {
             for trait_name in &tp.traits {
                 // Look up the trait definition in the current scope.
-                if let Some((_, ids)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
-                    for &sid in ids.iter().rev() {
-                        let sym = &self.scope_tree.symbols[sid];
-                        if let SymbolKind::Trait { requirements } = &sym.kind {
-                            for req in requirements {
-                                trait_methods.push((
-                                    req.name,
-                                    SymbolKind::TraitMethod {
-                                        trait_name: *trait_name,
-                                        type_param: tp.name,
-                                        signature: Box::new(req.type_node.clone()),
-                                    },
-                                ));
-                            }
+                if let Some((_, sid)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
+                    let sym = &self.scope_tree.symbols[sid];
+                    if let SymbolKind::Trait { requirements } = &sym.kind {
+                        for req in requirements {
+                            trait_methods.push((
+                                req.name,
+                                SymbolKind::TraitMethod {
+                                    trait_name: *trait_name,
+                                    type_param: tp.name,
+                                    signature: Box::new(req.type_node.clone()),
+                                },
+                            ));
                         }
                     }
                 }
@@ -463,20 +454,17 @@ impl<'a> Resolver<'a> {
         };
 
         // 1. Name in current scope → reassignment.
-        if let Some(ids) = self
+        if let Some(&sid) = self
             .scope_tree
             .scopes
             .get(self.current_scope)
             .and_then(|s| s.symbols.get(&name))
-            .filter(|ids| !ids.is_empty())
         {
-            // If any existing symbol with this name is NOT a Variable, error.
-            if ids.iter().any(|&sid| {
-                !matches!(
-                    self.scope_tree.symbols[sid].kind,
-                    SymbolKind::Variable { .. }
-                )
-            }) {
+            // If existing symbol with this name is NOT a Variable, error.
+            if !matches!(
+                self.scope_tree.symbols[sid].kind,
+                SymbolKind::Variable { .. }
+            ) {
                 let span = self.arena[node].span();
                 error_not_variable(self, span, name);
                 return;
@@ -556,10 +544,8 @@ impl<'a> Resolver<'a> {
         let mut current = self.current_scope;
         loop {
             let parent = self.scope_tree.scopes[current].parent?;
-            if let Some(ids) = self.scope_tree.scopes[parent].symbols.get(&name)
-                && !ids.is_empty()
-            {
-                return Some((parent, ids[ids.len() - 1]));
+            if let Some(&sid) = self.scope_tree.scopes[parent].symbols.get(&name) {
+                return Some((parent, sid));
             }
             current = parent;
         }
@@ -639,8 +625,7 @@ impl<'a> Resolver<'a> {
     /// Look up a name in the scope chain and record the result in
     /// `resolved_refs`.
     fn resolve_name(&mut self, node: NodeId, name: IdentId) {
-        if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, name) {
-            let sid = ids[ids.len() - 1];
+        if let Some((_scope, sid)) = self.scope_tree.lookup(self.current_scope, name) {
             self.scope_tree.resolved_refs.insert(node, sid);
         } else {
             let name_str = self.interner.lookup(name);
@@ -845,14 +830,13 @@ impl<'a> Resolver<'a> {
 
         // Look up the type as a generic type parameter.
         let bounds = match self.scope_tree.lookup(self.current_scope, type_name) {
-            Some((_scope, ids)) => {
-                let mut result: Option<Vec<IdentId>> = None;
-                for &sid in ids.iter().rev() {
+            Some((_scope, sid)) => {
+                let mut result =
                     if let SymbolKind::TypeParam { bounds } = &self.scope_tree.symbols[sid].kind {
-                        result = Some(bounds.clone());
-                        break;
-                    }
-                }
+                        Some(bounds)
+                    } else {
+                        None
+                    };
                 result
             }
             None => None,
@@ -865,15 +849,14 @@ impl<'a> Resolver<'a> {
 
         // Find which trait among the bounds has a requirement with the call's name.
         let mut found_trait: Option<IdentId> = None;
-        for trait_name in &bounds {
-            if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
-                for &sid in ids.iter().rev() {
-                    if let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind
-                        && requirements.iter().any(|r| r.name == call_name)
-                    {
-                        if found_trait.is_some() {
-                            // Multiple traits provide the same method name — ambiguous.
-                            self.diagnostics.error(
+        for trait_name in bounds {
+            if let Some((_scope, sid)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
+                if let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind
+                    && requirements.iter().any(|r| r.name == call_name)
+                {
+                    if found_trait.is_some() {
+                        // Multiple traits provide the same method name — ambiguous.
+                        self.diagnostics.error(
                                     self.file_idx,
                                 self.arena[node].span(),
                                     format!(
@@ -882,10 +865,9 @@ impl<'a> Resolver<'a> {
                                         self.interner.lookup(type_name),
                                     ),
                                 );
-                            return;
-                        }
-                        found_trait = Some(*trait_name);
+                        return;
                     }
+                    found_trait = Some(*trait_name);
                 }
             }
         }
@@ -900,8 +882,7 @@ impl<'a> Resolver<'a> {
             // Also look up the method name as a regular symbol (for
             // resolved_refs), since the name is registered as a TraitMethod
             // in the function body scope.
-            if let Some((_scope, ids)) = self.scope_tree.lookup(self.current_scope, call_name) {
-                let sid = ids[ids.len() - 1];
+            if let Some((_scope, sid)) = self.scope_tree.lookup(self.current_scope, call_name) {
                 self.scope_tree.resolved_refs.insert(t.inner, sid);
             }
         } else {
@@ -1179,14 +1160,10 @@ mod tests {
     }
 
     #[test]
-    fn function_overloading_no_error() {
+    fn function_overloading_not_allowed() {
         let (_, _, diags, _, _) =
             resolve("func foo(x: Int): Int { x }; func foo(s: Str): Str { s }");
-        assert!(
-            !diags.has_errors(),
-            "overloading should be allowed: {:?}",
-            diags
-        );
+        assert!(diags.has_errors(), "overloading is not allowed");
     }
 
     #[test]
@@ -1239,18 +1216,6 @@ mod tests {
     }
 
     #[test]
-    fn function_overloading_still_allowed() {
-        // Overloading functions with different signatures is still OK.
-        let (_, _, diags, _, _) =
-            resolve("func foo(x: Int): Int { x }; func foo(s: Str): Str { s }; func foo() { 1 }");
-        assert!(
-            !diags.has_errors(),
-            "overloading should be allowed: {:?}",
-            diags
-        );
-    }
-
-    #[test]
     fn cannot_shadow_function_with_assignment() {
         // Assigning to a name that shadows a function in an ancestor should also error.
         let (_, _, diags, _, _) = resolve("func f() { 1 }; { f = 2 }");
@@ -1263,8 +1228,7 @@ mod tests {
 
     #[test]
     fn struct_enum_same_name_error() {
-        // Cross-kind name conflicts (struct + enum, etc.) are illegal — only
-        // func + func (overloading) is allowed.
+        // Cross-kind name conflicts (struct + enum, etc.) are illegal
         let (_, _, diags, _, _) = resolve("struct Foo { x: Num }; enum Foo { A, B }");
         assert!(diags.has_errors());
 
