@@ -6,11 +6,9 @@
 use rustc_hash::FxHashMap;
 
 use crate::ast::*;
-use crate::builtins::BuiltinFunc;
 use crate::diagnostics::DiagnosticsBag;
 use crate::interner::{IdentId, Interner};
 use crate::source::Span;
-use crate::symbol::SymbolKind::Variable;
 use crate::symbol::{ScopeId, ScopeTree, SymbolId, SymbolKind};
 use crate::types::{TypeArena, TypeId, TypeKind};
 
@@ -725,7 +723,7 @@ impl<'a> Inferer<'a> {
                     args: resolved,
                 })
             }
-            SymbolKind::Variable { type_id, .. } => {
+            SymbolKind::Variable { .. } => {
                 // TODO
                 self.type_arena.unknown_id()
             }
@@ -1322,13 +1320,13 @@ impl<'a> Inferer<'a> {
     fn find_struct(&self, from: ScopeId, name: IdentId) -> Option<SymbolId> {
         let mut current = from;
         loop {
-            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name) {
-                if matches!(
+            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name)
+                && matches!(
                     &self.scope_tree.symbols[sid].kind,
                     SymbolKind::Struct { .. }
-                ) {
-                    return Some(sid);
-                }
+                )
+            {
+                return Some(sid);
             }
             match self.scope_tree.scopes[current].parent {
                 Some(p) => current = p,
@@ -1344,7 +1342,7 @@ impl<'a> Inferer<'a> {
         let (enum_name, explicit_args) = match &t.type_node {
             TypeNode::Named { name, params } => (*name, params.clone()),
             _ => {
-                if let Expr::Var(v) = &self.arena[t.inner] {
+                if let Expr::Var(_) = &self.arena[t.inner] {
                     todo!()
                 }
                 return self.infer_expr(t.inner);
@@ -1362,7 +1360,7 @@ impl<'a> Inferer<'a> {
             None => {
                 // If this is not an enum instantiation, look it up in an impl block
                 // TODO: This doesn't yet work 100% correctly
-                if let Expr::Var(v) = &self.arena[t.inner] {
+                if let Expr::Var(_) = &self.arena[t.inner] {
                     todo!()
                 }
                 return self.infer_expr(t.inner);
@@ -1451,14 +1449,13 @@ impl<'a> Inferer<'a> {
     ) -> Option<(Vec<crate::ast::EnumVariant>, Vec<IdentId>)> {
         let mut current = from;
         loop {
-            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name) {
-                if let SymbolKind::Enum {
+            if let Some(&sid) = self.scope_tree.scopes[current].symbols.get(&name)
+                && let SymbolKind::Enum {
                     type_params,
                     variants,
                 } = &self.scope_tree.symbols[sid].kind
-                {
-                    return Some((variants.clone(), type_params.clone()));
-                }
+            {
+                return Some((variants.clone(), type_params.clone()));
             }
             match self.scope_tree.scopes[current].parent {
                 Some(parent) => current = parent,

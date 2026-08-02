@@ -136,8 +136,7 @@ impl<'a> Resolver<'a> {
         // a duplicate).
         if self.scope_tree.scopes[self.current_scope]
             .symbols
-            .get(&name)
-            .is_some()
+            .contains_key(&name)
         {
             let span = self.arena[def_node].span();
             self.diagnostics.error(
@@ -831,13 +830,11 @@ impl<'a> Resolver<'a> {
         // Look up the type as a generic type parameter.
         let bounds = match self.scope_tree.lookup(self.current_scope, type_name) {
             Some((_scope, sid)) => {
-                let mut result =
-                    if let SymbolKind::TypeParam { bounds } = &self.scope_tree.symbols[sid].kind {
-                        Some(bounds)
-                    } else {
-                        None
-                    };
-                result
+                if let SymbolKind::TypeParam { bounds } = &self.scope_tree.symbols[sid].kind {
+                    Some(bounds)
+                } else {
+                    None
+                }
             }
             None => None,
         };
@@ -850,13 +847,13 @@ impl<'a> Resolver<'a> {
         // Find which trait among the bounds has a requirement with the call's name.
         let mut found_trait: Option<IdentId> = None;
         for trait_name in bounds {
-            if let Some((_scope, sid)) = self.scope_tree.lookup(self.current_scope, *trait_name) {
-                if let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind
-                    && requirements.iter().any(|r| r.name == call_name)
-                {
-                    if found_trait.is_some() {
-                        // Multiple traits provide the same method name — ambiguous.
-                        self.diagnostics.error(
+            if let Some((_scope, sid)) = self.scope_tree.lookup(self.current_scope, *trait_name)
+                && let SymbolKind::Trait { requirements } = &self.scope_tree.symbols[sid].kind
+                && requirements.iter().any(|r| r.name == call_name)
+            {
+                if found_trait.is_some() {
+                    // Multiple traits provide the same method name — ambiguous.
+                    self.diagnostics.error(
                                     self.file_idx,
                                 self.arena[node].span(),
                                     format!(
@@ -865,10 +862,9 @@ impl<'a> Resolver<'a> {
                                         self.interner.lookup(type_name),
                                     ),
                                 );
-                        return;
-                    }
-                    found_trait = Some(*trait_name);
+                    return;
                 }
+                found_trait = Some(*trait_name);
             }
         }
 

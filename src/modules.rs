@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::ast::*;
-use crate::codegen::{FnNameTable, codegen_inner};
+use crate::codegen::codegen_inner;
 use crate::diagnostics::DiagnosticsBag;
 use crate::infer::infer_types;
 use crate::interner::{IdentId, Interner};
@@ -108,6 +108,7 @@ fn resolve_dependency_paths(
 ///
 /// All modules share one `AstArena` and `Interner`. Each gets a unique
 /// `file_idx` in the `SourceMap`.
+#[allow(clippy::result_unit_err)]
 pub fn build_module_graph(
     entry_path: &str,
     arena: &mut AstArena,
@@ -228,6 +229,7 @@ pub fn build_module_graph(
 
 /// Like `build_module_graph` but accepts in-memory source text (for tests).
 /// `files` is `[(path, source)]` — the entry is the first entry.
+#[allow(clippy::result_unit_err)]
 pub fn build_module_graph_from_sources(
     files: &[(String, String)],
     arena: &mut AstArena,
@@ -325,8 +327,7 @@ pub fn link_modules(
                 // Check for collision in current module's root scope
                 let has_existing = scope_tree.scopes[scope_tree.root_scope]
                     .symbols
-                    .get(&export_name)
-                    .is_some();
+                    .contains_key(&export_name);
 
                 if has_existing {
                     let existing_id =
@@ -854,12 +855,11 @@ fn find_other_export(
 /// Build import binding lines for a module by scanning its scope tree
 /// for symbols whose `source_module` matches a dependency.
 ///
-/// Returns lines like `const { foo$1, bar$0 } = $mod_0;`.
+/// Returns lines like `const { foo, bar } = $mod_0;`.
 fn build_import_lines(
     module_idx: usize,
     modules: &[Module],
     namespace_for_file: &FxHashMap<usize, String>,
-    fn_names: &FnNameTable,
     interner: &Interner,
 ) -> Vec<String> {
     let st = match modules[module_idx].scope_tree.as_ref() {
@@ -878,14 +878,7 @@ fn build_import_lines(
                 Some(f) => f,
                 None => continue,
             };
-            let machine_name = if matches!(sym.kind, SymbolKind::Function { .. }) {
-                match fn_names.get_name(sym.def_node) {
-                    Some(mn) => mn.to_string(),
-                    None => interner.lookup(sym.name).to_string(),
-                }
-            } else {
-                interner.lookup(sym.name).to_string()
-            };
+            let machine_name = interner.lookup(sym.name).to_string();
             if seen.insert(machine_name.clone()) {
                 by_file.entry(file_idx).or_default().push(machine_name);
             }
@@ -903,14 +896,9 @@ fn build_import_lines(
 }
 
 /// Build export entries for a module (all locally-defined top-level
-/// symbols).  Returns strings like `"foo$0"`, `"x"` for use in
-/// `return { foo$0, x };`.
-fn build_export_entries(
-    module_idx: usize,
-    modules: &[Module],
-    fn_names: &FnNameTable,
-    interner: &Interner,
-) -> Vec<String> {
+/// symbols).  Returns strings like `"foo"`, `"x"` for use in
+/// `return { foo, x };`.
+fn build_export_entries(module_idx: usize, modules: &[Module], interner: &Interner) -> Vec<String> {
     let st = match modules[module_idx].scope_tree.as_ref() {
         Some(st) => st,
         None => return Vec::new(),
@@ -929,14 +917,7 @@ fn build_export_entries(
             if sym.source_module.is_some() {
                 continue; // imported — not a local export
             }
-            let machine_name = if matches!(sym.kind, SymbolKind::Function { .. }) {
-                match fn_names.get_name(sym.def_node) {
-                    Some(mn) => mn.to_string(),
-                    None => interner.lookup(sym.name).to_string(),
-                }
-            } else {
-                interner.lookup(sym.name).to_string()
-            };
+            let machine_name = interner.lookup(sym.name).to_string();
             if seen.insert(machine_name.clone()) {
                 entries.push(machine_name);
             }
@@ -979,8 +960,7 @@ pub fn codegen_modules(
         );
     }
 
-    // Lower & codegen for each module, using a shared function name table
-    let mut fn_names = FnNameTable::new();
+    // Lower & codegen for each module
     let mut module_js = vec![String::new(); graph.modules.len()];
     for &module_idx in &graph.topo_order {
         let module = &modules[module_idx];
@@ -991,12 +971,7 @@ pub fn codegen_modules(
         let is_entry = module_idx == graph.entry;
         let hir = lower(arena, module.root, scope_tree, interner);
         module_js[module_idx] = codegen_inner(
-            hir,
-            arena,
-            scope_tree,
-            type_arena,
-            interner,
-            &mut fn_names,
+            hir, arena, scope_tree, type_arena, interner,
             is_entry, // determines whether or not to emit exports or program result
         );
     }
@@ -1017,13 +992,7 @@ pub fn codegen_modules(
         let is_entry = module_idx == graph.entry;
         let body_js = &module_js[module_idx];
 
-        let import_lines = build_import_lines(
-            module_idx,
-            modules,
-            &namespace_for_file,
-            &fn_names,
-            interner,
-        );
+        let import_lines = build_import_lines(module_idx, modules, &namespace_for_file, interner);
 
         if is_entry {
             // Entry module: just emit imports, then body.
@@ -1042,7 +1011,7 @@ pub fn codegen_modules(
             let namespace_name = namespace_for_file
                 .get(&modules[module_idx].file_idx)
                 .expect("Missing namespace name for module");
-            let export_entries = build_export_entries(module_idx, modules, &fn_names, interner);
+            let export_entries = build_export_entries(module_idx, modules, interner);
             let mut module_out = format!("const {} = (() => {{\n", namespace_name);
             for line in &import_lines {
                 module_out.push_str("  ");

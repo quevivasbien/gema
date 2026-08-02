@@ -1,8 +1,7 @@
 /// HIR → JavaScript codegen.
-use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use crate::ast::{AstArena, NodeId};
+use crate::ast::AstArena;
 use crate::builtins;
 use crate::builtins::BuiltinFunc;
 use crate::hir::HirExpr;
@@ -23,8 +22,7 @@ pub fn codegen(
     interner: &mut Interner,
 ) -> String {
     let hir = monomorphize::monomorphize(hir, arena, scope_tree, type_arena, interner);
-    let mut fn_names = FnNameTable::new();
-    let mut w = JsWriter::new(&*interner, &mut fn_names);
+    let mut w = JsWriter::new(&*interner);
     w.emit_expr(&hir, true);
     w.finish()
 }
@@ -39,19 +37,18 @@ pub fn codegen_inner(
     scope_tree: &ScopeTree,
     type_arena: &TypeArena,
     interner: &mut Interner,
-    fn_names: &mut FnNameTable,
     return_last: bool,
 ) -> String {
     let hir = monomorphize::monomorphize(hir, arena, scope_tree, type_arena, interner);
     let stmts = match &hir {
         HirExpr::Block(b) => &b.stmts,
         other => {
-            let mut w = JsWriter::new(interner, fn_names);
+            let mut w = JsWriter::new(interner);
             w.emit_expr(other, false);
             return w.finish_inner();
         }
     };
-    let mut w = JsWriter::new(interner, fn_names);
+    let mut w = JsWriter::new(interner);
     w.write("  ");
     w.indent_in();
     for (i, stmt) in stmts.iter().enumerate() {
@@ -72,39 +69,8 @@ pub fn codegen_inner(
     w.finish_inner()
 }
 
-/// Shared function name table for cross-module machine name uniqueness.
-/// All `codegen_inner` calls in the same compilation share one instance.
-#[derive(Clone, Debug, Default)]
-pub struct FnNameTable {
-    counter: usize,
-    names: FxHashMap<NodeId, String>,
-}
-
-impl FnNameTable {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Get or assign a unique machine name for a function definition node.
-    pub fn name(&mut self, node_id: NodeId, fn_name: &str) -> String {
-        if let Some(name) = self.names.get(&node_id) {
-            return name.clone();
-        }
-        let name = format!("{}${}", fn_name, self.counter);
-        self.counter += 1;
-        self.names.insert(node_id, name.clone());
-        name
-    }
-
-    /// Look up an already-assigned machine name without creating a new one.
-    pub fn get_name(&self, node_id: NodeId) -> Option<&str> {
-        self.names.get(&node_id).map(|s| s.as_str())
-    }
-}
-
 struct JsWriter<'a> {
     interner: &'a Interner,
-    fn_names: &'a mut FnNameTable,
     lines: Vec<String>,
     current: String,
     indent: usize,
@@ -118,10 +84,9 @@ struct JsWriter<'a> {
 }
 
 impl<'a> JsWriter<'a> {
-    fn new(interner: &'a Interner, fn_names: &'a mut FnNameTable) -> Self {
+    fn new(interner: &'a Interner) -> Self {
         Self {
             interner,
-            fn_names,
             lines: Vec::new(),
             current: String::new(),
             indent: 0,
@@ -207,7 +172,7 @@ impl<'a> JsWriter<'a> {
 
     /// Render a HirExpr to a string without side effects on the main writer.
     fn expr_to_string(&mut self, expr: &HirExpr) -> String {
-        let mut buf = JsWriter::new(self.interner, self.fn_names);
+        let mut buf = JsWriter::new(self.interner);
         buf.emit_expr(expr, true);
         buf.newline();
         buf.lines
@@ -350,14 +315,8 @@ impl<'a> JsWriter<'a> {
     // ── Identifiers ──
 
     fn emit_ident(&mut self, e: &hir::IdentNode) {
-        if let Some(def_node) = e.def_node {
-            let name = self.interner.lookup(e.name);
-            let machine_name = self.fn_name(def_node, name);
-            self.write(&machine_name);
-        } else {
-            let name = self.interner.lookup(e.name);
-            self.write(&self.safe_name(name));
-        }
+        let name = self.interner.lookup(e.name);
+        self.write(&self.safe_name(name));
     }
 
     // ── Collections ──
@@ -719,13 +678,7 @@ impl<'a> JsWriter<'a> {
 
     fn emit_func_def(&mut self, e: &hir::FuncDef) {
         let fn_name = self.interner.lookup(e.name);
-        // Generic functions don't get overload suffixes (cannot be overloaded).
-        if e.is_generic {
-            self.write(&format!("function {}(", self.safe_name(fn_name)));
-        } else {
-            let machine_name = self.fn_name(e.node_id, fn_name);
-            self.write(&format!("function {}(", machine_name));
-        }
+        self.write(&format!("function {}(", self.safe_name(fn_name)));
         for (i, p) in e.params.iter().enumerate() {
             if i > 0 {
                 self.write(", ");
@@ -763,9 +716,6 @@ impl<'a> JsWriter<'a> {
         self.indent_out();
         self.newline();
         self.write("}");
-    }
-    fn fn_name(&mut self, node_id: NodeId, name: &str) -> String {
-        self.fn_names.name(node_id, name)
     }
 
     /// Emit an impl block as an IIFE that produces a trait implementation dictionary.
@@ -845,8 +795,10 @@ impl<'a> JsWriter<'a> {
         self.newline();
         self.write("})");
     }
+
     fn emit_call(&mut self, e: &hir::Call) {
         // Indexed access: emit `callee[arg]` instead of `callee(args)`.
+        // TODO: Indexed access should probably be represented differently at the HIR level
         if e.is_index {
             self.write("(");
             self.emit_expr(&e.callee, true);
@@ -858,45 +810,23 @@ impl<'a> JsWriter<'a> {
             return;
         }
 
-        // Check if callee is an Ident — name-based path for named functions.
-        if let HirExpr::Ident(ident) = &*e.callee {
+        // Special case for builtin function calls -- let them handle themselves.
+        if let HirExpr::Ident(ident) = e.callee.as_ref()
+            && e.is_builtin
+        {
             let name = self.interner.lookup(ident.name);
-            let is_registered_func = self.fn_names.get_name(e.def_node).is_some();
-
-            // Only use the builtin path if this call's def_node is NOT a
-            // registered function (i.e., it's a true builtin call, not a
-            // user-defined function shadowing a builtin name).
-            if e.is_builtin
-                && !is_registered_func
-                && let Some(builtin) = BuiltinFunc::try_from_name(name)
-            {
-                for helper in builtins::required_helpers(builtin) {
-                    self.require_helper(helper);
-                }
-                let arg_strs: Vec<String> = e.args.iter().map(|a| self.expr_to_string(a)).collect();
-                let js =
-                    builtin.emit_js(&arg_strs.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
-                self.write(&js);
-                return;
+            let builtin = BuiltinFunc::try_from_name(name).expect("expected a builtin function");
+            for helper in builtins::required_helpers(builtin) {
+                self.require_helper(helper);
             }
-
-            if is_registered_func {
-                // Use the machine name for user-defined function calls.
-                // Generic functions don't get overload suffixes.
-                if e.is_generic {
-                    self.write(&self.safe_name(name));
-                } else {
-                    let machine_name = self.fn_name(e.def_node, name);
-                    self.write(&machine_name);
-                }
-            } else {
-                // Variable or expression callee — just emit the callee expression.
-                self.emit_expr(&e.callee, true);
-            }
-        } else {
-            // Expression callee — just emit it.
-            self.emit_expr(&e.callee, true);
+            let arg_strs: Vec<String> = e.args.iter().map(|a| self.expr_to_string(a)).collect();
+            let js = builtin.emit_js(&arg_strs.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
+            self.write(&js);
+            return;
         }
+
+        // Expression callee — just emit it, then the argument expressions in parens
+        self.emit_expr(&e.callee, true);
         self.write("(");
         for (i, arg) in e.args.iter().enumerate() {
             if i > 0 {
@@ -906,6 +836,7 @@ impl<'a> JsWriter<'a> {
         }
         self.write(")");
     }
+
     fn emit_match(&mut self, e: &hir::Match, value_used: bool) {
         self.write("(() => {");
         self.indent_in();
@@ -1082,13 +1013,13 @@ mod tests {
     #[test]
     fn func_def() {
         let js = compile("func add(x: Int, y: Int): Int { x + y }");
-        assert!(js.contains("function add$0("));
+        assert!(js.contains("function add("));
         assert!(js.contains("x + y"));
     }
     #[test]
     fn function_call() {
         let js = compile("func foo(x: Int): Int { x }; foo(1i)");
-        assert!(js.contains("foo$0(1n"));
+        assert!(js.contains("foo(1n"));
     }
     #[test]
     fn array_lit() {

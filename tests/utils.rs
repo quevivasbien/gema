@@ -13,6 +13,7 @@ use gema::{
     types::TypeArena,
 };
 
+#[allow(dead_code)]
 pub fn compile(source: &str) -> String {
     let src = SourceText::new("test.gema", source);
     let (tokens, mut diagnostics) = scan(&src, 0);
@@ -46,6 +47,7 @@ pub fn compile(source: &str) -> String {
     codegen(hir, &arena, &scope_tree, &type_arena, &mut interner)
 }
 
+#[allow(dead_code)]
 #[derive(PartialEq)]
 pub enum ErrorType {
     Scan,
@@ -54,6 +56,7 @@ pub enum ErrorType {
     Infer,
 }
 
+#[allow(dead_code)]
 pub fn compile_expect_error(source: &str, error_type: ErrorType) {
     let src = SourceText::new("test.gema", source);
     let (tokens, mut diagnostics) = scan(&src, 0);
@@ -92,6 +95,7 @@ fn bun_available() -> bool {
         .is_ok()
 }
 
+#[allow(dead_code)]
 pub fn assert_run(source: &str, expected: &str) {
     if !bun_available() {
         eprintln!("skipping runtime test — bun not available");
@@ -110,6 +114,7 @@ pub fn assert_run(source: &str, expected: &str) {
     assert_eq!(stdout, expected, "source: {source}\nJS:\n{js}");
 }
 
+#[allow(dead_code)]
 pub fn compile_multi(files: &[(String, String)]) -> String {
     let mut arena = AstArena::new();
     let mut interner = Interner::new();
@@ -145,6 +150,7 @@ pub fn compile_multi(files: &[(String, String)]) -> String {
     )
 }
 
+#[allow(dead_code)]
 pub fn assert_run_multi(files: &[(String, String)], expected: &str) {
     if !bun_available() {
         eprintln!("skipping runtime test — bun not available");
@@ -163,6 +169,7 @@ pub fn assert_run_multi(files: &[(String, String)], expected: &str) {
     assert_eq!(stdout, expected, "JS:\n{js}");
 }
 
+#[allow(dead_code)]
 pub fn assert_compile_error(files: &[(String, String)]) {
     let mut arena = AstArena::new();
     let mut interner = Interner::new();
